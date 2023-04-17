@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Babyagi Front-end</title>
+    <script>
+        async function run() {
+            const objective = document.getElementById("objective-input").value;
+
+            // Set the objective
+            await fetch('/api/set_objective', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({objective: objective})
+            });
+
+            // Add the initial task
+            await fetch('/api/add_initial_task', { method: 'POST' });
+
+            const chatContainer = document.getElementById("chat-container");
+
+            while (true) {
+                // Execute the next task
+                const response = await fetch('/api/execute_next_task');
+                const data = await response.json();
+
+                if (!data.task || !data.result) {
+                    const allTasksComplete = document.createElement("p");
+                    allTasksComplete.textContent = "*****ALL TASKS COMPLETE*****";
+                    chatContainer.appendChild(allTasksComplete);
+                    break;
+                }
+
+                const taskList = document.createElement("p");
+                taskList.textContent = "*****TASK LIST*****";
+                chatContainer.appendChild(taskList);
+
+                const nextTask = document.createElement("p");
+                nextTask.textContent = `*****NEXT TASK*****\n${data.task.task_id}: ${data.task.task_name}`;
+                chatContainer.appendChild(nextTask);
+
+                const result = document.createElement("p");
+                result.textContent = `*****RESULT*****\n${data.result}`;
+                chatContainer.appendChild(result);
+
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Sleep for 1 second
+            }
+        }
+    </script>
+    <style>
+        #chat-container {
+            border: 1px solid #ccc;
+            padding: 10px;
+            max-width: 600px;
+            height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Babyagi Front-end</h1>
+    <input type="text" id="objective-input" placeholder="Enter Objective">
+    <button onclick="run()">Run Babyagi</button>
+    <div id="chat-container"></div>
+</body>
+</html>

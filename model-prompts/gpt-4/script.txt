@@ -1,0 +1,5 @@
+With the primary objective being: {objective}.
+Use selenium, webdriver_manager with chromedriver if browsing the web is required.
+1. Write a Python script to help accomplish this task: {task}.
+2. Short summary of the intention of the script.
+3. Suggested unique file name for the script.
