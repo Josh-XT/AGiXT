@@ -17,6 +17,11 @@ class Config():
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
+        
+        # Memory Settings
+        self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower() == "false"
+        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", "false").lower() == "false"
+
         # Model configuration
         self.AI_MODEL = os.getenv("AI_MODEL", "gpt-3.5-turbo").lower()
         self.AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.4))
