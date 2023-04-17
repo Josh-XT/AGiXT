@@ -101,10 +101,15 @@ class AgentLLM:
         return content_chunks
     
 if __name__ == '__main__':
-    agent = AgentLLM()
-    # Get prompt from args
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
     parser.add_argument("--max_context_tokens", type=int, default=500)
     parser.add_argument("--long_term_access", type=bool, default=False)
     args = parser.parse_args()
+    prompt = args.prompt
+    max_context_tokens = args.max_context_tokens
+    long_term_access = args.long_term_access
+
+    # Run AgentLLM
+    agent = AgentLLM()
+    agent.run(task=prompt, max_context_tokens=max_context_tokens, long_term_access=long_term_access)
