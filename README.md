@@ -37,6 +37,9 @@ Alternatively, you can use Docker Compose to start the project:
 2. Navigate to the root folder of the project.
 3. Run `docker-compose up` to build and start the containers for the Flask backend server and the frontend React application.
 
+The web interface is accessible at http://localhost:3000
+
+
 ## Configuration
 
 The application uses a configuration file `.env` to store settings for the AI language model, various API keys, and other configuration options. Use the provided `.env.example` as a template to set up your own `.env` file.
