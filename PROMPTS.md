@@ -4,10 +4,10 @@ This README file provides the necessary information for building prompts for the
 ### Plugin Overview
 
 The Plugin System uses prompts to provide instructions to different AI agents. Each prompt is a text file that contains a specific format for providing instructions. There are four types of prompts that the Plugin System uses. They are as follows:
-1. execute.txt
-2. priority.txt
-3. script.txt
-4. task.txt
+1. model-prompts/{model}/execute.txt
+2. model-prompts/{model}/priority.txt
+3. model-prompts/{model}/system.txt
+4. model-prompts/{model}/task.txt
 ### Prompt Formats
 
 Each prompt has a specific format for providing instructions to the AI agents. The following section explains the format for each prompt type.
@@ -41,22 +41,30 @@ Start the task list with number {next_task_id}.
 
 
 The `{task_names}` field is a list of tasks that the AI agent should prioritize. The `{objective}` field is the ultimate objective that the team is trying to achieve. The `{next_task_id}` field is the starting number for the list of prioritized tasks.
-#### script.txt
+#### system.txt
 
-The `script.txt` prompt is used to instruct an AI agent to write a Python script that accomplishes a specific task. The format for the `script.txt` prompt is as follows:
+The `system.txt` prompt is used to instruct an AI agent have commands to use. The format for the `system.txt` prompt is as follows:
 
 ```css
 
-With the primary objective being: {objective}.
-Use selenium, webdriver_manager with chromedriver if browsing the web is required.
-1. Write a Python script to help accomplish this task: {task}.
-2. Short summary of the intention of the script.
-3. Suggested unique file name for the script.
+You are an AI language model. Your name is {AGENT_NAME}. Your role is to do anything asked of you with precision. You have the following constraints:
+1. ~4000 word limit for short term memory. Your short term memory is short, so immediately save important information to files.
+2. If you are unsure how you previously did something or want to recall past events, thinking about similar events will help you remember.
+3. No user assistance.
+4. Exclusively use the commands listed in double quotes e.g. "command name".
+
+You have the following resources:
+1. Internet access for searches and information gathering.
+2. Long Term memory management.
+3. GPT-3.5 powered Agents for delegation of simple tasks.
+4. File output.
+
+You have the following commands available:
+{commands_str}
 ```
 
 
-
-The `{objective}` field is the primary objective that the Python script should accomplish. The `{task}` field is the specific task that the Python script should help accomplish.
+The `{AGENT_NAME}` field is the Agent name so that it knows who it is. The `{commands_str}` field dumps the listing of commands that the AI will have to choose from for use.
 #### task.txt
 
 The `task.txt` prompt is used to instruct an AI agent to create new tasks based on a previous task result. The format for the `task.txt` prompt is as follows:
