@@ -1,4 +1,3 @@
-"""File operations for AutoGPT"""
 import os
 import os.path
 from pathlib import Path
@@ -9,9 +8,8 @@ from Config import Config
 CFG = Config()
 WORKING_DIRECTORY = CFG.WORKING_DIRECTORY
 LOG_FILE = "file_logger.txt"
-LOG_FILE_PATH = WORKING_DIRECTORY / LOG_FILE
+LOG_FILE_PATH = os.path.join(WORKING_DIRECTORY, LOG_FILE)
 WORKING_DIRECTORY = str(WORKING_DIRECTORY)
-
 
 class file_operations(Commands):
     def __init__(self):
