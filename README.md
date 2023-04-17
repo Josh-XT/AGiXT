@@ -17,6 +17,15 @@ AI Task Manager with Agent-LLM is a Python application that uses AI language mod
 3. Set up the necessary environment variables in the `.env` file using `.env.example` as a template.
 4. Run the `main.py` script to start the AI Task Manager.
 
+## Web Interface Setup
+
+To set up and run the frontend:
+
+1. Navigate to the `frontend` folder.
+2. Run `npm install` to install the required dependencies.
+3. In a separate terminal, navigate to the root folder of the project and run `python app.py` to start the Flask backend server.
+4. Go back to the `frontend` folder and run `npm start` to start the frontend React application.
+
 ## Configuration
 
 The application uses a configuration file `.env` to store settings for the AI language model, various API keys, and other configuration options. Use the provided `.env.example` as a template to set up your own `.env` file.
@@ -40,6 +49,19 @@ The project is organized into several folders:
 - `model-prompts`: Contains the prompt templates for the different AI models used by the AI Task Manager.
 - `provider`: Contains the implementations for the supported AI providers.
 
+## Acknowledgments
+
+This project was inspired by and uses code from the following repositories:
+
+- [babyagi](https://github.com/yoheinakajima/babyagi)
+- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT)
+
+Please consider checking them out and contributing to those projects as well.
+
+## Contributing
+
+We welcome contributions to the AI Task Manager with Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+
 ## Usage
 
-Run the `main.py` script to start the AI Task Manager with Agent-LLM. The application will load the initial task and objective from the configuration file and start executing tasks. As tasks are completed, the AI Task Manager will create new tasks, prioritize them, and continue working through the task list until all tasks are complete.
+Run the `main.py` script to start the AI Task Manager with Agent-LLM. The application will load the initial task and objective from the configuration file and start executing tasks. As tasks are completed, the AI Task Manager will create new tasks, prioritize them, and continue working through the task list
