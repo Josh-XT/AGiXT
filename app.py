@@ -1,10 +1,23 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from babyagi import babyagi
-
+from AgentLLM import AgentLLM
 app = Flask(__name__)
 CORS(app)  # Add this line to enable CORS for your Flask application
 babyagi_instance = babyagi()
+
+# Instruct Agent-LLM
+@app.route('/api/instruct', methods=['POST'])
+def instruct():
+    objective = request.json.get("prompt")
+    data = request.json.get("data")
+    agent = AgentLLM()
+    agent.CFG.AGENT_NAME = data["agent_name"]
+    agent.CFG.COMMANDS_ENABLED = data["commands_enabled"]
+    agent.CFG.AI_PROVIDER = data["ai_provider"]
+    agent.CFG.OPENAI_API_KEY = data["openai_api_key"]
+    response = agent.run(objective, max_context_tokens=500, long_term_access=False)
+    return jsonify({"response": response}), 200
 
 @app.route('/api/set_objective', methods=['POST'])
 def set_objective():
