@@ -14,3 +14,5 @@ chromadb
 tweepy
 playwright
 gunicorn
+flask-restplus
+gitpython
