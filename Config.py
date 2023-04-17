@@ -13,14 +13,14 @@ class Config():
         
         # AI Configuration
         self.AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
-        self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower() == "true"
+        self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
         
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower() == "false"
-        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", "false").lower() == "false"
+        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", "false").lower()
 
         # Model configuration
         self.AI_MODEL = os.getenv("AI_MODEL", "gpt-3.5-turbo").lower()
@@ -54,7 +54,7 @@ class Config():
         self.ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
         self.ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Josh")
         # Mac OS TTS
-        self.USE_MAC_OS_TTS = os.getenv("USE_MAC_OS_TTS", "false").lower() == "false"
+        self.USE_MAC_OS_TTS = os.getenv("USE_MAC_OS_TTS", "false").lower()
 
         # Brian TTS
-        self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower() == "true"
+        self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
