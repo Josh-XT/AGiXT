@@ -79,10 +79,8 @@ class ContainerActions(Commands):
 
     def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
-        os.chdir(CFG.WORKING_DIRECTORY)
-
+        os.chdir(current_dir)
         print(f"Executing command '{command_line}' in working directory '{os.getcwd()}'")
-
         result = subprocess.run(command_line, capture_output=True, shell=True)
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
 
