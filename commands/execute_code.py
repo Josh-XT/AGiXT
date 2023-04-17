@@ -1,4 +1,4 @@
-from commands import Commands
+from Commands import Commands
 from Config import Config
 import os
 import subprocess
