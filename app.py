@@ -1,21 +1,18 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_restplus import Api, Resource
+from flask_restful import Api, Resource
+from flasgger import Swagger
 from babyagi import babyagi
 from AgentLLM import AgentLLM
 
 app = Flask(__name__)
 CORS(app)
-api = Api(app, version='1.0', title='Task Management API', description='A simple API for managing tasks')
+api = Api(app)
+swagger = Swagger(app)
 
 babyagi_instance = babyagi()
 
-tasks_ns = api.namespace('api', description='Task-related operations')
-
-@tasks_ns.route('/instruct')
 class Instruct(Resource):
-    @api.doc(params={'prompt': 'Your prompt', 'data': 'Your data'})
-    @api.response(200, 'Success')
     def post(self):
         objective = request.json.get("prompt")
         data = request.json.get("data")
@@ -27,25 +24,18 @@ class Instruct(Resource):
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return jsonify({"response": response}), 200
 
-@tasks_ns.route('/set_objective')
 class SetObjective(Resource):
-    @api.doc(params={'objective': 'Your objective'})
-    @api.response(200, 'Objective updated')
     def post(self):
         objective = request.json.get("objective")
         babyagi_instance.set_objective(objective)
         return jsonify({"message": "Objective updated"}), 200
 
-@tasks_ns.route('/add_initial_task')
 class AddInitialTask(Resource):
-    @api.response(200, 'Initial task added')
     def post(self):
         babyagi_instance.add_initial_task()
         return jsonify({"message": "Initial task added"}), 200
 
-@tasks_ns.route('/execute_next_task')
 class ExecuteNextTask(Resource):
-    @api.response(200, 'Success')
     def get(self):
         task = babyagi_instance.execute_next_task()
         task_list = list(babyagi_instance.task_list)
@@ -54,10 +44,7 @@ class ExecuteNextTask(Resource):
         else:
             return jsonify({"message": "All tasks complete"}), 200
 
-@tasks_ns.route('/create_task')
 class CreateTask(Resource):
-    @api.doc(params={'objective': 'Your objective', 'result': 'Task result', 'task_description': 'Task description', 'task_list': 'Task list'})
-    @api.response(200, 'Success')
     def post(self):
         objective = request.json.get("objective")
         result = request.json.get("result")
@@ -66,24 +53,26 @@ class CreateTask(Resource):
         new_tasks = babyagi_instance.task_creation_agent(objective, result, task_description, task_list)
         return jsonify({"new_tasks": new_tasks}), 200
 
-@tasks_ns.route('/prioritize_tasks')
 class PrioritizeTasks(Resource):
-    @api.doc(params={'task_id': 'Task ID'})
-    @api.response(200, 'Success')
     def post(self):
         task_id = request.json.get("task_id")
         babyagi_instance.prioritization_agent(task_id)
         return jsonify({"task_list": babyagi_instance.task_list}), 200
 
-@tasks_ns.route('/execute_task')
 class ExecuteTask(Resource):
-    @api.doc(params={'objective': 'Your objective', 'task': 'Task to execute'})
-    @api.response(200, 'Success')
     def post(self):
         objective = request.json.get("objective")
         task = request.json.get("task")
         result = babyagi_instance.execution_agent(objective, task)
         return jsonify({"result": result}), 200
+
+api.add_resource(Instruct, '/instruct')
+api.add_resource(SetObjective, '/set_objective')
+api.add_resource(AddInitialTask, '/add_initial_task')
+api.add_resource(ExecuteNextTask, '/execute_next_task')
+api.add_resource(CreateTask, '/create_task')
+api.add_resource(PrioritizeTasks, '/prioritize_tasks')
+api.add_resource(ExecuteTask, '/execute_task')
 
 if __name__ == '__main__':
     app.run(debug=True)

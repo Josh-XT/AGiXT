@@ -38,6 +38,7 @@ Alternatively, you can use Docker Compose to start the project:
 3. Run `docker-compose up` to build and start the containers for the Flask backend server and the frontend React application.
 
 The web interface is accessible at http://localhost:3000
+The API documentation is accessible at http://localhost:5000
 
 
 ## Configuration
