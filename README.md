@@ -1,69 +1,45 @@
-# Agent-LLM
-**Note:** This project is currently under heavy development and does not have a stable branch yet. All code is in testing and the repository is constantly changing.
+# AI Task Manager - Agent-LLM
 
-We appreciate any contributions or feedback you have for us. Thank you for your interest in this project!
+AI Task Manager with Agent-LLM is a Python application that uses AI language models to manage tasks and provide solutions. It features both short-term and long-term memory capabilities, allowing it to remember previous interactions and context. The application can browse the web, write its own commands, and more. It supports various AI providers such as OpenAI, Oobabooga Text Generation Web UI, and llama.cpp, making it flexible and adaptable to different use cases.
 
-## AI-Powered Task Management System
-
-This repository contains a Python script for an AI-powered task management system that uses Large Language Models (LLMs) to create, prioritize, and execute tasks. The system is designed to create new tasks based on the results of previous tasks and a predefined objective. It uses the natural language processing (NLP) capabilities of various LLMs and your choice of Vector Database to store and retrieve task results for context. This version is based on the original [BabyAGI](https://github.com/yoheinakajima/babyagi)  but adds support for different VectorDB providers, LLM providers, models, and custom prompting per model.
 ## Features
-- AI-powered task creation, prioritization, and execution
-- Support for different LLM providers and models
-- Custom prompting per model
-- Context-based task execution using VectorDB
-- Flexible configuration with environment variables, command line arguments, and extension support
-- Plugin support for custom AI modules, VectorDB modules, and embedding modules
-## Installation
-1. Clone this repository:
 
-```bash
+- Long-term and short-term memory management
+- Easily pluggable commands for extended functionality
+- Supports multiple AI providers
+- Web browsing capabilities
+- Command execution and code evaluation
 
-git clone https://github.com/Josh-XT/Agent-LLM
-cd Agent-LLM
-```
+## Installation and Setup
 
-
-1. Install the required Python libraries:
-
-```
-
-pip install -r requirements.txt
-```
-
- 
-1. Set up your `.env` file with the required environment variables. You can use the provided `example.env` as a starting point.
-2. Run the main script:
-
-```css
-
-python main.py
-```
-
+1. Clone the repository.
+2. Install the required Python packages: `pip install -r requirements.txt`.
+3. Set up the necessary environment variables in the `.env` file using `.env.example` as a template.
+4. Run the `main.py` script to start the AI Task Manager.
 
 ## Configuration
 
-The script can be configured through environment variables in the `.env` file, command line arguments, or dotenv extensions. You can set your preferred AI_PROVIDER, VECTORDB_PROVIDER, AI_MODEL, OBJECTIVE, and INITIAL_TASK, among other settings.
+The application uses a configuration file `.env` to store settings for the AI language model, various API keys, and other configuration options. Use the provided `.env.example` as a template to set up your own `.env` file.
 
-For more advanced configuration, you can enable command line arguments or dotenv extensions, which can override any environment variables.
-### Adding Custom Plugins
+## Extending Functionality
 
-Follow the instructions in the [Adding Custom Plugins](https://chat.openai.com/c/PLUGINS.md)  section to add custom AI modules, VectorDB modules, and embedding modules to Agent-LLM.
-### Custom Prompts
+### Commands
 
-[Adding Per Model Prompts](PROMPTS.md) file for the format of custom prompts per model.
-- For custom prompts per model, refer to the [PROMPTS.md](PROMPTS.md) file for the format. You can add your prompts to `provider/YOUR-AI-PROVIDER/YOUR-AI-MODEL/` folder.
-### Provider-specific Instructions
+To add new commands, create a new Python file in the `commands` folder and define a class that inherits from the `Commands` class. Implement the desired functionality as methods within the class and add them to the `commands` dictionary.
 
-Instructions for setting up and configuring each AI provider and VectorDB provider can be found in their respective folders within the "provider" and "vectordb" directories. For example, to set up the "openai" AI provider, refer to the README file within the "provider/openai" folder. Similarly, for setting up the "Pinecone" VectorDB provider, consult the README file within the "vectordb/Pinecone" folder.
-### Environment Variables 
-- `AI_PROVIDER`: The AI provider to use, e.g., "openai". (Default: "openai") 
-- `VECTORDB_PROVIDER`: The Vector Database provider to use, e.g., "Pinecone". (Default: "Pinecone") 
-- `EMBEDDING_PROVIDER`: The Embedding provider to use, e.g., "longformer". (Default: "longformer") 
-- `AI_MODEL`: The AI model to use, e.g., "gpt-3.5-turbo". (Default: "gpt-3.5-turbo") 
-- `OBJECTIVE`: The objective or goal for the AI to achieve. 
-- `INITIAL_TASK`: The first task to be executed by the AI. 
-- `AI_TEMPERATURE`: The AI's temperature setting, affecting randomness in responses. (Default: 0.0) 
-- `ENABLE_COMMAND_LINE_ARGS`: Enable or disable the use of command line arguments. (Default: "false")
-## Contributing
+### AI Providers
 
-Contributions to this project are welcome! Please feel free to open an issue or submit a pull request if you have any improvements, bug fixes, or feature requests.
+To use a different AI provider, modify the `AI_PROVIDER` setting in the `.env` file. The application supports OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. If you want to add support for a new provider, create a new Python file in the `provider` folder and implement the necessary functionality.
+
+## Folder Structure
+
+The project is organized into several folders:
+
+- `commands`: Contains the pluggable command modules for extending the AI Task Manager's functionality.
+- `frontend`: Contains the frontend code for the web interface of the AI Task Manager.
+- `model-prompts`: Contains the prompt templates for the different AI models used by the AI Task Manager.
+- `provider`: Contains the implementations for the supported AI providers.
+
+## Usage
+
+Run the `main.py` script to start the AI Task Manager with Agent-LLM. The application will load the initial task and objective from the configuration file and start executing tasks. As tasks are completed, the AI Task Manager will create new tasks, prioritize them, and continue working through the task list until all tasks are complete.
