@@ -16,3 +16,7 @@ playwright
 gunicorn
 flask-restplus
 gitpython
+flask-restful
+flask_swagger
+flask_swagger_ui
+flasgger
