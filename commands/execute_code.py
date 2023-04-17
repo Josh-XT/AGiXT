@@ -4,7 +4,6 @@ import os
 import subprocess
 import docker
 from docker.errors import ImageNotFound
-from commands.file_operations import safe_join
 
 CFG = Config()
 
@@ -80,7 +79,7 @@ class ContainerActions(Commands):
 
     def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
-        os.chdir(safe_join(current_dir, CFG.WORKING_DIRECTORY))
+        os.chdir(CFG.WORKING_DIRECTORY)
 
         print(f"Executing command '{command_line}' in working directory '{os.getcwd()}'")
 
