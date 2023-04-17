@@ -1,3 +1,4 @@
+`README.md`
 # AI Task Manager - Agent-LLM
 
 AI Task Manager with Agent-LLM is a Python application that uses AI language models to manage tasks and provide solutions. It features both short-term and long-term memory capabilities, allowing it to remember previous interactions and context. The application can browse the web, write its own commands, and more. It supports various AI providers such as OpenAI, Oobabooga Text Generation Web UI, and llama.cpp, making it flexible and adaptable to different use cases.
@@ -9,6 +10,8 @@ AI Task Manager with Agent-LLM is a Python application that uses AI language mod
 - Supports multiple AI providers
 - Web browsing capabilities
 - Command execution and code evaluation
+- Plugin System with customizable prompts for various AI models
+- Docker support for easy deployment
 
 ## Installation and Setup
 
@@ -26,6 +29,14 @@ To set up and run the frontend:
 3. In a separate terminal, navigate to the root folder of the project and run `python app.py` to start the Flask backend server.
 4. Go back to the `frontend` folder and run `npm start` to start the frontend React application.
 
+### Docker Setup
+
+Alternatively, you can use Docker Compose to start the project:
+
+1. Install Docker and Docker Compose on your system.
+2. Navigate to the root folder of the project.
+3. Run `docker-compose up` to build and start the containers for the Flask backend server and the frontend React application.
+
 ## Configuration
 
 The application uses a configuration file `.env` to store settings for the AI language model, various API keys, and other configuration options. Use the provided `.env.example` as a template to set up your own `.env` file.
@@ -39,6 +50,17 @@ To add new commands, create a new Python file in the `commands` folder and defin
 ### AI Providers
 
 To use a different AI provider, modify the `AI_PROVIDER` setting in the `.env` file. The application supports OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. If you want to add support for a new provider, create a new Python file in the `provider` folder and implement the necessary functionality.
+
+### Building Prompts for Plugin System
+
+AI Task Manager uses a Plugin System with customizable prompts for various AI models to instruct AI agents. The prompts are located in the `model-prompts` folder and are organized by the model name. Each model has four types of prompts:
+
+1. model-prompts/{model}/execute.txt
+2. model-prompts/{model}/priority.txt
+3. model-prompts/{model}/system.txt
+4. model-prompts/{model}/task.txt
+
+For detailed information on the format and usage of these prompts, refer to the [PROMPTS.md](PROMPTS.md) file.
 
 ## Folder Structure
 
@@ -64,4 +86,4 @@ We welcome contributions to the AI Task Manager with Agent-LLM! If you're intere
 
 ## Usage
 
-Run the `main.py` script to start the AI Task Manager with Agent-LLM. The application will load the initial task and objective from the configuration file and start executing tasks. As tasks are completed, the AI Task Manager will create new tasks, prioritize them, and continue working through the task list
+Run the `main.py` script to start the AI Task Manager with Agent-LLM. The application will load the initial task and objective from the configuration file and start executing tasks. As tasks are completed, the AI Task Manager will create new tasks, prioritize them, and continue working through the task list.

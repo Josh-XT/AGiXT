@@ -60,11 +60,11 @@ You have the following resources:
 4. File output.
 
 You have the following commands available:
-{commands_str}
+{COMMANDS}
 ```
 
 
-The `{AGENT_NAME}` field is the Agent name so that it knows who it is. The `{commands_str}` field dumps the listing of commands that the AI will have to choose from for use.
+The `{AGENT_NAME}` field is the Agent name so that it knows who it is. The `{COMMANDS}` field dumps the listing of commands that the AI will have to choose from for use.
 #### task.txt
 
 The `task.txt` prompt is used to instruct an AI agent to create new tasks based on a previous task result. The format for the `task.txt` prompt is as follows:
