@@ -1,6 +1,7 @@
 import importlib
 import secrets
 import string
+import argparse
 from typing import List
 import chromadb
 from chromadb.utils import embedding_functions
@@ -47,7 +48,7 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 1000, long_term_access: bool = False):
+    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False):
         context = self.context_agent(query=task, top_results_num=5, long_term_access=long_term_access)
         context = self.trim_context(context, max_context_tokens)
         prompt = self.get_prompt_with_context(task=task, context=context)
@@ -96,3 +97,12 @@ class AgentLLM:
             chunk = content[i:i + max_length]
             content_chunks.append(chunk)
         return content_chunks
+    
+if __name__ == '__main__':
+    agent = AgentLLM()
+    # Get prompt from args
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prompt", type=str, default="What is the weather like today?")
+    parser.add_argument("--max_context_tokens", type=int, default=500)
+    parser.add_argument("--long_term_access", type=bool, default=False)
+    args = parser.parse_args()
