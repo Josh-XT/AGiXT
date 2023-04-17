@@ -11,7 +11,7 @@ class web_requests(Commands):
     def __init__(self):
         super().__init__()
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": CFG.user_agent})
+        self.session.headers.update({"User-Agent": CFG.AGENT_NAME})
         self.commands = {
             "Is Valid URL": self.is_valid_url,
             "Sanitize URL": self.sanitize_url,
