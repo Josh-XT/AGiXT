@@ -16,6 +16,7 @@ from Config import Config
 from typing import List, Tuple, Union
 from AgentLLM import AgentLLM
 from Commands import Commands
+from captcha_solver import CaptchaSolver
 
 FILE_DIR = Path(__file__).parent.parent
 CFG = Config()
@@ -68,6 +69,17 @@ class web_selenium(Commands):
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
+
+        # Check for captcha and solve it
+        captcha_element = driver.find_element_by_css_selector('img[src^="/captcha/"]')
+        if captcha_element:
+            captcha_image = captcha_element.get_attribute('src')
+            solver = CaptchaSolver('browser')
+            captcha_solution = solver.solve_captcha(captcha_image)
+            captcha_input = driver.find_element_by_css_selector('input[name="captcha"]')
+            captcha_input.send_keys(captcha_solution)
+            submit_button = driver.find_element_by_css_selector('input[type="submit"]')
+            submit_button.click()
 
         page_source = driver.execute_script("return document.body.outerHTML;")
         soup = BeautifulSoup(page_source, "html.parser")
