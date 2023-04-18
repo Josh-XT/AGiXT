@@ -30,3 +30,4 @@ playsound
 gtts
 selenium
 webdriver_manager
+captcha-solver
