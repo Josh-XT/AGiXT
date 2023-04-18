@@ -9,9 +9,7 @@ services:
       - 80:80
 
   backend:
-    build:
-      context: .
-      target: gunicorn
+    image: ghcr.io/josh-xt/agent-llm:main
     environment:
       - AGENT_NAME
       - OBJECTIVE
