@@ -8,6 +8,7 @@ The Plugin System uses prompts to provide instructions to different AI agents. E
 2. model-prompts/{model}/priority.txt
 3. model-prompts/{model}/system.txt
 4. model-prompts/{model}/task.txt
+5. model-prompts/{model}/script.txt
 ### Prompt Formats
 
 Each prompt has a specific format for providing instructions to the AI agents. The following section explains the format for each prompt type.
@@ -81,6 +82,9 @@ Return the tasks as an array.
 
 
 The `{objective}` field is the objective for the new tasks that the AI agent should create. The `{result}` field is the result of the previous task. The `{task_description}` field is the description of the previous task. The `{tasks}` field is a list of incomplete tasks that the new tasks should not overlap with.
+
+#### script.txt
+
 ### Conclusion
 
 This README file provided an overview of the Plugin System and the four types of prompts used to instruct AI agents. It also provided the format for each prompt type.

@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright
 
 CFG = Config()
 
-class WebScraping(Commands):
+class web_playwright(Commands):
     def __init__(self):
         super().__init__()
         self.commands = {

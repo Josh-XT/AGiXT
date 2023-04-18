@@ -7,7 +7,7 @@ from docker.errors import ImageNotFound
 
 CFG = Config()
 
-class ContainerActions(Commands):
+class execute_code(Commands):
     def __init__(self):
         super().__init__()
         self.commands = {
