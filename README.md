@@ -71,37 +71,45 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
    Adds a new agent with the given agent name.
 
-2. **Get Agents**: `/api/get_agents` (GET)
+2. **Delete Agent**: `/api/delete_agent` (DELETE)
+
+   Deletes an existing agent with the given agent name.
+
+3. **Get Agents**: `/api/get_agents` (GET)
 
    Retrieves a list of all available agents.
 
-3. **Instruct**: `/api/instruct` (POST)
+4. **Get Chat History**: `/api/get_chat_history` (GET)
+
+   Retrieves the chat history of an agent with the given agent name.
+
+5. **Instruct**: `/api/instruct` (POST)
 
    Sends an instruction prompt to the agent and receives a response.
 
-4. **Set Objective**: `/api/set_objective` (POST)
+6. **Set Objective**: `/api/set_objective` (POST)
 
    Updates the agent's current objective.
 
-5. **Add Initial Task**: `/api/add_initial_task` (POST)
+7. **Add Initial Task**: `/api/add_initial_task` (POST)
 
    Adds an initial task for the agent to execute.
 
-6. **Execute Next Task**: `/api/execute_next_task` (GET)
+8. **Execute Next Task**: `/api/execute_next_task` (GET)
 
    Executes the next task in the agent's task list and returns the result.
 
-7. **Create Task**: `/api/create_task` (POST)
+9. **Create Task**: `/api/create_task` (POST)
 
    Creates a new task based on the given objective, result, task description, and task list.
 
-8. **Prioritize Tasks**: `/api/prioritize_tasks` (POST)
+10. **Prioritize Tasks**: `/api/prioritize_tasks` (POST)
 
-   Prioritizes tasks in the agent's task list based on the given task ID.
+    Prioritizes tasks in the agent's task list based on the given task ID.
 
-9. **Execute Task**: `/api/execute_task` (POST)
+11. **Execute Task**: `/api/execute_task` (POST)
 
-   Executes a specific task based on the given objective and task.
+    Executes a specific task based on the given objective and task.
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000 when running the application locally.
 
@@ -117,7 +125,7 @@ To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The
 
 ### Building Prompts for Plugin System
 
-Agent-LLM employs a plugin system with customizable prompts for instructing various AI models. These prompts are stored in the `model-prompts` folder and are categorized by model name. Each model has four prompt types:
+Agent-LLM employs a plugin system with customizable prompts for instructing various AI models. These prompts are stored in the `model-prompts` folder and are categorized by model name. Each model has five prompt types:
 
 1. model-prompts/{model}/execute.txt
 2. model-prompts/{model}/priority.txt
