@@ -85,6 +85,26 @@ The `{objective}` field is the objective for the new tasks that the AI agent sho
 
 #### script.txt
 
+```sql
+You write new commands for this framework. Ensure commands summaries are short and concise in self.commands. Do not explain, only provide code.
+from typing import List
+from Commands import Commands
+from AgentLLM import AgentLLM
+
+class code_evaluation(Commands):
+    def __init__(self):
+        self.commands = {
+            "Evaluate Code": self.evaluate_code
+        }
+
+    def evaluate_code(self, code: str) -> List[str]:
+        args = [code]
+        function_string = "def analyze_code(code: str) -> List[str]:"
+        description_string = "Analyzes the given code and returns a list of suggestions for improvements."
+        prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
+        return AgentLLM().run(prompt, commands_enabled=False)
+```
+
 ### Conclusion
 
 This README file provided an overview of the Plugin System and the four types of prompts used to instruct AI agents. It also provided the format for each prompt type.
