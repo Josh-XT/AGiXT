@@ -1,13 +1,13 @@
 # Install Flask app dependencies
-FROM python:3.8-slim AS base
+FROM python:3.8-slim-buster AS base
 WORKDIR /app
 COPY requirements.txt ./
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
-    pip install --no-cache-dir -r requirements.txt && \
-    apt-get remove -y git && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends git
+RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get remove -y git
+RUN apt-get autoremove -y
+RUN rm -rf /var/lib/apt/lists/*
 
 # Run Flask app with Gunicorn
 FROM base AS gunicorn

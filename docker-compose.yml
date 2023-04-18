@@ -13,26 +13,26 @@ services:
       context: .
       target: gunicorn
     environment:
-      - AGENT_NAME=My-Agent-Name
-      - OBJECTIVE=Create a chatbot
-      - INITIAL_TASK=Develop an initial task list.
-      - AI_PROVIDER=openai
-      - COMMANDS_ENABLED=True
-      - AI_MODEL=gpt-3.5-turbo
-      - AI_TEMPERATURE=0.5
-      - MAX_TOKENS=2000
-      - WORKING_DIRECTORY=WORKSPACE
-      - OPENAI_API_KEY=
-      - HUGGINGFACE_API_KEY=
-      - HUGGINGFACE_AUDIO_TO_TEXT_MODEL=facebook/wav2vec2-large-960h-lv60-self
-      - SELENIUM_WEB_BROWSER=chrome
-      - TW_CONSUMER_KEY=my-twitter-consumer-key
-      - TW_CONSUMER_SECRET=my-twitter-consumer-secret
-      - TW_ACCESS_TOKEN=my-twitter-access-token
-      - TW_ACCESS_TOKEN_SECRET=my-twitter-access-token-secret
-      - GITHUB_API_KEY=
-      - GITHUB_USERNAME=
-      - USE_BRIAN_TTS=True
-      - USE_MAC_OS_TTS=False
-      - ELEVENLABS_API_KEY=
-      - ELEVENLABS_VOICE=Josh
+      - AGENT_NAME
+      - OBJECTIVE
+      - INITIAL_TASK
+      - AI_PROVIDER
+      - COMMANDS_ENABLED
+      - AI_MODEL
+      - AI_TEMPERATURE
+      - MAX_TOKENS
+      - WORKING_DIRECTORY
+      - OPENAI_API_KEY
+      - HUGGINGFACE_API_KEY
+      - HUGGINGFACE_AUDIO_TO_TEXT_MODEL
+      - SELENIUM_WEB_BROWSER
+      - TW_CONSUMER_KEY
+      - TW_CONSUMER_SECRET
+      - TW_ACCESS_TOKEN
+      - TW_ACCESS_TOKEN_SECRET
+      - GITHUB_API_KEY
+      - GITHUB_USERNAME
+      - USE_BRIAN_TTS
+      - USE_MAC_OS_TTS
+      - ELEVENLABS_API_KEY
+      - ELEVENLABS_VOICE
