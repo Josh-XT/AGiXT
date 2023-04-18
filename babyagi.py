@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+import argparse
 import time
 import re
 import sys
@@ -111,6 +113,13 @@ class babyagi:
         self.response = self.prompter.run(prompt)
         return self.response
 
+    def display_result(self, task):
+        self.display_task_list()
+        print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
+        print(f"{task['task_id']}: {task['task_name']}")
+        print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
+        print(self.response)
+
     def execute_next_task(self):
         if self.task_list:
             task = self.task_list.popleft()
@@ -124,9 +133,7 @@ class babyagi:
             except:
                 this_task_id = 2
         this_task_name = task["task_name"]
-        self.spinner.start()
         self.response = self.execution_agent(self.primary_objective, task["task_name"])
-        self.spinner.stop()
         new_tasks = self.task_creation_agent(
             self.primary_objective,
             { "data": self.response },
@@ -147,19 +154,21 @@ class babyagi:
 
         # Main loop
         while True:
+            self.spinner.start()
             task = self.execute_next_task()
-            if task:
-                self.display_task_list()
-                print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
-                print(f"{task['task_id']}: {task['task_name']}")
-                print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
-                print(self.response)
-            else:
+            self.spinner.stop()
+            self.display_result(task)
+
+            if not self.task_list:
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(1)  # Sleep before checking the task list again
 
+
 if __name__ == "__main__":
-    task_manager = babyagi()
+    parser = argparse.ArgumentParser(description="Task Management System")
+    parser.add_argument("primary_objective", help="Specify the primary objective for the Task Management System")
+    args = parser.parse_args()
+    task_manager = babyagi(primary_objective=args.primary_objective)
     task_manager.display_objective_and_initial_task()
     task_manager.run()
