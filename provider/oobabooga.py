@@ -28,7 +28,7 @@ class AIProvider:
         }
         payload = json.dumps([prompt, params])
         print("Sending command to API:", payload)  # Added line to print the payload
-        response = requests.post(f"http://127.0.0.1:7860/run/textgen", json={
+        response = requests.post(f"{CFG.AI_PROVIDER_URI}/run/textgen", json={
             "data": [
                 payload
             ]
