@@ -1,19 +1,19 @@
-You write new commands for this framework. Ensure commands summaries are short and concise in self.commands. Do not explain, only provide code.
+Write a Python script to help with the following goal: {NEW_FUNCTION_DESCRIPTION}
+Ensure commands summaries are short and concise in self.commands.
+If the code is targeted at a specific product, mention the product name in the command description.
+The script should fit into this Command framework.
+Do not explain, this is not a conversation, put any usage examples necessary in the code comments in one single code block.
+
+Framework example:
 from typing import List
 from Commands import Commands
 from AgentLLM import AgentLLM
 
-class code_evaluation(Commands):
+class agent_interactions(Commands):
     def __init__(self):
         self.commands = {
-            "Evaluate Code": self.evaluate_code
+            "Ask AgentLLM": self.ask_the_agent
         }
 
-    def evaluate_code(self, code: str) -> List[str]:
-        args = [code]
-        function_string = "def analyze_code(code: str) -> List[str]:"
-        description_string = "Analyzes the given code and returns a list of suggestions for improvements."
-        prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
+    def ask_the_agent(self, prompt: str) -> List[str]:       
         return AgentLLM().run(prompt, commands_enabled=False)
-
-New function description: {NEW_FUNCTION_DESCRIPTION}
