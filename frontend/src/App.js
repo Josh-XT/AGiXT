@@ -3,8 +3,6 @@ import {
   Container,
   Box,
   Grid,
-  List,
-  ListItem,
   Typography,
 } from "@mui/material";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
@@ -12,6 +10,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import AgentList from "./AgentList";
 import AgentControls from "./AgentControls";
 import AppHeader from "./AppHeader";
+import AgentCommandsList from "./AgentCommandsList";
 
 const themeGenerator = (darkMode) =>
   createTheme({
@@ -31,6 +30,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [baseURI, setBaseURI] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
+  const [tabValue, setTabValue] = useState(0);
+  const [objective, setObjective] = useState("");
+  const [instruction, setInstruction] = useState("");
+
   async function getBaseURI() {
     try {
       const response = await fetch("http://127.0.0.1:5000/api/docs");
@@ -129,40 +132,49 @@ function App() {
       <AppHeader darkMode={darkMode} handleToggleDarkMode={handleToggleDarkMode} />
       <Container maxWidth="lg">
         <Box sx={{ my: 4, display: "flex" }}>
-        <Grid container spacing={2}>
-          <Grid item xs={3}>
-            <AgentList
-              agents={agents}
-              selectedAgent={selectedAgent}
-              setSelectedAgent={setSelectedAgent}
-              handleAddAgent={handleAddAgent}
-              handleDeleteAgent={handleDeleteAgent}
-              loading={loading}
-            />
+          <Grid container spacing={2}>
+            <Grid item xs={3}>
+              <AgentList
+                agents={agents}
+                selectedAgent={selectedAgent}
+                setSelectedAgent={setSelectedAgent}
+                handleAddAgent={handleAddAgent}
+                handleDeleteAgent={handleDeleteAgent}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <AgentControls
+                darkMode={darkMode}
+                handleToggleDarkMode={handleToggleDarkMode}
+                selectedAgent={selectedAgent}
+                setChatHistory={setChatHistory}
+                chatHistory={chatHistory}
+                tabValue={tabValue}
+                setTabValue={setTabValue}
+                objective={objective}
+                setObjective={setObjective}
+                instruction={instruction}
+                setInstruction={setInstruction}
+              />
+            </Grid>
+            <Grid item xs={3}>
+              <Typography variant="h6" gutterBottom>
+                Available Commands:
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                Click on a command to insert it in the textbox.
+              </Typography>
+              <AgentCommandsList
+                commands={commands}
+                tabValue={tabValue}
+                setObjective={setObjective}
+                setInstruction={setInstruction}
+                objective={objective}
+                instruction={instruction}
+              />
+            </Grid>
           </Grid>
-          <Grid item xs={6}>
-            <AgentControls
-              darkMode={darkMode}
-              handleToggleDarkMode={handleToggleDarkMode}
-              selectedAgent={selectedAgent}
-              setChatHistory={setChatHistory}
-              chatHistory={chatHistory}
-            />
-          </Grid>
-          <Grid item xs={3}>
-            <Typography variant="h6" gutterBottom>
-              Available Commands:
-            </Typography>
-            <List dense>
-              {commands &&
-                commands.map((command, index) => (
-                  <ListItem key={index}>
-                    <Typography>{command}</Typography>
-                  </ListItem>
-                ))}
-            </List>
-          </Grid>
-        </Grid>
         </Box>
       </Container>
     </ThemeProvider>

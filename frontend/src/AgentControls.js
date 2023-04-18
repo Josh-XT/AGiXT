@@ -8,10 +8,22 @@ import {
   Tab,
   Tabs,
 } from "@mui/material";
+import AgentCommandsList from "./AgentCommandsList";
 
-const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent, setChatHistory, chatHistory }) => {
-  const [objective, setObjective] = useState("");
-  const [tabValue, setTabValue] = useState(0);
+const AgentControls = ({
+  darkMode,
+  handleToggleDarkMode,
+  selectedAgent,
+  setChatHistory,
+  chatHistory,
+  commands,
+  tabValue,
+  setTabValue,
+  objective,
+  setObjective,
+  instruction,
+  setInstruction,
+}) => {
   const [baseURI, setBaseURI] = useState("");
 
   async function getBaseURI() {
@@ -104,35 +116,17 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent, setChatH
     ]);
   };
 
-  const InstructionInput = (props) => {
-    const [instruction, setInstruction] = useState("");
-
-    const handleInstructionChange = (event) => {
-      setInstruction(event.target.value);
-    };
-
-    const handleKeyPress = async (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        await InstructAgent(instruction);
-        setInstruction("");
-      }
-    };
-
-    return (
-      <TextField
-        {...props}
-        value={instruction}
-        onChange={handleInstructionChange}
-        onKeyPress={handleKeyPress}
-      />
-    );
+  const handleKeyPress = async (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      await InstructAgent(instruction);
+      setInstruction("");
+    }
   };
 
   const handleSendInstruction = async () => {
-    const instructionInput = document.getElementById("instructionInput");
-    await InstructAgent(instructionInput.value);
-    instructionInput.value = "";
+    await InstructAgent(instruction);
+    setInstruction("");
   };
 
   return (
@@ -162,11 +156,14 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent, setChatH
       )}
       {tabValue === 1 && (
         <>
-          <InstructionInput
+          <TextField
             fullWidth
             label="Enter Instruction"
             placeholder="Type instruction"
             id="instructionInput"
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyPress={handleKeyPress}
             sx={{ mb: 2 }}
           />
           <Button
@@ -194,6 +191,20 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent, setChatH
           ))}
         </Paper>
       </Box>
+      <AgentCommandsList
+        commands={commands}
+        tabValue={tabValue}
+        setObjective={setObjective}
+        setInstruction={setInstruction}
+        objective={objective}
+        instruction={instruction}
+      />
+      <AgentCommandsList
+        commands={commands}
+        tabValue={tabValue}
+        setObjective={setObjective}
+        setInstruction={setInstruction}
+      />
     </>
   );
 };
