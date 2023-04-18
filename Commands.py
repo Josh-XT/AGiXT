@@ -3,6 +3,7 @@ import os
 import glob
 from inspect import signature, Parameter
 from Config import Config
+
 class Commands:
     def __init__(self):
         self.CFG = Config()
@@ -50,3 +51,8 @@ class Commands:
                 command_function = getattr(self, function_name)
                 return command_function, params
         return None, None
+
+    def get_commands_list(self):
+        self.commands = self.load_commands()
+        commands_list = [command_name for command_name, _, _ in self.commands]
+        return commands_list
