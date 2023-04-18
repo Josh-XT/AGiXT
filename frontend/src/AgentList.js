@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   List,
   ListItem,
@@ -6,28 +6,25 @@ import {
   IconButton,
   Typography,
   ListItemIcon,
+  TextField,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 
-const AgentList = ({ agents, selectedAgent, setSelectedAgent }) => {
-  const handleAddAgent = (agent_name) => {
-    fetch("http://127.0.0.1:5000/api/add_agent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ agent_name: agent_name }),
-    });
-  };
+const AgentList = ({
+  agents,
+  selectedAgent,
+  setSelectedAgent,
+  handleAddAgent,
+  handleDeleteAgent,
+  loading,
+}) => {
+  const [newAgentName, setNewAgentName] = useState("");
 
-  const handleDeleteAgent = (agent_name) => {
-    fetch("http://127.0.0.1:5000/api/delete_agent/" + agent_name, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+  const handleAddAgentClick = () => {
+    handleAddAgent(newAgentName);
+    setNewAgentName("");
   };
 
   return (
@@ -53,13 +50,28 @@ const AgentList = ({ agents, selectedAgent, setSelectedAgent }) => {
             </IconButton>
           </ListItem>
         ))}
-        <ListItem button onClick={handleAddAgent}>
+        <ListItem>
+          <TextField
+            label="New Agent Name"
+            value={newAgentName}
+            onChange={(e) => setNewAgentName(e.target.value)}
+          />
           <ListItemIcon>
-            <AddIcon />
+            <IconButton
+              aria-label="add"
+              onClick={handleAddAgentClick}
+              disabled={newAgentName.trim() === ""}
+            >
+              <AddIcon />
+            </IconButton>
           </ListItemIcon>
-          <ListItemText primary="Add Agent" />
         </ListItem>
       </List>
+      {loading && (
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <CircularProgress />
+        </div>
+      )}
     </>
   );
 };

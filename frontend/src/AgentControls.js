@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Typography,
   Box,
@@ -16,20 +16,40 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
   const [objective, setObjective] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [tabValue, setTabValue] = useState(0);
+  const [baseURI, setBaseURI] = useState("");
+
+  async function getBaseURI() {
+    try {
+      const response = await fetch("http://127.0.0.1:5000");
+      if (response.ok) {
+        return "http://127.0.0.1:5000";
+      }
+    } catch (error) {
+      console.warn("Local endpoint not accessible:", error);
+    }
+    return "";
+  }
+
+  useEffect(() => {
+    async function setURI() {
+      setBaseURI(await getBaseURI());
+    }
+    setURI();
+  }, []);
 
   const run = async () => {
     // Set the objective
-    await fetch('http://127.0.0.1:5000/api/set_objective', {
-      method: 'POST',
+    await fetch(`${baseURI}/api/set_objective`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ objective }),
     });
   
     while (true) {
       // Execute the next task
-      const response = await fetch('http://127.0.0.1:5000/api/execute_next_task');
+      const response = await fetch(`${baseURI}/api/execute_next_task`);
       const data = await response.json();
   
       if (!data.task || !data.result) {
@@ -57,19 +77,20 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
 
   const InstructAgent = async (instruction) => {
     // Call the Instruct API endpoint with the given instruction
-    const response = await fetch('http://127.0.0.1:5000/api/instruct', {
-      method: 'POST',
+    const response = await fetch(`${baseURI}/api/instruct`, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         prompt: instruction,
         data: {
           agent_name: selectedAgent,
-          commands_enabled: true
+          commands_enabled: true,
         },
       }),
     });
+    
     const data = await response.json();
     const output = data.response;
     // Update the chat history with the instruction and the response
