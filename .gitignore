@@ -16,3 +16,4 @@ llama.cpp
 node_modules
 memories/*
 WORKSPACE/*
+*.util.py

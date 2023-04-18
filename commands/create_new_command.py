@@ -33,26 +33,10 @@ class create_new_command(Commands):
 
     def create_command(self, function_description: str) -> List[str]:
         args = [function_description]
-        function_string = """
-from typing import List
-from Commands import Commands
-from AgentLLM import AgentLLM
-
-class code_evaluation(Commands):
-    def __init__(self):
-        self.commands = {
-            "Evaluate Code": self.evaluate_code
-        }
-
-    def evaluate_code(self, code: str) -> List[str]:
-        args = [code]
-        function_string = "def analyze_code(code: str) -> List[str]:"
-        description_string = "Analyzes the given code and returns a list of suggestions for improvements."
-        prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return AgentLLM().run(prompt, commands_enabled=False)
-        """
-        description_string = "You write new commands for this framework. Ensure commands summaries are short and concice in self.commands. Do not explain, only provide code."
-        prompt = f"{description_string}\n{function_string}```\n\nOnly respond with your `return` values. Args: {args}"
+        # Get prompt from model-prompts/{CFG.AI_MODEL}/script.txt
+        with open(f"model-prompts/{CFG.AI_MODEL}/script.txt", "r") as f:
+            prompt = f.read()
+        prompt += f"\n\nOnly respond with your `return` values. Args: {args}"
         response = AgentLLM().run(prompt, commands_enabled=False)
         
         # Git pull to update the local repository
