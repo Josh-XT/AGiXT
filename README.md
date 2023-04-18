@@ -63,6 +63,7 @@ Agent-LLM employs a plugin system with customizable prompts for instructing vari
 2. model-prompts/{model}/priority.txt
 3. model-prompts/{model}/system.txt
 4. model-prompts/{model}/task.txt
+5. model-prompts/{model}/script.txt
 
 For a comprehensive explanation of prompt formats and usage, refer to the [PROMPTS.md](PROMPTS.md) file.
 
