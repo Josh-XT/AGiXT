@@ -21,7 +21,13 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 ## Installation and Setup
 
 1. Clone the repository.
-2. Install the required Python packages: `pip install -r requirements.txt`.
+```
+git clone https://github.com/Josh-XT/Agent-LLM
+```
+2. Install the required Python packages:
+```
+pip install -r requirements.txt
+```
 3. Configure the necessary environment variables in the `.env` file using `.env.example` as a template.
 4. Launch Agent-LLM using Docker Compose (recommended) or by running the `main.py` script.
 
@@ -31,20 +37,35 @@ To launch the project using Docker Compose:
 
 1. Install Docker and Docker Compose on your system.
 2. Access the project's root folder.
-3. Execute `docker-compose up` to build and activate the containers for both the Flask backend server and the frontend React application.
+3. Execute the following command to build and activate the containers for both the Flask backend server and the frontend React application:
+```
+docker-compose up
+```
 
-Access the web interface at http://localhost:5000
+Access the web interface at http://localhost
 
 ### Local Setup (Alternative)
 
 To run Agent-LLM without Docker:
 
-1. Launch the `main.py` script to initiate Agent-LLM.
+1. Launch the `main.py` script to initiate Agent-LLM:
+```
+python main.py
+```
 2. Set up and run the frontend:
    1. Head to the `frontend` folder.
-   2. Execute `npm install` to install the necessary dependencies.
-   3. In a separate terminal, navigate to the project's root folder and run `python app.py` to activate the Flask backend server.
-   4. Return to the `frontend` folder and run `npm start` to initiate the frontend React application.
+   2. Execute the following command to install the necessary dependencies:
+   ```
+   npm install
+   ```
+   3. In a separate terminal, navigate to the project's root folder and run the following command to activate the Flask backend server:
+   ```
+   python app.py
+   ```
+   4. Return to the `frontend` folder and run the following command to initiate the frontend React application:
+   ```
+   npm start
+   ```
 
 ## Configuration
 
@@ -60,8 +81,8 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
 - **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
 - **WORKING_DIRECTORY**: Set the agent's working directory.
-- **EXTENSIONS SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
-- **VOICE OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
+- **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
+- **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
 
 For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
 
@@ -113,7 +134,7 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
     Executes a specific task based on the given objective and task.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000 when running the application locally.
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
 ## Extending Functionality
 
