@@ -41,9 +41,9 @@ class babyagi:
         new_tasks = response.split("\n") if "\n" in response else [response]
         return [{"task_name": task_name} for task_name in new_tasks]
 
-    def prioritization_agent(self, this_task_id: int):
+    def prioritization_agent(self, this_task_id: int = 1):
         task_names = [t["task_name"] for t in self.task_list]
-        next_task_id = int(this_task_id) + 1
+        next_task_id = this_task_id + 1
         prompt = self.priority_prompt
         prompt = prompt.replace("{objective}", self.primary_objective)
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
@@ -80,6 +80,10 @@ class babyagi:
         this_task_id = task["task_id"]
         if type(this_task_id) != int:
             this_task_id = ''.join(re.findall(r'\d+', this_task_id))
+            try:
+                this_task_id = int(this_task_id)
+            except:
+                this_task_id = 2
         this_task_name = task["task_name"]
         self.response = self.execution_agent(self.primary_objective, task["task_name"])
         new_tasks = self.task_creation_agent(
@@ -88,7 +92,7 @@ class babyagi:
             this_task_name,
             [t["task_name"] for t in self.task_list],
         )
-        task_id_counter = int(this_task_id)
+        task_id_counter = this_task_id
         for new_task in new_tasks:
             task_id_counter += 1
             new_task.update({"task_id": task_id_counter})
