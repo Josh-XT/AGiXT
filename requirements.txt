@@ -22,3 +22,11 @@ flask_swagger_ui
 flasgger
 pynacl
 jsonschema
+beautifulsoup4
+docker
+PyGithub
+duckduckgo_search
+playsound
+gtts
+selenium
+webdriver_manager
