@@ -20,7 +20,7 @@ class create_new_command(Commands):
         # Get prompt from model-prompts/{CFG.AI_MODEL}/script.txt
         with open(f"model-prompts/{CFG.AI_MODEL}/script.txt", "r") as f:
             prompt = f.read()
-        prompt += f"\n\nOnly respond with your `return` values. Args: {args}"
+        prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
         response = AgentLLM().run(prompt, commands_enabled=False)
         file_name = response.split("class ")[1].split("(")[0]
         code = code.replace("```", "")
