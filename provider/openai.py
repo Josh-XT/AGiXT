@@ -18,7 +18,7 @@ class AIProvider:
                 engine=CFG.AI_MODEL,
                 prompt=prompt,
                 temperature=CFG.AI_TEMPERATURE,
-                max_tokens=CFG.MAX_TOKENS,
+                max_tokens=int(CFG.MAX_TOKENS),
                 top_p=1,
                 frequency_penalty=0,
                 presence_penalty=0,
@@ -31,7 +31,7 @@ class AIProvider:
                 model=CFG.AI_MODEL,
                 messages=messages,
                 temperature=CFG.AI_TEMPERATURE,
-                max_tokens=CFG.MAX_TOKENS,
+                max_tokens=int(CFG.MAX_TOKENS),
                 n=1,
                 stop=None,
             )
