@@ -30,7 +30,7 @@ function App() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [baseURI, setBaseURI] = useState("");
-
+  const [chatHistory, setChatHistory] = useState([]);
   async function getBaseURI() {
     try {
       const response = await fetch("http://127.0.0.1:5000/api/docs");
@@ -126,41 +126,43 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppHeader />
+      <AppHeader darkMode={darkMode} handleToggleDarkMode={handleToggleDarkMode} />
       <Container maxWidth="lg">
         <Box sx={{ my: 4, display: "flex" }}>
-          <Grid container spacing={2}>
-            <Grid item xs={3}>
-              <Typography variant="h6" gutterBottom>
-                Available Commands:
-              </Typography>
-              <List dense>
-                {commands &&
-                  commands.map((command, index) => (
-                    <ListItem key={index}>
-                      <Typography>{command}</Typography>
-                    </ListItem>
-                  ))}
-              </List>
-            </Grid>
-            <Grid item xs={6}>
-              <AgentControls
-                darkMode={darkMode}
-                handleToggleDarkMode={handleToggleDarkMode}
-                selectedAgent={selectedAgent}
-              />
-            </Grid>
-            <Grid item xs={3}>
-              <AgentList
-                agents={agents}
-                selectedAgent={selectedAgent}
-                setSelectedAgent={setSelectedAgent}
-                handleAddAgent={handleAddAgent}
-                handleDeleteAgent={handleDeleteAgent}
-                loading={loading}
-              />
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={3}>
+            <AgentList
+              agents={agents}
+              selectedAgent={selectedAgent}
+              setSelectedAgent={setSelectedAgent}
+              handleAddAgent={handleAddAgent}
+              handleDeleteAgent={handleDeleteAgent}
+              loading={loading}
+            />
           </Grid>
+          <Grid item xs={6}>
+            <AgentControls
+              darkMode={darkMode}
+              handleToggleDarkMode={handleToggleDarkMode}
+              selectedAgent={selectedAgent}
+              setChatHistory={setChatHistory}
+              chatHistory={chatHistory}
+            />
+          </Grid>
+          <Grid item xs={3}>
+            <Typography variant="h6" gutterBottom>
+              Available Commands:
+            </Typography>
+            <List dense>
+              {commands &&
+                commands.map((command, index) => (
+                  <ListItem key={index}>
+                    <Typography>{command}</Typography>
+                  </ListItem>
+                ))}
+            </List>
+          </Grid>
+        </Grid>
         </Box>
       </Container>
     </ThemeProvider>

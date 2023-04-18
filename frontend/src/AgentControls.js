@@ -5,16 +5,12 @@ import {
   Paper,
   TextField,
   Button,
-  Switch,
-  FormGroup,
-  FormControlLabel,
   Tab,
   Tabs,
 } from "@mui/material";
 
-const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
+const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent, setChatHistory, chatHistory }) => {
   const [objective, setObjective] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
   const [tabValue, setTabValue] = useState(0);
   const [baseURI, setBaseURI] = useState("");
 
@@ -39,13 +35,20 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
 
   const run = async () => {
     // Set the objective
-    await fetch(`${baseURI}/api/set_objective`, {
+    const setObjResponse = await fetch(`${baseURI}/api/set_objective`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ objective }),
     });
+  
+    const setObjData = await setObjResponse.json();
+    setChatHistory((prevChatHistory) => [
+      ...prevChatHistory,
+      `Setting Objective: ${objective}`,
+      `Endpoint Response: ${JSON.stringify(setObjData)}`,
+    ]);
   
     while (true) {
       // Execute the next task
@@ -65,12 +68,12 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
         `*****TASK LIST*****\n${data.task_list.map((task, index) => `${index + 1}. ${task.task_name}`).join('\n')}`,
         `*****NEXT TASK*****\n${data.task.task_id}: ${data.task.task_name}`,
         `*****RESULT*****\n${data.result}`,
-      ]);    
+        `Endpoint Response: ${JSON.stringify(data)}`, // Add this line to log the endpoint response
+      ]);
   
       await new Promise((resolve) => setTimeout(resolve, 1000)); // Sleep for 1 second
     }
   };
-
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
@@ -134,14 +137,6 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
 
   return (
     <>
-      <FormGroup>
-        <FormControlLabel
-          control={
-            <Switch checked={darkMode} onChange={handleToggleDarkMode} />
-          }
-          label="Toggle Dark Mode"
-        />
-      </FormGroup>
       <Tabs value={tabValue} onChange={handleTabChange}>
         <Tab label="Task Manager" />
         <Tab label="Instruct" />
@@ -155,7 +150,12 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
             onChange={(e) => setObjective(e.target.value)}
             sx={{ mb: 2 }}
           />
-          <Button variant="contained" color="primary" onClick={run} fullWidth>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => run(selectedAgent)}
+            fullWidth
+          >
             Start Task
           </Button>
         </>
@@ -188,9 +188,9 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
           style={{ padding: "16px", maxHeight: "300px", overflowY: "auto" }}
         >
           {chatHistory.map((message, index) => (
-            <Typography key={index} gutterBottom>
+            <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
               {message}
-            </Typography>
+            </pre>
           ))}
         </Paper>
       </Box>

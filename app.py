@@ -75,7 +75,7 @@ class GetChatHistory(Resource):
         agent.CFG.AGENT_NAME = agent_name
         with open(os.path.join("memories", f"{agent_name}.yaml"), "r") as f:
             chat_history = f.read()
-        return jsonify({"chat_history": chat_history}), 200
+        return {"chat_history": chat_history}, 200
 
 class Instruct(Resource):
     def post(self):
@@ -87,27 +87,27 @@ class Instruct(Resource):
         agent.CFG.AI_PROVIDER = data["ai_provider"]
         agent.CFG.OPENAI_API_KEY = data["openai_api_key"]
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
-        return jsonify({"response": str(response)}), 200
+        return {"response": str(response)}, 200
 
 class SetObjective(Resource):
     def post(self):
         objective = request.json.get("objective")
         babyagi_instance.set_objective(objective)
-        return jsonify({"message": "Objective updated"}), 200
+        return {"message": "Objective updated"}, 200
 
 class AddInitialTask(Resource):
     def post(self):
         babyagi_instance.add_initial_task()
-        return jsonify({"message": "Initial task added"}), 200
+        return {"message": "Initial task added"}, 200
 
 class ExecuteNextTask(Resource):
     def get(self):
         task = babyagi_instance.execute_next_task()
         task_list = list(babyagi_instance.task_list)
         if task:
-            return jsonify({"task": task, "result": babyagi_instance.response, "task_list": task_list}), 200
+            return {"task": task, "result": babyagi_instance.response, "task_list": task_list}, 200
         else:
-            return jsonify({"message": "All tasks complete"}), 200
+            return {"message": "All tasks complete"}, 200
 
 class CreateTask(Resource):
     def post(self):
@@ -116,20 +116,20 @@ class CreateTask(Resource):
         task_description = request.json.get("task_description")
         task_list = request.json.get("task_list")
         new_tasks = babyagi_instance.task_creation_agent(objective, result, task_description, task_list)
-        return jsonify({"new_tasks": new_tasks}), 200
+        return {"new_tasks": new_tasks}, 200
 
 class PrioritizeTasks(Resource):
     def post(self):
         task_id = request.json.get("task_id")
         babyagi_instance.prioritization_agent(task_id)
-        return jsonify({"task_list": babyagi_instance.task_list}), 200
+        return {"task_list": babyagi_instance.task_list}, 200
 
 class ExecuteTask(Resource):
     def post(self):
         objective = request.json.get("objective")
         task = request.json.get("task")
         result = babyagi_instance.execution_agent(objective, task)
-        return jsonify({"result": result}), 200
+        return {"result": result}, 200
 
 class GetCommands(Resource):
     def get(self):
