@@ -111,11 +111,11 @@ class AgentLLM:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=int, default=4096)
+    parser.add_argument("--max_context_tokens", type=str, default="4096")
     parser.add_argument("--long_term_access", type=bool, default=False)
     args = parser.parse_args()
     prompt = args.prompt
-    max_context_tokens = args.max_context_tokens
+    max_context_tokens = int(args.max_context_tokens)
     long_term_access = args.long_term_access
 
     # Run AgentLLM
