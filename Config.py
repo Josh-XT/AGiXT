@@ -17,6 +17,7 @@ class Config():
 
         # AI_PROVIDER_URI is only needed for custom AI providers such as Oobabooga Text Generation Web UI
         self.AI_PROVIDER_URI = os.getenv("AI_PROVIDER_URI", "http://127.0.0.1:7860")
+        self.LLAMACPP_PATH = os.getenv("LLAMACPP_PATH", "llama/main")
 
         self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
