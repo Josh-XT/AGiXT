@@ -1,4 +1,5 @@
 import os
+import glob
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -6,7 +7,7 @@ class Config():
     def __init__(self):
         # General Configuration
         self.AGENT_NAME = os.getenv("AGENT_NAME", "Agent-LLM")
-        
+        self.AGENTS = glob.glob(os.path.join("memories", "*.yaml"))
         # Goal Configuation
         self.OBJECTIVE = os.getenv("OBJECTIVE", "Solve world hunger")
         self.INITIAL_TASK = os.getenv("INITIAL_TASK", "Develop a task list")

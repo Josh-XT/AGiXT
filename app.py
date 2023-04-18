@@ -1,16 +1,28 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_restful import Api, Resource
 from flasgger import Swagger
 from babyagi import babyagi
 from AgentLLM import AgentLLM
-
+from Config import Config
+CFG = Config()
 app = Flask(__name__)
 CORS(app)
 api = Api(app)
 swagger = Swagger(app)
 
 babyagi_instance = babyagi()
+class GetAgents(Resource):
+    def get(self):
+        agents_list = CFG.AGENTS
+        if isinstance(agents_list, str):
+            agents_list = [agents_list]
+        print(agents_list)
+
+        # Extract agent names from the file paths
+        agent_names = [os.path.basename(path).split('.')[0] for path in agents_list]
+        return {"agents": agent_names}, 200
 
 class Instruct(Resource):
     def post(self):
@@ -66,13 +78,14 @@ class ExecuteTask(Resource):
         result = babyagi_instance.execution_agent(objective, task)
         return jsonify({"result": result}), 200
 
-api.add_resource(Instruct, '/instruct')
-api.add_resource(SetObjective, '/set_objective')
-api.add_resource(AddInitialTask, '/add_initial_task')
-api.add_resource(ExecuteNextTask, '/execute_next_task')
-api.add_resource(CreateTask, '/create_task')
-api.add_resource(PrioritizeTasks, '/prioritize_tasks')
-api.add_resource(ExecuteTask, '/execute_task')
+api.add_resource(GetAgents, '/api/get_agents')
+api.add_resource(Instruct, '/api/instruct')
+api.add_resource(SetObjective, '/api/set_objective')
+api.add_resource(AddInitialTask, '/api/add_initial_task')
+api.add_resource(ExecuteNextTask, '/api/execute_next_task')
+api.add_resource(CreateTask, '/api/create_task')
+api.add_resource(PrioritizeTasks, '/api/prioritize_tasks')
+api.add_resource(ExecuteTask, '/api/execute_task')
 
 if __name__ == '__main__':
     app.run(debug=True)
