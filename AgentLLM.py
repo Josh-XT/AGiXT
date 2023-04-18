@@ -53,7 +53,7 @@ class AgentLLM:
     def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False):
         if not self.CFG.NO_MEMORY:
             self.yaml_memory.log_interaction("USER", task)
-            context = self.context_agent(query=task, top_results_num=5, long_term_access=long_term_access)
+            context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
         if self.CFG.COMMANDS_ENABLED:
@@ -97,7 +97,7 @@ class AgentLLM:
 
     def get_prompt_with_context(self, task: str, context: List[str]) -> str:
         context_str = "\n\n".join(context)
-        prompt = f"Context: {context_str}\n\nTask: {task}\n\nResponse:"
+        prompt = f"Task: {task}\n\nContext: {context_str}\n\nResponse:"
         return prompt
 
     def chunk_content(self, content: str, max_length: int = 500) -> List[str]:
