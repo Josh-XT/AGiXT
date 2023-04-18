@@ -78,14 +78,11 @@ class GetChatHistory(Resource):
         return {"chat_history": chat_history}, 200
 
 class Instruct(Resource):
-    def post(self):
+    def post(self, agent_name, commands_enabled=True):
         objective = request.json.get("prompt")
-        data = request.json.get("data")
         agent = AgentLLM()
-        agent.CFG.AGENT_NAME = data["agent_name"]
-        agent.CFG.COMMANDS_ENABLED = data["commands_enabled"]
-        agent.CFG.AI_PROVIDER = data["ai_provider"]
-        agent.CFG.OPENAI_API_KEY = data["openai_api_key"]
+        agent.CFG.AGENT_NAME = agent_name
+        agent.CFG.COMMANDS_ENABLED = commands_enabled
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return {"response": str(response)}, 200
 

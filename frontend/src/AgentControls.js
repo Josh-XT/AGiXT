@@ -92,20 +92,16 @@ const AgentControls = ({
 
   const InstructAgent = async (instruction) => {
     // Call the Instruct API endpoint with the given instruction
-    const response = await fetch(`${baseURI}/api/instruct`, {
+    const response = await fetch(`${baseURI}/api/instruct/${selectedAgent}/true`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         prompt: instruction,
-        data: {
-          agent_name: selectedAgent,
-          commands_enabled: true,
-        },
       }),
     });
-    
+  
     const data = await response.json();
     const output = data.response;
     // Update the chat history with the instruction and the response
