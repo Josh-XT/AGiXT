@@ -49,7 +49,7 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False):
+    def run(self, task: str, max_context_tokens: int = 4096, long_term_access: bool = False):
         if not self.CFG.NO_MEMORY:
             self.yaml_memory.log_interaction("USER", task)
             context = self.context_agent(query=task, top_results_num=5, long_term_access=long_term_access)
@@ -59,9 +59,15 @@ class AgentLLM:
             commands_prompt = self.commands.get_prompt()
             self.response = self.instruct(f"{commands_prompt}\n{prompt}")
         else:
-            self.response = self.instruct(prompt)
+            # Chunk the prompt if it's too long
+            prompt_chunks = self.chunk_content(prompt)
+            responses = []
+            for chunk in prompt_chunks:
+                response = self.instruct(chunk)
+                responses.append(response)
+            self.response = " ".join(responses)
 
-        if not self.CFG.NO_MEMORY:
+        if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.yaml_memory.log_interaction(self.CFG.AGENT_NAME, self.response)
 
@@ -79,6 +85,7 @@ class AgentLLM:
         if long_term_access:
             interactions = self.yaml_memory.memory["interactions"]
             context = [interaction["message"] for interaction in interactions[-top_results_num:]]
+            context = self.chunk_content("\n\n".join(context))[:top_results_num]
         else:
             count = self.collection.count()
             if count == 0:
@@ -103,7 +110,7 @@ class AgentLLM:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=int, default=500)
+    parser.add_argument("--max_context_tokens", type=int, default=4096)
     parser.add_argument("--long_term_access", type=bool, default=False)
     args = parser.parse_args()
     prompt = args.prompt
