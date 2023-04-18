@@ -14,7 +14,6 @@ swagger = Swagger(app)
 
 babyagi_instance = babyagi()
 
-
 class AddAgent(Resource):
     def post(self):
         agent_name = request.json.get("agent_name")
@@ -32,15 +31,13 @@ class AddAgent(Resource):
         # Create the new agent YAML file
         with open(os.path.join(memories_dir, agent_file), "w") as f:
             f.write("")
-
         return jsonify({"message": "Agent added", "agent_file": agent_file}), 200
+
 class GetAgents(Resource):
     def get(self):
         agents_list = CFG.AGENTS
         if isinstance(agents_list, str):
             agents_list = [agents_list]
-        print(agents_list)
-
         # Extract agent names from the file paths
         agent_names = [os.path.basename(path).split('.')[0] for path in agents_list]
         return {"agents": agent_names}, 200

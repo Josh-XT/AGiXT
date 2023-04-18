@@ -29,8 +29,7 @@ To launch the project using Docker Compose:
 2. Access the project's root folder.
 3. Execute `docker-compose up` to build and activate the containers for both the Flask backend server and the frontend React application.
 
-Access the web interface at http://localhost:3000
-View the API documentation at http://localhost:5000
+Access the web interface at http://localhost:5000
 
 ### Local Setup (Alternative)
 
@@ -46,6 +45,48 @@ To run Agent-LLM without Docker:
 ## Configuration
 
 Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file.
+
+## API Endpoints
+
+Agent-LLM provides several API endpoints for managing agents, setting objectives, managing tasks, and more. The following are the available API endpoints:
+
+1. **Add Agent**: `/api/add_agent` (POST)
+
+   Adds a new agent with the given agent name.
+
+2. **Get Agents**: `/api/get_agents` (GET)
+
+   Retrieves a list of all available agents.
+
+3. **Instruct**: `/api/instruct` (POST)
+
+   Sends an instruction prompt to the agent and receives a response.
+
+4. **Set Objective**: `/api/set_objective` (POST)
+
+   Updates the agent's current objective.
+
+5. **Add Initial Task**: `/api/add_initial_task` (POST)
+
+   Adds an initial task for the agent to execute.
+
+6. **Execute Next Task**: `/api/execute_next_task` (GET)
+
+   Executes the next task in the agent's task list and returns the result.
+
+7. **Create Task**: `/api/create_task` (POST)
+
+   Creates a new task based on the given objective, result, task description, and task list.
+
+8. **Prioritize Tasks**: `/api/prioritize_tasks` (POST)
+
+   Prioritizes tasks in the agent's task list based on the given task ID.
+
+9. **Execute Task**: `/api/execute_task` (POST)
+
+   Executes a specific task based on the given objective and task.
+
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000 when running the application locally.
 
 ## Extending Functionality
 
