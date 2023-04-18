@@ -102,13 +102,12 @@ class babyagi:
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
 
-    def execution_agent(self, objective: str, task: str) -> str:
-        # Executes a task based on the given objective and previous context.
-        # Returns the result of the task.
-        context = self.prompter.context_agent(query=objective, top_results_num=5, long_term_access=True)
+    def execution_agent(self, objective, task, context=None):
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
+        if context is not None:
+            context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
         self.response = self.prompter.run(prompt)
         return self.response
