@@ -1,7 +1,7 @@
 Write a Python script to help with the following goal: {NEW_FUNCTION_DESCRIPTION}
-Ensure commands summaries are short and concise in self.commands.
-If the code is targeted at a specific product, mention the product name in the command description.
+Ensure commands summaries are short and concise in self.commands, however, if the code is targeted at a specific product, mention the product name in the command description.
 The script should fit into this Command framework.
+If there is an available Python module to help with this, use it.
 Do not explain, this is not a conversation, put any usage examples necessary in the code comments in one single code block.
 
 Framework example:
