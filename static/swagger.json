@@ -1,0 +1,262 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Agent-LLM Flask API",
+    "description": "API documentation for the Agent-LLM Flask app.",
+    "version": "1.0"
+  },
+  "basePath": "/",
+  "schemes": [
+    "http"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/api/add_agent/{agent_name}": {
+      "post": {
+        "summary": "Add agent",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "description": "The name of the agent to add.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent added successfully."
+          }
+        }
+      }
+    },
+    "/api/delete_agent/{agent_name}": {
+      "delete": {
+        "summary": "Delete agent",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "description": "The name of the agent to delete.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent deleted successfully."
+          },
+          "404": {
+            "description": "Agent file not found."
+          }
+        }
+      }
+    },
+    "/api/get_agents": {
+      "get": {
+        "summary": "Get agents",
+        "responses": {
+          "200": {
+            "description": "List of agents."
+          }
+        }
+      }
+    },
+    "/api/get_chat_history/{agent_name}": {
+      "get": {
+        "summary": "Get chat history",
+        "parameters": [
+          {
+            "name": "agent_name",
+            "in": "path",
+            "description": "The name of the agent.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chat history retrieved successfully."
+          }
+        }
+      }
+    },
+    "/api/instruct": {
+      "post": {
+        "summary": "Instruct",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The request body containing the prompt and data.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instructed successfully."
+          }
+        }
+      }
+    },
+    "/api/set_objective": {
+      "post": {
+        "summary": "Set objective",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The request body containing the objective.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objective": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Objective updated successfully."
+          }
+        }
+      }
+    },
+    "/api/add_initial_task": {
+      "post": {
+        "summary": "Add initial task",
+        "responses": {
+          "200": {
+            "description": "Initial task added successfully."
+          }
+        }
+      }
+    },
+    "/api/execute_next_task": {
+      "get": {
+        "summary": "Execute next task",
+        "responses": {
+          "200": {
+            "description": "Next task executed successfully."
+          },
+          "404": {
+            "description": "All tasks complete."
+          }
+        }
+      }
+    },
+    "/api/create_task": {
+      "post": {
+        "summary": "Create task",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The request body containing the task details.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objective": {
+                  "type": "string"
+                },
+                "result": {
+                  "type": "string"
+                },
+                "task_description": {
+                  "type": "string"
+                },
+                "task_list": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task created successfully."
+          }
+        }
+      }
+    },
+    "/api/prioritize_tasks": {
+      "post": {
+        "summary": "Prioritize tasks",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The request body containing the task ID.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "task_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tasks prioritized successfully."
+          }
+        }
+      }
+    },
+    "/api/execute_task": {
+      "post": {
+        "summary": "Execute task",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The request body containing the task details.",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objective": {
+                  "type": "string"
+                },
+                "task": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task executed successfully."
+          }
+        }
+      }
+    }
+  }
+}
+
