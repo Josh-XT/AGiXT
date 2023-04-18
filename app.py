@@ -7,6 +7,7 @@ from AgentLLM import AgentLLM
 from Config import Config
 from flask_restful import Api, Resource
 from flask_swagger_ui import get_swaggerui_blueprint
+from Commands import Commands
 
 CFG = Config()
 app = Flask(__name__)
@@ -57,7 +58,7 @@ class DeleteAgent(Resource):
         if os.path.exists(agent_folder):
             shutil.rmtree(agent_folder)
 
-        return jsonify({"message": f"Agent {agent_name} deleted."}), 200
+        return {"message": f"Agent {agent_name} deleted."}, 200
 
 class GetAgents(Resource):
     def get(self):
@@ -130,6 +131,12 @@ class ExecuteTask(Resource):
         result = babyagi_instance.execution_agent(objective, task)
         return jsonify({"result": result}), 200
 
+class GetCommands(Resource):
+    def get(self):
+        commands = Commands()
+        commands_list = commands.get_commands_list()
+        return jsonify({"commands": commands_list}, 200)
+
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 api.add_resource(GetAgents, '/api/get_agents')
@@ -141,6 +148,7 @@ api.add_resource(ExecuteNextTask, '/api/execute_next_task')
 api.add_resource(CreateTask, '/api/create_task')
 api.add_resource(PrioritizeTasks, '/api/prioritize_tasks')
 api.add_resource(ExecuteTask, '/api/execute_task')
+api.add_resource(GetCommands, '/api/get_commands')
 
 if __name__ == '__main__':
     app.run(debug=True)

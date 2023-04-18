@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Container, Box, Grid } from "@mui/material";
+import {
+  Container,
+  Box,
+  Grid,
+  List,
+  ListItem,
+  Typography,
+} from "@mui/material";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import AgentList from "./AgentList";
@@ -16,48 +23,65 @@ const themeGenerator = (darkMode) =>
     },
   });
 
-  function App() {
-    const [darkMode, setDarkMode] = useState(false);
-    const [agents, setAgents] = useState([]);
-    const [selectedAgent, setSelectedAgent] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [baseURI, setBaseURI] = useState("");
-  
-    async function getBaseURI() {
-      try {
-        const response = await fetch("http://127.0.0.1:5000/api/docs");
-        if (response.ok) {
-          return "http://127.0.0.1:5000";
-        }
-      } catch (error) {
-        console.warn("Local endpoint not accessible:", error);
+function App() {
+  const [darkMode, setDarkMode] = useState(false);
+  const [agents, setAgents] = useState([]);
+  const [commands, setCommands] = useState([]);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [baseURI, setBaseURI] = useState("");
+
+  async function getBaseURI() {
+    try {
+      const response = await fetch("http://127.0.0.1:5000/api/docs");
+      if (response.ok) {
+        return "http://127.0.0.1:5000";
       }
-      return "";
+    } catch (error) {
+      console.warn("Local endpoint not accessible:", error);
     }
-  
-    useEffect(() => {
-      async function setURI() {
-        setBaseURI(await getBaseURI());
-      }
-      setURI();
-    }, []);
-  
-    const fetchAgents = useCallback(async () => {
-      setLoading(true);
-      try {
-        const response = await fetch(`${baseURI}/api/get_agents`);
-        const data = await response.json();
-        setAgents(data.agents);
-        setSelectedAgent(data.agents[0]);
-      } catch (error) {
-        console.error("Error fetching agents:", error);
-      }
-      setLoading(false);
-    }, [baseURI]);
-  
-    useEffect(() => {
-      fetchAgents();
-    }, [fetchAgents]);  
+    return "";
+  }
+
+  useEffect(() => {
+    async function setURI() {
+      setBaseURI(await getBaseURI());
+    }
+    setURI();
+  }, []);
+
+  const fetchAgents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${baseURI}/api/get_agents`);
+      const data = await response.json();
+      setAgents(data.agents);
+      setSelectedAgent(data.agents[0]);
+    } catch (error) {
+      console.error("Error fetching agents:", error);
+    }
+    setLoading(false);
+  }, [baseURI]);
+
+  useEffect(() => {
+    fetchAgents();
+  }, [fetchAgents]);
+
+  const fetchCommands = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${baseURI}/api/get_commands`);
+      const data = await response.json();
+      setCommands(data[0].commands);
+    } catch (error) {
+      console.error("Error fetching commands:", error);
+    }
+    setLoading(false);
+  }, [baseURI]);
+
+  useEffect(() => {
+    fetchCommands();
+  }, [fetchCommands]);
 
   const handleToggleDarkMode = useCallback(() => {
     setDarkMode((prevDarkMode) => !prevDarkMode);
@@ -106,7 +130,27 @@ const themeGenerator = (darkMode) =>
       <Container maxWidth="lg">
         <Box sx={{ my: 4, display: "flex" }}>
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={3}>
+              <Typography variant="h6" gutterBottom>
+                Available Commands:
+              </Typography>
+              <List dense>
+                {commands &&
+                  commands.map((command, index) => (
+                    <ListItem key={index}>
+                      <Typography>{command}</Typography>
+                    </ListItem>
+                  ))}
+              </List>
+            </Grid>
+            <Grid item xs={6}>
+              <AgentControls
+                darkMode={darkMode}
+                handleToggleDarkMode={handleToggleDarkMode}
+                selectedAgent={selectedAgent}
+              />
+            </Grid>
+            <Grid item xs={3}>
               <AgentList
                 agents={agents}
                 selectedAgent={selectedAgent}
@@ -114,13 +158,6 @@ const themeGenerator = (darkMode) =>
                 handleAddAgent={handleAddAgent}
                 handleDeleteAgent={handleDeleteAgent}
                 loading={loading}
-              />
-            </Grid>
-            <Grid item xs={12} sm={8}>
-              <AgentControls
-                darkMode={darkMode}
-                handleToggleDarkMode={handleToggleDarkMode}
-                selectedAgent={selectedAgent}
               />
             </Grid>
           </Grid>

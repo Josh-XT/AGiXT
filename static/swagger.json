@@ -256,7 +256,27 @@
           }
         }
       }
+    },
+    "/api/get_commands": {
+      "get": {
+        "summary": "Get commands",
+        "responses": {
+          "200": {
+            "description": "List of commands.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "commands": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
-

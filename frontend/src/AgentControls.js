@@ -20,7 +20,7 @@ const AgentControls = ({ darkMode, handleToggleDarkMode, selectedAgent }) => {
 
   async function getBaseURI() {
     try {
-      const response = await fetch("http://127.0.0.1:5000");
+      const response = await fetch("http://127.0.0.1:5000/api/docs");
       if (response.ok) {
         return "http://127.0.0.1:5000";
       }
