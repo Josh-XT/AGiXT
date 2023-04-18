@@ -1,3 +1,4 @@
+`README.md`
 # Agent-LLM
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like OpenAI, Oobabooga Text Generation Web UI, and llama.cpp, Agent-LLM is both flexible and adaptable to diverse use cases.
@@ -51,6 +52,8 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 
 - **INSTANCE CONFIG**: Set the agent name, objective, and initial task.
 - **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
+- **AI_PROVIDER_URI**: Set the URI for custom AI providers such as Oobabooga Text Generation Web UI (default is http://127.0.0.1:7860).
+- **LLAMACPP_PATH**: Set the path to the llama binary if llamacpp is not in the llama folder of the project.
 - **COMMANDS_ENABLED**: Enable or disable command extensions.
 - **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
 - **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, vicuna, etc.).
