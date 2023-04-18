@@ -40,8 +40,8 @@ class Commands:
         # Get prompt from model-prompts/{CFG.AI_MODEL}/system.txt
         with open(f"model-prompts/{self.CFG.AI_MODEL}/system.txt", "r") as f:
             system_prompt = f.read()
-        system_prompt = system_prompt.replace("{{COMMANDS}}", commands_str)
-        system_prompt = system_prompt.replace("{{AGENT_NAME}}", self.CFG.AGENT_NAME)
+        system_prompt = system_prompt.replace("{COMMANDS}", commands_str)
+        system_prompt = system_prompt.replace("{AGENT_NAME}", self.CFG.AGENT_NAME)
         return system_prompt
 
     def find_command(self, command_name: str):
