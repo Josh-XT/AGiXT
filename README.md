@@ -1,7 +1,6 @@
-`README.md`
 # Agent-LLM
 
-Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like OpenAI, Oobabooga Text Generation Web UI, and llama.cpp, Agent-LLM is both flexible and adaptable to diverse use cases.
+Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI](https://openai.com/), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases.
 
 ⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
@@ -17,6 +16,19 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 - Integration with Huggingface for audio-to-text conversion
 - Support for interacting with Twitter, GitHub, Google, DALL-E, and more growing fast.
 - Voice options for text-to-speech, including Brian TTS, Mac OS TTS, and ElevenLabs
+
+## Web Application Features
+
+The frontend web application of Agent-LLM provides an intuitive and interactive user interface for users to:
+
+- Manage agents: View the list of available agents, add new agents, delete agents, and switch between agents.
+- Set objectives: Input objectives for the selected agent to accomplish.
+- Start tasks: Initiate the task manager to execute tasks based on the set objective.
+- Instruct agents: Interact with agents by sending instructions and receiving responses in a chat-like interface.
+- Available commands: View the list of available commands and click on a command to insert it into the objective or instruction input boxes.
+- Dark mode: Toggle between light and dark themes for the frontend.
+
+The frontend is built using React and Material-UI and communicates with the backend through API endpoints.
 
 ## Installation and Setup
 
