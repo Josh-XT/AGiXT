@@ -66,7 +66,7 @@ class GetAgents(Resource):
         for file in os.listdir(memories_dir):
             if file.endswith(".yaml"):
                 agents.append(file.replace(".yaml", ""))
-        return jsonify({"agents": agents}), 200
+        return {"agents": agents}, 200
 
 class GetChatHistory(Resource):
     def get(self, agent_name):
