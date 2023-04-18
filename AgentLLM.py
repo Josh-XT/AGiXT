@@ -50,7 +50,7 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 4096, long_term_access: bool = False):
+    def run(self, task: str, max_context_tokens: int = 2000, long_term_access: bool = False):
         if not self.CFG.NO_MEMORY:
             self.yaml_memory.log_interaction("USER", task)
             context = self.context_agent(query=task, top_results_num=5, long_term_access=long_term_access)
@@ -111,7 +111,7 @@ class AgentLLM:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=str, default="4096")
+    parser.add_argument("--max_context_tokens", type=str, default="2000")
     parser.add_argument("--long_term_access", type=bool, default=False)
     args = parser.parse_args()
     prompt = args.prompt
