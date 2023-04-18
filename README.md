@@ -2,6 +2,8 @@
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like OpenAI, Oobabooga Text Generation Web UI, and llama.cpp, Agent-LLM is both flexible and adaptable to diverse use cases.
 
+⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
+
 ## Key Features
 
 - Efficient management of long-term and short-term memory
