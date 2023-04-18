@@ -13,6 +13,9 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 - Command execution and code evaluation
 - Customizable plugin system with prompts for various AI models
 - Docker support for seamless deployment
+- Integration with Huggingface for audio-to-text conversion
+- Support for interacting with Twitter, GitHub, Google, DALL-E, and more growing fast.
+- Voice options for text-to-speech, including Brian TTS, Mac OS TTS, and ElevenLabs
 
 ## Installation and Setup
 
@@ -44,7 +47,20 @@ To run Agent-LLM without Docker:
 
 ## Configuration
 
-Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file.
+Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file. Configuration settings include:
+
+- **INSTANCE CONFIG**: Set the agent name, objective, and initial task.
+- **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
+- **COMMANDS_ENABLED**: Enable or disable command extensions.
+- **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
+- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, vicuna, etc.).
+- **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
+- **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
+- **WORKING_DIRECTORY**: Set the agent's working directory.
+- **EXTENSIONS SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
+- **VOICE OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
+
+For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
 
 ## API Endpoints
 
