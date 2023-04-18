@@ -3,9 +3,9 @@ FROM python:3.8-slim-buster AS base
 WORKDIR /app
 COPY requirements.txt ./
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends git
+RUN apt-get install -y --no-install-recommends git build-essential
 RUN pip install --no-cache-dir -r requirements.txt
-RUN apt-get remove -y git
+RUN apt-get remove -y git build-essential
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
