@@ -11,7 +11,7 @@ from commands.web_requests import web_requests
 from Commands import Commands
 
 class AgentLLM:
-    def __init__(self):
+    def __init__(self, agent_name: str = "Agent-LLM"):
         self.CFG = Config()
         self.CFG.NO_MEMORY = False
         self.commands = Commands()
@@ -20,7 +20,7 @@ class AgentLLM:
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(api_key=self.CFG.OPENAI_API_KEY)
         else:
             self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-        self.chroma_persist_dir = "memories"
+        self.chroma_persist_dir = f"memories/{agent_name}"
         self.chroma_client = chromadb.Client(
             settings=chromadb.config.Settings(
                 chroma_db_impl="duckdb+parquet",
@@ -28,14 +28,15 @@ class AgentLLM:
             )
         )
         self.collection = self.chroma_client.get_or_create_collection(
-            name=str(self.CFG.AGENT_NAME).lower(),
+            name=str(agent_name).lower(),
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.embedding_function,
         )
         ai_module = importlib.import_module(f"provider.{self.CFG.AI_PROVIDER}")
         self.ai_instance = ai_module.AIProvider()
         self.instruct = self.ai_instance.instruct
-        self.yaml_memory = YamlMemory(self.CFG.AGENT_NAME)
+        self.yaml_memory = YamlMemory(agent_name)
+        self.agent_name = agent_name
 
     def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
         trimmed_context = []
@@ -69,7 +70,7 @@ class AgentLLM:
 
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
-            self.yaml_memory.log_interaction(self.CFG.AGENT_NAME, self.response)
+            self.yaml_memory.log_interaction(self.AGENT_NAME, self.response)
 
         print(f"Response: {self.response}")
         return self.response

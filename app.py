@@ -1,4 +1,5 @@
 import os
+import shutil
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_restful import Api, Resource
@@ -15,10 +16,7 @@ swagger = Swagger(app)
 babyagi_instance = babyagi()
 
 class AddAgent(Resource):
-    def post(self):
-        agent_name = request.json.get("agent_name")
-        agent_name = agent_name.lower().replace(" ", "_")
-        agent_name = ''.join(e for e in agent_name if e.isalnum() or e in {'-', '_'})
+    def post(self, agent_name):
         memories_dir = "memories"
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
@@ -33,6 +31,24 @@ class AddAgent(Resource):
             f.write("")
         return jsonify({"message": "Agent added", "agent_file": agent_file}), 200
 
+class DeleteAgent(Resource):
+    def delete(self, agent_name):
+        memories_dir = "memories"
+        agent_file = f"{agent_name}.yaml"
+        agent_folder = os.path.join(memories_dir, agent_file.split('.')[0])
+
+        # Delete the agent YAML file
+        try:
+            os.remove(os.path.join(memories_dir, agent_file))
+        except FileNotFoundError:
+            return jsonify({"message": f"Agent file {agent_file} not found."}), 404
+
+        # Delete the agent folder and all its contents
+        if os.path.exists(agent_folder):
+            shutil.rmtree(agent_folder)
+
+        return jsonify({"message": f"Agent {agent_name} deleted."}), 200
+
 class GetAgents(Resource):
     def get(self):
         agents_list = CFG.AGENTS
@@ -41,6 +57,15 @@ class GetAgents(Resource):
         # Extract agent names from the file paths
         agent_names = [os.path.basename(path).split('.')[0] for path in agents_list]
         return {"agents": agent_names}, 200
+
+class GetChatHistory(Resource):
+    def get(self, agent_name):
+        agent = AgentLLM()
+        agent.CFG.AGENT_NAME = agent_name
+        # Get content of {agent_name}.yaml
+        with open(os.path.join("memories", f"{agent_name}.yaml"), "r") as f:
+            chat_history = f.read()
+        return jsonify({"chat_history": chat_history}), 200
 
 class Instruct(Resource):
     def post(self):
@@ -96,7 +121,9 @@ class ExecuteTask(Resource):
         result = babyagi_instance.execution_agent(objective, task)
         return jsonify({"result": result}), 200
 
-api.add_resource(AddAgent, '/api/add_agent')
+api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
+api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
+api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
 api.add_resource(GetAgents, '/api/get_agents')
 api.add_resource(Instruct, '/api/instruct')
 api.add_resource(SetObjective, '/api/set_objective')
