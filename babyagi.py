@@ -1,31 +1,67 @@
 import time
 import re
+import sys
+import threading
 from collections import deque
 from typing import Dict, List
 from Config import Config
 from AgentLLM import AgentLLM
+
+class Spinner:
+    def __init__(self, message="Thinking..."):
+        self.spinner_cycle = ['|', '/', '-', '\\']
+        self.index = 0
+        self.message = message
+        self.should_spin = False
+
+    def spin(self):
+        while self.should_spin:
+            sys.stdout.write(f'\r{self.spinner_cycle[self.index % len(self.spinner_cycle)]} {self.message}')
+            sys.stdout.flush()
+            self.index += 1
+            time.sleep(0.1)
+
+    def start(self):
+        self.should_spin = True
+        self.spinner_thread = threading.Thread(target=self.spin)
+        self.spinner_thread.start()
+
+    def stop(self):
+        self.should_spin = False
+        self.spinner_thread.join()
+        sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')  # Clear spinner
+        sys.stdout.flush()
+
 class babyagi:
     def __init__(self, primary_objective=None, initial_task=None):
         self.CFG = Config()
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
+        self.spinner = Spinner()
+        self.load_prompts()
+        self.initialize_task_list()
+        self.prompter = AgentLLM()
+
+    def load_prompts(self):
         with open(f"model-prompts/{self.CFG.AI_MODEL}/execute.txt", "r") as f:
             self.execute_prompt = f.read()
         with open(f"model-prompts/{self.CFG.AI_MODEL}/task.txt", "r") as f:
             self.task_prompt = f.read()
         with open(f"model-prompts/{self.CFG.AI_MODEL}/priority.txt", "r") as f:
             self.priority_prompt = f.read()
-        # Task list
+
+    def initialize_task_list(self):
         self.task_list = deque([])
         self.output_list = []
-        self.prompter = AgentLLM()
 
-        # Print OBJECTIVE
+    def display_objective_and_initial_task(self):
         print("\033[94m\033[1m" + "\n*****OBJECTIVE*****\n" + "\033[0m\033[0m")
-        print(f"{primary_objective}")
-        print("\033[93m\033[1m" + "\nInitial task:" + "\033[0m\033[0m" + f" {initial_task}")
+        print(f"{self.primary_objective}")
+        print("\033[93m\033[1m" + "\nInitial task:" + "\033[0m\033[0m" + f" {self.initial_task}")
+
     def add_initial_task(self):
         self.task_list.append({"task_id": 1, "task_name": self.initial_task})
+
     def set_objective(self, new_objective):
         self.primary_objective = new_objective
 
@@ -53,10 +89,13 @@ class babyagi:
         self.task_list = deque()
         for task_string in new_tasks:
             task_parts = task_string.strip().split(".", 1)
-        if len(task_parts) == 2:
-            task_id = task_parts[0].strip()
-            task_name = task_parts[1].strip()
-            self.task_list.append({"task_id": task_id, "task_name": task_name})
+            if len(task_parts) == 2:
+                task_id = task_parts[0].strip()
+                task_name = task_parts[1].strip()
+                self.task_list.append({"task_id": task_id, "task_name": task_name})
+        self.display_task_list()
+
+    def display_task_list(self):
         print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
@@ -85,7 +124,9 @@ class babyagi:
             except:
                 this_task_id = 2
         this_task_name = task["task_name"]
+        self.spinner.start()
         self.response = self.execution_agent(self.primary_objective, task["task_name"])
+        self.spinner.stop()
         new_tasks = self.task_creation_agent(
             self.primary_objective,
             { "data": self.response },
@@ -108,11 +149,7 @@ class babyagi:
         while True:
             task = self.execute_next_task()
             if task:
-                print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
-                for t in self.task_list:
-                    task_id = t["task_id"]
-                    task_name = t["task_name"]
-                    print(f"{task_id}: {task_name}")
+                self.display_task_list()
                 print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
                 print(f"{task['task_id']}: {task['task_name']}")
                 print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
@@ -121,3 +158,8 @@ class babyagi:
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(1)  # Sleep before checking the task list again
+
+if __name__ == "__main__":
+    task_manager = babyagi()
+    task_manager.display_objective_and_initial_task()
+    task_manager.run()
