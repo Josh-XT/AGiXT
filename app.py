@@ -13,6 +13,27 @@ api = Api(app)
 swagger = Swagger(app)
 
 babyagi_instance = babyagi()
+
+
+class AddAgent(Resource):
+    def post(self):
+        agent_name = request.json.get("agent_name")
+        agent_name = agent_name.lower().replace(" ", "_")
+        agent_name = ''.join(e for e in agent_name if e.isalnum() or e in {'-', '_'})
+        memories_dir = "memories"
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
+        # Check if the agent name already exists and append an increment if necessary
+        i = 0
+        agent_file = f"{agent_name}.yaml"
+        while os.path.exists(os.path.join(memories_dir, agent_file)):
+            i += 1
+            agent_file = f"{agent_name}_{i}.yaml"
+        # Create the new agent YAML file
+        with open(os.path.join(memories_dir, agent_file), "w") as f:
+            f.write("")
+
+        return jsonify({"message": "Agent added", "agent_file": agent_file}), 200
 class GetAgents(Resource):
     def get(self):
         agents_list = CFG.AGENTS
@@ -78,6 +99,7 @@ class ExecuteTask(Resource):
         result = babyagi_instance.execution_agent(objective, task)
         return jsonify({"result": result}), 200
 
+api.add_resource(AddAgent, '/api/add_agent')
 api.add_resource(GetAgents, '/api/get_agents')
 api.add_resource(Instruct, '/api/instruct')
 api.add_resource(SetObjective, '/api/set_objective')
