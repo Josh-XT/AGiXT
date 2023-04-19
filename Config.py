@@ -55,6 +55,10 @@ class Config():
         self.GITHUB_API_KEY = os.getenv("GITHUB_API_KEY")
         self.GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
 
+        # Sendgrid
+        self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+        self.SENDGRID_EMAIL = os.getenv("SENDGRID_EMAIL")
+
         # Voice (Choose one: ElevenLabs, Brian, Mac OS)
         # Elevenlabs
         self.ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
