@@ -43,6 +43,8 @@ class Commands:
             formatted_params = {f"{k}": repr(v) for k, v in params.items()}
             commands_str += f'{i}. "{command_name}" - {command_function_name} {formatted_params}\n'
         # Get prompt from model-prompts/{CFG.AI_MODEL}/system.txt
+        if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
+            self.CFG.AI_MODEL = "default"
         with open(f"model-prompts/{self.CFG.AI_MODEL}/system.txt", "r") as f:
             system_prompt = f.read()
         system_prompt = system_prompt.replace("{COMMANDS}", commands_str)

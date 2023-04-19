@@ -25,7 +25,7 @@ class Config():
         # ChatGPT Configuration
         self.CHATGPT_USERNAME = os.getenv("CHATGPT_USERNAME")
         self.CHATGPT_PASSWORD = os.getenv("CHATGPT_PASSWORD")
-        
+
         self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
         if not os.path.exists(self.WORKING_DIRECTORY):
