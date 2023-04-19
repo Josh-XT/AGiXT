@@ -13,7 +13,6 @@ WORKING_DIRECTORY = str(WORKING_DIRECTORY)
 
 class file_operations(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Check Duplicate Operation": self.check_duplicate_operation,
             "Log Operation": self.log_operation,

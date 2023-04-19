@@ -9,7 +9,7 @@ class cicd(Commands):
             "Evaluate Code": self.evaluate_code,
             "Analyze Pull Request": self.analyze_pull_request,
             "Perform Automated Testing": self.perform_automated_testing,
-            "Run CI/CD Pipeline": self.run_ci_cd_pipeline,
+            "Run CI-CD Pipeline": self.run_ci_cd_pipeline,
             "Improve Code": self.improve_code,
             "Write Tests": self.write_tests,
         }

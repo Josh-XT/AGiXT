@@ -6,7 +6,6 @@ CFG = Config()
 
 class twitter(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Send Tweet": self.send_tweet
         }

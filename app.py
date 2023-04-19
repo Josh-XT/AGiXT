@@ -1,5 +1,6 @@
 import os
 import shutil
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from babyagi import babyagi
@@ -40,6 +41,13 @@ class AddAgent(Resource):
             i += 1
             agent_file = f"{agent_name}_{i}.yaml"
         with open(os.path.join(memories_dir, agent_file), "w") as f:
+            f.write("")
+        # Make agent/{agent_name}/config.json
+        agent_folder = "agents/{agent_name}"
+        if not os.path.exists(agent_folder):
+            os.makedirs(agent_folder)
+        agent_config = os.path.join(agent_folder, "config.json")
+        with open(agent_config, "w") as f:
             f.write("")
         return {"message": "Agent added", "agent_file": agent_file}, 200
 
@@ -133,6 +141,36 @@ class GetCommands(Resource):
         commands = Commands()
         commands_list = commands.get_commands_list()
         return jsonify({"commands": commands_list}, 200)
+    
+class GetAvailableCommands(Resource):
+    def get(self, agent_name):
+        available_commands = Commands(agent_name).get_available_commands()
+        return jsonify({"available_commands": available_commands}, 200)
+
+class EnableCommand(Resource):
+    def post(self, agent_name, command_name):
+        commands = Commands(agent_name)
+        commands.agent_config["commands"][command_name] = "true"
+        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+            json.dump(commands.agent_config, agent_config)
+        return jsonify({"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200)
+
+class DisableCommand(Resource):
+    def post(self, agent_name, command_name):
+        commands = Commands(agent_name)
+        commands.agent_config["commands"][command_name] = "false"
+        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+            json.dump(commands.agent_config, agent_config)
+        return jsonify({"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200)
+
+class DisableAllCommands(Resource):
+    def post(self, agent_name):
+        commands = Commands(agent_name)
+        for command_name in commands.agent_config["commands"]:
+            commands.agent_config["commands"][command_name] = "false"
+        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+            json.dump(commands.agent_config, agent_config)
+        return jsonify({"message": f"All commands disabled for agent '{agent_name}'."}, 200)
 
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
@@ -146,6 +184,10 @@ api.add_resource(CreateTask, '/api/create_task')
 api.add_resource(PrioritizeTasks, '/api/prioritize_tasks')
 api.add_resource(ExecuteTask, '/api/execute_task')
 api.add_resource(GetCommands, '/api/get_commands')
+api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
+api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
+api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
+api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
 
 if __name__ == '__main__':
     app.run(debug=True)

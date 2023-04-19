@@ -1,18 +1,69 @@
 import importlib
 import os
 import glob
+import json
 from inspect import signature, Parameter
 from Config import Config
 
 class Commands:
-    def __init__(self):
+    def __init__(self, agent_name: str = None, load_commands_flag: bool = True):
         self.CFG = Config()
-        self.commands = {}
+        if load_commands_flag:
+            self.commands = self.load_commands(agent_name)
+        self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
+        self.agent_folder = f"agents/{self.agent_name}"
+        if not os.path.exists(self.agent_folder):
+            os.makedirs(self.agent_folder)
+        self.agent_config_file = os.path.join(self.agent_folder, "config.json")
+        if not os.path.exists(self.agent_config_file):
+            with open(self.agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        with open(os.path.join("agents", self.agent_name, "config.json")) as agent_config:
+            self.agent_config = json.load(agent_config)
+        if self.agent_config == {} or "commands" not in self.agent_config:
+            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
+            agent_config_file = os.path.join("agents", self.agent_name, "config.json")
+            with open(agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        self.available_commands = self.get_available_commands()
+        self.CFG = Config()
+        if load_commands_flag:
+            self.commands = self.load_commands(agent_name)
+        if not agent_name:
+            self.agent_name = self.CFG.AGENT_NAME
+        else:
+            self.agent_name = agent_name
+        self.agent_folder = f"agents/{self.agent_name}"
+        if not os.path.exists(self.agent_folder):
+            os.makedirs(self.agent_folder)
+        self.agent_config_file = os.path.join(self.agent_folder, "config.json")
+        if not os.path.exists(self.agent_config_file):
+            with open(self.agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        with open(os.path.join("agents", self.agent_name, "config.json")) as agent_config:
+            self.agent_config = json.load(agent_config)
+        if self.agent_config == {}:
+            # Add all commands to agents/{agent_name}/config.json in this format {"command_name": "true"}
+            agent_config_file = os.path.join("agents", self.agent_name, "config.json")
+            with open(agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        self.available_commands = self.get_available_commands()
 
-    def load_commands(self):
+    def get_available_commands(self):
+        available_commands = []
+        for command in self.commands:
+            command_name, command_function_name, params = command
+            # Check content of "commands" agent_config for a list of command names with values of either true or false.
+            if "commands" in self.agent_config and command_name in self.agent_config["commands"]:
+                if self.agent_config["commands"][command_name] == "true":
+                    # Add command to list of commands to return
+                    available_commands.append(command)
+        return available_commands
+
+    def load_commands(self, agent_name: str = None):
         commands = []
         command_files = glob.glob("commands/*.py")
-        for command_file in command_files:
+        for command_file in command_files:    
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
             if issubclass(getattr(module, module_name), Commands):
@@ -37,7 +88,7 @@ class Commands:
         return params
 
     def get_prompt(self):
-        self.commands = self.load_commands()
+        self.commands = self.load_commands(agent_name=self.agent_name)
         commands_str = ""
         for i, (command_name, command_function_name, params) in enumerate(self.commands, 1):
             formatted_params = {f"{k}": repr(v) for k, v in params.items()}
@@ -59,6 +110,6 @@ class Commands:
         return None, None
 
     def get_commands_list(self):
-        self.commands = self.load_commands()
+        self.commands = self.load_commands(agent_name=self.agent_name)
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list

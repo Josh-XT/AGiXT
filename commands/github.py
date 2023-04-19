@@ -7,7 +7,6 @@ CFG = Config()
 
 class github(Commands):
     def __init__(self):
-        super().__init__()
         if CFG.GITHUB_USERNAME is None and CFG.GITHUB_API_KEY is None:
             self.commands = {
                 "Clone Github Repository": self.clone_repo,
