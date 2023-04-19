@@ -12,7 +12,6 @@ CFG = Config()
 
 class image_generator(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Generate Image": self.generate_image
         }

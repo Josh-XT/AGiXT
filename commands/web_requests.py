@@ -9,7 +9,6 @@ CFG = Config()
 
 class web_requests(Commands):
     def __init__(self):
-        super().__init__()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": CFG.AGENT_NAME})
         self.commands = {

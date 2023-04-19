@@ -10,7 +10,6 @@ CFG = Config()
 
 class voice(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Speak with TTS": self.speak
         }

@@ -3,7 +3,6 @@ from Commands import Commands
 
 class times(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Get Datetime": self.get_datetime
         }

@@ -9,7 +9,6 @@ CFG = Config()
 
 class web_playwright(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Scrape Text": self.scrape_text,
             "Scrape Links": self.scrape_links

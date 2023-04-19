@@ -8,7 +8,6 @@ import {
   Tab,
   Tabs,
 } from "@mui/material";
-import AgentCommandsList from "./AgentCommandsList";
 
 const AgentControls = ({
   darkMode,
@@ -187,20 +186,6 @@ const AgentControls = ({
           ))}
         </Paper>
       </Box>
-      <AgentCommandsList
-        commands={commands}
-        tabValue={tabValue}
-        setObjective={setObjective}
-        setInstruction={setInstruction}
-        objective={objective}
-        instruction={instruction}
-      />
-      <AgentCommandsList
-        commands={commands}
-        tabValue={tabValue}
-        setObjective={setObjective}
-        setInstruction={setInstruction}
-      />
     </>
   );
 };

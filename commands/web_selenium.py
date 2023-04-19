@@ -23,7 +23,6 @@ CFG = Config()
 
 class web_selenium(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Browse Website": self.browse_website
         }

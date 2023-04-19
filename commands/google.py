@@ -7,7 +7,6 @@ CFG = Config()
 
 class google(Commands):
     def __init__(self):
-        super().__init__()
         self.commands = {
             "Google Search": self.google_search,
             "Google Official Search": self.google_official_search

@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  Container,
-  Box,
-  Grid,
-  Typography,
-} from "@mui/material";
+import { Container, Box, Grid, Typography } from "@mui/material";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import AgentList from "./AgentList";
@@ -26,6 +21,7 @@ function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [agents, setAgents] = useState([]);
   const [commands, setCommands] = useState([]);
+  const [enabledCommands, setEnabledCommands] = useState({});
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [baseURI, setBaseURI] = useState("");
@@ -76,6 +72,12 @@ function App() {
       const response = await fetch(`${baseURI}/api/get_commands`);
       const data = await response.json();
       setCommands(data[0].commands);
+      setEnabledCommands(
+        data[0].commands.reduce(
+          (acc, command) => ({ ...acc, [command]: true }),
+          {}
+        )
+      );
     } catch (error) {
       console.error("Error fetching commands:", error);
     }
@@ -124,12 +126,60 @@ function App() {
     setLoading(false);
   };
 
+  const handleToggleCommand = async (command, agentName, isEnabled, baseURI) => {
+    if (isEnabled) {
+      await fetch(`${baseURI}/api/disable_command/${agentName}/${command}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    } else {
+      await fetch(`${baseURI}/api/enable_command/${agentName}/${command}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    }
+    setEnabledCommands((prevEnabledCommands) => ({
+      ...prevEnabledCommands,
+      [command]: !prevEnabledCommands[command],
+    }));
+  };
+
+  const handleToggleAllCommands = async (enabled, agentName, baseURI) => {
+    const updatedEnabledCommands = Object.keys(enabledCommands).reduce(
+      (acc, command) => ({ ...acc, [command]: enabled }),
+      {}
+    );
+    if (enabled) {
+      await fetch(`${baseURI}/api/disable_all_commands/${agentName}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    } else {
+      await fetch(`${baseURI}/api/enable_all_commands/${agentName}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    }
+    setEnabledCommands(updatedEnabledCommands);
+  };
+
   const theme = themeGenerator(darkMode);
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppHeader darkMode={darkMode} handleToggleDarkMode={handleToggleDarkMode} />
+      <AppHeader
+        darkMode={darkMode}
+        handleToggleDarkMode={handleToggleDarkMode}
+      />
       <Container maxWidth="lg">
         <Box sx={{ my: 4, display: "flex" }}>
           <Grid container spacing={2}>
@@ -163,15 +213,20 @@ function App() {
                 Available Commands:
               </Typography>
               <Typography variant="body2" gutterBottom>
-                Click on a command to insert it in the textbox.
+              Click on a command to insert it in the textbox.
               </Typography>
               <AgentCommandsList
                 commands={commands}
+                enabledCommands={enabledCommands}
+                handleToggleCommand={handleToggleCommand}
+                handleToggleAllCommands={handleToggleAllCommands}
                 tabValue={tabValue}
                 setObjective={setObjective}
                 setInstruction={setInstruction}
                 objective={objective}
                 instruction={instruction}
+                selectedAgent={selectedAgent}
+                baseURI={baseURI}
               />
             </Grid>
           </Grid>
