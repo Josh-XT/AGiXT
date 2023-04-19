@@ -2,6 +2,7 @@
 import argparse
 import time
 import re
+import os
 import sys
 import threading
 from collections import deque
@@ -45,6 +46,8 @@ class babyagi:
         self.prompter = AgentLLM()
 
     def load_prompts(self):
+        if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
+            self.CFG.AI_MODEL = "default"
         with open(f"model-prompts/{self.CFG.AI_MODEL}/execute.txt", "r") as f:
             self.execute_prompt = f.read()
         with open(f"model-prompts/{self.CFG.AI_MODEL}/task.txt", "r") as f:
