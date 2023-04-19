@@ -60,11 +60,8 @@ Access the web interface at http://localhost
 
 To run Agent-LLM without Docker:
 
-1. Launch the `main.py` script to initiate Agent-LLM:
-```
-python main.py
-```
-2. Set up and run the frontend:
+
+1. Set up and run the frontend:
    1. Head to the `frontend` folder.
    2. Execute the following command to install the necessary dependencies:
    ```
