@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 
 class YamlMemory:
-    def __init__(self, agent_name: str, memory_folder: str = "memories"):
+    def __init__(self, agent_name: str, memory_folder: str = "agents"):
         self.memory_folder = memory_folder
         self.memory_file = Path(memory_folder) / f"{agent_name}.yaml"
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)

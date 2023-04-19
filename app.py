@@ -32,7 +32,7 @@ app.register_blueprint(swaggerui_blueprint)
 
 class AddAgent(Resource):
     def post(self, agent_name):
-        memories_dir = "memories"
+        memories_dir = "agents"
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
         i = 0
@@ -42,19 +42,22 @@ class AddAgent(Resource):
             agent_file = f"{agent_name}_{i}.yaml"
         with open(os.path.join(memories_dir, agent_file), "w") as f:
             f.write("")
-        # Make agent/{agent_name}/config.json
-        agent_folder = "agents/{agent_name}"
+        # Make agents/{agent_name}/config.json
+        agent_folder = f"agents/{agent_name}"
         if not os.path.exists(agent_folder):
             os.makedirs(agent_folder)
         agent_config = os.path.join(agent_folder, "config.json")
         with open(agent_config, "w") as f:
-            f.write("")
+            commands = Commands(load_commands_flag=False)
+            commands_list = commands.get_commands_list()
+            config_data = {"commands": {command: "true" for command in commands_list}}
+            json.dump(config_data, f)
         return {"message": "Agent added", "agent_file": agent_file}, 200
 
 class DeleteAgent(Resource):
     def delete(self, agent_name):
-        agent_file = f"memories/{agent_name}.yaml"
-        agent_folder = f"memories/{agent_name}/"
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
 
@@ -70,7 +73,7 @@ class DeleteAgent(Resource):
 
 class GetAgents(Resource):
     def get(self):
-        memories_dir = "memories"
+        memories_dir = "agents"
         agents = []
         for file in os.listdir(memories_dir):
             if file.endswith(".yaml"):
@@ -81,16 +84,16 @@ class GetChatHistory(Resource):
     def get(self, agent_name):
         agent = AgentLLM()
         agent.CFG.AGENT_NAME = agent_name
-        with open(os.path.join("memories", f"{agent_name}.yaml"), "r") as f:
+        with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
             chat_history = f.read()
         return {"chat_history": chat_history}, 200
 
 class Instruct(Resource):
-    def post(self, agent_name, commands_enabled=True):
+    def post(self):
+        agent_name = request.json.get("agent_name")
         objective = request.json.get("prompt")
         agent = AgentLLM()
         agent.CFG.AGENT_NAME = agent_name
-        agent.CFG.COMMANDS_ENABLED = commands_enabled
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return {"response": str(response)}, 200
 
@@ -163,14 +166,29 @@ class DisableCommand(Resource):
             json.dump(commands.agent_config, agent_config)
         return jsonify({"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200)
 
+class EnableAllCommands(Resource):
+    def post(self, agent_name):
+        try:
+            commands = Commands(agent_name)
+            for command_name in commands.agent_config["commands"]:
+                commands.agent_config["commands"][command_name] = "false"
+            with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+                json.dump(commands.agent_config, agent_config)
+            return {"message": f"All commands disabled for agent '{agent_name}'."}, 200
+        except Exception as e:
+            return {"message": f"Error disabling all commands for agent '{agent_name}': {str(e)}"}, 500
+
 class DisableAllCommands(Resource):
     def post(self, agent_name):
-        commands = Commands(agent_name)
-        for command_name in commands.agent_config["commands"]:
-            commands.agent_config["commands"][command_name] = "false"
-        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
-            json.dump(commands.agent_config, agent_config)
-        return jsonify({"message": f"All commands disabled for agent '{agent_name}'."}, 200)
+        try:
+            commands = Commands(agent_name)
+            for command_name in commands.agent_config["commands"]:
+                commands.agent_config["commands"][command_name] = "true"
+            with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+                json.dump(commands.agent_config, agent_config)
+            return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
+        except Exception as e:
+            return {"message": f"Error enabling all commands for agent '{agent_name}': {str(e)}"}, 500
 
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
@@ -188,6 +206,7 @@ api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agen
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
 api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
+api.add_resource(EnableAllCommands, '/api/enable_all_commands/<string:agent_name>')
 
 if __name__ == '__main__':
     app.run(debug=True)

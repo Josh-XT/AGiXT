@@ -76,10 +76,9 @@ const AgentControls = ({
   
       setChatHistory((prevChatHistory) => [
         ...prevChatHistory,
-        `*****TASK LIST*****\n${data.task_list.map((task, index) => `${index + 1}. ${task.task_name}`).join('\n')}`,
-        `*****NEXT TASK*****\n${data.task.task_id}: ${data.task.task_name}`,
-        `*****RESULT*****\n${data.result}`,
-        `Endpoint Response: ${JSON.stringify(data)}`, // Add this line to log the endpoint response
+        `*****TASK LIST*****\n\n${data.task_list.map((task, index) => `${index + 1}. ${task.task_name}`).join('\n')}`,
+        `*****NEXT TASK*****\n\n${data.task.task_id}: ${data.task.task_name}`,
+        `*****RESULT*****\n\n${data.result}`
       ]);
   
       await new Promise((resolve) => setTimeout(resolve, 1000)); // Sleep for 1 second
@@ -89,15 +88,16 @@ const AgentControls = ({
     setTabValue(newValue);
   };
 
-  const InstructAgent = async (instruction) => {
-    // Call the Instruct API endpoint with the given instruction
-    const response = await fetch(`${baseURI}/api/instruct/${selectedAgent}/true`, {
+  const InstructAgent = async (instruction, agent_name) => {
+    // Call the Instruct API endpoint with the given instruction and agent_name
+    const response = await fetch(`${baseURI}/api/instruct`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         prompt: instruction,
+        agent_name: agent_name,
       }),
     });
   
@@ -114,13 +114,13 @@ const AgentControls = ({
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      await InstructAgent(instruction);
+      await InstructAgent(instruction, selectedAgent);
       setInstruction("");
     }
   };
 
   const handleSendInstruction = async () => {
-    await InstructAgent(instruction);
+    await InstructAgent(instruction, selectedAgent);
     setInstruction("");
   };
 

@@ -20,7 +20,7 @@ class AgentLLM:
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(api_key=self.CFG.OPENAI_API_KEY)
         else:
             self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-        self.chroma_persist_dir = f"memories/{agent_name}"
+        self.chroma_persist_dir = f"agents/{agent_name}/memories"
         self.chroma_client = chromadb.Client(
             settings=chromadb.config.Settings(
                 chroma_db_impl="duckdb+parquet",
