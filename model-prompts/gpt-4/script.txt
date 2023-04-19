@@ -5,15 +5,17 @@ If there is an available Python module to help with this, use it.
 Do not explain, this is not a conversation, put any usage examples necessary in the code comments in one single code block.
 
 Framework example:
+# pip install AgentLLM
 from typing import List
 from Commands import Commands
 from AgentLLM import AgentLLM
-
+from Config import Config
+CFG = Config()
 class agent_interactions(Commands):
     def __init__(self):
-        self.commands = {
-            "Ask AgentLLM": self.ask_the_agent
-        }
-
+        if CFG.AGENT_API_KEY:
+            self.commands = {
+                "Ask AgentLLM": self.ask_the_agent
+            }
     def ask_the_agent(self, prompt: str) -> List[str]:       
         return AgentLLM().run(prompt, commands_enabled=False)
