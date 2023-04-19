@@ -59,6 +59,11 @@ class Config():
         self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
         self.SENDGRID_EMAIL = os.getenv("SENDGRID_EMAIL")
 
+        # Microsft 365
+        self.MICROSOFT_365_CLIENT_ID = os.getenv("MICROSOFT_365_CLIENT_ID")
+        self.MICROSOFT_365_CLIENT_SECRET = os.getenv("MICROSOFT_365_CLIENT_SECRET")
+        self.MICROSOFT_365_REDIRECT_URI = os.getenv("MICROSOFT_365_REDIRECT_URI")
+
         # Voice (Choose one: ElevenLabs, Brian, Mac OS)
         # Elevenlabs
         self.ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
