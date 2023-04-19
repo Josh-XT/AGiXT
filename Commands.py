@@ -17,9 +17,13 @@ class Commands:
             module = importlib.import_module(f"commands.{module_name}")
             if issubclass(getattr(module, module_name), Commands):
                 command_class = getattr(module, module_name)()
-                for command_name, command_function in command_class.commands.items():
-                    params = self.get_command_params(command_function)
-                    commands.append((command_name, command_function.__name__, params))
+                if hasattr(command_class, 'commands'):
+                    for command_name, command_function in command_class.commands.items():
+                        params = self.get_command_params(command_function)
+                        commands.append((command_name, command_function.__name__, params))
+        if not commands:
+            # No commands imported for {module_name} due to missing configuration requirements.
+            return []
         return commands
 
     def get_command_params(self, func):
