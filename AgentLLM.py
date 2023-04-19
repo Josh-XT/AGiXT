@@ -50,13 +50,14 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False):
+    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
         if not self.CFG.NO_MEMORY:
             self.yaml_memory.log_interaction("USER", task)
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
-        if self.CFG.COMMANDS_ENABLED:
+        if commands_enabled:
+            # Need to check if 
             commands_prompt = self.commands.get_prompt()
             self.response = self.instruct(f"{commands_prompt}\n{prompt}")
         else:
