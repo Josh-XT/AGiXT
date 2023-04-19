@@ -7,15 +7,36 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 ## Key Features
 
 - Efficient management of long-term and short-term memory
+
 - Easily pluggable commands for extended functionality
+
 - Compatibility with multiple AI providers
+
+  - OpenAI GPT-3.5, GPT-4, ChatGPT
+
+  - Google Bard
+
+  - Microsoft Bing
+
+  - Oobabooga Text Generation Web UI
+
+  - llama.cpp
+
 - Web browsing capabilities
+
 - Command execution and code evaluation
+
 - Customizable plugin system with prompts for various AI models
+
 - Docker support for seamless deployment
+
 - Integration with Huggingface for audio-to-text conversion
+
 - Support for interacting with Twitter, GitHub, Google, DALL-E, and more growing fast.
+
 - Voice options for text-to-speech, including Brian TTS, Mac OS TTS, and ElevenLabs
+
+
 
 ## Web Application Features
 
