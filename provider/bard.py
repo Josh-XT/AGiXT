@@ -1,5 +1,3 @@
-import os
-import random
 from selenium import webdriver
 from Bard import Chatbot
 from Config import Config
