@@ -6,7 +6,7 @@ from inspect import signature, Parameter
 from Config import Config
 
 class Commands:
-    def __init__(self, agent_name: str = None, load_commands_flag: bool = True):
+    def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
         self.CFG = Config()
         if load_commands_flag:
             self.commands = self.load_commands(agent_name)

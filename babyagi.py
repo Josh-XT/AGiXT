@@ -153,22 +153,18 @@ class babyagi:
         self.prioritization_agent(this_task_id)
         return task
 
-    def run(self):
+    def run(self): # Main loop
         # Add the first task
         self.add_initial_task()
-
-        # Main loop
         while True:
             self.spinner.start()
             task = self.execute_next_task()
             self.spinner.stop()
             self.display_result(task)
-
             if not self.task_list:
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
-            time.sleep(1)  # Sleep before checking the task list again
-
+            time.sleep(0.5)  # Sleep before checking the task list again
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task Management System")

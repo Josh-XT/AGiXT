@@ -92,8 +92,7 @@ class Instruct(Resource):
     def post(self):
         agent_name = request.json.get("agent_name")
         objective = request.json.get("prompt")
-        agent = AgentLLM()
-        agent.CFG.AGENT_NAME = agent_name
+        agent = AgentLLM(agent_name)
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return {"response": str(response)}, 200
 

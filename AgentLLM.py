@@ -11,7 +11,7 @@ from commands.web_requests import web_requests
 from Commands import Commands
 
 class AgentLLM:
-    def __init__(self, agent_name: str = "Agent-LLM"):
+    def __init__(self, agent_name: str = "default"):
         self.CFG = Config()
         self.CFG.NO_MEMORY = False
         self.commands = Commands()
