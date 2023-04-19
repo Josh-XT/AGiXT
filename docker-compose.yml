@@ -2,27 +2,5 @@ version: '3.8'
 services:
   agent-llm:
     image: ghcr.io/josh-xt/agent-llm:main
-    environment:
-      - AGENT_NAME
-      - OBJECTIVE
-      - INITIAL_TASK
-      - AI_PROVIDER
-      - COMMANDS_ENABLED
-      - AI_MODEL
-      - AI_TEMPERATURE
-      - MAX_TOKENS
-      - WORKING_DIRECTORY
-      - OPENAI_API_KEY
-      - HUGGINGFACE_API_KEY
-      - HUGGINGFACE_AUDIO_TO_TEXT_MODEL
-      - SELENIUM_WEB_BROWSER
-      - TW_CONSUMER_KEY
-      - TW_CONSUMER_SECRET
-      - TW_ACCESS_TOKEN
-      - TW_ACCESS_TOKEN_SECRET
-      - GITHUB_API_KEY
-      - GITHUB_USERNAME
-      - USE_BRIAN_TTS
-      - USE_MAC_OS_TTS
-      - ELEVENLABS_API_KEY
-      - ELEVENLABS_VOICE
+    env_file:
+      - .env
