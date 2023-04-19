@@ -76,7 +76,7 @@ class babyagi:
         prompt = prompt.replace("{result}", str(result))
         prompt = prompt.replace("{task_description}", task_description)
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
-        response = self.prompter.run(prompt)
+        response = self.prompter.run(prompt, commands_enabled=False)
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -89,7 +89,7 @@ class babyagi:
         prompt = prompt.replace("{objective}", self.primary_objective)
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
-        response = self.prompter.run(prompt)
+        response = self.prompter.run(prompt, commands_enabled=False)
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
@@ -105,14 +105,17 @@ class babyagi:
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
 
-    def execution_agent(self, objective, task, context=None):
+    def execution_agent(self, objective, task, task_id, context=None):
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
-        self.response = self.prompter.run(prompt)
+        if task_id == 0:
+            self.response = self.prompter.run(prompt, commands_enabled=False)
+        else:
+            self.response = self.prompter.run(prompt)
         return self.response
 
     def display_result(self, task):
@@ -135,7 +138,7 @@ class babyagi:
             except:
                 this_task_id = 2
         this_task_name = task["task_name"]
-        self.response = self.execution_agent(self.primary_objective, task["task_name"])
+        self.response = self.execution_agent(self.primary_objective, this_task_name, this_task_id)
         new_tasks = self.task_creation_agent(
             self.primary_objective,
             { "data": self.response },
