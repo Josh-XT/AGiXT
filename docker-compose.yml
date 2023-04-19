@@ -1,14 +1,8 @@
 version: '3.8'
 
 services:
-  frontend:
-    build:
-      context: .
-      target: nginx
-    ports:
-      - 80:80
 
-  backend:
+  agent-llm:
     image: ghcr.io/josh-xt/agent-llm:main
     environment:
       - AGENT_NAME
