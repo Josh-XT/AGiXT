@@ -15,9 +15,9 @@ const AgentCommandsList = ({friendly_name, name, args, enabled, agent, refresh})
   const [open, setOpen] = useState(false);
   const [theArgs, setTheArgs] = useState({...args});
   const handleToggleCommand = async () => {
-    const endpoint = name === "all" ?
+    const endpoint = (name === "all" ?
       `${baseURI}/api/${enabled ? "disable" : "enable"}_all_commands/${agent}`:
-      `${baseURI}/api/${enabled ? "disable" : "enable"}_command/${agent}`;
+      `${baseURI}/api/${enabled ? "disable" : "enable"}_command/${agent}`);
 
       console.log(endpoint)
     fetch(endpoint, {
