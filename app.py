@@ -1,7 +1,7 @@
 import os
 import shutil
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from flask_cors import CORS
 from babyagi import babyagi
 from AgentLLM import AgentLLM
@@ -65,7 +65,7 @@ class DeleteAgent(Resource):
         try:
             os.remove(agent_file)
         except FileNotFoundError:
-            return jsonify({"message": f"Agent file {agent_file} not found."}), 404
+            return {"message": f"Agent file {agent_file} not found."}, 404
 
         if os.path.exists(agent_folder):
             shutil.rmtree(agent_folder)
@@ -117,12 +117,12 @@ class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
         commands_list = commands.get_commands_list()
-        return jsonify({"commands": commands_list}, 200)
+        return {"commands": commands_list}, 200
     
 class GetAvailableCommands(Resource):
     def get(self, agent_name):
         available_commands = Commands(agent_name).get_available_commands()
-        return jsonify({"available_commands": available_commands}, 200)
+        return {"available_commands": available_commands}, 200
 
 class EnableCommand(Resource):
     def post(self, agent_name, command_name):
@@ -130,7 +130,7 @@ class EnableCommand(Resource):
         commands.agent_config["commands"][command_name] = "true"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(commands.agent_config, agent_config)
-        return jsonify({"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200)
+        return {"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200
 
 class DisableCommand(Resource):
     def post(self, agent_name, command_name):
@@ -138,7 +138,7 @@ class DisableCommand(Resource):
         commands.agent_config["commands"][command_name] = "false"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(commands.agent_config, agent_config)
-        return jsonify({"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200)
+        return {"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200
 
 class EnableAllCommands(Resource):
     def post(self, agent_name):
