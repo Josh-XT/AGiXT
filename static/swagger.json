@@ -208,7 +208,7 @@
                 }
             }
         },
-        "/api/enable_command/{agent_name}/{command_name}": {
+        "/api/enable_command/{agent_name}": {
             "post": {
                 "summary": "Enable a command",
                 "description": "Enable a command for the specified agent.",
@@ -218,14 +218,13 @@
                         "name": "agent_name",
                         "type": "string",
                         "required": true,
-                        "description": "The name of the agent for which to enable the command."
+                        "description": "The name of the agent for which to disable the command."
                     },
                     {
-                        "in": "path",
+                        "in": "body",
                         "name": "command_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the command to enable."
+                        "description": "The name of the command to disable.",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -238,7 +237,7 @@
                 }
             }
         },
-        "/api/disable_command/{agent_name}/{command_name}": {
+        "/api/disable_command/{agent_name}": {
             "post": {
                 "summary": "Disable a command",
                 "description": "Disable a command for the specified agent.",
@@ -251,11 +250,10 @@
                         "description": "The name of the agent for which to disable the command."
                     },
                     {
-                        "in": "path",
+                        "in": "body",
                         "name": "command_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the command to disable."
+                        "description": "The name of the command to disable.",
+                        "required": true
                     }
                 ],
                 "responses": {
