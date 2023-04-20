@@ -332,9 +332,9 @@ api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
 # Output: {"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}
-api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
+api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
-api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
+api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>')
 # Output: {"message": "Command 'command1' disabled for agent 'agent1'"}
 api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
 # Output: {"message": "All commands disabled for agent 'agent1'"}
