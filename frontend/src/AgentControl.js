@@ -101,7 +101,7 @@ const AgentControl = ({agent, data, running, toggleRunning, objective, setObject
         </>
       )}
       <Typography variant="h6" gutterBottom>
-          Chat History
+          {tabValue === 0?"Objective Work Log":"Instruction Chat History"}
         </Typography>
         <Paper
           elevation={3}
