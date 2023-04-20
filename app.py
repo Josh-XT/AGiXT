@@ -117,12 +117,12 @@ class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
         commands_list = commands.get_commands_list()
-        return {"commands": commands_list}, 200
-    
+        return {"commands": json.dumps(commands_list)}, 200
+
 class GetAvailableCommands(Resource):
     def get(self, agent_name):
         available_commands = Commands(agent_name).get_available_commands()
-        return {"available_commands": available_commands}, 200
+        return {"commands": available_commands}, 200
 
 class EnableCommand(Resource):
     def post(self, agent_name, command_name):
