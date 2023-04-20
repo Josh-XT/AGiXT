@@ -20,7 +20,7 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
   - [Configuration](#configuration)
     - [Docker Setup (Recommended)](#docker-setup-recommended)
     - [Local Setup (Alternative)](#local-setup-alternative)
-  - [API Endpoints](#api-endpoints)
+- [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
@@ -157,69 +157,99 @@ To run Agent-LLM without Docker:
    npm start
    ```
 
-## API Endpoints
+# API Endpoints
 
 Agent-LLM provides several API endpoints for managing agents, setting objectives, managing tasks, and more. The following are the available API endpoints:
 
-1. **Add Agent**: `/api/add_agent/<string:agent_name>` (POST)
+1. **Get Agents**: `/api/get_agents` (GET)
+
+   Retrieves a list of all available agents.
+   
+   Output: `{"agents": ["agent1", "agent2", "agent3"]}`
+
+2. **Add Agent**: `/api/add_agent/<string:agent_name>` (POST)
 
    Adds a new agent with the given agent name.
 
-2. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
+   Output: `{"message": "Agent 'agent1' added"}`
+   
+3. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
 
    Deletes an existing agent with the given agent name.
 
-3. **Get Agents**: `/api/get_agents` (GET)
+   Output: `{"message": "Agent 'agent1' deleted"}`
 
-   Retrieves a list of all available agents.
-
-4. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
-
-   Retrieves the chat history of an agent with the given agent name.
-
-5. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
-
-   Sends an instruction prompt to the agent and receives a response.
-
-6. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
+4. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
 
    Retrieves a list of available commands.
 
-7. **Get Available Commands**: `/api/get_available_commands/<string:agent_name>` (GET)
+   Output: `{"commands": ["command1", "command2", "command3"]}`
+
+5. **Get Available Commands**: `/api/get_available_commands/<string:agent_name>` (GET)
 
    Retrieves a list of enabled commands for a specific agent.
 
-8. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
+   Output: `{"commands": ["command1", "command2", "command3"]}`
+
+6. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Enables a specific command for an agent.
 
-9. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
+   Output: `{"message": "Command 'command1' enabled for agent 'agent1'"}`
+
+7. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Disables a specific command for an agent.
 
-10. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
+   Output: `{"message": "Command 'command1' disabled for agent 'agent1'"}`
+
+8. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
 
     Disables all commands for an agent.
 
-11. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
+    Output: `{"message": "All commands disabled for agent 'agent1'"}`
+
+9. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
 
     Enables all commands for an agent.
+
+    Output: `{"message": "All commands enabled for agent 'agent1'"}`
+
+10. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
+
+    Retrieves the chat history of an agent with the given agent name.
+
+    Output: `{"chat_history": ["chat1", "chat2", "chat3"]}`
+
+11. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
+
+    Sends an instruction prompt to the agent and receives a response.
+
+    Output: `{"message": "Prompt sent to agent 'agent1'"}`
 
 12. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
 
     Starts the task agent with the given agent name and objective.
 
+    Output: `{"message": "Task agent 'agent1' started"}`
+
 13. **Stop Task Agent**: `/api/task/stop/<string:agent_name>` (POST)
 
     Stops the task agent with the given agent name.
+
+    Output: `{"message": "Task agent 'agent1' stopped"}`
 
 14. **Get Task Output**: `/api/task/output/<string:agent_name>` (GET)
 
     Retrieves the output of the task agent with the given agent name.
 
+    Output: `{"output": "output"}`
+
 15. **Get Task Status**: `/api/task/status/<string:agent_name>` (GET)
 
     Retrieves the status of the task agent with the given agent name.
+
+    Output: `{"status": "status"}`
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
