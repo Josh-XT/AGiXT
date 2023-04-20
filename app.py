@@ -9,12 +9,16 @@ from Config import Config
 from flask_restful import Api, Resource
 from flask_swagger_ui import get_swaggerui_blueprint
 from Commands import Commands
+import threading
+from threading import Lock
 
 CFG = Config()
 app = Flask(__name__)
 CORS(app)
 api = Api(app)
-
+babyagi_instances = {}
+babyagi_outputs = {}
+output_lock = Lock()
 SWAGGER_URL = '/api/docs'
 API_URL = '/static/swagger.json'
 
@@ -147,27 +151,42 @@ class DisableAllCommands(Resource):
 class StartTaskAgent(Resource):
     def post(self, agent_name):
         objective = request.json.get("objective")
-        babyagi_instance = babyagi(agent_name)
+        if agent_name not in babyagi_instances:
+            babyagi_instances[agent_name] = babyagi()
+        babyagi_instance = babyagi_instances[agent_name]
+        babyagi_instance.set_agent_name(agent_name)  # Set the agent_name for the babyagi instance
         babyagi_instance.set_objective(objective)
-        babyagi_instance.run()
+        agent_thread = threading.Thread(target=babyagi_instance.run)
+        agent_thread.start()
         return {"message": "Task agent started"}, 200
 
 class StopTaskAgent(Resource):
     def post(self, agent_name):
-        babyagi_instance = babyagi(agent_name)
+        if agent_name not in babyagi_instances:
+            return {"message": "Task agent not found"}, 404
+        babyagi_instance = babyagi_instances[agent_name]
         babyagi_instance.stop_running()
         return {"message": "Task agent stopped"}, 200
 
 class GetTaskOutput(Resource):
     def get(self, agent_name):
-        babyagi_instance = babyagi(agent_name)
+        if agent_name not in babyagi_instances:
+            return {"message": "Task agent not found"}, 404
+        babyagi_instance = babyagi_instances[agent_name]
         output = babyagi_instance.get_output()
-        print(f"Output: {output}")
+        with open(os.path.join("model-prompts", "default", "system.txt"), "r") as f:
+            system_prompt = f.read()
+        if system_prompt in output:
+            output = output.replace(system_prompt, "")
+        if babyagi_instance.get_status():
+            return {"output": output, "message": "Task agent is still running"}, 200
         return {"output": output}, 200
 
 class GetTaskStatus(Resource):
     def get(self, agent_name):
-        babyagi_instance = babyagi(agent_name)
+        if agent_name not in babyagi_instances:
+            return {"message": "Task agent not found"}, 404
+        babyagi_instance = babyagi_instances[agent_name]
         status = babyagi_instance.get_status()
         return {"status": status}, 200
 
