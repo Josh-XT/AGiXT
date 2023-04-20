@@ -178,55 +178,61 @@ Agent-LLM provides several API endpoints for managing agents, managing tasks, an
 
    Output: `{"message": "Agent 'agent1' added"}`
 
-3. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
+3. **Rename Agent**: `/api/rename_agent/<string:agent_name>/<string:new_agent_name>` (POST)
+
+   Renames an existing agent to a new name.
+
+   Output: `{"message": "Agent 'agent1' renamed to 'agent2'"}`
+
+4. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
 
    Deletes an existing agent with the given agent name.
 
    Output: `{"message": "Agent 'agent1' deleted"}`
 
-4. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
+5. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
 
    Retrieves a list of available commands for an agent.
 
    Output: `{"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}`
 
-5. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
+6. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Enables a specific command for an agent.
 
    Output: `{"message": "Command 'command1' enabled for agent 'agent1'"}`
 
-6. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
+7. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Disables a specific command for an agent.
 
    Output: `{"message": "Command 'command1' disabled for agent 'agent1'"}`
 
-7. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
+8. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
 
     Disables all commands for an agent.
 
     Output: `{"message": "All commands disabled for agent 'agent1'"}`
 
-8. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
+9. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
 
     Enables all commands for an agent.
 
     Output: `{"message": "All commands enabled for agent 'agent1'"}`
 
-9. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
+10. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
 
     Retrieves the chat history of an agent with the given agent name.
 
     Output: `{"chat_history": ["chat1", "chat2", "chat3"]}`
 
-10. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
+11. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
 
     Sends an instruction prompt to the agent and receives a response.
 
     Output: `{"message": "Prompt sent to agent 'agent1'"}`
 
-11. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
+12. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
 
     Wipes the memories of an agent with the given agent name.
 
@@ -234,25 +240,25 @@ Agent-LLM provides several API endpoints for managing agents, managing tasks, an
 
 ### Task Management
 
-12. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
+13. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
 
     Starts the task agent with the given agent name and objective.
 
     Output: `{"message": "Task agent 'agent1' started"}`
 
-13. **Stop Task Agent**: `/api/task/stop/<string:agent_name>` (POST)
+14. **Stop Task Agent**: `/api/task/stop/<string:agent_name>` (POST)
 
     Stops the task agent with the given agent name.
 
     Output: `{"message": "Task agent 'agent1' stopped"}`
 
-14. **Get Task Output**: `/api/task/output/<string:agent_name>` (GET)
+15. **Get Task Output**: `/api/task/output/<string:agent_name>` (GET)
 
     Retrieves the output of the task agent with the given agent name.
 
     Output: `{"output": "output"}`
 
-15. **Get Task Status**: `/api/task/status/<string:agent_name>` (GET)
+16. **Get Task Status**: `/api/task/status/<string:agent_name>` (GET)
 
     Retrieves the status of the task agent with the given agent name.
 
@@ -260,49 +266,49 @@ Agent-LLM provides several API endpoints for managing agents, managing tasks, an
 
 ### Chain Management
 
-16. **Get Chains**: `/api/get_chains` (GET)
+17. **Get Chains**: `/api/get_chains` (GET)
 
     Retrieves all available chains.
 
     Output: `{chain_name: {step_number: {prompt_type: prompt}}}`
 
-17. **Get Chain**: `/api/get_chain` (GET)
+18. **Get Chain**: `/api/get_chain` (GET)
 
     Retrieves a specific chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-18. **Add Chain**: `/api/add_chain` (POST)
+19. **Add Chain**: `/api/add_chain` (POST)
 
     Adds a new chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-19. **Add Chain Step**: `/api/add_chain_step` (POST)
+20. **Add Chain Step**: `/api/add_chain_step` (POST)
 
     Adds a step to an existing chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-20. **Update Step**: `/api/update_step` (POST)
+21. **Update Step**: `/api/update_step` (POST)
 
     Updates a step in an existing chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-21. **Delete Chain**: `/api/delete_chain` (DELETE)
+22. **Delete Chain**: `/api/delete_chain` (DELETE)
 
     Deletes a specific chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-22. **Delete Chain Step**: `/api/delete_chain_step/<string:step_number>` (DELETE)
+23. **Delete Chain Step**: `/api/delete_chain_step/<string:step_number>` (DELETE)
 
     Deletes a step from an existing chain.
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-23. **Run Chain**: `/api/run_chain/<string:agent_name>` (POST)
+24. **Run Chain**: `/api/run_chain/<string:agent_name>` (POST)
 
     Runs a specific chain for an agent.
 

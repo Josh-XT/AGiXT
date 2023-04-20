@@ -133,7 +133,8 @@ class GetCommands(Resource):
         return {"commands": available_commands}, 200
 
 class EnableCommand(Resource):
-    def post(self, agent_name, command_name):
+    def post(self, agent_name):
+        command_name = request.json.get("command_name")
         commands = Commands(agent_name)
         commands.agent_config["commands"][command_name] = "true"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
@@ -141,7 +142,8 @@ class EnableCommand(Resource):
         return {"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200
 
 class DisableCommand(Resource):
-    def post(self, agent_name, command_name):
+    def post(self, agent_name):
+        command_name = request.json.get("command_name")
         commands = Commands(agent_name)
         commands.agent_config["commands"][command_name] = "false"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:

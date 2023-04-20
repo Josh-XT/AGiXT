@@ -54,6 +54,33 @@
                 }
             }
         },
+        "/api/rename_agent/{agent_name}/{new_name}": {
+            "post": {
+                "summary": "Rename agent",
+                "description": "Rename an agent from agent_name to new_name.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "agent_name",
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of agent."
+                    },
+                    {
+                        "in": "path",
+                        "name": "new_name",
+                        "type": "string",
+                        "required": true,
+                        "description": "The new name of the agent."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Agent renamed successfully."
+                    }
+                }
+            }
+        },
         "/api/delete_agent/{agent_name}": {
             "delete": {
                 "summary": "Delete an agent",

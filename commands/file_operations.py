@@ -16,8 +16,6 @@ class file_operations(Commands):
         self.commands = {
             "Check Duplicate Operation": self.check_duplicate_operation,
             "Log Operation": self.log_operation,
-            "Safe Join": self.safe_join,
-            "Split File": self.split_file,
             "Read File": self.read_file,
             "Ingest File": self.ingest_file,
             "Write to File": self.write_to_file,
