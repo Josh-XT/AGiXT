@@ -20,7 +20,10 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
   - [Configuration](#configuration)
     - [Docker Setup (Recommended)](#docker-setup-recommended)
     - [Local Setup (Alternative)](#local-setup-alternative)
-- [API Endpoints](#api-endpoints)
+  - [API Endpoints](#api-endpoints)
+    - [Agent Management](#agent-management)
+    - [Task Management](#task-management)
+    - [Chain Management](#chain-management)
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
@@ -157,9 +160,11 @@ To run Agent-LLM without Docker:
    npm start
    ```
 
-# API Endpoints
+## API Endpoints
 
-Agent-LLM provides several API endpoints for managing agents, setting objectives, managing tasks, and more. The following are the available API endpoints:
+Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains. The following are the available API endpoints:
+
+### Agent Management
 
 1. **Get Agents**: `/api/get_agents` (GET)
 
@@ -172,7 +177,7 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
    Adds a new agent with the given agent name.
 
    Output: `{"message": "Agent 'agent1' added"}`
-   
+
 3. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
 
    Deletes an existing agent with the given agent name.
@@ -181,51 +186,53 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
 4. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
 
-   Retrieves a list of available commands.
+   Retrieves a list of available commands for an agent.
 
-   Output: `{"commands": ["command1", "command2", "command3"]}`
+   Output: `{"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}`
 
-5. **Get Available Commands**: `/api/get_available_commands/<string:agent_name>` (GET)
-
-   Retrieves a list of enabled commands for a specific agent.
-
-   Output: `{"commands": ["command1", "command2", "command3"]}`
-
-6. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
+5. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Enables a specific command for an agent.
 
    Output: `{"message": "Command 'command1' enabled for agent 'agent1'"}`
 
-7. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
+6. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Disables a specific command for an agent.
 
    Output: `{"message": "Command 'command1' disabled for agent 'agent1'"}`
 
-8. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
+7. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
 
     Disables all commands for an agent.
 
     Output: `{"message": "All commands disabled for agent 'agent1'"}`
 
-9. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
+8. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
 
     Enables all commands for an agent.
 
     Output: `{"message": "All commands enabled for agent 'agent1'"}`
 
-10. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
+9. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
 
     Retrieves the chat history of an agent with the given agent name.
 
     Output: `{"chat_history": ["chat1", "chat2", "chat3"]}`
 
-11. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
+10. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
 
     Sends an instruction prompt to the agent and receives a response.
 
     Output: `{"message": "Prompt sent to agent 'agent1'"}`
+
+11. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
+
+    Wipes the memories of an agent with the given agent name.
+
+    Output: `{"message": "Agent 'agent1' memories wiped"}`
+
+### Task Management
 
 12. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
 
@@ -251,11 +258,55 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
     Output: `{"status": "status"}`
 
-16. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
+### Chain Management
 
-    Wipes the memories of an agent with the given agent name.
+16. **Get Chains**: `/api/get_chains` (GET)
 
-    Output: `{"message": "Agent 'agent1' memories wiped"}`
+    Retrieves all available chains.
+
+    Output: `{chain_name: {step_number: {prompt_type: prompt}}}`
+
+17. **Get Chain**: `/api/get_chain` (GET)
+
+    Retrieves a specific chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+18. **Add Chain**: `/api/add_chain` (POST)
+
+    Adds a new chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+19. **Add Chain Step**: `/api/add_chain_step` (POST)
+
+    Adds a step to an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+20. **Update Step**: `/api/update_step` (POST)
+
+    Updates a step in an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+21. **Delete Chain**: `/api/delete_chain` (DELETE)
+
+    Deletes a specific chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+22. **Delete Chain Step**: `/api/delete_chain_step/<string:step_number>` (DELETE)
+
+    Deletes a step from an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+23. **Run Chain**: `/api/run_chain/<string:agent_name>` (POST)
+
+    Runs a specific chain for an agent.
+
+    Output: `{step_number: {prompt_type: prompt}}`
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
