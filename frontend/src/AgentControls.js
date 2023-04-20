@@ -7,6 +7,7 @@ import {
   Button,
   Tab,
   Tabs,
+  CircularProgress,
 } from "@mui/material";
 
 const AgentControls = ({
@@ -24,6 +25,8 @@ const AgentControls = ({
   setInstruction,
 }) => {
   const [baseURI, setBaseURI] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isTaskRunning, setIsTaskRunning] = useState(false);
 
   async function getBaseURI() {
     try {
@@ -44,52 +47,50 @@ const AgentControls = ({
     setURI();
   }, []);
 
-  const run = async () => {
-    // Set the objective
-    const setObjResponse = await fetch(`${baseURI}/api/set_objective`, {
+  useEffect(() => {
+    const getOutput = async () => {
+      if (isTaskRunning) {
+        setIsLoading(true);
+        const response = await fetch(`${baseURI}/api/task/output/${selectedAgent}`);
+        const data = await response.json();
+        console.log(data)
+        if (data.output && data.output.length > 0) {
+          setChatHistory((prevChatHistory) => [
+            ...prevChatHistory,
+            ...data.output.map((output) => `Output: ${output}`),
+          ]);
+        }
+  
+        setIsLoading(false);
+        setTimeout(getOutput, 2000);
+      }
+    };
+  
+    getOutput();
+    return () => clearTimeout(getOutput);
+  }, [isTaskRunning, baseURI, setChatHistory, chatHistory, selectedAgent]);
+
+  const startTask = async () => {
+    setIsTaskRunning(true);
+    await fetch(`${baseURI}/api/task/start/${selectedAgent}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ objective }),
+      body: JSON.stringify({ objective: objective }),
     });
-  
-    const setObjData = await setObjResponse.json();
-    setChatHistory((prevChatHistory) => [
-      ...prevChatHistory,
-      `Setting Objective: ${objective}`,
-      `Endpoint Response: ${JSON.stringify(setObjData)}`,
-    ]);
-  
-    while (true) {
-      // Execute the next task
-      const response = await fetch(`${baseURI}/api/execute_next_task`);
-      const data = await response.json();
-  
-      if (!data.task || !data.result) {
-        setChatHistory((prevChatHistory) => [
-          ...prevChatHistory,
-          '*****ALL TASKS COMPLETE*****',
-        ]);
-        break;
-      }
-  
-      setChatHistory((prevChatHistory) => [
-        ...prevChatHistory,
-        `*****TASK LIST*****\n\n${data.task_list.map((task, index) => `${index + 1}. ${task.task_name}`).join('\n')}`,
-        `*****NEXT TASK*****\n\n${data.task.task_id}: ${data.task.task_name}`,
-        `*****RESULT*****\n\n${data.result}`
-      ]);
-  
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Sleep for 1 second
-    }
   };
+
+  const stopTask = async () => {
+    setIsTaskRunning(false);
+    await fetch(`${baseURI}/api/task/stop/${selectedAgent}`, { method: "POST" });
+  };
+
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
 
   const InstructAgent = async (instruction, agent_name) => {
-    // Call the Instruct API endpoint with the given instruction and agent_name
     const response = await fetch(`${baseURI}/api/instruct`, {
       method: "POST",
       headers: {
@@ -100,10 +101,9 @@ const AgentControls = ({
         agent_name: agent_name,
       }),
     });
-  
+
     const data = await response.json();
     const output = data.response;
-    // Update the chat history with the instruction and the response
     setChatHistory((prevChatHistory) => [
       ...prevChatHistory,
       `You: ${instruction}`,
@@ -126,6 +126,11 @@ const AgentControls = ({
 
   return (
     <>
+      {isLoading && (
+        <Box display="flex" justifyContent="center" mt={2}>
+          <CircularProgress />
+        </Box>
+      )}
       <Tabs value={tabValue} onChange={handleTabChange}>
         <Tab label="Task Manager" />
         <Tab label="Instruct" />
@@ -139,14 +144,25 @@ const AgentControls = ({
             onChange={(e) => setObjective(e.target.value)}
             sx={{ mb: 2 }}
           />
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => run(selectedAgent)}
-            fullWidth
-          >
-            Start Task
-          </Button>
+          {isTaskRunning ? (
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={stopTask}
+              fullWidth
+            >
+              Stop Task
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={startTask}
+              fullWidth
+            >
+              Start Task
+            </Button>
+          )}
         </>
       )}
       {tabValue === 1 && (
