@@ -2,7 +2,12 @@
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI GPT-3.5, GPT-4, ChatGPT](https://openai.com/), [Google Bard](https://bard.google.com), [Microsoft Bing](https://bing.com), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases. The list of providers will continue to grow.
 
+[<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" height="70" style="margin: 0 10px">](https://discord.gg/vfXjyuKZ)[<img src="https://img.freepik.com/free-icon/twitter_318-674515.jpg" height="70" style="margin: 0 10px">](https://twitter.com/Josh_XT)[<img src="https://qph.cf2.quoracdn.net/main-qimg-729a22aba98d1235fdce4883accaf81e" height="70" style="margin: 0 10px">](https://github.com/Josh-XT/Agent-LLM)
+
+⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs.  We're NOT responsible for your usage under any circumstance.**
+
 ![image](https://user-images.githubusercontent.com/102809327/233168030-58c263f8-c1f4-4426-acaf-e1c4a662cc4e.png)
+
 
 ⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
@@ -18,6 +23,9 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
     - [Docker Setup (Recommended)](#docker-setup-recommended)
     - [Local Setup (Alternative)](#local-setup-alternative)
   - [API Endpoints](#api-endpoints)
+    - [Agent Management](#agent-management)
+    - [Task Management](#task-management)
+    - [Chain Management](#chain-management)
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
@@ -25,6 +33,7 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
   - [Project Structure](#project-structure)
   - [Acknowledgments](#acknowledgments)
   - [Contributing](#contributing)
+  - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
 
 ## Key Features
@@ -155,67 +164,157 @@ To run Agent-LLM without Docker:
 
 ## API Endpoints
 
-Agent-LLM provides several API endpoints for managing agents, setting objectives, managing tasks, and more. The following are the available API endpoints:
+Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains. The following are the available API endpoints:
 
-1. **Add Agent**: `/api/add_agent` (POST)
+### Agent Management
+
+1. **Get Agents**: `/api/get_agents` (GET)
+
+   Retrieves a list of all available agents.
+   
+   Output: `{"agents": ["agent1", "agent2", "agent3"]}`
+
+2. **Add Agent**: `/api/add_agent/<string:agent_name>` (POST)
 
    Adds a new agent with the given agent name.
 
-2. **Delete Agent**: `/api/delete_agent` (DELETE)
+   Output: `{"message": "Agent 'agent1' added"}`
+
+3. **Rename Agent**: `/api/rename_agent/<string:agent_name>/<string:new_agent_name>` (POST)
+
+   Renames an existing agent to a new name.
+
+   Output: `{"message": "Agent 'agent1' renamed to 'agent2'"}`
+
+4. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
 
    Deletes an existing agent with the given agent name.
 
-3. **Get Agents**: `/api/get_agents` (GET)
+   Output: `{"message": "Agent 'agent1' deleted"}`
 
-   Retrieves a list of all available agents.
+5. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
 
-4. **Get Chat History**: `/api/get_chat_history` (GET)
+   Retrieves a list of available commands for an agent.
 
-   Retrieves the chat history of an agent with the given agent name.
+   Output: `{"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}`
 
-5. **Instruct**: `/api/instruct` (POST)
-
-   Sends an instruction prompt to the agent and receives a response.
-
-6. **Get Commands**: `/api/get_commands` (GET)
-
-   Retrieves a list of available commands.
-
-7. **Get Available Commands**: `/api/get_available_commands` (GET)
-
-   Retrieves a list of enabled commands for a specific agent.
-
-8. **Enable Command**: `/api/enable_command` (POST)
+6. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Enables a specific command for an agent.
 
-9. **Disable Command**: `/api/disable_command` (POST)
+   Output: `{"message": "Command 'command1' enabled for agent 'agent1'"}`
+
+7. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Disables a specific command for an agent.
 
-10. **Disable All Commands**: `/api/disable_all_commands` (POST)
+   Output: `{"message": "Command 'command1' disabled for agent 'agent1'"}`
+
+8. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
 
     Disables all commands for an agent.
 
-11. **Enable All Commands**: `/api/enable_all_commands`(POST)
+    Output: `{"message": "All commands disabled for agent 'agent1'"}`
+
+9. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
 
     Enables all commands for an agent.
 
-12. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
+    Output: `{"message": "All commands enabled for agent 'agent1'"}`
+
+10. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
+
+    Retrieves the chat history of an agent with the given agent name.
+
+    Output: `{"chat_history": ["chat1", "chat2", "chat3"]}`
+
+11. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
+
+    Sends an instruction prompt to the agent and receives a response.
+
+    Output: `{"message": "Prompt sent to agent 'agent1'"}`
+
+12. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
+
+    Wipes the memories of an agent with the given agent name.
+
+    Output: `{"message": "Agent 'agent1' memories wiped"}`
+
+### Task Management
+
+13. **Start Task Agent**: `/api/task/start/<string:agent_name>` (POST)
 
     Starts the task agent with the given agent name and objective.
 
-13. **Stop Task Agent**: `/api/task/stop/<string:agent_name>` (POST)
+    Output: `{"message": "Task agent 'agent1' started"}`
+
+14. **Stop Task Agent**: `/api/task/stop/<string:agent_name>` (POST)
 
     Stops the task agent with the given agent name.
 
-14. **Get Task Output**: `/api/task/output/<string:agent_name>` (GET)
+    Output: `{"message": "Task agent 'agent1' stopped"}`
+
+15. **Get Task Output**: `/api/task/output/<string:agent_name>` (GET)
 
     Retrieves the output of the task agent with the given agent name.
 
-15. **Get Task Status**: `/api/task/status/<string:agent_name>` (GET)
+    Output: `{"output": "output"}`
+
+16. **Get Task Status**: `/api/task/status/<string:agent_name>` (GET)
 
     Retrieves the status of the task agent with the given agent name.
+
+    Output: `{"status": "status"}`
+
+### Chain Management
+
+17. **Get Chains**: `/api/get_chains` (GET)
+
+    Retrieves all available chains.
+
+    Output: `{chain_name: {step_number: {prompt_type: prompt}}}`
+
+18. **Get Chain**: `/api/get_chain` (GET)
+
+    Retrieves a specific chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+19. **Add Chain**: `/api/add_chain` (POST)
+
+    Adds a new chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+20. **Add Chain Step**: `/api/add_chain_step` (POST)
+
+    Adds a step to an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+21. **Update Step**: `/api/update_step` (POST)
+
+    Updates a step in an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+22. **Delete Chain**: `/api/delete_chain` (DELETE)
+
+    Deletes a specific chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+23. **Delete Chain Step**: `/api/delete_chain_step/<string:step_number>` (DELETE)
+
+    Deletes a step from an existing chain.
+
+    Output: `{step_number: {prompt_type: prompt}}`
+
+24. **Run Chain**: `/api/run_chain/<string:agent_name>` (POST)
+
+    Runs a specific chain for an agent.
+
+    Output: `{step_number: {prompt_type: prompt}}`
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
@@ -262,6 +361,11 @@ Please consider exploring and contributing to these projects as well.
 ## Contributing
 
 We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+
+## Donations and Sponsorships
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@Josh_XT](https://twitter.com/Josh_XT).
+
+We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 
 ## Usage
 

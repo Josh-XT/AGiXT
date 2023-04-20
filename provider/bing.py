@@ -1,7 +1,7 @@
-import httpx
 import json
-import websockets.client as websockets
 import ssl
+import httpx
+import websockets.client as websockets
 from selenium import webdriver
 from Config import Config
 
@@ -29,7 +29,7 @@ class AIProvider:
             raise Exception("Authentication failed")
         return response.json()
 
-    async def instruct(self, prompt: str):
+    def instruct(self, prompt: str):
         if CFG.BING_CONVERSATION_STYLE == "creative":
             style_value = "h3imaginative,clgalileo,gencontentv3"
         elif CFG.BING_CONVERSATION_STYLE == "balanced":
@@ -39,9 +39,9 @@ class AIProvider:
         else:
             style_value = "galileo"
 
-        async with websockets.connect(self.wss_link, ssl=ssl.create_default_context()) as websocket:
-            await websocket.send(json.dumps({"protocol": "json", "version": 1}))
-            await websocket.recv()
+        with websockets.connect(self.wss_link, ssl=ssl.create_default_context()) as websocket:
+            websocket.send(json.dumps({"protocol": "json", "version": 1}))
+            websocket.recv()
             request = {
                 "arguments": [
                     {
@@ -63,7 +63,7 @@ class AIProvider:
                 "target": "chat",
                 "type": 4,
             }
-            await websocket.send(json.dumps(request))
-            response = await websocket.recv()
+            websocket.send(json.dumps(request))
+            response = websocket.recv()
         response_data = json.loads(response)
         return response_data["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]

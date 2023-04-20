@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, useContext } from "react";
 import {
   List,
   ListItem,
@@ -8,47 +8,140 @@ import {
   Typography,
   ListItemIcon,
   TextField,
-  CircularProgress,
+  Grid
 } from "@mui/material";
+import EditIcon from '@mui/icons-material/Edit';
+import SaveIcon from '@mui/icons-material/Save';
+import { URIContext } from "./App";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
-
-const AgentList = ({
-  agents,
-  selectedAgent,
-  setSelectedAgent,
-  handleAddAgent,
-  handleDeleteAgent,
-  loading,
-}) => {
+import DoNotDisturbIcon from '@mui/icons-material/DoNotDisturb';
+import RunCircleIcon from '@mui/icons-material/RunCircle';
+const AgentList = ({agents,  loadAgents, selectedAgent,  setSelectedAgent}) => {
   const [newAgentName, setNewAgentName] = useState("");
-
+  const baseURI = useContext(URIContext);
+  const [editing, setEditing] = useState(false);
+  const [editingTarget, setEditingTarget] = useState(null);
+  const [editingText, setEditingText] = useState("");
   const handleAddAgentClick = () => {
     handleAddAgent(newAgentName);
     setNewAgentName("");
   };
+  const handleKeyPress = async (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleAddAgentClick();
+    }
+  };
+
+  const handleAddAgent = (newAgentName) => {
+    if (newAgentName.trim() !== "") {
+      try {
+        fetch(`${baseURI}/api/add_agent/${newAgentName}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }).then(() => {
+          loadAgents();
+        });
+        
+      } catch (error) {
+        console.error("Error Adding Agent:", error);
+      }
+    }
+  };
+  const handleEditCancel = () => {
+    setEditing(false);
+    setEditingTarget(null);
+    setEditingText("");
+  }
+
+  const handleEditAgent = (agent) => {
+    if (!editing)
+    {
+      setEditing(true);
+      setEditingTarget(agent);
+      setEditingText(agent);
+    }
+    else
+    {
+      try {
+        fetch(`${baseURI}/api/rename_agent/${agent}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: {
+            "new_name": editingText
+          }
+        }).then(() => {
+          loadAgents();
+        });
+      } catch (error) {
+        console.error("Error Renaming Agent:", error);
+      }
+      setEditing(false);
+      setEditingTarget(null);
+      setEditingText("");
+    }
+  };
+  const handleDeleteAgent = (agent) => {
+    try {
+      fetch(`${baseURI}/api/delete_agent/${agent}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }).then(() => {
+        loadAgents();
+      });
+    } catch (error) {
+      console.error("Error Deleting Agent:", error);
+    }
+  };
 
   return (
-    <>
+    <Grid item xs={2.25} >
       <Typography variant="h6" gutterBottom>
         Agents
       </Typography>
       <List>
         {agents.map((agent) => (
           <ListItemButton
-            button
-            key={agent}
-            onClick={() => setSelectedAgent(agent)}
-            sx={{backgroundColor: (selectedAgent === agent) ? "lightblue" : "unset"}}
+            key={agent.name}
+            onClick={() => setSelectedAgent(agent.name)}
+            selected={selectedAgent === agent.name}
           >
-            <ListItemText primary={agent} />
+            {editing && editingTarget===agent.name?
+            <TextField
+            label={`Rename ${agent.name}`}
+            value={editingText}
+            onChange={(e) => setEditingText(e.target.value)}
+          />:<ListItemText primary={agent.name} />
+          }
+            
+            {agent.status?<RunCircleIcon />:null}
+            {agent.name!=="Home"?
+            <>
+              {editing&&editingTarget!==agent.name?null:
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
+                      onClick={() => handleEditAgent(agent.name)}
+                    >
+                      {editing&&editingTarget===agent.name?<SaveIcon />:<EditIcon />}
+                    </IconButton>
+}
             <IconButton
               edge="end"
               aria-label="delete"
-              onClick={() => handleDeleteAgent(agent)}
+              onClick={() => editing&&editingTarget?handleEditCancel():handleDeleteAgent(agent.name)}
             >
-              <DeleteIcon />
+              {editing&&editingTarget===agent.name?<DoNotDisturbIcon />:<DeleteIcon />}
             </IconButton>
+            </>
+            :null}
           </ListItemButton>
         ))}
         <ListItem>
@@ -56,6 +149,7 @@ const AgentList = ({
             label="New Agent Name"
             value={newAgentName}
             onChange={(e) => setNewAgentName(e.target.value)}
+            onKeyPress={handleKeyPress}
           />
           <ListItemIcon>
             <IconButton
@@ -68,12 +162,7 @@ const AgentList = ({
           </ListItemIcon>
         </ListItem>
       </List>
-      {loading && (
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <CircularProgress />
-        </div>
-      )}
-    </>
+    </Grid>
   );
 };
 

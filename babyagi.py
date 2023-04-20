@@ -3,47 +3,19 @@ import argparse
 import time
 import re
 import os
-import sys
-import threading
 from collections import deque
 from typing import Dict, List
 from Config import Config
 from AgentLLM import AgentLLM
-
-class Spinner:
-    def __init__(self, message="Thinking..."):
-        self.spinner_cycle = ['|', '/', '-', '\\']
-        self.index = 0
-        self.message = message
-        self.should_spin = False
-
-    def spin(self):
-        while self.should_spin:
-            sys.stdout.write(f'\r{self.spinner_cycle[self.index % len(self.spinner_cycle)]} {self.message}')
-            sys.stdout.flush()
-            self.index += 1
-            time.sleep(0.1)
-
-    def start(self):
-        self.should_spin = True
-        self.spinner_thread = threading.Thread(target=self.spin)
-        self.spinner_thread.start()
-
-    def stop(self):
-        self.should_spin = False
-        self.spinner_thread.join()
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')  # Clear spinner
-        sys.stdout.flush()
-
 class babyagi:
     def __init__(self, primary_objective=None, initial_task=None, agent_name="default"):
         self.CFG = Config()
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
-        self.spinner = Spinner()
         self.load_prompts()
         self.initialize_task_list()
         self.prompter = AgentLLM(agent_name)
+        self.commands = self.prompter.get_agent_commands()
         self.output_list = []
         self.running = False
         self.agent_name = agent_name
@@ -113,7 +85,7 @@ class babyagi:
         self.display_task_list()
 
     def display_task_list(self):
-        self.output_list.append(f"Task list: {self.task_list}")
+        self.output_list.append(f"Task list:\n\n{self.task_list}")
         print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
@@ -122,6 +94,8 @@ class babyagi:
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
+        prompt = prompt.replace("{COMMANDS}", "".join(self.commands))
+        print(f"PROMPT: {prompt}")
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
@@ -133,14 +107,14 @@ class babyagi:
         print(f"{task_id}: {task}")
         print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
         print(self.response)
-        self.output_list.append(f"Execution agent response: {self.response}")
+        self.output_list.append(f"Execution agent response:\n\n{self.response}")
         print(self.output_list)
         return self.response
 
     def display_result(self, task):
         self.display_task_list()
-        self.output_list.append(f"Task: {task['task_id']}: {task['task_name']}")
-        self.output_list.append(f"Result: {self.response}")
+        self.output_list.append(f"Task:\n\n{task['task_id']}: {task['task_name']}")
+        self.output_list.append(f"Result:\n\n{self.response}")
         print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
         print(f"{task['task_id']}: {task['task_name']}")
         print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
@@ -187,13 +161,10 @@ class babyagi:
         self.add_initial_task()
         self.running = True
         while self.running:
-            self.spinner.start()
             task = self.execute_next_task()
-            self.spinner.stop()
             self.display_result(task)
-            print(f"Output after executing task: {self.output_list}")  # Debug print
             if not self.task_list:
-                self.output_list.append(f"All tasks complete.")
+                self.output_list.append(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
