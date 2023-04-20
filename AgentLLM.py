@@ -38,6 +38,9 @@ class AgentLLM:
         self.yaml_memory = YamlMemory(agent_name)
         self.agent_name = agent_name
 
+    def get_agent_commands(self) -> List[str]:
+        return self.commands.get_commands()
+
     def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
         trimmed_context = []
         total_tokens = 0
@@ -56,18 +59,14 @@ class AgentLLM:
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
-        if commands_enabled:
-            # Need to check if 
-            commands_prompt = self.commands.get_prompt()
-            self.response = self.instruct(f"{commands_prompt}\n{prompt}")
-        else:
-            # Chunk the prompt if it's too long
-            prompt_chunks = self.chunk_content(prompt)
-            responses = []
-            for chunk in prompt_chunks:
-                response = self.instruct(chunk)
-                responses.append(response)
-            self.response = " ".join(responses)
+
+        # Chunk the prompt if it's too long
+        prompt_chunks = self.chunk_content(prompt)
+        responses = []
+        for chunk in prompt_chunks:
+            response = self.instruct(chunk)
+            responses.append(response)
+        self.response = " ".join(responses)
 
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
