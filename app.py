@@ -115,7 +115,8 @@ class Instruct(Resource):
     
 class GetCommands(Resource):
     def get(self, agent_name):
-        available_commands = Commands(agent_name).get_available_commands()
+        commands = Commands(agent_name)
+        available_commands = commands.get_available_commands()
         return {"commands": available_commands}, 200
 
 class EnableCommand(Resource):
