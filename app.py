@@ -56,6 +56,18 @@ class AddAgent(Resource):
             json.dump(config_data, f)
         return {"message": "Agent added", "agent_file": agent_file}, 200
 
+class RenameAgent(Resource):
+    def put(self, agent_name, new_name):
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
+        agent_file = os.path.abspath(agent_file)
+        agent_folder = os.path.abspath(agent_folder)
+        if os.path.exists(agent_file):
+            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
+        if os.path.exists(agent_folder):
+            os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
+        return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
+
 class DeleteAgent(Resource):
     def delete(self, agent_name):
         agent_file = f"agents/{agent_name}.yaml"
@@ -117,6 +129,7 @@ class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name)
         available_commands = commands.get_available_commands()
+        print(available_commands)
         return {"commands": available_commands}, 200
 
 class EnableCommand(Resource):
@@ -310,6 +323,8 @@ api.add_resource(GetAgents, '/api/get_agents')
 # Output: {"agents": ["agent1", "agent2", "agent3"]}
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' added"}
+api.add_resource(RenameAgent, '/api/rename_agent/<string:old_agent_name>/<string:new_agent_name>')
+# Output: {"message": "Agent 'agent1' renamed to 'agent2'"}
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
