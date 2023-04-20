@@ -5,7 +5,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import AgentList from "./AgentList";
 import AgentControls from "./AgentControls";
 import AppHeader from "./AppHeader";
-import AgentCommandsList from "./AgentCommandsList";
+import AgentCommandsList from "./old/AgentCommandsList";
 
 const themeGenerator = (darkMode) =>
   createTheme({
@@ -17,18 +17,15 @@ const themeGenerator = (darkMode) =>
     },
   });
 
+  export const URIContext = React.createContext('');
+
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [agents, setAgents] = useState([]);
-  const [commands, setCommands] = useState([]);
-  const [enabledCommands, setEnabledCommands] = useState({});
+
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [baseURI, setBaseURI] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
-  const [tabValue, setTabValue] = useState(0);
-  const [objective, setObjective] = useState("");
-  const [instruction, setInstruction] = useState("");
 
   async function getBaseURI() {
     try {
@@ -176,6 +173,7 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <URIContext.Provider value = {baseURI}>
       <AppHeader
         darkMode={darkMode}
         handleToggleDarkMode={handleToggleDarkMode}
@@ -193,45 +191,13 @@ function App() {
                 loading={loading}
               />
             </Grid>
-            <Grid item xs={6}>
-              <AgentControls
-                darkMode={darkMode}
-                handleToggleDarkMode={handleToggleDarkMode}
-                selectedAgent={selectedAgent}
-                setChatHistory={setChatHistory}
-                chatHistory={chatHistory}
-                tabValue={tabValue}
-                setTabValue={setTabValue}
-                objective={objective}
-                setObjective={setObjective}
-                instruction={instruction}
-                setInstruction={setInstruction}
-              />
-            </Grid>
-            <Grid item xs={3}>
-              <Typography variant="h6" gutterBottom>
-                Available Commands:
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-              Click on a command to insert it in the textbox.
-              </Typography>
-              <AgentCommandsList
-                commands={commands}
-                enabledCommands={enabledCommands}
-                handleToggleCommand={handleToggleCommand}
-                handleToggleAllCommands={handleToggleAllCommands}
-                tabValue={tabValue}
-                setObjective={setObjective}
-                setInstruction={setInstruction}
-                objective={objective}
-                instruction={instruction}
-                selectedAgent={selectedAgent}
-                baseURI={baseURI}
-              />
-            </Grid>
+            {agents.map((agent) => 
+              <Agent hidden={agent !== selectedAgent} agent={agent} />
+            )}
           </Grid>
         </Box>
       </Container>
+      </URIContext.Provider>
     </ThemeProvider>
   );
 }
