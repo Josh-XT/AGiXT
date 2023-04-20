@@ -82,13 +82,11 @@ class GetAgents(Resource):
         # Check agent status and return {"agents": [{"name": "agent_name", "status": "running"}]
         output = []
         for agent in agents:
-            if agent not in babyagi_instances:
-                output.append({"name": agent, "status": "Not running"})
             try:
                 babyagi_instance = babyagi_instances[agent]
                 status = babyagi_instance.get_status()
             except:
-                status = "Not running"
+                status = False
             output.append({"name": agent, "status": status})
         return {"agents": output}, 200
 
