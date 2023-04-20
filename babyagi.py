@@ -3,44 +3,16 @@ import argparse
 import time
 import re
 import os
-import sys
-import threading
 from collections import deque
 from typing import Dict, List
 from Config import Config
 from AgentLLM import AgentLLM
-
-class Spinner:
-    def __init__(self, message="Thinking..."):
-        self.spinner_cycle = ['|', '/', '-', '\\']
-        self.index = 0
-        self.message = message
-        self.should_spin = False
-
-    def spin(self):
-        while self.should_spin:
-            sys.stdout.write(f'\r{self.spinner_cycle[self.index % len(self.spinner_cycle)]} {self.message}')
-            sys.stdout.flush()
-            self.index += 1
-            time.sleep(0.1)
-
-    def start(self):
-        self.should_spin = True
-        self.spinner_thread = threading.Thread(target=self.spin)
-        self.spinner_thread.start()
-
-    def stop(self):
-        self.should_spin = False
-        self.spinner_thread.join()
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')  # Clear spinner
-        sys.stdout.flush()
 
 class babyagi:
     def __init__(self, primary_objective=None, initial_task=None, agent_name="default"):
         self.CFG = Config()
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
-        self.spinner = Spinner()
         self.load_prompts()
         self.initialize_task_list()
         self.prompter = AgentLLM(agent_name)
@@ -187,9 +159,7 @@ class babyagi:
         self.add_initial_task()
         self.running = True
         while self.running:
-            self.spinner.start()
             task = self.execute_next_task()
-            self.spinner.stop()
             self.display_result(task)
             print(f"Output after executing task: {self.output_list}")  # Debug print
             if not self.task_list:
