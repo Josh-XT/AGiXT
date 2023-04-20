@@ -82,7 +82,6 @@ class GetAgents(Resource):
         # Check agent status and return {"agents": [{"name": "agent_name", "status": "running"}]
         output = []
         for agent in agents:
-            if agent not in babyagi_instances:
             try:
                 babyagi_instance = babyagi_instances[agent]
                 status = babyagi_instance.get_status()
