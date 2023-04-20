@@ -1,6 +1,6 @@
 # Agent-LLM
 
-[<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" width="200">](https://discord.gg/vfXjyuKZ)
+[<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" width="100">](https://discord.gg/vfXjyuKZ)
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI GPT-3.5, GPT-4, ChatGPT](https://openai.com/), [Google Bard](https://bard.google.com), [Microsoft Bing](https://bing.com), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases. The list of providers will continue to grow.
 
