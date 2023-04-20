@@ -10,8 +10,8 @@ CFG = Config()
 class web_playwright(Commands):
     def __init__(self):
         self.commands = {
-            "Scrape Text": self.scrape_text,
-            "Scrape Links": self.scrape_links
+            "Scrape Text with Playwright": self.scrape_text,
+            "Scrape Links with Playwright": self.scrape_links
         }
 
     def scrape_text(self, url: str) -> str:
