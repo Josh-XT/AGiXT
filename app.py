@@ -144,6 +144,7 @@ class EnableCommand(Resource):
 class DisableCommand(Resource):
     def post(self, agent_name):
         command_name = request.json.get("command_name")
+        print(command_name)
         commands = Commands(agent_name)
         commands.agent_config["commands"][command_name] = "false"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
