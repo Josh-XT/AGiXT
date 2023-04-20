@@ -94,6 +94,8 @@ class babyagi:
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
+        commands = AgentLLM(self.agent_name).get_agent_commands()
+        prompt = prompt.replace("{COMMANDS}", commands)
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
@@ -105,7 +107,7 @@ class babyagi:
         print(f"{task_id}: {task}")
         print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
         print(self.response)
-        self.output_list.append(f"Execution agent response: {self.response}")
+        self.output_list.append(f"Execution agent response:\n\n{self.response}")
         print(self.output_list)
         return self.response
 
