@@ -28,7 +28,7 @@ const Agent = (props) => {
                         setRefresh(null);
                         props.reloadAgents();
                     }
-                    else throw "Responded with successful stop, but the agent is still running.";                   
+                    else throw new Error("Responded with successful stop, but the agent is still running.");                   
                 })
             }
             catch(error) {
@@ -59,7 +59,7 @@ const Agent = (props) => {
                         );
                         props.reloadAgents();
                     }
-                    else throw "Responded with successful start, but the agent is not running."
+                    else throw new Error("Responded with successful start, but the agent is not running.");
                 })
             }
             catch(error) {
