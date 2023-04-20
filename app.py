@@ -96,6 +96,16 @@ class GetChatHistory(Resource):
             chat_history = f.read()
         return {"chat_history": chat_history}, 200
 
+class WipeAgentMemories(Resource):
+    def delete(self, agent_name):
+        # Delete the folder agents/{agent_name}/memories
+        agent_folder = f"agents/{agent_name}/"
+        agent_folder = os.path.abspath(agent_folder)
+        memories_folder = os.path.join(agent_folder, "memories")
+        if os.path.exists(memories_folder):
+            shutil.rmtree(memories_folder)
+        return {"message": f"Memories for agent {agent_name} deleted."}, 200
+
 class Instruct(Resource):
     def post(self, agent_name):
         objective = request.json.get("prompt")
@@ -323,6 +333,8 @@ api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
 # Output: {"chat_history": ["chat1", "chat2", "chat3"]}
 api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
 # Output: {"message": "Prompt sent to agent 'agent1'"}
+api.add_resource(WipeAgentMemories, '/api/wipe_agent_memories/<string:agent_name>')
+# Output: {"message": "Agent 'agent1' memories wiped"}
 
 # Tasks
 api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')

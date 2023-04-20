@@ -293,6 +293,26 @@
                 }
             }
         },
+        "/api/wipe_agent_memories": {
+            "delete": {
+                "summary": "Wipe an agents memories, this is useful when context becomes too large. This does not get rid of the chat history.",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the agents memories were wiped."
+                    }
+                }
+            }
+        },
         "/api/task/start/{agent_name}": {
             "post": {
                 "summary": "Start task agent",
