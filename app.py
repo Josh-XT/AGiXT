@@ -86,7 +86,7 @@ class GetAgents(Resource):
                 babyagi_instance = babyagi_instances[agent]
                 status = babyagi_instance.get_status()
             except:
-                status = "Not running"
+                status = False
             output.append({"name": agent, "status": status})
         return {"agents": output}, 200
 
