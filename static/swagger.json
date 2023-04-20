@@ -1,580 +1,558 @@
 {
-  "swagger": "2.0",
-  "info": {
+    "swagger": "2.0",
+    "info": {
+      "version": "1.0",
       "title": "Agent-LLM Flask API",
-      "description": "API for interacting with the Agent-LLM system",
-      "version": "1.0.0"
-  },
-  "basePath": "/api",
-  "schemes": [
+      "description": "A Flask API for interacting with the Agent-LLM language model."
+    },
+    "host": "localhost:5000",
+    "basePath": "/",
+    "schemes": [
       "http"
-  ],
-  "consumes": [
+    ],
+    "consumes": [
       "application/json"
-  ],
-  "produces": [
+    ],
+    "produces": [
       "application/json"
-  ],
-  "paths": {
-      "/add_agent/{agent_name}": {
-          "post": {
-              "tags": [
-                  "Agents"
-              ],
-              "summary": "Add agent",
-              "description": "Creates a new YAML file for storing the agent's memory and a JSON file for storing configuration settings",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to add",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Agent added successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              },
-                              "agent_file": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+    ],
+    "paths": {
+      "/api/add_agent/{agent_name}": {
+        "post": {
+          "summary": "Add a new agent",
+          "description": "Add a new agent with the specified agent_name.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to be added."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Agent added successfully.",
+              "schema": {
+                "$ref": "#/definitions/AgentAddedResponse"
               }
+            }
           }
+        }
       },
-      "/delete_agent/{agent_name}": {
-          "delete": {
-              "tags": [
-                  "Agents"
-              ],
-              "summary": "Delete agent",
-              "description": "Deletes the YAML file and directory associated with the specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to delete",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Agent deleted successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  },
-                  "404": {
-                      "description": "Agent file not found"
-                  }
+      "/api/delete_agent/{agent_name}": {
+        "delete": {
+          "summary": "Delete an agent",
+          "description": "Delete an agent with the specified agent_name.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to be deleted."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Agent deleted successfully.",
+              "schema": {
+                "$ref": "#/definitions/AgentDeletedResponse"
               }
+            },
+            "404": {
+              "description": "Agent file not found."
+            }
           }
+        }
       },
-      "/get_agents": {
-          "get": {
-              "tags": [
-                  "Agents"
-              ],
-              "summary": "Get agents",
-              "description": "Retrieves a list of all available agents",
-              "responses": {
-                  "200": {
-                      "description": "List of agents",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "agents": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/get_agents": {
+        "get": {
+          "summary": "Get all agents",
+          "description": "Retrieve a list of all available agents.",
+          "responses": {
+            "200": {
+              "description": "List of agents retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/AgentsListResponse"
               }
+            }
           }
+        }
       },
-      "/get_chat_history/{agent_name}": {
-          "get": {
-              "tags": [
-                  "Agents"
-              ],
-              "summary": "Get chat history",
-              "description": "Retrieves the chat history for a specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to retrieve chat history for",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Chat history retrieved successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "chat_history": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+      "/api/get_chat_history/{agent_name}": {
+        "get": {
+          "summary": "Get chat history",
+          "description": "Retrieve the chat history for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent whose chat history to retrieve."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Chat history retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/ChatHistoryResponse"
               }
+            }
           }
+        }
       },
-      "/instruct": {
-          "post": {
-              "tags": [
-                  "Agents"
-              ],
-              "summary": "Instruct agent",
-              "description": "Runs the AgentLLM system with a specified objective and returns the response",
-              "parameters": [
-                  {
-                      "name": "body",
-                      "in": "body",
-                      "description": "JSON object containing the objective to run",
-                      "required": true,
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "prompt": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Agent instructed successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "response": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+      "/api/instruct": {
+        "post": {
+          "summary": "Instruct the agent",
+          "description": "Send an instruction to the agent and receive a response.",
+          "parameters": [
+            {
+              "in": "body",
+              "name": "instruction",
+              "description": "The instruction to send to the agent.",
+              "required": true,
+              "schema": {
+                "$ref": "#/definitions/InstructionBody"
               }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Agent response received successfully.",
+              "schema": {
+                "$ref": "#/definitions/AgentResponse"
+              }
+            }
           }
+        }
       },
-      "/set_objective": {
-          "post": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Set objective",
-              "description": "Sets the objective for the Baby AGI system",
-              "parameters": [
-                  {
-                      "name": "body",
-                      "in": "body",
-                      "description": "JSON object containing the new objective",
-                      "required": true,
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "objective": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Objective updated successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+      "/api/get_commands": {
+        "get": {
+          "summary": "Get all commands",
+          "description": "Retrieve a list of all available commands.",
+          "responses": {
+            "200": {
+              "description": "List of commands retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/CommandsListResponse"
               }
+            }
           }
+        }
       },
-      "/add_initial_task": {
-          "post": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Add initial task",
-              "description": "Adds an initial task to the Baby AGI system",
-              "responses": {
-                  "200": {
-                      "description": "Initial task added successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+      "/api/get_available_commands/{agent_name}": {
+        "get": {
+          "summary": "Get available commands",
+          "description": "Retrieve a list of available commands for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent whose available commands to retrieve."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "List of available commands retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/AvailableCommandsResponse"
               }
+            }
           }
+        }
       },
-      "/execute_next_task": {
-          "get": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Execute next task",
-              "description": "Executes the next task in the Baby AGI system",
-              "responses": {
-                  "200": {
-                      "description": "Task executed successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "task": {
-                                  "type": "string"
-                              },
-                              "result": {
-                                  "type": "string"
-                              },
-                              "task_list": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/enable_command/{agent_name}/{command_name}": {
+        "post": {
+          "summary": "Enable a command",
+          "description": "Enable a command for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent for which to enable the command."
+            },
+            {
+              "in": "path",
+              "name": "command_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the command to enable."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Command enabled successfully.",
+              "schema": {
+                "$ref": "#/definitions/CommandEnabledResponse"
               }
+            }
           }
+        }
       },
-      "/create_task": {
-          "post": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Create task",
-              "description": "Creates a new task in the Baby AGI system",
-              "parameters": [
-                  {
-                      "name": "body",
-                      "in": "body",
-                      "description": "JSON object containing information for the new task",
-                      "required": true,
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "objective": {
-                                  "type": "string"
-                              },
-                              "result": {
-                                  "type": "string"
-                              },
-                              "task_description": {
-                                  "type": "string"
-                              },
-                              "task_list": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Task created successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "new_tasks": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/disable_command/{agent_name}/{command_name}": {
+        "post": {
+          "summary": "Disable a command",
+          "description": "Disable a command for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent for which to disable the command."
+            },
+            {
+              "in": "path",
+              "name": "command_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the command to disable."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Command disabled successfully.",
+              "schema": {
+                "$ref": "#/definitions/CommandDisabledResponse"
               }
+            }
           }
+        }
       },
-      "/prioritize_tasks": {
-          "post": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Prioritize tasks",
-              "description": "Changes the priority of a task in the Baby AGI system",
-              "parameters": [
-                  {
-                      "name": "body",
-                      "in": "body",
-                      "description": "JSON object containing the ID of the task to prioritize",
-                      "required": true,
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "task_id": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Tasks prioritized successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "task_list": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/disable_all_commands/{agent_name}": {
+        "post": {
+          "summary": "Disable all commands",
+          "description": "Disable all commands for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent for which to disable all commands."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "All commands disabled successfully.",
+              "schema": {
+                "$ref": "#/definitions/AllCommandsDisabledResponse"
               }
+            },
+            "500": {
+              "description": "Error disabling all commands."
+            }
           }
+        }
       },
-      "/execute_task": {
-          "post": {
-              "tags": [
-                  "Baby AGI"
-              ],
-              "summary": "Execute task",
-              "description": "Executes a task in the Baby AGI system",
-              "parameters": [
-                  {
-                      "name": "body",
-                      "in": "body",
-                      "description": "JSON object containing the objective and task to execute",
-                      "required": true,
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "objective": {
-                                  "type": "string"
-                              },
-                              "task": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Task executed successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "result": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
+      "/api/enable_all_commands/{agent_name}": {
+        "post": {
+          "summary": "Enable all commands",
+          "description": "Enable all commands for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent for which to enable all commands."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "All commands enabled successfully.",
+              "schema": {
+                "$ref": "#/definitions/AllCommandsEnabledResponse"
               }
+            },
+            "500": {
+              "description": "Error enabling all commands."
+            }
           }
+        }
       },
-      "/get_commands": {
-          "get": {
-              "tags": [
-                  "Commands"
-              ],
-              "summary": "Get commands",
-              "description": "Retrieves a list of all available commands",
-              "responses": {
-                  "200": {
-                      "description": "List of commands",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "commands": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/task/start/{agent_name}": {
+        "post": {
+          "summary": "Start task agent",
+          "description": "Start the task agent for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to start the task agent for."
+            },
+            {
+              "in": "body",
+              "name": "task_agent",
+              "description": "The objective for the task agent.",
+              "required": true,
+              "schema": {
+                "$ref": "#/definitions/TaskAgentBody"
               }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Task agent started successfully.",
+              "schema": {
+                "$ref": "#/definitions/TaskAgentStartedResponse"
+              }
+            },
+            "500": {
+              "description": "Error starting task agent."
+            }
           }
+        }
       },
-      "/get_available_commands/{agent_name}": {
-          "get": {
-              "tags": [
-                  "Commands"
-              ],
-              "summary": "Get available commands",
-              "description": "Retrieves a list of all available commands for a specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to retrieve available commands for",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "List of available commands",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "available_commands": {
-                                  "type": "array",
-                                  "items": {
-                                      "type": "string"
-                                  }
-                              }
-                          }
-                      }
-                  }
+      "/api/task/stop/{agent_name}": {
+        "post": {
+          "summary": "Stop task agent",
+          "description": "Stop the task agent for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to stop the task agent for."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Task agent stopped successfully.",
+              "schema": {
+                "$ref": "#/definitions/TaskAgentStoppedResponse"
               }
+            },
+            "500": {
+              "description": "Error stopping task agent."
+            }
           }
+        }
       },
-      "/enable_command/{agent_name}/{command_name}": {
-          "post": {
-              "tags": [
-                  "Commands"
-              ],
-              "summary": "Enable command",
-              "description": "Enables a specified command for a specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to enable the command for",
-                      "required": true,
-                      "type": "string"
-                  },
-                  {
-                      "name": "command_name",
-                      "in": "path",
-                      "description": "Name of the command to enable",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Command enabled successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  },
-                  "404": {
-                      "description": "Command not found"
-                  }
+      "/api/task/output/{agent_name}": {
+        "get": {
+          "summary": "Get task output",
+          "description": "Retrieve the output of the task agent for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to retrieve the task agent output for."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Task agent output retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/TaskAgentOutputResponse"
               }
+            }
           }
+        }
       },
-      "/disable_command/{agent_name}/{command_name}": {
-          "post": {
-              "tags": [
-                  "Commands"
-              ],
-              "summary": "Disable command",
-              "description": "Disables a specified command for a specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to disable the command for",
-                      "required": true,
-                      "type": "string"
-                  },
-                  {
-                      "name": "command_name",
-                      "in": "path",
-                      "description": "Name of the command to disable",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "Command disabled successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  },
-                  "404": {
-                      "description": "Command not found"
-                  }
+      "/api/task/status/{agent_name}": {
+        "get": {
+          "summary": "Get task status",
+          "description": "Retrieve the status of the task agent for the specified agent.",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "agent_name",
+              "type": "string",
+              "required": true,
+              "description": "The name of the agent to retrieve the task agent status for."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Task agent status retrieved successfully.",
+              "schema": {
+                "$ref": "#/definitions/TaskAgentStatusResponse"
               }
+            }
           }
-      },
-      "/disable_all_commands/{agent_name}": {
-          "post": {
-              "tags": [
-                  "Commands"
-              ],
-              "summary": "Disable all commands",
-              "description": "Disables all commands for a specified agent",
-              "parameters": [
-                  {
-                      "name": "agent_name",
-                      "in": "path",
-                      "description": "Name of the agent to disable all commands for",
-                      "required": true,
-                      "type": "string"
-                  }
-              ],
-              "responses": {
-                  "200": {
-                      "description": "All commands disabled successfully",
-                      "schema": {
-                          "type": "object",
-                          "properties": {
-                              "message": {
-                                  "type": "string"
-                              }
-                          }
-                      }
-                  }
-              }
-          }
+        }
       }
+    },
+    "definitions": {
+      "AgentAddedResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the agent was added."
+          }
+        }
+      },
+      "AgentDeletedResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the agent was deleted."
+          }
+        }
+      },
+      "AgentsListResponse": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of agent names."
+          }
+        }
+      },
+      "ChatHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "chat_history": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of chat history messages."
+          }
+        }
+      },
+      "InstructionBody": {
+        "type": "object",
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "description": "The instruction to send to the agent."
+          }
+        }
+      },
+      "AgentResponse": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "string",
+            "description": "The agent's response to the instruction."
+          }
+        }
+      },
+      "CommandsListResponse": {
+        "type": "object",
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of command names."
+          }
+        }
+      },
+      "AvailableCommandsResponse": {
+        "type": "object",
+        "properties": {
+          "available_commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of available command names."
+          }
+        }
+      },
+      "CommandEnabledResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the command was enabled."
+          }
+        }
+      },
+      "CommandDisabledResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the command was disabled."
+          }
+        }
+      },
+      "AllCommandsDisabledResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating all commands were disabled."
+          }
+        }
+      },
+      "AllCommandsEnabledResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating all commands were enabled."
+          }
+        }
+      },
+      "TaskAgentBody": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "The objective for the task agent."
+          }
+        }
+      },
+      "TaskAgentStartedResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the task agent was started."
+          }
+        }
+      },
+      "TaskAgentStoppedResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "A message indicating the task agent was stopped."
+          }
+        }
+      },
+      "TaskAgentOutputResponse": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A list of task agent output messages."
+          }
+        }
+      },
+      "TaskAgentStatusResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "The status of the task agent (running or stopped)."
+          }
+        }
+      }
+    }
   }
-}
