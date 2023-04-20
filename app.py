@@ -103,6 +103,10 @@ class GetAgents(Resource):
                 status = babyagi_instance.get_status()
             except:
                 status = False
+            # Add commands to output
+            #commands = Commands(agent)
+            #available_commands = commands.get_available_commands()
+            #output.append({"name": agent, "status": status} "commands": available_commands})
             output.append({"name": agent, "status": status})
         return {"agents": output}, 200
 
