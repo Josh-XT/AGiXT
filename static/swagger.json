@@ -840,8 +840,8 @@
             "type": "object",
             "properties": {
                 "status": {
-                    "type": "string",
-                    "description": "The status of the task agent (running or stopped)."
+                    "type": "boolean",
+                    "description": "The status of the task agent (running = true, stopped = false)."
                 }
             }
         }
