@@ -399,6 +399,216 @@
                     }
                 }
             }
+        },
+        "/api/get_chains": {
+            "get": {
+                "summary": "Get all chains",
+                "responses": {
+                    "200": {
+                        "description": "List of chains with their steps and prompts"
+                    }
+                }
+            }
+        },
+        "/api/get_chain": {
+            "get": {
+                "summary": "Get a single chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested chain with its steps and prompts"
+                    }
+                }
+            }
+        },
+        "/api/add_chain": {
+            "post": {
+                "summary": "Add a new chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the chain was successfully created"
+                    }
+                }
+            }
+        },
+        "/api/add_chain_step": {
+            "post": {
+                "summary": "Add a step to a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "step_number",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "prompt_type",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "prompt",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the step was successfully added to the chain"
+                    }
+                }
+            }
+        },
+        "/api/update_step": {
+            "post": {
+                "summary": "Update a step in a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "old_step_number",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "new_step_number",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "body",
+                        "name": "prompt_type",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the step was successfully updated in the chain"
+                    }
+                }
+            }
+        },
+        "/api/delete_chain": {
+            "delete": {
+                "summary": "Delete a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the chain was successfully deleted"
+                    }
+                }
+            }
+        },
+        "/api/delete_chain_step/{step_number}": {
+            "delete": {
+                "summary": "Delete a step from a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "step_number",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the step was successfully deleted from the chain"
+                    }
+                }
+            }
+        },
+        "/api/run_chain/{agent_name}": {
+            "post": {
+                "summary": "Run a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "agent_name",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the prompt chain has started"
+                    }
+                }
+            }
         }
     },
     "definitions": {
