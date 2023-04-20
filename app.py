@@ -184,7 +184,6 @@ class DisableAllCommands(Resource):
 class StartTaskAgent(Resource):
     def post(self, agent_name):
         objective = request.json.get("objective")
-        print(f"Starting task agent {agent_name} with objective: {objective}")
         if agent_name not in babyagi_instances:
             babyagi_instances[agent_name] = babyagi()
         babyagi_instance = babyagi_instances[agent_name]
