@@ -73,7 +73,7 @@ const Agent = (props) => {
     return (
         loading? <></> :
         <>
-            <Grid item xs={8.5}>
+            <Grid item xs={8}>
                 <AgentControl {...props} running={Boolean(refresh)} toggleRunning={toggleRunning} data={agentData??[]} objective={objective} setObjective={setObjective} />
             </Grid>
             <Grid item xs={1.75}>
