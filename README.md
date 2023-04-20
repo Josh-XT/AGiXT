@@ -1,3 +1,4 @@
+`README.md`
 # Agent-LLM
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI GPT-3.5, GPT-4, ChatGPT](https://openai.com/), [Google Bard](https://bard.google.com), [Microsoft Bing](https://bing.com), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases. The list of providers will continue to grow.
@@ -64,17 +65,37 @@ git clone https://github.com/Josh-XT/Agent-LLM
 pip install -r requirements.txt
 ```
 3. Configure the necessary environment variables in the `.env` file using `.env.example` as a template.
-4. Launch Agent-LLM using Docker Compose (recommended) or by running the `main.py` script.
+4. Launch Agent-LLM using Docker Compose (recommended) or by running the `app.py` script.
+
+
+## Configuration
+
+Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file. Configuration settings include:
+
+- **INSTANCE CONFIG**: Set the agent name, objective, and initial task.
+- **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
+- **AI_PROVIDER_URI**: Set the URI for custom AI providers such as Oobabooga Text Generation Web UI (default is http://127.0.0.1:7860).
+- **LLAMACPP_PATH**: Set the path to the llama binary if llamacpp is not in the llama folder of the project.
+- **COMMANDS_ENABLED**: Enable or disable command extensions.
+- **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
+- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, vicuna, etc.).
+- **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
+- **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
+- **WORKING_DIRECTORY**: Set the agent's working directory.
+- **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
+- **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
+
+For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
 
 ### Docker Setup (Recommended)
 
 To launch the project using Docker Compose:
 
-1. Install Docker and Docker Compose on your system.
+1. Install Docker on your system.
 2. Access the project's root folder.
 3. Execute the following command to build and activate the containers for both the Flask backend server and the frontend React application:
 ```
-docker-compose up
+docker run -it --pull always -p 80:5000 --env-file=.env ghcr.io/josh-xt/agent-llm:main
 ```
 
 Access the web interface at http://localhost
@@ -98,25 +119,6 @@ To run Agent-LLM without Docker:
    ```
    npm start
    ```
-
-## Configuration
-
-Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file. Configuration settings include:
-
-- **INSTANCE CONFIG**: Set the agent name, objective, and initial task.
-- **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
-- **AI_PROVIDER_URI**: Set the URI for custom AI providers such as Oobabooga Text Generation Web UI (default is http://127.0.0.1:7860).
-- **LLAMACPP_PATH**: Set the path to the llama binary if llamacpp is not in the llama folder of the project.
-- **COMMANDS_ENABLED**: Enable or disable command extensions.
-- **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
-- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, vicuna, etc.).
-- **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
-- **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
-- **WORKING_DIRECTORY**: Set the agent's working directory.
-- **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
-- **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
-
-For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
 
 ## API Endpoints
 
@@ -142,29 +144,29 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
    Sends an instruction prompt to the agent and receives a response.
 
-6. **Set Objective**: `/api/set_objective` (POST)
+6. **Get Commands**: `/api/get_commands` (GET)
 
-   Updates the agent's current objective.
+   Retrieves a list of available commands.
 
-7. **Add Initial Task**: `/api/add_initial_task` (POST)
+7. **Get Available Commands**: `/api/get_available_commands` (GET)
 
-   Adds an initial task for the agent to execute.
+   Retrieves a list of enabled commands for a specific agent.
 
-8. **Execute Next Task**: `/api/execute_next_task` (GET)
+8. **Enable Command**: `/api/enable_command` (POST)
 
-   Executes the next task in the agent's task list and returns the result.
+   Enables a specific command for an agent.
 
-9. **Create Task**: `/api/create_task` (POST)
+9. **Disable Command**: `/api/disable_command` (POST)
 
-   Creates a new task based on the given objective, result, task description, and task list.
+   Disables a specific command for an agent.
 
-10. **Prioritize Tasks**: `/api/prioritize_tasks` (POST)
+10. **Disable All Commands**: `/api/disable_all_commands` (POST)
 
-    Prioritizes tasks in the agent's task list based on the given task ID.
+    Disables all commands for an agent.
 
-11. **Execute Task**: `/api/execute_task` (POST)
+11. **Enable All Commands**: `/api/enable_all_commands` (POST)
 
-    Executes a specific task based on the given objective and task.
+    Enables all commands for an agent.
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
@@ -214,4 +216,4 @@ We welcome contributions to Agent-LLM! If you're interested in contributing, ple
 
 ## Usage
 
-Run Agent-LLM using Docker Compose (recommended) or by running the `main.py` script. The application will load the initial task and objective from the configuration file and begin task execution. As tasks are completed, Agent-LLM will generate new tasks, prioritize them, and continue working through the task list.
+Run Agent-LLM using Docker (recommended) or by running the `app.py` script. The application will load the initial task and objective from the configuration file and begin task execution. As tasks are completed, Agent-LLM will generate new tasks, prioritize them, and continue working through the task list.
