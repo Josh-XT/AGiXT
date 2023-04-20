@@ -14,7 +14,7 @@ from threading import Lock
 
 CFG = Config()
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 api = Api(app)
 babyagi_instances = {}
 babyagi_outputs = {}
