@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   IconButton,
   Typography,
@@ -33,12 +34,12 @@ const AgentList = ({
         Agents
       </Typography>
       <List>
-        {agents.map((agent, index) => (
-          <ListItem
+        {agents.map((agent) => (
+          <ListItemButton
             button
-            key={index}
+            key={agent}
             onClick={() => setSelectedAgent(agent)}
-            selected={selectedAgent === agent}
+            sx={{backgroundColor: (selectedAgent === agent) ? "lightblue" : "unset"}}
           >
             <ListItemText primary={agent} />
             <IconButton
@@ -48,7 +49,7 @@ const AgentList = ({
             >
               <DeleteIcon />
             </IconButton>
-          </ListItem>
+          </ListItemButton>
         ))}
         <ListItem>
           <TextField
