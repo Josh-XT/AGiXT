@@ -4,5 +4,5 @@ Do not remove any tasks. Return the result as a numbered list, like:
 #. First task
 #. Second task
 Start the task list with number {next_task_id}.
-This is not a conversation, perform the task and return the results.
-Results: 
+
+Response: 

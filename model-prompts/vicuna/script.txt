@@ -20,4 +20,4 @@ class agent_interactions(Commands):
     def ask_the_agent(self, prompt: str) -> List[str]:       
         return AgentLLM().run(prompt, commands_enabled=False)
 
-Results: 
+Response: 
