@@ -12,6 +12,7 @@ import AgentCommand from "./AgentCommand";
 const AgentCommandsList = ({ agent }) => {
   const baseURI = useContext(URIContext);
   const [allToggled, setAllToggled] = useState(false);
+  const [allCommands, setAllCommands] = useState({friendly_name: "All Commands", name: "all", enabled: allToggled, args: {}});
   const [commands, setCommands] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -22,12 +23,15 @@ const AgentCommandsList = ({ agent }) => {
     setAllToggled(commands.every((command) => command.enabled));
     setLoading(false);
   }, [commands]);
+  useEffect(() => {
+    setAllCommands({...allCommands, enabled: allToggled});
+  }, [allToggled])
 
   const updateCommands = async () => {
     try {
       const commands = await (await fetch(`${baseURI}/api/get_commands/${agent}`)).json();
       console.log(commands);
-      setCommands([{friendly_name: "All Commands", command_name: "all", enabled: allToggled, command_args: {}}, ...commands.commands.sort()]);
+      setCommands([...commands.commands.sort()]);
     } catch (error) {
       console.error("Error Fetching Commands:\n", error);
       setCommands([]);
@@ -38,7 +42,7 @@ const AgentCommandsList = ({ agent }) => {
   return (
     loading ? <></> :
     <List dense>
-      {commands.map((command) => (
+      {[allCommands, ...commands].map((command) => (
         <AgentCommand key={command.name} {...command} agent={agent} refresh={updateCommands}/>
         ))}
     </List>
