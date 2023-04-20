@@ -318,9 +318,9 @@ api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
-# Output: {"commands": ["command1", "command2", "command3"]}
+# Output: {commands: ["command1", "command2", "command3"]
 api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
-# Output: {"commands": ["command1", "command2", "command3"]}
+# Output: {commands: [{command: $string, enabled: $bool}]
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
