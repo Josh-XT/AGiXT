@@ -51,7 +51,7 @@ class AddAgent(Resource):
         agent_config = os.path.join(agent_folder, "config.json")
         with open(agent_config, "w") as f:
             commands = Commands(load_commands_flag=False)
-            commands_list = commands.get_commands_list()
+            commands_list = commands.load_commands(agent_name=agent_name)
             config_data = {"commands": {command: "true" for command in commands_list}}
             json.dump(config_data, f)
         return {"message": "Agent added", "agent_file": agent_file}, 200
@@ -116,13 +116,13 @@ class Instruct(Resource):
 class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
-        commands_list = commands.get_commands_list()
+        commands_list = commands.load_commands(agent_name=agent_name)
         return {"commands": commands_list}, 200
-    
+
 class GetAvailableCommands(Resource):
     def get(self, agent_name):
         available_commands = Commands(agent_name).get_available_commands()
-        return {"available_commands": available_commands}, 200
+        return {"commands": available_commands}, 200
 
 class EnableCommand(Resource):
     def post(self, agent_name, command_name):
@@ -318,9 +318,9 @@ api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
-# Output: {"commands": ["command1", "command2", "command3"]}
+# Output: {commands: ["command1", "command2", "command3"]
 api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
-# Output: {"commands": ["command1", "command2", "command3"]}
+# Output: {commands: [{command: $string, enabled: $bool}]
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')

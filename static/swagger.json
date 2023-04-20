@@ -708,9 +708,19 @@
                 "commands": {
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The name of the command."
+                            },
+                            "enabled": {
+                                "type": "boolean",
+                                "description": "Whether the command is enabled or not."
+                            }
+                        }
                     },
-                    "description": "A list of command names."
+                    "description": "A list of command names and their enabled status."
                 }
             }
         },
