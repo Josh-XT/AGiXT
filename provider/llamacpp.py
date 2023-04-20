@@ -1,11 +1,14 @@
 import subprocess
 from Config import Config
+from llama_cpp import Llama
 
 CFG = Config()
 
 class AIProvider:
+    def __init__(self):
+        if CFG.MODEL_PATH:
+            self.llamacpp = Llama(model_path=CFG.MODEL_PATH)
+
     def instruct(self, prompt):
-        llama_path = CFG.LLAMACPP_PATH if CFG.LLAMACPP_PATH else "llama/main"
-        cmd = [llama_path, "-p", prompt]
-        result = subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
-        return result.stdout.strip()
+        output = self.llamacpp(f"Q: {prompt}", max_tokens=CFG.MAX_TOKENS, stop=["Q:", "\n"], echo=True)
+        return output["choices"][0]["text"]
