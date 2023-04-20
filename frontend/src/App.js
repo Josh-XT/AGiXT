@@ -3,201 +3,107 @@ import { Container, Box, Grid, Typography } from "@mui/material";
 import { createTheme, ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import AgentList from "./AgentList";
-import AgentControls from "./AgentControls";
+import AgentHome from "./AgentHome";
+import Agent from "./Agent";
 import AppHeader from "./AppHeader";
-import AgentCommandsList from "./old/AgentCommandsList";
+import './App.css';
 
 const themeGenerator = (darkMode) =>
   createTheme({
     palette: {
       mode: darkMode ? "dark" : "light",
       primary: {
-        main: "#3f51b5",
+        main: "#273043",
       },
+
     },
   });
 
-  export const URIContext = React.createContext('');
 
+export const URIContext = React.createContext('');
+export const LoadingContext = React.createContext({});
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [agents, setAgents] = useState([]);
-
-  const [selectedAgent, setSelectedAgent] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState("Home");
   const [baseURI, setBaseURI] = useState("");
-
-  async function getBaseURI() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const theme = themeGenerator(darkMode);
+  async function validateAPI() {
+    let uri;
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/docs");
-      if (response.ok) {
-        return "http://127.0.0.1:5000";
+      if ((await fetch("http://localhost:5000/api/docs")).ok) {
+        uri = "http://localhost:5000";
       }
     } catch (error) {
-      console.warn("Local endpoint not accessible:", error);
+      console.error("Local API server is not accessible:", error);
+      console.warn("The API address will be left empty and the service cannot be used.");
+      uri = undefined;
+      setError(true);
     }
-    return "";
+    return uri;
   }
 
+  const loadAgents = () => {
+    fetch(`${baseURI}/api/get_agents`).then(agents => agents.json()).then((agents) => setAgents([{name: "Home"}, ...agents.agents]));
+  }
   useEffect(() => {
-    async function setURI() {
-      setBaseURI(await getBaseURI());
-    }
-    setURI();
+    setLoading(true);
+    validateAPI().then((uri) => {
+      setBaseURI(uri);
+    });
   }, []);
-
-  const fetchAgents = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${baseURI}/api/get_agents`);
-      const data = await response.json();
-      setAgents(data.agents);
-      setSelectedAgent(data.agents[0]);
-    } catch (error) {
-      console.error("Error fetching agents:", error);
-    }
-    setLoading(false);
-  }, [baseURI]);
-
   useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
-
-  const fetchCommands = useCallback(async () => {
-    setLoading(true);
     try {
-      const response = await fetch(`${baseURI}/api/get_commands`);
-      const data = await response.json();
-      setCommands(data[0].commands);
-      setEnabledCommands(
-        data[0].commands.reduce(
-          (acc, command) => ({ ...acc, [command]: true }),
-          {}
-        )
-      );
-    } catch (error) {
-      console.error("Error fetching commands:", error);
+      loadAgents();
     }
-    setLoading(false);
+    catch (error) {
+      console.error("Error Fetching Agents:", error);
+    }
   }, [baseURI]);
-
   useEffect(() => {
-    fetchCommands();
-  }, [fetchCommands]);
-
+    if (!agents) setError(true);
+    setLoading(false);
+  }, [agents]);
   const handleToggleDarkMode = useCallback(() => {
-    setDarkMode((prevDarkMode) => !prevDarkMode);
+    setDarkMode((old) => !old);
   }, []);
-
-  const handleAddAgent = async (newAgentName) => {
-    if (newAgentName.trim() !== "") {
-      setLoading(true);
-      try {
-        await fetch(`${baseURI}/api/add_agent/` + newAgentName, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-        fetchAgents();
-      } catch (error) {
-        console.error("Error adding agent:", error);
-      }
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteAgent = async (agent_name) => {
-    setLoading(true);
-    try {
-      await fetch(`${baseURI}/api/delete_agent/` + agent_name, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-      fetchAgents();
-    } catch (error) {
-      console.error("Error deleting agent:", error);
-    }
-    setLoading(false);
-  };
-
-  const handleToggleCommand = async (command, agentName, isEnabled, baseURI) => {
-    if (isEnabled) {
-      await fetch(`${baseURI}/api/disable_command/${agentName}/${command}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    } else {
-      await fetch(`${baseURI}/api/enable_command/${agentName}/${command}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    }
-    setEnabledCommands((prevEnabledCommands) => ({
-      ...prevEnabledCommands,
-      [command]: !prevEnabledCommands[command],
-    }));
-  };
-
-  const handleToggleAllCommands = async (enabled, agentName, baseURI) => {
-    const updatedEnabledCommands = Object.keys(enabledCommands).reduce(
-      (acc, command) => ({ ...acc, [command]: enabled }),
-      {}
-    );
-    if (enabled) {
-      await fetch(`${baseURI}/api/disable_all_commands/${agentName}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    } else {
-      await fetch(`${baseURI}/api/enable_all_commands/${agentName}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-    }
-    setEnabledCommands(updatedEnabledCommands);
-  };
-
-  const theme = themeGenerator(darkMode);
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <URIContext.Provider value = {baseURI}>
-      <AppHeader
-        darkMode={darkMode}
-        handleToggleDarkMode={handleToggleDarkMode}
-      />
-      <Container maxWidth="lg">
-        <Box sx={{ my: 4, display: "flex" }}>
-          <Grid container spacing={2}>
-            <Grid item xs={3}>
-              <AgentList
-                agents={agents}
-                selectedAgent={selectedAgent}
-                setSelectedAgent={setSelectedAgent}
-                handleAddAgent={handleAddAgent}
-                handleDeleteAgent={handleDeleteAgent}
-                loading={loading}
-              />
-            </Grid>
-            {agents.map((agent) => 
-              <Agent hidden={agent !== selectedAgent} agent={agent} />
-            )}
-          </Grid>
-        </Box>
-      </Container>
-      </URIContext.Provider>
+      <LoadingContext.Provider value={{ loading: loading, setLoading: setLoading }}>
+        <URIContext.Provider value={baseURI}>
+          <AppHeader
+            darkMode={darkMode}
+            handleToggleDarkMode={handleToggleDarkMode}
+          />
+          <Container maxWidth="lg" sx={{mt: "2rem", minHeight: "80vh"}}>
+            {!Object.values(loading).every(loadingValue => !loadingValue) ?
+              <Typography variant="h1" component="h1" align="center">Loading...</Typography> :
+              (error ?
+                <Typography variant="h1" component="h1" align="center">Error!</Typography> :
+
+                  <Grid container spacing={2}>
+                    <AgentList
+                      agents={agents}
+                      selectedAgent={selectedAgent}
+                      setSelectedAgent={setSelectedAgent}
+                      loadAgents={loadAgents}
+                    />
+                    {selectedAgent === "Home" ? <AgentHome /> : <Agent agent={selectedAgent} />}
+
+                    
+                    {/*agents.slice(1).map((agent) =>
+                      <Agent key={agent.name} hidden={agent.name !== selectedAgent} agent={agent.name} />
+              )*/}
+                    
+                  </Grid>
+   
+              )}
+          </Container>
+        </URIContext.Provider>
+      </LoadingContext.Provider>
     </ThemeProvider>
   );
 }
