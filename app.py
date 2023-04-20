@@ -115,20 +115,6 @@ class Instruct(Resource):
     
 class GetCommands(Resource):
     def get(self, agent_name):
-        commands = Commands(agent_name=agent_name)
-        # commands_list = {['FriendlyName', 'command_name', 'command_args'],['FriendlyName2', 'command_name2', 'command_args2']}
-        commands_list = commands.load_commands(agent_name=agent_name)
-        # Split up commands_list into FriendlyName, command_name, command_args
-        return_commands = []
-        for command in commands_list:
-            friendly_name = command[0]
-            command_name = command[1]
-            command_args = command[2]
-            return_commands.append({"friendly_name": friendly_name, "command_name": command_name, "command_args": command_args})
-        return {"commands": return_commands}, 200
-
-class GetAvailableCommands(Resource):
-    def get(self, agent_name):
         available_commands = Commands(agent_name).get_available_commands()
         return {"commands": available_commands}, 200
 
@@ -326,9 +312,7 @@ api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
-# Output: {commands: ["command1", "command2", "command3"]
-api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
-# Output: {commands: [{command: $string, enabled: $bool}]
+# Output: {"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
