@@ -55,7 +55,7 @@ class AddAgent(Resource):
             command_dict = {}
             for command in commands_list:
                 friendly_name, command_name, command_args = command
-                command_dict[command_name] = {"friendly_name": friendly_name, "args": command_args, "enabled": True}
+                command_dict[friendly_name] = True
             config_data = {"commands": command_dict}
             json.dump(config_data, f)
         return {"message": "Agent added", "agent_file": agent_file}, 200
