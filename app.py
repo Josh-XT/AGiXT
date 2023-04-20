@@ -90,16 +90,15 @@ class GetChatHistory(Resource):
         return {"chat_history": chat_history}, 200
 
 class Instruct(Resource):
-    def post(self):
-        agent_name = request.json.get("agent_name")
+    def post(self, agent_name):
         objective = request.json.get("prompt")
         agent = AgentLLM(agent_name)
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return {"response": str(response)}, 200
     
 class GetCommands(Resource):
-    def get(self):
-        commands = Commands()
+    def get(self, agent_name):
+        commands = Commands(agent_name=agent_name)
         commands_list = commands.get_commands_list()
         return jsonify({"commands": commands_list}, 200)
     
@@ -190,21 +189,24 @@ class GetTaskStatus(Resource):
         status = babyagi_instance.get_status()
         return {"status": status}, 200
 
-api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')
-api.add_resource(StopTaskAgent, '/api/task/stop/<string:agent_name>')
-api.add_resource(GetTaskOutput, '/api/task/output/<string:agent_name>')
-api.add_resource(GetTaskStatus, '/api/task/status/<string:agent_name>')
+# Agents
+api.add_resource(GetAgents, '/api/get_agents')
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
-api.add_resource(GetAgents, '/api/get_agents')
-api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
-api.add_resource(Instruct, '/api/instruct')
-api.add_resource(GetCommands, '/api/get_commands')
+api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
 api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
 api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
 api.add_resource(EnableAllCommands, '/api/enable_all_commands/<string:agent_name>')
+api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
+api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
+
+# Tasks
+api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')
+api.add_resource(StopTaskAgent, '/api/task/stop/<string:agent_name>')
+api.add_resource(GetTaskOutput, '/api/task/output/<string:agent_name>')
+api.add_resource(GetTaskStatus, '/api/task/status/<string:agent_name>')
 
 if __name__ == '__main__':
     app.run(debug=True)
