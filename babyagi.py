@@ -36,14 +36,23 @@ class Spinner:
         sys.stdout.flush()
 
 class babyagi:
-    def __init__(self, primary_objective=None, initial_task=None):
+    def __init__(self, primary_objective=None, initial_task=None, agent_name="default"):
         self.CFG = Config()
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
         self.spinner = Spinner()
         self.load_prompts()
         self.initialize_task_list()
-        self.prompter = AgentLLM()
+        self.prompter = AgentLLM(agent_name)
+        self.output_list = []
+        self.running = False
+        self.agent_name = agent_name
+
+    def set_agent_name(self, agent_name):
+        self.agent_name = agent_name
+
+    def get_status(self):
+        return self.running
 
     def load_prompts(self):
         if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
@@ -57,9 +66,10 @@ class babyagi:
 
     def initialize_task_list(self):
         self.task_list = deque([])
-        self.output_list = []
 
     def display_objective_and_initial_task(self):
+        self.output_list.append(f"Objective: {self.primary_objective}")
+        self.output_list.append(f"Initial task: {self.initial_task}")
         print("\033[94m\033[1m" + "\n*****OBJECTIVE*****\n" + "\033[0m\033[0m")
         print(f"{self.primary_objective}")
         print("\033[93m\033[1m" + "\nInitial task:" + "\033[0m\033[0m" + f" {self.initial_task}")
@@ -77,6 +87,7 @@ class babyagi:
         prompt = prompt.replace("{task_description}", task_description)
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
         response = self.prompter.run(prompt, commands_enabled=False)
+        self.output_list.append(f"Task creation agent response: {response}")
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -90,6 +101,7 @@ class babyagi:
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
         response = self.prompter.run(prompt, commands_enabled=False)
+        self.output_list.append(f"Prioritization agent response: {response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
@@ -101,6 +113,7 @@ class babyagi:
         self.display_task_list()
 
     def display_task_list(self):
+        self.output_list.append(f"Task list: {self.task_list}")
         print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
@@ -116,10 +129,18 @@ class babyagi:
             self.response = self.prompter.run(prompt, commands_enabled=False)
         else:
             self.response = self.prompter.run(prompt)
+        print("\033[91m\033[1m" + "\n*****EXECUTION AGENT*****\n" + "\033[0m\033[0m")
+        print(f"{task_id}: {task}")
+        print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
+        print(self.response)
+        self.output_list.append(f"Execution agent response: {self.response}")
+        print(self.output_list)
         return self.response
 
     def display_result(self, task):
         self.display_task_list()
+        self.output_list.append(f"Task: {task['task_id']}: {task['task_name']}")
+        self.output_list.append(f"Result: {self.response}")
         print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
         print(f"{task['task_id']}: {task['task_name']}")
         print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
@@ -138,6 +159,8 @@ class babyagi:
             except:
                 this_task_id = 2
         this_task_name = task["task_name"]
+        if this_task_name == "":
+            return self.execute_next_task()
         self.response = self.execution_agent(self.primary_objective, this_task_name, this_task_id)
         new_tasks = self.task_creation_agent(
             self.primary_objective,
@@ -153,15 +176,24 @@ class babyagi:
         self.prioritization_agent(this_task_id)
         return task
 
-    def run(self): # Main loop
+    def get_output(self):
+        return self.output_list
+
+    def stop_running(self):
+        self.running = False
+
+    def run(self):  # Main loop
         # Add the first task
         self.add_initial_task()
-        while True:
+        self.running = True
+        while self.running:
             self.spinner.start()
             task = self.execute_next_task()
             self.spinner.stop()
             self.display_result(task)
+            print(f"Output after executing task: {self.output_list}")  # Debug print
             if not self.task_list:
+                self.output_list.append(f"All tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
