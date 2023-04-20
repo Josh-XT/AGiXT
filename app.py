@@ -201,7 +201,7 @@ class GetTaskOutput(Resource):
 class GetTaskStatus(Resource):
     def get(self, agent_name):
         if agent_name not in babyagi_instances:
-            return {"message": "Task agent not found"}, 404
+            return {"status": False}
         babyagi_instance = babyagi_instances[agent_name]
         status = babyagi_instance.get_status()
         return {"status": status}, 200
