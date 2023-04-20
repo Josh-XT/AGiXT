@@ -20,7 +20,7 @@ const AgentControl = ({agent, data, running, toggleRunning, objective, setObject
   };
 
   const InstructAgent = async (instruction) => {
-    const response = await (await fetch(`${baseURI}/api/instruct/${agent}`, {
+    const response = (await (await fetch(`${baseURI}/api/instruct/${agent}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -28,7 +28,7 @@ const AgentControl = ({agent, data, running, toggleRunning, objective, setObject
       body: JSON.stringify({
         prompt: instruction,
       }),
-    })).json().response;
+    })).json()).response;
 
     setChatHistory((prevChatHistory) => [
       ...prevChatHistory,
