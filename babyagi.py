@@ -85,7 +85,7 @@ class babyagi:
         self.display_task_list()
 
     def display_task_list(self):
-        self.output_list.append(f"Task list: {self.task_list}")
+        self.output_list.append(f"Task list:\n\n{self.task_list}")
         print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
@@ -113,8 +113,8 @@ class babyagi:
 
     def display_result(self, task):
         self.display_task_list()
-        self.output_list.append(f"Task: {task['task_id']}: {task['task_name']}")
-        self.output_list.append(f"Result: {self.response}")
+        self.output_list.append(f"Task:\n\n{task['task_id']}: {task['task_name']}")
+        self.output_list.append(f"Result:\n\n{self.response}")
         print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
         print(f"{task['task_id']}: {task['task_name']}")
         print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
@@ -163,9 +163,8 @@ class babyagi:
         while self.running:
             task = self.execute_next_task()
             self.display_result(task)
-            print(f"Output after executing task: {self.output_list}")  # Debug print
             if not self.task_list:
-                self.output_list.append(f"All tasks complete.")
+                self.output_list.append(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
