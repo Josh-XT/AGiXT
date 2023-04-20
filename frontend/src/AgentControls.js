@@ -11,12 +11,9 @@ import {
 } from "@mui/material";
 
 const AgentControls = ({
-  darkMode,
-  handleToggleDarkMode,
   selectedAgent,
   setChatHistory,
   chatHistory,
-  commands,
   tabValue,
   setTabValue,
   objective,
@@ -26,7 +23,7 @@ const AgentControls = ({
 }) => {
   const [baseURI, setBaseURI] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isTaskRunning, setIsTaskRunning] = useState(false);
+  const [refreshInteval, setRefreshInterval] = useState(null);
 
   async function getBaseURI() {
     try {
@@ -47,10 +44,17 @@ const AgentControls = ({
     setURI();
   }, []);
 
-  useEffect(() => {
-    const getOutput = async () => {
-      if (isTaskRunning) {
-        setIsLoading(true);
+
+  const startTask = async () => {
+    await fetch(`${baseURI}/api/task/start/${selectedAgent}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ objective: objective }),
+    });
+    setRefreshInterval(setInterval(async () => {
+      setIsLoading(true);
         const response = await fetch(`${baseURI}/api/task/output/${selectedAgent}`);
         const data = await response.json();
         console.log(data)
@@ -60,29 +64,13 @@ const AgentControls = ({
             ...data.output.map((output) => `Output: ${output}`),
           ]);
         }
-  
-        setIsLoading(false);
-        setTimeout(getOutput, 2000);
-      }
-    };
-  
-    getOutput();
-    return () => clearTimeout(getOutput);
-  }, [isTaskRunning, baseURI, setChatHistory, chatHistory, selectedAgent]);
-
-  const startTask = async () => {
-    setIsTaskRunning(true);
-    await fetch(`${baseURI}/api/task/start/${selectedAgent}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ objective: objective }),
-    });
+         setIsLoading(false);
+    }, 3000));
   };
 
   const stopTask = async () => {
-    setIsTaskRunning(false);
+    clearInterval(refreshInteval);
+    setRefreshInterval(null);
     await fetch(`${baseURI}/api/task/stop/${selectedAgent}`, { method: "POST" });
   };
 
@@ -131,7 +119,7 @@ const AgentControls = ({
           <CircularProgress />
         </Box>
       )}
-      <Tabs value={tabValue} onChange={handleTabChange}>
+      <Tabs value={tabValue} onChange={handleTabChange} sx={{mb: "1rem"}}>
         <Tab label="Task Manager" />
         <Tab label="Instruct" />
       </Tabs>
@@ -144,7 +132,7 @@ const AgentControls = ({
             onChange={(e) => setObjective(e.target.value)}
             sx={{ mb: 2 }}
           />
-          {isTaskRunning ? (
+          {refreshInteval ? (
             <Button
               variant="contained"
               color="secondary"
