@@ -124,13 +124,13 @@ const AgentList = ({agents,  loadAgents, selectedAgent,  setSelectedAgent}) => {
             {agent.status?<RunCircleIcon />:null}
             {agent.name!=="Home"?
             <>
-              {editing&&editingTarget!=agent.name?null:
+              {editing&&editingTarget!==agent.name?null:
                     <IconButton
                       edge="end"
                       aria-label="delete"
                       onClick={() => handleEditAgent(agent.name)}
                     >
-                      {editing&&editingTarget==agent.name?<SaveIcon />:<EditIcon />}
+                      {editing&&editingTarget===agent.name?<SaveIcon />:<EditIcon />}
                     </IconButton>
 }
             <IconButton
@@ -138,7 +138,7 @@ const AgentList = ({agents,  loadAgents, selectedAgent,  setSelectedAgent}) => {
               aria-label="delete"
               onClick={() => editing&&editingTarget?handleEditCancel():handleDeleteAgent(agent.name)}
             >
-              {editing&&editingTarget==agent.name?<DoNotDisturbIcon />:<DeleteIcon />}
+              {editing&&editingTarget===agent.name?<DoNotDisturbIcon />:<DeleteIcon />}
             </IconButton>
             </>
             :null}
