@@ -40,14 +40,13 @@ class Commands:
     def get_available_commands(self):
         available_commands = []
         for command in self.commands:
-            command_name, command_function_name, params = command
-            # Check content of "commands" agent_config for a list of command names with values of either true or false.
-            if "commands" in self.agent_config and command_name in self.agent_config["commands"]:
+            friendly_name, command_name, command_args = command
+            if "commands" in self.agent_config and friendly_name in self.agent_config["commands"]:
                 if self.agent_config["commands"][command_name] == "true":
                     # Add command to list of commands to return
-                    available_commands.append({"command": command_name, "enabled": True})
+                    available_commands.append({"friendly_name": friendly_name, "name": command_name, "args": command_args, "enabled": True})
                 else:
-                    available_commands.append({"command": command_name, "enabled": False})
+                    available_commands.append({"friendly_name": friendly_name, "name": command_name, "args": command_args, "enabled": False})
         return available_commands
 
     def load_commands(self, agent_name: str = None):
