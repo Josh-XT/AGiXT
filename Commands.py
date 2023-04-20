@@ -98,6 +98,4 @@ class Commands:
         return None, None
 
     def get_commands_list(self):
-        self.commands = self.load_commands(agent_name=self.agent_name)
-        commands_list = [command_name for command_name, _, _ in self.commands]
-        return commands_list
+        return self.load_commands(agent_name=self.agent_name)
