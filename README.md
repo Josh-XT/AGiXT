@@ -28,6 +28,7 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
   - [Project Structure](#project-structure)
   - [Acknowledgments](#acknowledgments)
   - [Contributing](#contributing)
+  - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
 
 ## Key Features
@@ -265,6 +266,11 @@ Please consider exploring and contributing to these projects as well.
 ## Contributing
 
 We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+
+## Donations and Sponsorships
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@Josh_XT](https://twitter.com/Josh_XT).
+
+We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 
 ## Usage
 
