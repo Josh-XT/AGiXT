@@ -301,32 +301,55 @@ class RunChain(Resource):
 
 # Agents
 api.add_resource(GetAgents, '/api/get_agents')
+# Output: {"agents": ["agent1", "agent2", "agent3"]}
 api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
+# Output: {"message": "Agent 'agent1' added"}
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
+# Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
+# Output: {"commands": ["command1", "command2", "command3"]}
 api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
+# Output: {"commands": ["command1", "command2", "command3"]}
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
+# Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
 api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>/<string:command_name>')
+# Output: {"message": "Command 'command1' disabled for agent 'agent1'"}
 api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
+# Output: {"message": "All commands disabled for agent 'agent1'"}
 api.add_resource(EnableAllCommands, '/api/enable_all_commands/<string:agent_name>')
+# Output: {"message": "All commands enabled for agent 'agent1'"}
 api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
+# Output: {"chat_history": ["chat1", "chat2", "chat3"]}
 api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
+# Output: {"message": "Prompt sent to agent 'agent1'"}
 
 # Tasks
 api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')
+# Output: {"message": "Task agent 'agent1' started"}
 api.add_resource(StopTaskAgent, '/api/task/stop/<string:agent_name>')
+# Output: {"message": "Task agent 'agent1' stopped"}
 api.add_resource(GetTaskOutput, '/api/task/output/<string:agent_name>')
+# Output: {"output": "output"}
 api.add_resource(GetTaskStatus, '/api/task/status/<string:agent_name>')
+# Output: {"status": "status"}
 
 # Chains
 api.add_resource(GetChains, '/api/get_chains')
+# Output: {chain_name: {step_number: {prompt_type: prompt}}}
 api.add_resource(GetChain, '/api/get_chain')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(AddChain, '/api/add_chain')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(AddChainStep, '/api/add_chain_step')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(UpdateStep, '/api/update_step')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(DeleteChain, '/api/delete_chain')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(DeleteChainStep, '/api/delete_chain_step/<string:step_number>')
+# Output: {step_number: {prompt_type: prompt}}
 api.add_resource(RunChain, '/api/run_chain/<string:agent_name>')
+# Output: {step_number: {prompt_type: prompt}}
 
 if __name__ == '__main__':
     app.run(debug=True)
