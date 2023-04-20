@@ -2,7 +2,10 @@
 
 Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI GPT-3.5, GPT-4, ChatGPT](https://openai.com/), [Google Bard](https://bard.google.com), [Microsoft Bing](https://bing.com), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases. The list of providers will continue to grow.
 
+⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs.  We're NOT responsible for your usage under any circumstance.**
+
 ![image](https://user-images.githubusercontent.com/102809327/233168030-58c263f8-c1f4-4426-acaf-e1c4a662cc4e.png)
+
 
 ⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
@@ -157,11 +160,11 @@ To run Agent-LLM without Docker:
 
 Agent-LLM provides several API endpoints for managing agents, setting objectives, managing tasks, and more. The following are the available API endpoints:
 
-1. **Add Agent**: `/api/add_agent` (POST)
+1. **Add Agent**: `/api/add_agent/<string:agent_name>` (POST)
 
    Adds a new agent with the given agent name.
 
-2. **Delete Agent**: `/api/delete_agent` (DELETE)
+2. **Delete Agent**: `/api/delete_agent/<string:agent_name>` (DELETE)
 
    Deletes an existing agent with the given agent name.
 
@@ -169,35 +172,35 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
    Retrieves a list of all available agents.
 
-4. **Get Chat History**: `/api/get_chat_history` (GET)
+4. **Get Chat History**: `/api/get_chat_history/<string:agent_name>` (GET)
 
    Retrieves the chat history of an agent with the given agent name.
 
-5. **Instruct**: `/api/instruct` (POST)
+5. **Instruct**: `/api/instruct/<string:agent_name>` (POST)
 
    Sends an instruction prompt to the agent and receives a response.
 
-6. **Get Commands**: `/api/get_commands` (GET)
+6. **Get Commands**: `/api/get_commands/<string:agent_name>` (GET)
 
    Retrieves a list of available commands.
 
-7. **Get Available Commands**: `/api/get_available_commands` (GET)
+7. **Get Available Commands**: `/api/get_available_commands/<string:agent_name>` (GET)
 
    Retrieves a list of enabled commands for a specific agent.
 
-8. **Enable Command**: `/api/enable_command` (POST)
+8. **Enable Command**: `/api/enable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Enables a specific command for an agent.
 
-9. **Disable Command**: `/api/disable_command` (POST)
+9. **Disable Command**: `/api/disable_command/<string:agent_name>/<string:command_name>` (POST)
 
    Disables a specific command for an agent.
 
-10. **Disable All Commands**: `/api/disable_all_commands` (POST)
+10. **Disable All Commands**: `/api/disable_all_commands/<string:agent_name>` (POST)
 
     Disables all commands for an agent.
 
-11. **Enable All Commands**: `/api/enable_all_commands`(POST)
+11. **Enable All Commands**: `/api/enable_all_commands/<string:agent_name>` (POST)
 
     Enables all commands for an agent.
 
