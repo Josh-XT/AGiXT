@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useContext } from "react";
 import {
   Typography,
   Box,
@@ -6,17 +6,13 @@ import {
   TextField,
   Button,
   Tab,
-  Tabs,
-  CircularProgress,
+  Tabs
 } from "@mui/material";
 import { URIContext } from "./App";
-const AgentControls = ({agent, data, toggleRunning}) => {
+const AgentControl = ({agent, data, running, toggleRunning, objective, setObjective}) => {
   const baseURI = useContext(URIContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [refreshInteval, setRefreshInterval] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [tabValue, setTabValue] = useState(0);
-  const [objective, setObjective] = useState("");
   const [instruction, setInstruction] = useState("");
 
   const handleTabChange = (event, newValue) => {
@@ -24,7 +20,7 @@ const AgentControls = ({agent, data, toggleRunning}) => {
   };
 
   const InstructAgent = async (instruction) => {
-    const response = await fetch(`${baseURI}/api/instruct/${agent}`, {
+    const response = await (await fetch(`${baseURI}/api/instruct/${agent}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -32,78 +28,63 @@ const AgentControls = ({agent, data, toggleRunning}) => {
       body: JSON.stringify({
         prompt: instruction,
       }),
-    });
+    })).json().response;
 
-    const data = await response.json();
-    const output = data.response;
     setChatHistory((prevChatHistory) => [
       ...prevChatHistory,
       `You: ${instruction}`,
-      `Agent: ${output}`,
+      `Agent: ${response}`,
     ]);
   };
 
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      await InstructAgent(instruction, selectedAgent);
-      setInstruction("");
+      handleSendInstruction();
     }
   };
 
   const handleSendInstruction = async () => {
-    await InstructAgent(instruction, selectedAgent);
+    await InstructAgent(instruction, agent);
     setInstruction("");
   };
 
+  console.log(data);
+
   return (
     <>
-      {isLoading && (
-        <Box display="flex" justifyContent="center" mt={2}>
-          <CircularProgress />
-        </Box>
-      )}
-      <Tabs value={tabValue} onChange={handleTabChange} sx={{mb: "1rem"}}>
-        <Tab label="Task Manager" />
-        <Tab label="Instruct" />
+      <Tabs value={tabValue} onChange={handleTabChange} sx={{mb: "0.5rem"}}>
+        <Tab label="Objective Management" />
+        <Tab label="Instruct Agent" />
       </Tabs>
+      <Box sx={{display: "flex", flexDirection: "column", height: "100%"}}>
       {tabValue === 0 && (
         <>
           <TextField
             fullWidth
-            label="Enter Objective"
+            label="Agent Objective"
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
             sx={{ mb: 2 }}
           />
-          {refreshInteval ? (
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={stopTask}
-              fullWidth
-            >
-              Stop Task
-            </Button>
-          ) : (
-            <Button
+          <Button
+
               variant="contained"
               color="primary"
-              onClick={startTask}
+              onClick={toggleRunning}
               fullWidth
             >
-              Start Task
+              {running?"Stop":"Start"} Task
             </Button>
-          )}
+
         </>
       )}
       {tabValue === 1 && (
         <>
           <TextField
             fullWidth
-            label="Enter Instruction"
-            placeholder="Type instruction"
-            id="instructionInput"
+            label="Enter Instruction for Agent"
+            placeholder="Instruction..."
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyPress={handleKeyPress}
@@ -115,27 +96,27 @@ const AgentControls = ({agent, data, toggleRunning}) => {
             onClick={handleSendInstruction}
             fullWidth
           >
-            Send Instruction
+            Instruct Agent
           </Button>
         </>
       )}
-      <Box mt={2} p={2} bgcolor="background.paper" borderRadius={1}>
-        <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" gutterBottom>
           Chat History
         </Typography>
         <Paper
           elevation={3}
-          style={{ padding: "16px", maxHeight: "300px", overflowY: "auto" }}
+          sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
         >
-          {chatHistory.map((message, index) => (
+          {(tabValue===0?data:chatHistory).map((message, index) => (
             <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
               {message}
             </pre>
           ))}
         </Paper>
+
       </Box>
     </>
   );
 };
 
-export default AgentControls;
+export default AgentControl;
