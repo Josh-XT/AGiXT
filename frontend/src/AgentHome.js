@@ -13,7 +13,7 @@ const AgentHome = (props) => {
         })
     }, []);
     return (
-            <Grid item xs={9}>
+            <Grid item xs={10}>
                 <Typography variant="h4" sx={{ textAlign: "center" }}>Welcome to Agent LLM</Typography>
                 <ReactMarkdown>{readme}</ReactMarkdown>
             </Grid>

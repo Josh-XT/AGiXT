@@ -73,10 +73,10 @@ const Agent = (props) => {
     return (
         loading? <></> :
         <>
-            <Grid item xs={6}>
+            <Grid item xs={9}>
                 <AgentControl {...props} running={Boolean(refresh)} toggleRunning={toggleRunning} data={agentData??[]} objective={objective} setObjective={setObjective} />
             </Grid>
-            <Grid item xs={3}>
+            <Grid item xs={1.5}>
                 <AgentCommandList {...props} />
             </Grid>
         </>
