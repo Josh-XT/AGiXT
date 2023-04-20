@@ -158,24 +158,24 @@ class EnableAllCommands(Resource):
         try:
             commands = Commands(agent_name)
             for command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][command_name] = "false"
+                commands.agent_config["commands"][command_name] = "true"
             with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
                 json.dump(commands.agent_config, agent_config)
-            return {"message": f"All commands disabled for agent '{agent_name}'."}, 200
+            return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
         except Exception as e:
-            return {"message": f"Error disabling all commands for agent '{agent_name}': {str(e)}"}, 500
+            return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
 
 class DisableAllCommands(Resource):
     def post(self, agent_name):
         try:
             commands = Commands(agent_name)
             for command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][command_name] = "true"
+                commands.agent_config["commands"][command_name] = "false"
             with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
                 json.dump(commands.agent_config, agent_config)
-            return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
+            return {"message": f"All commands disabled for agent '{agent_name}'."}, 200
         except Exception as e:
-            return {"message": f"Error enabling all commands for agent '{agent_name}': {str(e)}"}, 500
+            return {"message": f"Error disabled all commands for agent '{agent_name}': {str(e)}"}, 500
 
 class StartTaskAgent(Resource):
     def post(self, agent_name):
