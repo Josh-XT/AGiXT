@@ -21,7 +21,6 @@ const themeGenerator = (darkMode) =>
 
 
 export const URIContext = React.createContext('');
-export const LoadingContext = React.createContext({});
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [agents, setAgents] = useState([]);
@@ -72,13 +71,11 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <LoadingContext.Provider value={{ loading: loading, setLoading: setLoading }}>
         <URIContext.Provider value={baseURI}>
           <AppHeader
             darkMode={darkMode}
             handleToggleDarkMode={handleToggleDarkMode}
           />
-          <Container maxWidth="lg" sx={{mt: "2rem", minHeight: "80vh"}}>
             {!Object.values(loading).every(loadingValue => !loadingValue) ?
               <Typography variant="h1" component="h1" align="center">Loading...</Typography> :
               (error ?
@@ -101,9 +98,7 @@ function App() {
                   </Grid>
    
               )}
-          </Container>
         </URIContext.Provider>
-      </LoadingContext.Provider>
     </ThemeProvider>
   );
 }
