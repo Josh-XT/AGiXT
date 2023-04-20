@@ -1,7 +1,7 @@
 import os
 import shutil
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from flask_cors import CORS
 from babyagi import babyagi
 from AgentLLM import AgentLLM
@@ -65,7 +65,7 @@ class DeleteAgent(Resource):
         try:
             os.remove(agent_file)
         except FileNotFoundError:
-            return jsonify({"message": f"Agent file {agent_file} not found."}), 404
+            return {"message": f"Agent file {agent_file} not found."}, 404
 
         if os.path.exists(agent_folder):
             shutil.rmtree(agent_folder)
@@ -96,6 +96,16 @@ class GetChatHistory(Resource):
             chat_history = f.read()
         return {"chat_history": chat_history}, 200
 
+class WipeAgentMemories(Resource):
+    def delete(self, agent_name):
+        # Delete the folder agents/{agent_name}/memories
+        agent_folder = f"agents/{agent_name}/"
+        agent_folder = os.path.abspath(agent_folder)
+        memories_folder = os.path.join(agent_folder, "memories")
+        if os.path.exists(memories_folder):
+            shutil.rmtree(memories_folder)
+        return {"message": f"Memories for agent {agent_name} deleted."}, 200
+
 class Instruct(Resource):
     def post(self, agent_name):
         objective = request.json.get("prompt")
@@ -107,12 +117,12 @@ class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
         commands_list = commands.get_commands_list()
-        return jsonify({"commands": commands_list}, 200)
+        return {"commands": commands_list}, 200
     
 class GetAvailableCommands(Resource):
     def get(self, agent_name):
         available_commands = Commands(agent_name).get_available_commands()
-        return jsonify({"available_commands": available_commands}, 200)
+        return {"available_commands": available_commands}, 200
 
 class EnableCommand(Resource):
     def post(self, agent_name, command_name):
@@ -120,7 +130,7 @@ class EnableCommand(Resource):
         commands.agent_config["commands"][command_name] = "true"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(commands.agent_config, agent_config)
-        return jsonify({"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200)
+        return {"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200
 
 class DisableCommand(Resource):
     def post(self, agent_name, command_name):
@@ -128,7 +138,7 @@ class DisableCommand(Resource):
         commands.agent_config["commands"][command_name] = "false"
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(commands.agent_config, agent_config)
-        return jsonify({"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200)
+        return {"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200
 
 class EnableAllCommands(Resource):
     def post(self, agent_name):
@@ -323,6 +333,8 @@ api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
 # Output: {"chat_history": ["chat1", "chat2", "chat3"]}
 api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
 # Output: {"message": "Prompt sent to agent 'agent1'"}
+api.add_resource(WipeAgentMemories, '/api/wipe_agent_memories/<string:agent_name>')
+# Output: {"message": "Agent 'agent1' memories wiped"}
 
 # Tasks
 api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')
