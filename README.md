@@ -251,6 +251,12 @@ Agent-LLM provides several API endpoints for managing agents, setting objectives
 
     Output: `{"status": "status"}`
 
+16. **Wipe Agent Memories**: `/api/wipe_agent_memories/<string:agent_name>` (POST)
+
+    Wipes the memories of an agent with the given agent name.
+
+    Output: `{"message": "Agent 'agent1' memories wiped"}`
+
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
 ## Extending Functionality
