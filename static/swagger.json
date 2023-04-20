@@ -146,7 +146,7 @@
                         "type": "string",
                         "required": true,
                         "description": "The name of the agent to get commands for."
-                    },
+                    }
                 ],
                 "responses": {
                     "200": {
@@ -426,7 +426,17 @@
                 "agents": {
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                            "agent_name": {
+                                "type": "string",
+                                "description": "The name of the agent."
+                            },
+                            "status": {
+                                "type": "boolean",
+                                "description": "The status of the agent."
+                            }
+                        }
                     },
                     "description": "A list of agent names."
                 }
