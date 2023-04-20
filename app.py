@@ -52,7 +52,6 @@ class AddAgent(Resource):
         with open(agent_config, "w") as f:
             commands = Commands(load_commands_flag=False)
             commands_list = commands.load_commands(agent_name=agent_name)
-            print(commands_list)
             command_dict = {}
             for command in commands_list:
                 friendly_name, command_name, command_args = command
