@@ -116,15 +116,13 @@ class Instruct(Resource):
 class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
-        # commands_list = {['FriendlyName', 'command_name', 'command_args'],['FriendlyName2', 'command_name2', 'command_args2']}
         commands_list = commands.load_commands(agent_name=agent_name)
-        # Split up commands_list into FriendlyName, command_name, command_args
         return_commands = []
         for command in commands_list:
             friendly_name = command[0]
             command_name = command[1]
             command_args = command[2]
-            return_commands.append({"friendly_name": friendly_name, "command_name": command_name, "command_args": command_args})
+            return_commands.append({"friendly_name": friendly_name, "name": command_name, "args": command_args})
         return {"commands": return_commands}, 200
 
 class GetAvailableCommands(Resource):
