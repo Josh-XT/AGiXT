@@ -26,6 +26,7 @@ const Agent = (props) => {
                         console.log("Stopped [Agent.js]");
                         clearInterval(refresh);
                         setRefresh(null);
+                        props.reloadAgents();
                     }
                     else throw "Responded with successful stop, but the agent is still running.";                   
                 })
@@ -56,6 +57,7 @@ const Agent = (props) => {
                                 if (response.output && response.output.length > 0) setAgentData(response.output);
                             }, 3000)
                         );
+                        props.reloadAgents();
                     }
                     else throw "Responded with successful start, but the agent is not running."
                 })
@@ -63,9 +65,7 @@ const Agent = (props) => {
             catch(error) {
                 console.error("Error Starting Agent:\n",error);
             }
-
-        }
-    }
+        }    }
     useEffect(() => {
         fetch(`${baseURI}/api/task/status/${props.agent}`).then((agent) => agent.json()).then((agent) => {if(agent.status) toggleRunning();});
         setLoading(false);

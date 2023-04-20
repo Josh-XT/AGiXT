@@ -91,7 +91,7 @@ function App() {
                       setSelectedAgent={setSelectedAgent}
                       loadAgents={loadAgents}
                     />
-                    {selectedAgent === "Home" ? <AgentHome /> : <Agent agent={selectedAgent} />}
+                    {selectedAgent === "Home" ? <AgentHome /> : <Agent agent={selectedAgent} reloadAgents={loadAgents} />}
 
                     
                     {/*agents.slice(1).map((agent) =>
