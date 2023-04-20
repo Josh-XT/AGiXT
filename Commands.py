@@ -45,7 +45,9 @@ class Commands:
             if "commands" in self.agent_config and command_name in self.agent_config["commands"]:
                 if self.agent_config["commands"][command_name] == "true":
                     # Add command to list of commands to return
-                    available_commands.append(command)
+                    available_commands.append({"command": command_name, "enabled": True})
+                else:
+                    available_commands.append({"command": command_name, "enabled": False})
         return available_commands
 
     def load_commands(self, agent_name: str = None):
