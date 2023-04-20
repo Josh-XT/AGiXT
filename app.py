@@ -90,8 +90,7 @@ class GetChatHistory(Resource):
         return {"chat_history": chat_history}, 200
 
 class Instruct(Resource):
-    def post(self):
-        agent_name = request.json.get("agent_name")
+    def post(self, agent_name):
         objective = request.json.get("prompt")
         agent = AgentLLM(agent_name)
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
@@ -198,7 +197,7 @@ api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
 api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
 api.add_resource(GetAgents, '/api/get_agents')
 api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
-api.add_resource(Instruct, '/api/instruct')
+api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
 api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
 api.add_resource(GetAvailableCommands, '/api/get_available_commands/<string:agent_name>')
 api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>/<string:command_name>')
