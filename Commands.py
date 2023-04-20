@@ -41,8 +41,8 @@ class Commands:
         available_commands = []
         for command in self.commands:
             friendly_name, command_name, command_args = command
-            if "commands" in self.agent_config and friendly_name in self.agent_config["commands"]:
-                if self.agent_config["commands"][command_name] == "true":
+            if "commands" in self.agent_config and command_name in self.agent_config["commands"]:
+                if self.agent_config["commands"][command_name] == True:
                     # Add command to list of commands to return
                     available_commands.append({"friendly_name": friendly_name, "name": command_name, "args": command_args, "enabled": True})
                 else:
