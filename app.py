@@ -79,12 +79,18 @@ class GetAgents(Resource):
         for file in os.listdir(memories_dir):
             if file.endswith(".yaml"):
                 agents.append(file.replace(".yaml", ""))
-        return {"agents": agents}, 200
+        # Check agent status and return {"agents": [{"name": "agent_name", "status": "running"}]
+        output = []
+        for agent in agents:
+            if agent not in babyagi_instances:
+                output.append({"name": agent, "status": "Not running"})
+            babyagi_instance = babyagi_instances[agent]
+            status = babyagi_instance.get_status()
+            output.append({"name": agent, "status": status})
+        return {"agents": output}, 200
 
 class GetChatHistory(Resource):
     def get(self, agent_name):
-        agent = AgentLLM()
-        agent.CFG.AGENT_NAME = agent_name
         with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
             chat_history = f.read()
         return {"chat_history": chat_history}, 200
