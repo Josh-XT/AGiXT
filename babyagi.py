@@ -7,7 +7,6 @@ from collections import deque
 from typing import Dict, List
 from Config import Config
 from AgentLLM import AgentLLM
-
 class babyagi:
     def __init__(self, primary_objective=None, initial_task=None, agent_name="default"):
         self.CFG = Config()
@@ -16,6 +15,7 @@ class babyagi:
         self.load_prompts()
         self.initialize_task_list()
         self.prompter = AgentLLM(agent_name)
+        self.commands = self.prompter.get_agent_commands()
         self.output_list = []
         self.running = False
         self.agent_name = agent_name
@@ -94,8 +94,8 @@ class babyagi:
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
-        commands = AgentLLM(self.agent_name).get_agent_commands()
-        prompt = prompt.replace("{COMMANDS}", commands)
+        prompt = prompt.replace("{COMMANDS}", "".join(self.commands))
+        print(f"PROMPT: {prompt}")
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))

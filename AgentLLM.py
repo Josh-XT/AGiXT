@@ -27,8 +27,9 @@ class AgentLLM:
                 persist_directory=self.chroma_persist_dir,
             )
         )
+        stripped_agent_name = "".join(c for c in agent_name if c in string.ascii_letters)
         self.collection = self.chroma_client.get_or_create_collection(
-            name=str(agent_name).lower(),
+            name=str(stripped_agent_name).lower(),
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.embedding_function,
         )
@@ -39,7 +40,7 @@ class AgentLLM:
         self.agent_name = agent_name
 
     def get_agent_commands(self) -> List[str]:
-        return self.commands.get_commands()
+        return self.commands.get_available_commands()
 
     def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
         trimmed_context = []
