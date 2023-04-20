@@ -51,7 +51,7 @@ class AddAgent(Resource):
         agent_config = os.path.join(agent_folder, "config.json")
         with open(agent_config, "w") as f:
             commands = Commands(load_commands_flag=False)
-            commands_list = commands.get_commands_list()
+            commands_list = commands.load_commands(agent_name=agent_name)
             config_data = {"commands": {command: "true" for command in commands_list}}
             json.dump(config_data, f)
         return {"message": "Agent added", "agent_file": agent_file}, 200
@@ -116,8 +116,8 @@ class Instruct(Resource):
 class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name=agent_name)
-        commands_list = commands.get_commands_list()
-        return {"commands": json.dumps(commands_list)}, 200
+        commands_list = commands.load_commands(agent_name=agent_name)
+        return {"commands": commands_list}, 200
 
 class GetAvailableCommands(Resource):
     def get(self, agent_name):
