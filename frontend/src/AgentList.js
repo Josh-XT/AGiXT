@@ -102,7 +102,7 @@ const AgentList = ({agents,  loadAgents, selectedAgent,  setSelectedAgent}) => {
   };
 
   return (
-    <Grid item xs={1.75}>
+    <Grid item xs={2.25} >
       <Typography variant="h6" gutterBottom>
         Agents
       </Typography>
