@@ -21,7 +21,7 @@ const Agent = (props) => {
                 console.log("Stopping Agent [Agent.js]");
                 fetch(`${baseURI}/api/task/stop/${props.agent}`, { method: "POST" }).then(async () => {
                     console.log("Fetched [Agent.js]");
-                    if (!await(await fetch(`${baseURI}/api/task/status/${props.agent}`)).json().status)
+                    if (!(await(await fetch(`${baseURI}/api/task/status/${props.agent}`)).json()).status)
                     {
                         console.log("Stopped [Agent.js]");
                         clearInterval(refresh);
@@ -45,7 +45,7 @@ const Agent = (props) => {
                     body: JSON.stringify({ objective: objective }),
                 }).then(async () => {
                     console.log("Fetched [Agent.js]");
-                    if (await(await fetch(`${baseURI}/api/task/status/${props.agent}`)).json().status)
+                    if ((await(await fetch(`${baseURI}/api/task/status/${props.agent}`)).json()).status)
                     {
                         console.log("Started [Agent.js]");
                         setRefresh(

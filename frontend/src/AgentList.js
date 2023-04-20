@@ -17,7 +17,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DoNotDisturbIcon from '@mui/icons-material/DoNotDisturb';
 import RunCircleIcon from '@mui/icons-material/RunCircle';
-const AgentList = ({ agents, loadAgents, selectedAgent, setSelectedAgent }) => {
+const AgentList = ({agents,  loadAgents, selectedAgent,  setSelectedAgent}) => {
   const [newAgentName, setNewAgentName] = useState("");
   const baseURI = useContext(URIContext);
   const [editing, setEditing] = useState(false);
@@ -45,7 +45,7 @@ const AgentList = ({ agents, loadAgents, selectedAgent, setSelectedAgent }) => {
         }).then(() => {
           loadAgents();
         });
-
+        
       } catch (error) {
         console.error("Error Adding Agent:", error);
       }
@@ -58,12 +58,14 @@ const AgentList = ({ agents, loadAgents, selectedAgent, setSelectedAgent }) => {
   }
 
   const handleEditAgent = (agent) => {
-    if (!editing) {
+    if (!editing)
+    {
       setEditing(true);
       setEditingTarget(agent);
       setEditingText(agent);
     }
-    else {
+    else
+    {
       try {
         fetch(`${baseURI}/api/rename_agent/${agent}`, {
           method: "PUT",
@@ -111,35 +113,35 @@ const AgentList = ({ agents, loadAgents, selectedAgent, setSelectedAgent }) => {
             onClick={() => setSelectedAgent(agent.name)}
             selected={selectedAgent === agent.name}
           >
-            {editing && editingTarget === agent.name ?
-              <TextField
-                label={`Rename ${agent.name}`}
-                value={editingText}
-                onChange={(e) => setEditingText(e.target.value)}
-              /> : <ListItemText primary={agent.name} />
-            }
-
-            {agent.status ? <RunCircleIcon /> : null}
-            {agent.name !== "Home" ?
-              <>
-                {editing && editingTarget != agent.name ? null :
-                  <IconButton
-                    edge="end"
-                    aria-label="delete"
-                    onClick={() => handleEditAgent(agent.name)}
-                  >
-                    {editing && editingTarget == agent.name ? <SaveIcon /> : <EditIcon />}
-                  </IconButton>
-                }
-                <IconButton
-                  edge="end"
-                  aria-label="delete"
-                  onClick={() => editing && editingTarget ? handleEditCancel() : handleDeleteAgent(agent.name)}
-                >
-                  {editing && editingTarget == agent.name ? <DoNotDisturbIcon /> : <DeleteIcon />}
-                </IconButton>
-              </>
-              : null}
+            {editing && editingTarget===agent.name?
+            <TextField
+            label={`Rename ${agent.name}`}
+            value={editingText}
+            onChange={(e) => setEditingText(e.target.value)}
+          />:<ListItemText primary={agent.name} />
+          }
+            
+            {agent.status?<RunCircleIcon />:null}
+            {agent.name!=="Home"?
+            <>
+              {editing&&editingTarget!=agent.name?null:
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
+                      onClick={() => handleEditAgent(agent.name)}
+                    >
+                      {editing&&editingTarget==agent.name?<SaveIcon />:<EditIcon />}
+                    </IconButton>
+}
+            <IconButton
+              edge="end"
+              aria-label="delete"
+              onClick={() => editing&&editingTarget?handleEditCancel():handleDeleteAgent(agent.name)}
+            >
+              {editing&&editingTarget==agent.name?<DoNotDisturbIcon />:<DeleteIcon />}
+            </IconButton>
+            </>
+            :null}
           </ListItemButton>
         ))}
         <ListItem>
