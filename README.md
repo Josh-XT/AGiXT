@@ -65,7 +65,7 @@ git clone https://github.com/Josh-XT/Agent-LLM
 pip install -r requirements.txt
 ```
 3. Configure the necessary environment variables in the `.env` file using `.env.example` as a template.
-4. Launch Agent-LLM using Docker Compose (recommended) or by running the `app.py` script.
+4. Launch Agent-LLM using Docker (recommended) or by running the `app.py` script.
 
 
 ## Configuration
@@ -89,7 +89,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 ### Docker Setup (Recommended)
 
-To launch the project using Docker Compose:
+To launch the project using Docker:
 
 1. Install Docker on your system.
 2. Access the project's root folder.
