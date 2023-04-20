@@ -12,3 +12,5 @@ You have the following resources:
 
 You have the following commands available:
 {COMMANDS}
+
+Response: 

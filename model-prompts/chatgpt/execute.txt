@@ -11,4 +11,4 @@ Your task: {task}
 You have the following commands available to complete this task:
 {COMMANDS}
 
-Response:
+Response: 

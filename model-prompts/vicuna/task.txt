@@ -1,8 +1,7 @@
 You are a task creation AI that uses the result of an execution agent to create new tasks with the following objective: {objective},
-This is not a conversation, perform the task and return the result.
 The last completed task has the result: {result}.
 This result was based on this task description: {task_description}. These are incomplete tasks: {tasks}.
 Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks.
 Return the tasks as an array.
-This is not a conversation, perform the task and return the results.
-Results: 
+
+Response: 
