@@ -46,6 +46,67 @@ class AgentLLM:
         self.output_list = []
         self.running = False
 
+    def get_agent_commands(self) -> List[str]:
+        return self.commands.get_available_commands()
+
+    def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
+        trimmed_context = []
+        total_tokens = 0
+        for item in context:
+            item_tokens = len(item.split())  # Assuming words as tokens, adjust as needed
+            if total_tokens + item_tokens <= max_tokens:
+                trimmed_context.append(item)
+                total_tokens += item_tokens
+            else:
+                break
+        return trimmed_context
+
+    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
+        if not self.CFG.NO_MEMORY:
+            self.yaml_memory.log_interaction("USER", task)
+            context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
+            context = self.trim_context(context, max_context_tokens)
+            prompt = self.get_prompt_with_context(task=task, context=context)
+        self.response = self.instruct(prompt)
+        if self.CFG.NO_MEMORY:
+            self.store_result(task, self.response)
+            self.yaml_memory.log_interaction(self.AGENT_NAME, self.response)
+        print(f"Response: {self.response}")
+        return self.response
+
+    def store_result(self, task_name: str, result: str):
+        result_id = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(64))
+        if (len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0):
+            self.collection.update(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
+        else:
+            self.collection.add(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
+
+    def context_agent(self, query: str, top_results_num: int, long_term_access: bool) -> List[str]:
+        if long_term_access:
+            interactions = self.yaml_memory.memory["interactions"]
+            context = [interaction["message"] for interaction in interactions[-top_results_num:]]
+            context = self.chunk_content("\n\n".join(context))[:top_results_num]
+        else:
+            count = self.collection.count()
+            if count == 0:
+                return []
+            results = self.collection.query(query_texts=query, n_results=min(top_results_num, count), include=["metadatas"])
+            context = [item["result"] for item in results["metadatas"][0]]
+        return context
+
+    def get_prompt_with_context(self, task: str, context: List[str]) -> str:
+        context_str = "\n\n".join(context)
+        prompt = f"Task: {task}\n\nContext: {context_str}\n\nResponse:"
+        return prompt
+
+    def chunk_content(self, content: str, max_length: int = 500) -> List[str]:
+        content_chunks = []
+        content_length = len(content)
+        for i in range(0, content_length, max_length):
+            chunk = content[i:i + max_length]
+            content_chunks.append(chunk)
+        return content_chunks
+
     def set_agent_name(self, agent_name):
         self.agent_name = agent_name
 
@@ -182,7 +243,7 @@ class AgentLLM:
     def stop_running(self):
         self.running = False
 
-    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):  # Main loop
+    def run_task(self, task: str):  # Main loop
         # Add the first task
         self.add_initial_task()
         self.running = True
@@ -195,10 +256,16 @@ class AgentLLM:
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Task Management System")
-    parser.add_argument("primary_objective", help="Specify the primary objective for the Task Management System")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prompt", type=str, default="What is the weather like today?")
+    parser.add_argument("--max_context_tokens", type=str, default="500")
+    parser.add_argument("--long_term_access", type=bool, default=False)
     args = parser.parse_args()
-    task_manager = AgentLLM(primary_objective=args.primary_objective)
-    task_manager.display_objective_and_initial_task()
-    task_manager.run()
+    prompt = args.prompt
+    max_context_tokens = int(args.max_context_tokens)
+    long_term_access = args.long_term_access
+
+    # Run AgentLLM
+    agent = AgentLLM()
+    agent.run(task=prompt, max_context_tokens=max_context_tokens, long_term_access=long_term_access)

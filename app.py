@@ -114,7 +114,7 @@ class StartTaskAgent(Resource):
         agent_instance = agent_instances[agent_name]
         agent_instance.set_agent_name(agent_name)
         agent_instance.set_objective(objective)
-        agent_thread = threading.Thread(target=agent_instance.run)
+        agent_thread = threading.Thread(target=agent_instance.run_task)
         agent_thread.start()
         return {"message": "Task agent started"}, 200
 
