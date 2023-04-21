@@ -2,6 +2,7 @@ import os
 import json
 import glob
 import shutil
+from AgentLLM import AgentLLM
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -211,3 +212,76 @@ class Config():
         memories_folder = os.path.join(agent_folder, "memories")
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
+
+    def update_agent_config(self, agent_name, config):
+        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+            json.dump(config, agent_config)
+
+    def get_task_output(self, agent_name, babyagi_instance):
+        output = babyagi_instance.get_output()
+        with open(os.path.join("model-prompts", "default", "system.txt"), "r") as f:
+            system_prompt = f.read()
+        if system_prompt in output:
+            output = output.replace(system_prompt, "")
+        return output
+
+    def get_chains(self):
+        chains = os.listdir("chains")
+        chain_data = {}
+        for chain in chains:
+            chain_steps = os.listdir(os.path.join("chains", chain))
+            for step in chain_steps:
+                step_number = step.split("-")[0]
+                prompt_type = step.split("-")[1]
+                with open(os.path.join("chains", chain, step), "r") as f:
+                    prompt = f.read()
+                if chain not in chain_data:
+                    chain_data[chain] = {}
+                if step_number not in chain_data[chain]:
+                    chain_data[chain][step_number] = {}
+                chain_data[chain][step_number][prompt_type] = prompt
+        return chain_data
+
+    def get_chain(self, chain_name):
+        chain_steps = os.listdir(os.path.join("chains", chain_name))
+        chain_data = {}
+        for step in chain_steps:
+            step_number = step.split("-")[0]
+            prompt_type = step.split("-")[1]
+            with open(os.path.join("chains", chain_name, step), "r") as f:
+                prompt = f.read()
+            if step_number not in chain_data:
+                chain_data[step_number] = {}
+            chain_data[step_number][prompt_type] = prompt
+        return chain_data
+
+    def add_chain(self, chain_name):
+        os.mkdir(os.path.join("chains", chain_name))
+
+    def add_chain_step(self, chain_name, step_number, prompt_type, prompt):
+        with open(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w") as f:
+            f.write(prompt)
+
+    def update_step(self, chain_name, old_step_number, new_step_number, prompt_type):
+        os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
+                  os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
+
+    def delete_chain(self, chain_name):
+        shutil.rmtree(os.path.join("chains", chain_name))
+
+    def delete_chain_step(self, chain_name, step_number):
+        for file in glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt")):
+            os.remove(file)
+
+    def run_chain(self, agent_name, chain_name):
+        chain_steps = os.listdir(os.path.join("chains", chain_name))
+        chain_steps = sorted(chain_steps, key=lambda x: int(x.split("-")[0]))
+        for step in chain_steps:
+            prompt_type = step.split("-")[1]
+            with open(os.path.join("chains", chain_name, step), "r") as f:
+                prompt = f.read()
+            if prompt_type == "instruction":
+                prompter = AgentLLM(agent_name)
+                prompter.run(prompt)
+            elif prompt_type == "task":
+                self.agent_instances[agent_name].run(prompt)
