@@ -94,8 +94,12 @@ class babyagi:
         prompt = self.execute_prompt
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
-        prompt = prompt.replace("{COMMANDS}", "".join(self.commands))
-        print(f"PROMPT: {prompt}")
+        # Get all friendly names in commands into an array
+        friendly_names = []
+        if self.commands is not None:
+            for command in self.commands:
+                friendly_names.append(command["friendly_name"])
+            prompt = prompt.replace("{COMMANDS}", ", ".join(friendly_names))
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
