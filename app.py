@@ -85,7 +85,11 @@ class GetCommands(Resource):
 class ToggleCommand(Resource):
     def patch(self, agent_name):
         enable = request.json.get("enable")
-        if agent_name == "all":
+        try:
+            all = request.json.get("all")
+        except:
+            all = False
+        if all:
             try:
                 commands = Commands(agent_name)
                 for command_name in commands.agent_config["commands"]:
