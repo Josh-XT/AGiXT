@@ -3,10 +3,11 @@ import {
   ListItem,
   ListItemText,
   ListItemButton,
-  ListItemIcon
+  ListItemIcon,
+  Divider
 } from "@mui/material";
 import { 
-  RunCircle, StopCircle 
+  RunCircle, StopCircle, AddCircle
 } from "@mui/icons-material";
 import Link from 'next/link'
 
@@ -14,13 +15,24 @@ export default function MenuAgentList({data}) {
 
   return (
     <List>
+      <ListItem disablePadding>
+          <ListItemButton>
+            <ListItemIcon>
+              <AddCircle />
+            </ListItemIcon>
+            <Link href={`/new_agent`}>
+              <ListItemText primary="Add A New Agent" />
+            </Link>
+          </ListItemButton>
+        </ListItem>
+      <Divider />
       {data.map((agent) => (
         <ListItem key={agent.name} disablePadding>
           <ListItemButton>
             <ListItemIcon>
               {agent.running ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
-            <Link href={`/agents/${agent.name}`}>
+            <Link href={`/agent/${agent.name}`}>
               <ListItemText primary={agent.name} />
             </Link>
           </ListItemButton>

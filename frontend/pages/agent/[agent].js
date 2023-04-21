@@ -8,7 +8,5 @@ import { useRouter } from 'next/router';
 export default function Agent() {
     const agentName = useRouter().query.agent;
     const agent = useSWR(`agent/${agentName}`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/get_chat_history/${agentName}`)).data);
-    return <Container>
-        <ContentSWR swr={agent} content={AgentControl} />
-    </Container>;
+    return <ContentSWR swr={agent} content={AgentControl} />;
 }
