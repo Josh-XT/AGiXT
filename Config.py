@@ -1,6 +1,10 @@
 import os
+import json
 import glob
+import shutil
+import importlib
 from dotenv import load_dotenv
+from inspect import signature, Parameter
 load_dotenv()
 
 class Config():
@@ -80,3 +84,239 @@ class Config():
 
         # Brian TTS
         self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
+        
+        self.get_prompts()
+        self.agent_instances = {}
+        self.commands = {}
+
+    def get_prompts(self):
+        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+            self.AI_MODEL = "default"
+        with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
+            self.EXECUTION_PROMPT = f.read()
+        with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
+            self.TASK_PROMPT = f.read()
+        with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
+            self.PRIORITY_PROMPT = f.read()
+    
+    def create_agent_folder(self, agent_name):
+        agent_folder = f"agents/{agent_name}"
+        if not os.path.exists("agents"):
+            os.makedirs("agents")
+        if not os.path.exists(agent_folder):
+            os.makedirs(agent_folder)
+        return agent_folder
+
+    def load_command_files(self):
+        command_files = glob.glob("commands/*.py")
+        return command_files
+
+    def get_command_params(self, func):
+        params = {}
+        sig = signature(func)
+        for name, param in sig.parameters.items():
+            if param.default == Parameter.empty:
+                params[name] = None
+            else:
+                params[name] = param.default
+        return params
+
+    def load_commands(self):
+        commands = []
+        command_files = self.load_command_files()
+        for command_file in command_files:    
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"commands.{module_name}")
+            command_class = getattr(module, module_name)()
+            if hasattr(command_class, 'commands'):
+                for command_name, command_function in command_class.commands.items():
+                    params = self.get_command_params(command_function)
+                    commands.append((command_name, command_function.__name__, params))
+        return commands
+
+    def create_agent_config_file(self, agent_folder):
+        agent_config_file = os.path.join(agent_folder, "config.json")
+        if not os.path.exists(agent_config_file):
+            with open(agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        return agent_config_file
+
+    def load_agent_config(self, agent_name):
+        try:
+            with open(os.path.join("agents", agent_name, "config.json")) as agent_config:
+                try:
+                    agent_config_data = json.load(agent_config)
+                except json.JSONDecodeError:
+                    agent_config_data = {}
+                    # Populate the agent_config with all commands enabled
+                    agent_config_data["commands"] = {command_name: "true" for command_name, _, _ in self.load_commands(agent_name)}
+                    # Save the updated agent_config to the file
+                    with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config_file:
+                        json.dump(agent_config_data, agent_config_file)
+        except:
+            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
+            agent_config_file = os.path.join("agents", agent_name, "config.json")
+            with open(agent_config_file, "w") as f:
+                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        return agent_config_data
+    
+    def create_agent_yaml_file(self, agent_name):
+        memories_dir = "agents"
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
+        i = 0
+        agent_file = f"{agent_name}.yaml"
+        while os.path.exists(os.path.join(memories_dir, agent_file)):
+            i += 1
+            agent_file = f"{agent_name}_{i}.yaml"
+        with open(os.path.join(memories_dir, agent_file), "w") as f:
+            f.write("")
+        return agent_file
+    
+    def write_agent_config(self, agent_config, config_data):
+        with open(agent_config, "w") as f:
+            json.dump(config_data, f)
+
+    def add_agent(self, agent_name):
+        agent_file = self.create_agent_yaml_file(agent_name)
+        agent_folder = self.create_agent_folder(agent_name)
+        agent_config = self.create_agent_config_file(agent_folder)
+        commands_list = self.load_commands()
+        command_dict = {}
+        for command in commands_list:
+            friendly_name, command_name, command_args = command
+            command_dict[friendly_name] = True
+        self.write_agent_config(agent_config, {"commands": command_dict})
+        return {"agent_file": agent_file}
+
+    def rename_agent(self, agent_name, new_name):
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
+        agent_file = os.path.abspath(agent_file)
+        agent_folder = os.path.abspath(agent_folder)
+        if os.path.exists(agent_file):
+            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
+        if os.path.exists(agent_folder):
+            os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
+
+    def delete_agent(self, agent_name):
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
+        agent_file = os.path.abspath(agent_file)
+        agent_folder = os.path.abspath(agent_folder)
+        try:
+            os.remove(agent_file)
+        except FileNotFoundError:
+            return {"message": f"Agent file {agent_file} not found."}, 404
+
+        if os.path.exists(agent_folder):
+            shutil.rmtree(agent_folder)
+
+        return {"message": f"Agent {agent_name} deleted."}, 200
+
+    def get_agents(self):
+        memories_dir = "agents"
+        agents = []
+        for file in os.listdir(memories_dir):
+            if file.endswith(".yaml"):
+                agents.append(file.replace(".yaml", ""))
+        output = []
+        for agent in agents:
+            try:
+                agent_instance = self.agent_instances[agent]
+                status = agent_instance.get_status()
+            except:
+                status = False
+            output.append({"name": agent, "status": status})
+        return output
+
+    def get_chat_history(self, agent_name):
+        with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
+            chat_history = f.read()
+        return chat_history
+
+    def wipe_agent_memories(self, agent_name):
+        agent_folder = f"agents/{agent_name}/"
+        agent_folder = os.path.abspath(agent_folder)
+        memories_folder = os.path.join(agent_folder, "memories")
+        if os.path.exists(memories_folder):
+            shutil.rmtree(memories_folder)
+
+    def update_agent_config(self, agent_name, config):
+        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+            json.dump(config, agent_config)
+
+    def get_task_output(self, agent_name, babyagi_instance):
+        output = babyagi_instance.get_output()
+        with open(os.path.join("model-prompts", "default", "system.txt"), "r") as f:
+            system_prompt = f.read()
+        if system_prompt in output:
+            output = output.replace(system_prompt, "")
+        return output
+
+    def get_chains(self):
+        chains = os.listdir("chains")
+        chain_data = {}
+        for chain in chains:
+            chain_steps = os.listdir(os.path.join("chains", chain))
+            for step in chain_steps:
+                step_number = step.split("-")[0]
+                prompt_type = step.split("-")[1]
+                with open(os.path.join("chains", chain, step), "r") as f:
+                    prompt = f.read()
+                if chain not in chain_data:
+                    chain_data[chain] = {}
+                if step_number not in chain_data[chain]:
+                    chain_data[chain][step_number] = {}
+                chain_data[chain][step_number][prompt_type] = prompt
+        return chain_data
+
+    def get_chain(self, chain_name):
+        chain_steps = os.listdir(os.path.join("chains", chain_name))
+        chain_data = {}
+        for step in chain_steps:
+            step_number = step.split("-")[0]
+            prompt_type = step.split("-")[1]
+            with open(os.path.join("chains", chain_name, step), "r") as f:
+                prompt = f.read()
+            if step_number not in chain_data:
+                chain_data[step_number] = {}
+            chain_data[step_number][prompt_type] = prompt
+        return chain_data
+
+    def add_chain(self, chain_name):
+        os.mkdir(os.path.join("chains", chain_name))
+
+    def add_chain_step(self, chain_name, step_number, prompt_type, prompt):
+        with open(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w") as f:
+            f.write(prompt)
+
+    def update_step(self, chain_name, old_step_number, new_step_number, prompt_type):
+        os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
+                  os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
+
+    def delete_chain(self, chain_name):
+        shutil.rmtree(os.path.join("chains", chain_name))
+
+    def delete_chain_step(self, chain_name, step_number):
+        for file in glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt")):
+            os.remove(file)
+
+    def get_step(self, chain_name, step_number):
+        step_files = glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt"))
+        step_data = {}
+        for file in step_files:
+            prompt_type = file.split("-")[1].split(".")[0]
+            with open(file, "r") as f:
+                prompt = f.read()
+            step_data[prompt_type] = prompt
+        return step_data
+
+    def get_steps(self, chain_name):
+        chain_steps = os.listdir(os.path.join("chains", chain_name))
+        steps = sorted(chain_steps, key=lambda x: int(x.split("-")[0]))
+        step_data = {}
+        for step in steps:
+            step_number = int(step.split("-")[0])
+            step_data[step_number] = self.get_step(chain_name, step_number)
+        return step_data
