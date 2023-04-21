@@ -20,7 +20,7 @@ export default function AgentObjective() {
         queryRunning();
     }, [queryRunning])
 
-    const toggleRunning = async (objective) => {
+    const toggleRunning = async () => {
         if (running) {
             await axios.delete(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
         }
