@@ -2,8 +2,9 @@ import os
 import json
 import glob
 import shutil
-from AgentLLM import AgentLLM
+import importlib
 from dotenv import load_dotenv
+from inspect import signature, Parameter
 load_dotenv()
 
 class Config():
@@ -86,15 +87,16 @@ class Config():
         
         self.get_prompts()
         self.agent_instances = {}
+        self.commands = {}
 
     def get_prompts(self):
-        if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
-            self.CFG.AI_MODEL = "default"
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/execute.txt", "r") as f:
+        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+            self.AI_MODEL = "default"
+        with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
             self.EXECUTION_PROMPT = f.read()
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/task.txt", "r") as f:
+        with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
             self.TASK_PROMPT = f.read()
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/priority.txt", "r") as f:
+        with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
             self.PRIORITY_PROMPT = f.read()
     
     def create_agent_folder(self, agent_name):
@@ -105,6 +107,33 @@ class Config():
             os.makedirs(agent_folder)
         return agent_folder
 
+    def load_command_files(self):
+        command_files = glob.glob("commands/*.py")
+        return command_files
+
+    def get_command_params(self, func):
+        params = {}
+        sig = signature(func)
+        for name, param in sig.parameters.items():
+            if param.default == Parameter.empty:
+                params[name] = None
+            else:
+                params[name] = param.default
+        return params
+
+    def load_commands(self):
+        commands = []
+        command_files = self.load_command_files()
+        for command_file in command_files:    
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"commands.{module_name}")
+            command_class = getattr(module, module_name)()
+            if hasattr(command_class, 'commands'):
+                for command_name, command_function in command_class.commands.items():
+                    params = self.get_command_params(command_function)
+                    commands.append((command_name, command_function.__name__, params))
+        return commands
+
     def create_agent_config_file(self, agent_folder):
         agent_config_file = os.path.join(agent_folder, "config.json")
         if not os.path.exists(agent_config_file):
@@ -113,17 +142,18 @@ class Config():
         return agent_config_file
 
     def load_agent_config(self, agent_name):
-        with open(os.path.join("agents", agent_name, "config.json")) as agent_config:
-            try:
-                agent_config_data = json.load(agent_config)
-            except json.JSONDecodeError:
-                agent_config_data = {}
-                # Populate the agent_config with all commands enabled
-                agent_config_data["commands"] = {command_name: "true" for command_name, _, _ in self.load_commands(agent_name)}
-                # Save the updated agent_config to the file
-                with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config_file:
-                    json.dump(agent_config_data, agent_config_file)
-        if agent_config_data == {} or "commands" not in agent_config_data:
+        try:
+            with open(os.path.join("agents", agent_name, "config.json")) as agent_config:
+                try:
+                    agent_config_data = json.load(agent_config)
+                except json.JSONDecodeError:
+                    agent_config_data = {}
+                    # Populate the agent_config with all commands enabled
+                    agent_config_data["commands"] = {command_name: "true" for command_name, _, _ in self.load_commands(agent_name)}
+                    # Save the updated agent_config to the file
+                    with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config_file:
+                        json.dump(agent_config_data, agent_config_file)
+        except:
             # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
             agent_config_file = os.path.join("agents", agent_name, "config.json")
             with open(agent_config_file, "w") as f:
@@ -151,7 +181,7 @@ class Config():
         agent_file = self.create_agent_yaml_file(agent_name)
         agent_folder = self.create_agent_folder(agent_name)
         agent_config = self.create_agent_config_file(agent_folder)
-        commands_list = self.load_commands(agent_name)
+        commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
             friendly_name, command_name, command_args = command
