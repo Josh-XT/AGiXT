@@ -221,6 +221,10 @@ class Config():
             if file.endswith(".yaml"):
                 agents.append(file.replace(".yaml", ""))
         output = []
+        if not agents:
+            # Create a new agent
+            self.add_agent("Agent-LLM")
+            agents = ["Agent-LLM"]
         for agent in agents:
             try:
                 agent_instance = self.agent_instances[agent]
