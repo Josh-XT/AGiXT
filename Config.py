@@ -190,7 +190,6 @@ class Config():
         for file in os.listdir(memories_dir):
             if file.endswith(".yaml"):
                 agents.append(file.replace(".yaml", ""))
-        # Check agent status and return {"agents": [{"name": "agent_name", "status": "running"}]
         output = []
         for agent in agents:
             try:
@@ -273,15 +272,21 @@ class Config():
         for file in glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt")):
             os.remove(file)
 
-    def run_chain(self, agent_name, chain_name):
-        chain_steps = os.listdir(os.path.join("chains", chain_name))
-        chain_steps = sorted(chain_steps, key=lambda x: int(x.split("-")[0]))
-        for step in chain_steps:
-            prompt_type = step.split("-")[1]
-            with open(os.path.join("chains", chain_name, step), "r") as f:
+    def get_step(self, chain_name, step_number):
+        step_files = glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt"))
+        step_data = {}
+        for file in step_files:
+            prompt_type = file.split("-")[1].split(".")[0]
+            with open(file, "r") as f:
                 prompt = f.read()
-            if prompt_type == "instruction":
-                prompter = AgentLLM(agent_name)
-                prompter.run(prompt)
-            elif prompt_type == "task":
-                self.agent_instances[agent_name].run(prompt)
+            step_data[prompt_type] = prompt
+        return step_data
+
+    def get_steps(self, chain_name):
+        chain_steps = os.listdir(os.path.join("chains", chain_name))
+        steps = sorted(chain_steps, key=lambda x: int(x.split("-")[0]))
+        step_data = {}
+        for step in steps:
+            step_number = int(step.split("-")[0])
+            step_data[step_number] = self.get_step(chain_name, step_number)
+        return step_data
