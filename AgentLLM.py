@@ -20,6 +20,7 @@ class AgentLLM:
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
         self.initialize_task_list()
         self.commands = Commands(agent_name)
+        self.available_commands = self.get_agent_commands()
         self.web_requests = web_requests()
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(api_key=self.CFG.OPENAI_API_KEY)
@@ -67,10 +68,12 @@ class AgentLLM:
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
+        else:
+            prompt = task
         self.response = self.instruct(prompt)
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
-            self.yaml_memory.log_interaction(self.AGENT_NAME, self.response)
+            self.yaml_memory.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")
         return self.response
 
@@ -173,12 +176,13 @@ class AgentLLM:
         prompt = prompt.replace("{task}", task)
         # Get all friendly names in commands into an array
         friendly_names = []
-        self.commands = self.commands.get_available_commands()
+        self.commands = Commands(self.agent_name)
+        self.available_commands = self.get_agent_commands()
         print("\033[92m\033[1m" + "\n*****COMMANDS*****\n" + "\033[0m\033[0m")
-        print(self.commands)
+        print(self.available_commands)
         if self.commands is not None:
-            for command in self.commands:
-                if str(command["enabled"]).lower() != "false":
+            for command in self.available_commands:
+                if command["enabled"] != False:
                     friendly_names.append(f"{command['friendly_name']} - {command['name']}({command['args']})")
             prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         if context is not None:
@@ -243,8 +247,9 @@ class AgentLLM:
     def stop_running(self):
         self.running = False
 
-    def run_task(self, task: str):  # Main loop
+    def run_task(self):  # Main loop
         # Add the first task
+        task = self.primary_objective
         self.add_initial_task()
         self.running = True
         while self.running:

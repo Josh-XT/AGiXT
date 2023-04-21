@@ -1,6 +1,5 @@
 import importlib
 import os
-import glob
 from inspect import signature, Parameter
 from Config import Config
 
@@ -16,6 +15,7 @@ class Commands:
         self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
         self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
         self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.available_commands = self.get_available_commands()
         
@@ -33,7 +33,7 @@ class Commands:
 
     def load_commands(self):
         commands = []
-        command_files = glob.glob("commands/*.py")
+        command_files = self.CFG.load_command_files()
         for command_file in command_files:    
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
