@@ -12,7 +12,7 @@ export default function AgentInstruct() {
   const [instruction, setInstruction] = useState("");
   const agentName = useRouter().query.agent;
   const InstructAgent = async () => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/instruct/${agentName}`, { prompt: instruction }).data.response;
+    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/instruct`, { prompt: instruction }).data;
     setResponseHistory((old) => [
       ...old,
       `You: ${instruction}`,
@@ -54,8 +54,8 @@ export default function AgentInstruct() {
         Agent Instruction
       </Typography>
       <Paper
-        elevation={3}
-        sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
+        elevation={5}
+        sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
       >
         {responseHistory.map((message, index) => (
           <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>

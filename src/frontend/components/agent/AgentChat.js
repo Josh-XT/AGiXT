@@ -12,7 +12,7 @@ export default function AgentChat() {
   const [message, setMessage] = useState("");
   const agentName = useRouter().query.agent;
   const MessageAgent = async (message) => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/chat/${agentName}`, { prompt: message }).data.response;
+    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/chat`, { prompt: message }).data.response;
     setChatHistory((old) => [
       ...old,
       `You: ${message}`,
@@ -45,15 +45,16 @@ export default function AgentChat() {
         color="primary"
         onClick={handleSendMessage}
         fullWidth
+        disabled
       >
-        Instruct Agent
+        Message Agent
       </Button>
       <Typography variant="h6" gutterBottom>
         Agent Chat
       </Typography>
       <Paper
-        elevation={3}
-        sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
+        elevation={5}
+        sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
       >
         {chatHistory.map((message, index) => (
           <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
