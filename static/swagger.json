@@ -17,9 +17,9 @@
         "application/json"
     ],
     "paths": {
-        "/api/get_agents": {
+        "/api/agent": {
             "get": {
-                "summary": "Get all agents",
+                "summary": "Get all agents.",
                 "description": "Retrieve a list of all available agents.",
                 "responses": {
                     "200": {
@@ -29,9 +29,7 @@
                         }
                     }
                 }
-            }
-        },
-        "/api/add_agent/{agent_name}": {
+            },
             "post": {
                 "summary": "Add a new agent",
                 "description": "Add a new agent with the specified agent_name.",
@@ -54,9 +52,30 @@
                 }
             }
         },
-        "/api/rename_agent/{agent_name}/{new_name}": {
-            "post": {
-                "summary": "Rename agent",
+        "/api/agent/{agent_name}": {
+            "get": {
+                "summary": "Get an agent.",
+                "description": "Retrieve a specific agent.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "agent_name",
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of agent."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Agent retrieved successfully.",
+                        "schema": {
+                            "$ref": "#/definitions/AgentsListResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Rename an agent",
                 "description": "Rename an agent from agent_name to new_name.",
                 "parameters": [
                     {
@@ -76,12 +95,13 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Agent renamed successfully."
+                        "description": "Agent response received successfully.",
+                        "schema": {
+                            "$ref": "#/definitions/AgentResponse"
+                        }
                     }
                 }
-            }
-        },
-        "/api/delete_agent/{agent_name}": {
+            },
             "delete": {
                 "summary": "Delete an agent",
                 "description": "Delete an agent with the specified agent_name.",
@@ -107,7 +127,7 @@
                 }
             }
         },
-        "/api/get_chat_history/{agent_name}": {
+        "/api/agent/{agent_name}/chat": {
             "get": {
                 "summary": "Get chat history",
                 "description": "Retrieve the chat history for the specified agent.",
@@ -128,11 +148,9 @@
                         }
                     }
                 }
-            }
-        },
-        "/api/instruct/{agent_name}": {
+            },
             "post": {
-                "summary": "Instruct the agent",
+                "summary": "Chat with the agent.",
                 "description": "Send an instruction to the agent and receive a response.",
                 "parameters": [
                     {
@@ -162,9 +180,9 @@
                 }
             }
         },
-        "/api/get_commands/{agent_name}": {
+        "/api/agent/{agent_name}/command": {
             "get": {
-                "summary": "Get all commands",
+                "summary": "Get all commands.",
                 "description": "Retrieve a list of all available commands.",
                 "parameters": [
                     {
@@ -183,34 +201,9 @@
                         }
                     }
                 }
-            }
-        },
-        "/api/get_available_commands/{agent_name}": {
-            "get": {
-                "summary": "Get available commands",
-                "description": "Retrieve a list of available commands for the specified agent.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the agent whose available commands to retrieve."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "List of available commands retrieved successfully.",
-                        "schema": {
-                            "$ref": "#/definitions/AvailableCommandsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/enable_command/{agent_name}": {
-            "post": {
-                "summary": "Enable a command",
+            },
+            "patch": {
+                "summary": "Enable or disable a command.",
                 "description": "Enable a command for the specified agent.",
                 "parameters": [
                     {
@@ -223,13 +216,19 @@
                     {
                         "in": "body",
                         "name": "command_name",
-                        "description": "The name of the command to disable.",
+                        "description": "The name of the command to disable. \"*\" enables/disables all commands.",
+                        "required": true
+                    },
+                    {
+                        "in": "body",
+                        "name": "enable",
+                        "description": "Whether to enable (true) or disable (false) the command.",
                         "required": true
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Command enabled successfully.",
+                        "description": "Command{s} {enabled/disabled} successfully.",
                         "schema": {
                             "$ref": "#/definitions/CommandEnabledResponse"
                         }
@@ -237,88 +236,7 @@
                 }
             }
         },
-        "/api/disable_command/{agent_name}": {
-            "post": {
-                "summary": "Disable a command",
-                "description": "Disable a command for the specified agent.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the agent for which to disable the command."
-                    },
-                    {
-                        "in": "body",
-                        "name": "command_name",
-                        "description": "The name of the command to disable.",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Command disabled successfully.",
-                        "schema": {
-                            "$ref": "#/definitions/CommandDisabledResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/disable_all_commands/{agent_name}": {
-            "post": {
-                "summary": "Disable all commands",
-                "description": "Disable all commands for the specified agent.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the agent for which to disable all commands."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "All commands disabled successfully.",
-                        "schema": {
-                            "$ref": "#/definitions/AllCommandsDisabledResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Error disabling all commands."
-                    }
-                }
-            }
-        },
-        "/api/enable_all_commands/{agent_name}": {
-            "post": {
-                "summary": "Enable all commands",
-                "description": "Enable all commands for the specified agent.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the agent for which to enable all commands."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "All commands enabled successfully.",
-                        "schema": {
-                            "$ref": "#/definitions/AllCommandsEnabledResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Error enabling all commands."
-                    }
-                }
-            }
-        },
-        "/api/wipe_agent_memories": {
+        "/api/agent/{agent_name}/memory": {
             "delete": {
                 "summary": "Wipe an agents memories, this is useful when context becomes too large. This does not get rid of the chat history.",
                 "parameters": [
@@ -338,7 +256,28 @@
                 }
             }
         },
-        "/api/task/start/{agent_name}": {
+        "/api/agent/{agent_name}/task": {
+            "get": {
+                "summary": "Get task output",
+                "description": "Retrieve the output of the task agent for the specified agent.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "agent_name",
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of the agent to retrieve the task agent output for."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Task agent output retrieved successfully.",
+                        "schema": {
+                            "$ref": "#/definitions/TaskAgentOutputResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "summary": "Start task agent",
                 "description": "Start the task agent for the specified agent.",
@@ -371,10 +310,8 @@
                         "description": "Error starting task agent."
                     }
                 }
-            }
-        },
-        "/api/task/stop/{agent_name}": {
-            "post": {
+            },
+            "delete": {
                 "summary": "Stop task agent",
                 "description": "Stop the task agent for the specified agent.",
                 "parameters": [
@@ -399,30 +336,8 @@
                 }
             }
         },
-        "/api/task/output/{agent_name}": {
-            "get": {
-                "summary": "Get task output",
-                "description": "Retrieve the output of the task agent for the specified agent.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "type": "string",
-                        "required": true,
-                        "description": "The name of the agent to retrieve the task agent output for."
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Task agent output retrieved successfully.",
-                        "schema": {
-                            "$ref": "#/definitions/TaskAgentOutputResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/task/status/{agent_name}": {
+
+        "/api/agent/{agent_name}/task/status": {
             "get": {
                 "summary": "Get task status",
                 "description": "Retrieve the status of the task agent for the specified agent.",
@@ -445,7 +360,7 @@
                 }
             }
         },
-        "/api/get_chains": {
+        "/api/chain": {
             "get": {
                 "summary": "Get all chains",
                 "responses": {
@@ -453,29 +368,7 @@
                         "description": "List of chains with their steps and prompts"
                     }
                 }
-            }
-        },
-        "/api/get_chain": {
-            "get": {
-                "summary": "Get a single chain",
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "chain_name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "The requested chain with its steps and prompts"
-                    }
-                }
-            }
-        },
-        "/api/add_chain": {
+            },
             "post": {
                 "summary": "Add a new chain",
                 "parameters": [
@@ -495,12 +388,76 @@
                 }
             }
         },
-        "/api/add_chain_step": {
+        "/api/chain/{chain_name}": {
+            "get": {
+                "summary": "Get a single chain",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested chain with its steps and prompts"
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Delete a chain",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the chain was successfully deleted"
+                    }
+                }
+             }
+        },
+        "/api/chain/{chain_name}/run": {
+            "post": {
+                "summary": "Run a chain",
+                "parameters": [
+                    {
+                        "in": "body",
+                        "name": "chain_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "agent_name",
+                        "required": true,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message indicating the prompt chain has started"
+                    }
+                }
+            }
+        },
+        "/api/chain/{chain_name}/step": {
             "post": {
                 "summary": "Add a step to a chain",
                 "parameters": [
                     {
-                        "in": "body",
+                        "in": "path",
                         "name": "chain_name",
                         "required": true,
                         "schema": {
@@ -539,12 +496,12 @@
                 }
             }
         },
-        "/api/update_step": {
-            "post": {
+        "/api/chain/{chain_name}/step/{step_number}": {
+            "put": {
                 "summary": "Update a step in a chain",
                 "parameters": [
                     {
-                        "in": "body",
+                        "in": "path",
                         "name": "chain_name",
                         "required": true,
                         "schema": {
@@ -552,8 +509,8 @@
                         }
                     },
                     {
-                        "in": "body",
-                        "name": "old_step_number",
+                        "in": "path",
+                        "name": "step_number",
                         "required": true,
                         "schema": {
                             "type": "integer"
@@ -581,34 +538,12 @@
                         "description": "Message indicating the step was successfully updated in the chain"
                     }
                 }
-            }
-        },
-        "/api/delete_chain": {
-            "delete": {
-                "summary": "Delete a chain",
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "chain_name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Message indicating the chain was successfully deleted"
-                    }
-                }
-            }
-        },
-        "/api/delete_chain_step/{step_number}": {
+            },
             "delete": {
                 "summary": "Delete a step from a chain",
                 "parameters": [
                     {
-                        "in": "body",
+                        "in": "path",
                         "name": "chain_name",
                         "required": true,
                         "schema": {
@@ -625,32 +560,6 @@
                 "responses": {
                     "200": {
                         "description": "Message indicating the step was successfully deleted from the chain"
-                    }
-                }
-            }
-        },
-        "/api/run_chain/{agent_name}": {
-            "post": {
-                "summary": "Run a chain",
-                "parameters": [
-                    {
-                        "in": "body",
-                        "name": "chain_name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "in": "path",
-                        "name": "agent_name",
-                        "required": true,
-                        "type": "string"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Message indicating the prompt chain has started"
                     }
                 }
             }
