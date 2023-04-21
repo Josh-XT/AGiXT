@@ -1,6 +1,5 @@
 from flask import Flask, request
 from flask_cors import CORS
-from babyagi import babyagi
 from AgentLLM import AgentLLM
 from Config import Config
 from flask_restful import Api, Resource
@@ -111,9 +110,9 @@ class StartTaskAgent(Resource):
     def post(self, agent_name):
         objective = request.json.get("objective")
         if agent_name not in agent_instances:
-            agent_instances[agent_name] = babyagi()
+            agent_instances[agent_name] = AgentLLM(agent_name)
         agent_instance = agent_instances[agent_name]
-        agent_instance.set_agent_name(agent_name)  # Set the agent_name for the babyagi instance
+        agent_instance.set_agent_name(agent_name)
         agent_instance.set_objective(objective)
         agent_thread = threading.Thread(target=agent_instance.run)
         agent_thread.start()
