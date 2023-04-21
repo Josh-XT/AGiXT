@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import {
   Typography,
   Paper,
@@ -7,17 +7,17 @@ import {
 } from "@mui/material";
 import { useRouter } from "next/router";
 import axios from "axios";
-export default function AgentChat () {
-  const [chatHistory, setChatHistory] = useState([]);
-  const [message, setMessage] = useState("");
+export default function AgentInstruct () {
+  const [responseHistory, setResponseHistory] = useState([]);
+  const [instruction, setInstruction] = useState("");
     const agentName = useRouter().query.agent;
 
-  const MessageAgent = async (message) => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/chat/${agentName}`, {prompt: message}).data.response;
+  const InstructAgent = async () => {
+    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/instruct/${agentName}`, {prompt: instruction}).data.response;
 
-    setChatHistory((old) => [
+    setResponseHistory((old) => [
       ...old,
-      `You: ${message}`,
+      `You: ${instruction}`,
       `Agent: ${response}`,
     ]);
   };
@@ -29,9 +29,9 @@ export default function AgentChat () {
     }
   };
 
-  const handleSendMessage = async () => {
-    await MessageAgent(message);
-    setMessage("");
+  const handleInstruct = async () => {
+    await InstructAgent();
+    setInstruction("");
   };
 
   return (
@@ -39,30 +39,30 @@ export default function AgentChat () {
         <>
           <TextField
             fullWidth
-            label="Enter Message for Agent"
-            placeholder="Chat Message..."
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            label="Enter Instruction for Agent"
+            placeholder="Instruction..."
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
             onKeyPress={handleKeyPress}
             sx={{ mb: 2 }}
           />
           <Button
             variant="contained"
             color="primary"
-            onClick={handleSendMessage}
+            onClick={handleInstruct}
             fullWidth
           >
             Instruct Agent
           </Button>
         </>
       <Typography variant="h6" gutterBottom>
-        Agent Chat
+        Agent Instruction
         </Typography>
         <Paper
           elevation={3}
           sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
         >
-          {chatHistory.map((message, index) => (
+          {responseHistory.map((message, index) => (
             <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
               {message}
             </pre>

@@ -1,12 +1,8 @@
-import { useState, useContext } from "react";
 import {
   ListItem,
   ListItemButton,
   Typography,
   Switch,
-  Divider,
-  TextField,
-  Button
 } from "@mui/material";
 import axios from "axios";
 import { mutate } from "swr"
@@ -16,8 +12,7 @@ export default function AgentCommandsList ({friendly_name, name, args, enabled})
   //const [open, setOpen] = useState(false);
   //const [theArgs, setTheArgs] = useState({...args});
   const handleToggleCommand = () => {
-    axios.put(`${process.env.API_URI ?? 'http://localhost:5000'}/api/${enabled ? "disable" : "enable"}_command/${agentName}`,
-    {command_name: friendly_name}).then(() => mutate(`agent/${agentName}/commands`));
+    axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, {command_name: friendly_name, enable: data.every((command) => command.enabled)?"false":"true"}).then(() => mutate(`agent/${agentName}/commands`)).then(() => mutate(`agent/${agentName}/commands`));
   };
   /*
   const handleSaveArgs = async () => {
