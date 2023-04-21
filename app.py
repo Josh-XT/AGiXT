@@ -32,7 +32,8 @@ class AddAgent(Resource):
         return {"message": "Agent added", "agent_file": agent_info['agent_file']}, 200
 
 class RenameAgent(Resource):
-    def put(self, agent_name, new_name):
+    def put(self, agent_name):
+        new_name = request.json['new_name']
         CFG.rename_agent(agent_name, new_name)
         return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
@@ -84,7 +85,7 @@ class GetCommands(Resource):
 class ToggleCommand(Resource):
     def patch(self, agent_name):
         enable = request.json.get("enable")
-        if agent_name == "*":
+        if agent_name == "all":
             try:
                 commands = Commands(agent_name)
                 for command_name in commands.agent_config["commands"]:
