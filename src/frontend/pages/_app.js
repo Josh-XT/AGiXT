@@ -116,7 +116,7 @@ export default function App({ Component, pageProps }) {
               </IconButton>
               <Typography variant="h6" component="h1" noWrap>
                 <Link href="/">
-                  Agent LLM
+                  Agent LLM - AI Problem Solving and Task Automation 
                 </Link>
               </Typography>
             </Box>

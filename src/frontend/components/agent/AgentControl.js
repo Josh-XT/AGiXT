@@ -73,13 +73,13 @@ export default function AgentControl({ data }) {
         setOpen(false);
     };
     const agentName = useRouter().query.agent;
-    const commands = useSWR(`agent/${agentName}/command`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`)).data.commands);
+    const commands = useSWR(`agent/${agentName}/commands`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`)).data.commands);
     return (<>
         <AppBar position="relative" open={open}>
             <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
 
                 <Typography variant="h6" component="h1" noWrap>
-                    {data.name}
+                    Control Agent "{agentName}"
                 </Typography>
                 <Box aria-label="open drawer"
                     onClick={handleDrawerOpen}

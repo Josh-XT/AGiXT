@@ -11,9 +11,9 @@ export default function AgentCommandsList({ friendly_name, name, args, enabled }
   const agentName = useRouter().query.agent;
   //const [open, setOpen] = useState(false);
   //const [theArgs, setTheArgs] = useState({...args});
-  const handleToggleCommand = () => {
-    axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: friendly_name, enable: enabled? "false" : "true" })
-    .then(() => mutate(`agent/${agentName}/commands`));
+  const handleToggleCommand = async () => {
+    await axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: friendly_name, enable: enabled? "false" : "true" });
+    mutate(`agent/${agentName}/commands`);
   };
   /*
   const handleSaveArgs = async () => {

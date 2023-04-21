@@ -33,8 +33,7 @@ export default function AgentObjective() {
     return (
         <>
             <TextField
-
-                label="Agent Objective"
+                label="Enter Objective for Agent"
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
                 sx={{ mb: 2 }}
@@ -48,7 +47,6 @@ export default function AgentObjective() {
             >
                 {running ? "Stop" : "Start"} Pursuing Objective
             </Button>
-
             {
                 taskStatus.data ?
                     <>
@@ -56,8 +54,8 @@ export default function AgentObjective() {
                             Objective Work Log
                         </Typography>
                         <Paper
-                            elevation={3}
-                            sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
+                            elevation={5}
+                            sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
                         >
                             {taskStatus.data.map((message, index) => (
                                 <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>

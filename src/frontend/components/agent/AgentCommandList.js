@@ -12,8 +12,9 @@ import {
 import AgentCommand from "./AgentCommand";
 export default function AgentCommandList({ data }) {
   const agentName = useRouter().query.agent;
-  const handleToggleAllCommands = () => {
-    axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: "*", enable: data.every((command) => command.enabled) ? "false" : "true" }).then(() => mutate(`agent/${agentName}/commands`));
+  const handleToggleAllCommands = async () => {
+    await axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: "*", enable: data.every((command) => command.enabled) ? "false" : "true" });
+    mutate(`agent/${agentName}/commands`);
   }
   return (
     <List dense>
@@ -31,8 +32,8 @@ export default function AgentCommandList({ data }) {
         />
       </ListItem>
       <Divider />
-      {data.map((command) => (
-        <AgentCommand key={command.name} {...command} />
+      {data.map((command, index) => (
+        <AgentCommand key={index} {...command} />
       ))}
 
     </List>

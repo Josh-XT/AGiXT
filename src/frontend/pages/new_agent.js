@@ -2,11 +2,12 @@
 import axios from 'axios';
 import { useState } from 'react';
 import { Container, TextField, Button, Typography } from '@mui/material';
-
+import { mutate } from "swr"
 export default function Home() {
   const [name, setName] = useState("");
-  const handleCreate = () => {
-    axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name })
+  const handleCreate = async () => {
+    await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name });
+    mutate("agents");
   }
   return <Container>
     <Typography variant='h6' component='h2' marginY={"1rem"}>

@@ -85,25 +85,21 @@ class GetCommands(Resource):
 class ToggleCommand(Resource):
     def patch(self, agent_name):
         enable = request.json.get("enable")
-        try:
-            all = request.json.get("all")
-        except:
-            all = False
-        if all:
-            try:
-                commands = Commands(agent_name)
-                for command_name in commands.agent_config["commands"]:
-                    commands.agent_config["commands"][command_name] = enable
-                CFG.update_agent_config(agent_name, commands.agent_config)
-                return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
-            except Exception as e:
-                return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
-        
         command_name = request.json.get("command_name")
-        commands = Commands(agent_name)
-        commands.agent_config["commands"][command_name] = enable
-        CFG.update_agent_config(agent_name, commands.agent_config)
-        return {"message": f"Command '{command_name}' toggled for agent '{agent_name}'."}, 200
+        try:
+            if command_name == "*":
+                    commands = Commands(agent_name)
+                    for each_command_name in commands.agent_config["commands"]:
+                        commands.agent_config["commands"][each_command_name] = enable
+                    CFG.update_agent_config(agent_name, commands.agent_config)
+                    return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
+            else:
+                commands = Commands(agent_name)
+                commands.agent_config["commands"][command_name] = enable
+                CFG.update_agent_config(agent_name, commands.agent_config)
+                return {"message": f"Command '{command_name}' toggled for agent '{agent_name}'."}, 200
+        except Exception as e:
+                    return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500        
 
 class StartTaskAgent(Resource):
     def post(self, agent_name):
