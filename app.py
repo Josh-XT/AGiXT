@@ -26,7 +26,8 @@ swaggerui_blueprint = get_swaggerui_blueprint(
 app.register_blueprint(swaggerui_blueprint)
 
 class AddAgent(Resource):
-    def post(self, agent_name):
+    def post(self):
+        agent_name = request.json['agent_name']
         agent_info = CFG.add_agent(agent_name)
         return {"message": "Agent added", "agent_file": agent_info['agent_file']}, 200
 
