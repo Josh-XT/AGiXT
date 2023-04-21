@@ -12,7 +12,11 @@ class Commands:
             self.commands = self.load_commands(agent_name)
         else:
             self.commands = []
+        if agent_name == "undefined":
+            agent_name = "default"
         self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
+        if not os.path.exists("agents"):
+            os.makedirs("agents")
         self.agent_folder = f"agents/{self.agent_name}"
         if not os.path.exists(self.agent_folder):
             os.makedirs(self.agent_folder)
