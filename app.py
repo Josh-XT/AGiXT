@@ -34,96 +34,32 @@ app.register_blueprint(swaggerui_blueprint)
 
 class AddAgent(Resource):
     def post(self, agent_name):
-        memories_dir = "agents"
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        i = 0
-        agent_file = f"{agent_name}.yaml"
-        while os.path.exists(os.path.join(memories_dir, agent_file)):
-            i += 1
-            agent_file = f"{agent_name}_{i}.yaml"
-        with open(os.path.join(memories_dir, agent_file), "w") as f:
-            f.write("")
-        # Make agents/{agent_name}/config.json
-        agent_folder = f"agents/{agent_name}"
-        if not os.path.exists(agent_folder):
-            os.makedirs(agent_folder)
-        agent_config = os.path.join(agent_folder, "config.json")
-        with open(agent_config, "w") as f:
-            commands = Commands(load_commands_flag=False)
-            commands_list = commands.load_commands(agent_name=agent_name)
-            command_dict = {}
-            for command in commands_list:
-                friendly_name, command_name, command_args = command
-                command_dict[friendly_name] = True
-            config_data = {"commands": command_dict}
-            json.dump(config_data, f)
-        return {"message": "Agent added", "agent_file": agent_file}, 200
+        agent_info = CFG.add_agent(agent_name)
+        return {"message": "Agent added", "agent_file": agent_info['agent_file']}, 200
 
 class RenameAgent(Resource):
     def put(self, agent_name, new_name):
-        agent_file = f"agents/{agent_name}.yaml"
-        agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
-        agent_folder = os.path.abspath(agent_folder)
-        if os.path.exists(agent_file):
-            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
-        if os.path.exists(agent_folder):
-            os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
+        CFG.rename_agent(agent_name, new_name)
         return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 class DeleteAgent(Resource):
     def delete(self, agent_name):
-        agent_file = f"agents/{agent_name}.yaml"
-        agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
-        agent_folder = os.path.abspath(agent_folder)
-        try:
-            os.remove(agent_file)
-        except FileNotFoundError:
-            return {"message": f"Agent file {agent_file} not found."}, 404
-
-        if os.path.exists(agent_folder):
-            shutil.rmtree(agent_folder)
-
-        return {"message": f"Agent {agent_name} deleted."}, 200
+        result = CFG.delete_agent(agent_name)
+        return result
 
 class GetAgents(Resource):
     def get(self):
-        memories_dir = "agents"
-        agents = []
-        for file in os.listdir(memories_dir):
-            if file.endswith(".yaml"):
-                agents.append(file.replace(".yaml", ""))
-        # Check agent status and return {"agents": [{"name": "agent_name", "status": "running"}]
-        output = []
-        for agent in agents:
-            try:
-                babyagi_instance = babyagi_instances[agent]
-                status = babyagi_instance.get_status()
-            except:
-                status = False
-            # Add commands to output
-            #commands = Commands(agent)
-            #available_commands = commands.get_available_commands()
-            #output.append({"name": agent, "status": status} "commands": available_commands})
-            output.append({"name": agent, "status": status})
-        return {"agents": output}, 200
+        agents = CFG.get_agents()
+        return {"agents": agents}, 200
 
 class GetChatHistory(Resource):
     def get(self, agent_name):
-        with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
-            chat_history = f.read()
+        chat_history = CFG.get_chat_history(agent_name)
         return {"chat_history": chat_history}, 200
 
 class WipeAgentMemories(Resource):
     def delete(self, agent_name):
-        # Delete the folder agents/{agent_name}/memories
-        agent_folder = f"agents/{agent_name}/"
-        agent_folder = os.path.abspath(agent_folder)
-        memories_folder = os.path.join(agent_folder, "memories")
-        if os.path.exists(memories_folder):
-            shutil.rmtree(memories_folder)
+        CFG.wipe_agent_memories(agent_name)
         return {"message": f"Memories for agent {agent_name} deleted."}, 200
 
 class Instruct(Resource):

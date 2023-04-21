@@ -1,7 +1,6 @@
 import importlib
 import os
 import glob
-import json
 from inspect import signature, Parameter
 from Config import Config
 
@@ -9,36 +8,15 @@ class Commands:
     def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
         self.CFG = Config()
         if load_commands_flag:
-            self.commands = self.load_commands(agent_name)
+            self.commands = self.load_commands()
         else:
             self.commands = []
         if agent_name == "undefined":
             agent_name = "default"
         self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
-        if not os.path.exists("agents"):
-            os.makedirs("agents")
-        self.agent_folder = f"agents/{self.agent_name}"
-        if not os.path.exists(self.agent_folder):
-            os.makedirs(self.agent_folder)
-        self.agent_config_file = os.path.join(self.agent_folder, "config.json")
-        if not os.path.exists(self.agent_config_file):
-            with open(self.agent_config_file, "w") as f:
-                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
-        with open(os.path.join("agents", self.agent_name, "config.json")) as agent_config:
-            try:
-                self.agent_config = json.load(agent_config)
-            except json.JSONDecodeError:
-                self.agent_config = {}
-                # Populate the agent_config with all commands enabled
-                self.agent_config["commands"] = {command_name: "true" for command_name, _, _ in self.load_commands(agent_name)}
-                # Save the updated agent_config to the file
-                with open(os.path.join("agents", self.agent_name, "config.json"), "w") as agent_config_file:
-                    json.dump(self.agent_config, agent_config_file)
-        if self.agent_config == {} or "commands" not in self.agent_config:
-            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
-            agent_config_file = os.path.join("agents", self.agent_name, "config.json")
-            with open(agent_config_file, "w") as f:
-                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
+        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.available_commands = self.get_available_commands()
         
     def get_available_commands(self):
@@ -53,7 +31,7 @@ class Commands:
                     available_commands.append({"friendly_name": friendly_name, "name": command_name, "args": command_args, "enabled": False})
         return available_commands
 
-    def load_commands(self, agent_name: str = None):
+    def load_commands(self):
         commands = []
         command_files = glob.glob("commands/*.py")
         for command_file in command_files:    
