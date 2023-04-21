@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
 import useSWR from "swr";
@@ -13,9 +13,9 @@ export default function AgentObjective() {
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/output/${agentName}`)).data : null), { refreshInterval: 3000 });
-    const queryRunning = async () => {
+    const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
-    }
+    }, [agentName]);
     useEffect(() => {
         queryRunning();
     }, [queryRunning])

@@ -79,7 +79,7 @@ export default function AgentControl({ data }) {
             <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
 
                 <Typography variant="h6" component="h1" noWrap>
-                    Control Agent "{agentName}"
+                    Control Agent &quot;{agentName}&quot;
                 </Typography>
                 <Box aria-label="open drawer"
                     onClick={handleDrawerOpen}
