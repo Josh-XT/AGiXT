@@ -234,6 +234,15 @@ class Config():
             output.append({"name": agent, "status": status})
         return output
 
+    def get_agent_config(self, agent_name):
+        agent_file = os.path.abspath(f"agents/{agent_name}/config.json")
+        if os.path.exists(agent_file):
+            with open(agent_file, "r") as f:
+                agent_config = json.load(f)
+        else:
+            agent_config = {}
+        return agent_config
+
     def get_chat_history(self, agent_name):
         with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
             chat_history = f.read()

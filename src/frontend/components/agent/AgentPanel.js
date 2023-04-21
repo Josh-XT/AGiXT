@@ -6,6 +6,7 @@ import {
 import AgentChat from "./AgentChat";
 import AgentObjective from "./AgentObjective";
 import AgentInstruct from "./AgentInstruct";
+import AgentAdmin from "./AgentAdmin";
 export default function AgentPanel() {
   const [tab, setTab] = useState(0);
 
@@ -16,7 +17,8 @@ export default function AgentPanel() {
   const tabs = [
     <AgentChat key="chat" />,
     <AgentInstruct key="instruct" />,
-    <AgentObjective key="objective" />
+    <AgentObjective key="objective" />,
+    <AgentAdmin key="admin" />
   ];
   return (
     <>
@@ -24,6 +26,7 @@ export default function AgentPanel() {
         <Tab label="Chat With Agent" />
         <Tab label="Instruct Agent" />
         <Tab label="Provide Agent With Objective" />
+        <Tab label="Administrate Agent" />
       </Tabs>
       {tabs[tab]}
     </>
