@@ -1,147 +1,145 @@
 
 import { useState } from 'react';
-import { styled} from '@mui/material/styles';
+import { styled } from '@mui/material/styles';
 import {
-  Box,
-  Drawer,
-  Toolbar,
-  List,
-  Typography,
-  Divider
+    Box,
+    Drawer,
+    Toolbar,
+    List,
+    Typography,
+    Divider
 } from '@mui/material';
 import MuiAppBar from '@mui/material/AppBar';
 import IconButton from '@mui/material/IconButton';
 import MenuSWR from '@/components/menu/MenuSWR';
-import {useRouter} from 'next/router';
+import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import AgentCommandList from './AgentCommandList';
 import axios from 'axios';
 import { ChevronRight, ChevronLeft } from '@mui/icons-material';
-const drawerWidth = 240;
+import AgentPanel from './AgentPanel';
+const drawerWidth = 320;
 
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
-  ({ theme, open }) => ({
-    flexGrow: 1,
-    padding: theme.spacing(3),
-    transition: theme.transitions.create('margin', {
-      easing: theme.transitions.easing.sharp,
-      duration: theme.transitions.duration.leavingScreen,
+    ({ theme, open }) => ({
+        flexGrow: 1,
+        padding: theme.spacing(3),
+        transition: theme.transitions.create('margin', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.leavingScreen,
+        }),
+        ...(open && {
+            transition: theme.transitions.create('margin', {
+                easing: theme.transitions.easing.easeOut,
+                duration: theme.transitions.duration.enteringScreen,
+            }),
+            marginRight: `${drawerWidth}px`,
+        }),
     }),
-    marginRight: `-${drawerWidth}px`,
-    ...(open && {
-      transition: theme.transitions.create('margin', {
-        easing: theme.transitions.easing.easeOut,
-        duration: theme.transitions.duration.enteringScreen,
-      }),
-      marginRight: 0,
-    }),
-  }),
 );
 
 const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== 'open',
+    shouldForwardProp: (prop) => prop !== 'open',
 })(({ theme, open }) => ({
-  transition: theme.transitions.create(['margin', 'width'], {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-  ...(open && {
-    width: `calc(100% - ${drawerWidth}px)`,
-    marginRight: `${drawerWidth}px`,
     transition: theme.transitions.create(['margin', 'width'], {
-      easing: theme.transitions.easing.easeOut,
-      duration: theme.transitions.duration.enteringScreen,
+        easing: theme.transitions.easing.sharp,
+        duration: theme.transitions.duration.leavingScreen,
     }),
-  }),
+    ...(open && {
+        width: `calc(100% - ${drawerWidth}px)`,
+        marginRight: `${drawerWidth}px`,
+        transition: theme.transitions.create(['margin', 'width'], {
+            easing: theme.transitions.easing.easeOut,
+            duration: theme.transitions.duration.enteringScreen,
+        }),
+    }),
 }));
 
 const DrawerHeader = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  padding: theme.spacing(0, 1),
-  // necessary for content to be below app bar
-  ...theme.mixins.toolbar,
-  justifyContent: 'flex-end',
+    display: 'flex',
+    alignItems: 'center',
+    padding: theme.spacing(0, 1),
+    // necessary for content to be below app bar
+    ...theme.mixins.toolbar,
+    justifyContent: 'flex-end',
+    backgroundColor: theme.palette.primary.main,
+    color: 'white'
 }));
 
-export default function AgentControl({data}) {
+export default function AgentControl({ data }) {
     const [open, setOpen] = useState(false);
-  
+
     const handleDrawerOpen = () => {
-      setOpen(true);
+        setOpen(true);
     };
-  
+
     const handleDrawerClose = () => {
-      setOpen(false);
+        setOpen(false);
     };
     const agentName = useRouter().query.agent;
     const commands = useSWR(`agent/${agentName}/commands`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/get_commands/${agentName}`)).data.commands);
 
     return (<>
-          <AppBar position="relative" open={open}>
-            <Toolbar sx={{display: "flex", justifyContent: "space-between"}}>
-              
-              <Typography variant="h6" component="h1" noWrap>
-                  {data.name}
-              </Typography>
-              <Box aria-label="open drawer"
-                onClick={handleDrawerOpen}
-                sx={{ mr: 2, display: "flex", alignItems: "center", cursor: "pointer", ...(open && { display: 'none' }) }}>
-                
-                <IconButton
-                color="inherit"
-                
-                edge="start"
-                
-              >
-                <ChevronLeft />
-              </IconButton>
-              <Typography variant="h6" component="h1" noWrap>
-                  Commands
-              </Typography>
-              </Box>
-              
-  
+        <AppBar position="relative" open={open}>
+            <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
+
+                <Typography variant="h6" component="h1" noWrap>
+                    {data.name}
+                </Typography>
+                <Box aria-label="open drawer"
+                    onClick={handleDrawerOpen}
+                    sx={{ mr: 2, display: "flex", alignItems: "center", cursor: "pointer", ...(open && { display: 'none' }) }}>
+
+                    <IconButton
+                        color="inherit"
+
+                        edge="start"
+
+                    >
+                        <ChevronLeft />
+                    </IconButton>
+                    <Typography variant="h6" component="h1" noWrap>
+                        Commands
+                    </Typography>
+                </Box>
+
+
             </Toolbar>
-          </AppBar>
-          <Drawer
+        </AppBar>
+        <Drawer
             sx={{
-              width: drawerWidth,
-              
-              flexShrink: 0,
-              '& .MuiDrawer-paper': {
                 width: drawerWidth,
-                boxSizing: 'border-box',
-                postition: "absolute",
-              top: "4rem"
-              },
-  
+
+                flexShrink: 0,
+                '& .MuiDrawer-paper': {
+                    width: drawerWidth,
+                    boxSizing: 'border-box',
+                    postition: "absolute",
+                    top: "4rem"
+                },
+
             }}
             variant="persistent"
             anchor="right"
             open={open}
-          >
-            <DrawerHeader sx={{ justifyContent: "space-between", pl: "1rem" }}>
-              <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-                Commands
-              </Typography>
-              <IconButton onClick={handleDrawerClose}>
-                <ChevronRight />
-              </IconButton>
+        >
+            <DrawerHeader color='primary' sx={{ justifyContent: "space-between", pl: "1rem" }}>
+                <Typography variant="h6" component="h1" noWrap >
+                    Commands
+                </Typography>
+                <IconButton onClick={handleDrawerClose}>
+                    <ChevronRight fontSize='large' sx={{ color: 'white' }} />
+                </IconButton>
             </DrawerHeader>
             <Divider />
             <List>
-                {/*<MenuSWR swr={commands} menu={AgentCommandList} />*/}
+                <MenuSWR swr={commands} menu={AgentCommandList} />
             </List>
-          </Drawer>
-          <Main open={open} sx={{px: "5rem"}}>
-            <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-              Control Panel Placeholder
-  
-              </Typography>
-          </Main>
+        </Drawer>
+        <Main open={open}   >
+            <AgentPanel />
+        </Main>
     </>);
-  }
-  
-  
-  
+}
+
+

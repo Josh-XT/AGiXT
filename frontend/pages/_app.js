@@ -66,6 +66,8 @@ const DrawerHeader = styled('div')(({ theme }) => ({
   // necessary for content to be below app bar
   ...theme.mixins.toolbar,
   justifyContent: 'flex-end',
+  backgroundColor: theme.palette.primary.main,
+  color: 'white'
 }));
 
 export default function App({ Component, pageProps }) {
@@ -142,7 +144,7 @@ export default function App({ Component, pageProps }) {
               Agents
             </Typography>
             <IconButton onClick={handleDrawerClose}>
-              <ChevronLeft />
+              <ChevronLeft fontSize='large' sx={{color: 'white'}}/>
             </IconButton>
           </DrawerHeader>
           <Divider />

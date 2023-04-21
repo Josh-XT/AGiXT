@@ -1,4 +1,4 @@
-import { useState, useContext, useEffect } from "react";
+import { useState, useContext } from "react";
 import {
   ListItem,
   ListItemButton,
@@ -8,27 +8,18 @@ import {
   TextField,
   Button
 } from "@mui/material";
-import { URIContext } from "./App";
-
-const AgentCommandsList = ({friendly_name, name, args, enabled, agent, refresh}) => {
-  const baseURI = useContext(URIContext);
-  const [open, setOpen] = useState(false);
-  const [theArgs, setTheArgs] = useState({...args});
-  const handleToggleCommand = async () => {
-    const endpoint = (name === "all" ?
-      `${baseURI}/api/${enabled ? "disable" : "enable"}_all_commands/${agent}`:
-      `${baseURI}/api/${enabled ? "disable" : "enable"}_command/${agent}`);
-
-      console.log(endpoint)
-    fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({command_name: friendly_name})
-    }).then(() => refresh());
+import axios from "axios";
+import { mutate } from "swr"
+import { useRouter } from "next/router";
+export default function AgentCommandsList ({friendly_name, name, args, enabled}) {
+  const agentName = useRouter().query.agent;
+  //const [open, setOpen] = useState(false);
+  //const [theArgs, setTheArgs] = useState({...args});
+  const handleToggleCommand = () => {
+    axios.put(`${process.env.API_URI ?? 'http://localhost:5000'}/api/${enabled ? "disable" : "enable"}_command/${agentName}`,
+    {command_name: friendly_name}).then(() => mutate(`agent/${agentName}/commands`));
   };
-
+  /*
   const handleSaveArgs = async () => {
     fetch(`${baseURI}/api/command/${name}/config`, {
       method: "POST",
@@ -38,7 +29,7 @@ const AgentCommandsList = ({friendly_name, name, args, enabled, agent, refresh})
       body: theArgs
     }).then(() => refresh());
   };
-
+*/
   return (
       <>
           <ListItem key={name} disablePadding >
@@ -53,7 +44,7 @@ const AgentCommandsList = ({friendly_name, name, args, enabled, agent, refresh})
               inputProps={{ "aria-label": "Enable/Disable Command" }}
             />
           </ListItem>
-          {open? 
+          {/*open? 
           <>
             <Divider />
               {Object.keys(args).map((arg) => <ListItem key={arg}>
@@ -72,9 +63,7 @@ const AgentCommandsList = ({friendly_name, name, args, enabled, agent, refresh})
               </ListItem>
             <Divider />
             </>
-          :null}
+              :null*/}
         </>
   );
 };
-
-export default AgentCommandsList;

@@ -6,21 +6,23 @@ import {
   ListItemIcon,
   Typography,
   Switch,
-  Separator
+  Divider
 } from "@mui/material";
-import { 
-  RunCircle, StopCircle 
-} from "@mui/icons-material";
-import Link from 'next/link'
+import AgentCommand from "./AgentCommand";
+import { mutate } from "swr";
+import axios from "axios";
+import { useRouter } from "next/router";
 
 export default function AgentCommandList({data}) {
-  const toggleAllCommands = () => {
+  const agentName = useRouter().query.agent;
 
+  const handleToggleAllCommands = () => {
+      axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/${data.every((command) => command.enabled) ? "disable" : "enable"}_all_commands/${agentName}`).then(() => mutate(`agent/${agentName}/commands`));
   }
-  console.log(data);
   return (
     <List dense>
       <ListItem disablePadding >
+          
             <ListItemButton>
               <Typography variant="body2">
                 All Commands
@@ -28,16 +30,15 @@ export default function AgentCommandList({data}) {
             </ListItemButton>
             <Switch
               checked={data.every((command) => command.enabled)}
-              onChange={toggleAllCommands}
+              onChange={handleToggleAllCommands}
               inputProps={{ "aria-label": "Enable/Disable All Commands" }}
             />
           </ListItem>
-          <Separator />
-      {/*data.map((commands) => (
-          {[allCommands, ...commands].map((command) => (
-            <AgentCommand key={command.name} {...command} agent={agent} refresh={updateCommands}/>
-            ))}
-          ))*/}
+    <Divider />
+      {data.map((command) =>  (
+            <AgentCommand key={command.name} {...command} />
+      ))}
+
     </List>
   );
 }
