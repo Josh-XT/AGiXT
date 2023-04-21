@@ -2,7 +2,6 @@
 import argparse
 import time
 import re
-import os
 from collections import deque
 from typing import Dict, List
 from Config import Config
@@ -13,7 +12,6 @@ class babyagi:
         self.CFG = Config()
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
-        self.load_prompts()
         self.initialize_task_list()
         self.prompter = AgentLLM(agent_name)
         self.commands = self.prompter.get_agent_commands()
@@ -26,16 +24,6 @@ class babyagi:
 
     def get_status(self):
         return self.running
-
-    def load_prompts(self):
-        if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
-            self.CFG.AI_MODEL = "default"
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/execute.txt", "r") as f:
-            self.execute_prompt = f.read()
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/task.txt", "r") as f:
-            self.task_prompt = f.read()
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/priority.txt", "r") as f:
-            self.priority_prompt = f.read()
 
     def initialize_task_list(self):
         self.task_list = deque([])
@@ -54,7 +42,7 @@ class babyagi:
         self.primary_objective = new_objective
 
     def task_creation_agent(self, objective: str, result: Dict, task_description: str, task_list: List[str]):
-        prompt = self.task_prompt
+        prompt = self.CFG.TASK_PROMPT
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{result}", str(result))
         prompt = prompt.replace("{task_description}", task_description)
@@ -69,7 +57,7 @@ class babyagi:
     def prioritization_agent(self, this_task_id: int = 1):
         task_names = [t["task_name"] for t in self.task_list]
         next_task_id = this_task_id + 1
-        prompt = self.priority_prompt
+        prompt = self.CFG.PRIORITY_PROMPT
         prompt = prompt.replace("{objective}", self.primary_objective)
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
@@ -92,7 +80,7 @@ class babyagi:
             print(f"{task['task_id']}. {task['task_name']}")
 
     def execution_agent(self, objective, task, task_id, context=None):
-        prompt = self.execute_prompt
+        prompt = self.CFG.EXECUTION_PROMPT
         prompt = prompt.replace("{objective}", objective)
         prompt = prompt.replace("{task}", task)
         # Get all friendly names in commands into an array
