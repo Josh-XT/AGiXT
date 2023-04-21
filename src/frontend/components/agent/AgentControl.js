@@ -1,25 +1,26 @@
-
 import { useState } from 'react';
-import { styled } from '@mui/material/styles';
+import { useRouter } from 'next/router';
+import axios from 'axios';
+import useSWR from 'swr';
 import {
     Box,
     Drawer,
     Toolbar,
     List,
     Typography,
-    Divider
+    Divider,
+    IconButton
 } from '@mui/material';
 import MuiAppBar from '@mui/material/AppBar';
-import IconButton from '@mui/material/IconButton';
-import MenuSWR from '@/components/menu/MenuSWR';
-import { useRouter } from 'next/router';
-import useSWR from 'swr';
-import AgentCommandList from './AgentCommandList';
-import axios from 'axios';
-import { ChevronRight, ChevronLeft } from '@mui/icons-material';
+import { styled } from '@mui/material/styles';
+import { 
+    ChevronRight, 
+    ChevronLeft 
+} from '@mui/icons-material';
 import AgentPanel from './AgentPanel';
+import AgentCommandList from './AgentCommandList';
+import MenuSWR from '@/components/menu/MenuSWR';
 const drawerWidth = 320;
-
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
     ({ theme, open }) => ({
         flexGrow: 1,
@@ -37,7 +38,6 @@ const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
         }),
     }),
 );
-
 const AppBar = styled(MuiAppBar, {
     shouldForwardProp: (prop) => prop !== 'open',
 })(({ theme, open }) => ({
@@ -54,7 +54,6 @@ const AppBar = styled(MuiAppBar, {
         }),
     }),
 }));
-
 const DrawerHeader = styled('div')(({ theme }) => ({
     display: 'flex',
     alignItems: 'center',
@@ -65,20 +64,16 @@ const DrawerHeader = styled('div')(({ theme }) => ({
     backgroundColor: theme.palette.primary.main,
     color: 'white'
 }));
-
 export default function AgentControl({ data }) {
     const [open, setOpen] = useState(false);
-
     const handleDrawerOpen = () => {
         setOpen(true);
     };
-
     const handleDrawerClose = () => {
         setOpen(false);
     };
     const agentName = useRouter().query.agent;
     const commands = useSWR(`agent/${agentName}/command`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`)).data.commands);
-
     return (<>
         <AppBar position="relative" open={open}>
             <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>

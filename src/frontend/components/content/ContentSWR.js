@@ -11,15 +11,15 @@ export default function ContentSWR({ swr, content }) {
         swr.error
           ?
           <>
-          <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-            Error!
-          </Typography>
-          <Typography paragraph>
-            {swr.error.message}
-          </Typography>
+            <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
+              Error!
+            </Typography>
+            <Typography paragraph>
+              {swr.error.message}
+            </Typography>
           </>
           :
-          content({data: swr.data})
+          content({ data: swr.data })
       )
   );
 }

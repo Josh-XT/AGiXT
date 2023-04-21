@@ -19,23 +19,23 @@ export default function MenuSWR({ swr, menu }) {
         swr.error
           ?
           <>
-          <ListItem>
-            <ListItemText>
-              <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-                Error!
-              </Typography>
-            </ListItemText>
-          </ListItem>
-          <ListItem>
-            <ListItemText>
-              <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-                {swr.error.message}
-              </Typography>
-            </ListItemText>
-          </ListItem>
+            <ListItem>
+              <ListItemText>
+                <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
+                  Error!
+                </Typography>
+              </ListItemText>
+            </ListItem>
+            <ListItem>
+              <ListItemText>
+                <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
+                  {swr.error.message}
+                </Typography>
+              </ListItemText>
+            </ListItem>
           </>
           :
-          menu({data: swr.data}) 
+          menu({ data: swr.data })
       )
   );
 }

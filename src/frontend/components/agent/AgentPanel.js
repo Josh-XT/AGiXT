@@ -6,7 +6,7 @@ import {
 import AgentChat from "./AgentChat";
 import AgentObjective from "./AgentObjective";
 import AgentInstruct from "./AgentInstruct";
-export default function AgentPanel () {
+export default function AgentPanel() {
   const [tab, setTab] = useState(0);
 
   const handleTabChange = (event, newTab) => {
@@ -14,18 +14,18 @@ export default function AgentPanel () {
   };
 
   const tabs = [
-    <AgentChat />,
-    <AgentInstruct />,
-    <AgentObjective />
+    <AgentChat key="chat" />,
+    <AgentInstruct key="instruct" />,
+    <AgentObjective key="objective" />
   ];
   return (
     <>
-      <Tabs value={tab} onChange={handleTabChange} sx={{mb: "0.5rem"}}>
+      <Tabs value={tab} onChange={handleTabChange} sx={{ mb: "0.5rem" }}>
         <Tab label="Chat With Agent" />
         <Tab label="Instruct Agent" />
         <Tab label="Provide Agent With Objective" />
       </Tabs>
-        {tabs[tab]}
+      {tabs[tab]}
     </>
   );
 };

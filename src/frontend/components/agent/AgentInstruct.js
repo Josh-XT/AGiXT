@@ -1,73 +1,68 @@
-import { useState, useContext } from "react";
+import { useState } from "react";
+import { useRouter } from "next/router";
+import axios from "axios";
 import {
   Typography,
   Paper,
   TextField,
   Button,
 } from "@mui/material";
-import { useRouter } from "next/router";
-import axios from "axios";
-export default function AgentInstruct () {
+export default function AgentInstruct() {
   const [responseHistory, setResponseHistory] = useState([]);
   const [instruction, setInstruction] = useState("");
-    const agentName = useRouter().query.agent;
-
+  const agentName = useRouter().query.agent;
   const InstructAgent = async () => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/instruct/${agentName}`, {prompt: instruction}).data.response;
-
+    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/instruct/${agentName}`, { prompt: instruction }).data.response;
     setResponseHistory((old) => [
       ...old,
       `You: ${instruction}`,
       `Agent: ${response}`,
     ]);
   };
-
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleSendInstruction();
     }
   };
-
   const handleInstruct = async () => {
     await InstructAgent();
     setInstruction("");
   };
-
   return (
     <>
-        <>
-          <TextField
-            fullWidth
-            label="Enter Instruction for Agent"
-            placeholder="Instruction..."
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            onKeyPress={handleKeyPress}
-            sx={{ mb: 2 }}
-          />
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleInstruct}
-            fullWidth
-          >
-            Instruct Agent
-          </Button>
-        </>
+      <>
+        <TextField
+          fullWidth
+          label="Enter Instruction for Agent"
+          placeholder="Instruction..."
+          value={instruction}
+          onChange={(e) => setInstruction(e.target.value)}
+          onKeyPress={handleKeyPress}
+          sx={{ mb: 2 }}
+        />
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleInstruct}
+          fullWidth
+        >
+          Instruct Agent
+        </Button>
+      </>
       <Typography variant="h6" gutterBottom>
         Agent Instruction
-        </Typography>
-        <Paper
-          elevation={3}
-          sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
-        >
-          {responseHistory.map((message, index) => (
-            <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-              {message}
-            </pre>
-          ))}
-        </Paper>
+      </Typography>
+      <Paper
+        elevation={3}
+        sx={{ flexGrow: 1, padding: "0.5rem", overflowY: "auto" }}
+      >
+        {responseHistory.map((message, index) => (
+          <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+            {message}
+          </pre>
+        ))}
+      </Paper>
     </>
   );
 };
