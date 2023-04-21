@@ -256,6 +256,18 @@ class AgentLLM:
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
 
+    def run_chain_step(self, agent_name, step_data):
+        for prompt_type, prompt in step_data.items():
+            if prompt_type == "instruction":
+                self.run(prompt)
+            elif prompt_type == "task":
+                self.run_task(prompt)
+
+    def run_chain(self, agent_name, chain_name):
+        chain_data = self.CFG.get_steps(chain_name)
+        for step_number, step_data in chain_data.items():
+            self.run_chain_step(agent_name, step_data)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
