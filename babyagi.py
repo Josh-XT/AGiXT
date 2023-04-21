@@ -7,6 +7,7 @@ from collections import deque
 from typing import Dict, List
 from Config import Config
 from AgentLLM import AgentLLM
+from Commands import Commands
 class babyagi:
     def __init__(self, primary_objective=None, initial_task=None, agent_name="default"):
         self.CFG = Config()
@@ -59,7 +60,7 @@ class babyagi:
         prompt = prompt.replace("{task_description}", task_description)
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
         response = self.prompter.run(prompt, commands_enabled=False)
-        self.output_list.append(f"Task creation agent response: {response}")
+        self.output_list.append(f"\n\nTask creation agent response:\n\n{response}")
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -96,13 +97,20 @@ class babyagi:
         prompt = prompt.replace("{task}", task)
         # Get all friendly names in commands into an array
         friendly_names = []
+        commands = Commands(self.agent_name)
+        self.commands = commands.get_available_commands()
+        print("\033[92m\033[1m" + "\n*****COMMANDS*****\n" + "\033[0m\033[0m")
+        print(self.commands)
         if self.commands is not None:
             for command in self.commands:
-                friendly_names.append(command["friendly_name"])
-            prompt = prompt.replace("{COMMANDS}", ", ".join(friendly_names))
+                if str(command["enabled"]).lower() != "false":
+                    friendly_names.append(f"{command['friendly_name']} - {command['name']}({command['args']})")
+            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         if context is not None:
             context = list(context)  # Convert set to list
         prompt = prompt.replace("{context}", str(context))
+        print("\033[92m\033[1m" + "\n*****PROMPT*****\n" + "\033[0m\033[0m")
+        print(prompt)
         if task_id == 0:
             self.response = self.prompter.run(prompt, commands_enabled=False)
         else:

@@ -61,18 +61,19 @@ class AgentLLM:
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
 
+        # Commented for now, needs to be fixed
         # Chunk the prompt if it's too long
-        prompt_chunks = self.chunk_content(prompt)
-        responses = []
-        for chunk in prompt_chunks:
-            response = self.instruct(chunk)
-            responses.append(response)
-        self.response = " ".join(responses)
-
+        #prompt_chunks = self.chunk_content(prompt)
+        #responses = []
+        #for chunk in prompt_chunks:
+        #    response = self.instruct(chunk)
+        #    responses.append(response)
+        #self.response = " ".join(responses)
+        self.response = self.instruct(prompt)
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.yaml_memory.log_interaction(self.AGENT_NAME, self.response)
-
+        
         print(f"Response: {self.response}")
         return self.response
 

@@ -76,21 +76,6 @@ class Commands:
                 params[name] = param.default
         return params
 
-    def get_prompt(self):
-        self.commands = self.load_commands(agent_name=self.agent_name)
-        commands_str = ""
-        for i, (command_name, command_function_name, params) in enumerate(self.commands, 1):
-            formatted_params = {f"{k}": repr(v) for k, v in params.items()}
-            commands_str += f'{i}. "{command_name}" - {command_function_name} {formatted_params}\n'
-        # Get prompt from model-prompts/{CFG.AI_MODEL}/system.txt
-        if not os.path.exists(f"model-prompts/{self.CFG.AI_MODEL}"):
-            self.CFG.AI_MODEL = "default"
-        with open(f"model-prompts/{self.CFG.AI_MODEL}/system.txt", "r") as f:
-            system_prompt = f.read()
-        system_prompt = system_prompt.replace("{COMMANDS}", commands_str)
-        system_prompt = system_prompt.replace("{AGENT_NAME}", self.CFG.AGENT_NAME)
-        return system_prompt
-
     def find_command(self, command_name: str):
         for name, function_name, params in self.commands:
             if name == command_name:

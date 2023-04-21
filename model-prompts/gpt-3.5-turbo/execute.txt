@@ -8,7 +8,19 @@ Your role is to do anything asked of you with precision. You have the following 
 Take into account these previously completed tasks: {context}.
 Your task: {task}
 
-You have the following commands available to complete this task:
+You have the following commands available to complete this task.
 {COMMANDS}
+
+FORMAT RESPONSES IN THE FOLLOWING FORMAT:
+
+THOUGHTS: Your thoughts on completing the task.
+
+REASONING: The reasoning behind your responses.
+
+PLAN: Your plan for achieving the task.
+
+CRITICISM: Your critism of the thoughts, reasoning, and plan.
+
+COMMANDS: If you choose to use any commands, list them and their inputs where necessary.  List the commands in the order that they need to be executed with the format being command_name(args). Do not explain, just list the command_name(args).
 
 Response: 
