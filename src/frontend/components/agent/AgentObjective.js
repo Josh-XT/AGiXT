@@ -14,12 +14,12 @@ export default function AgentObjective() {
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/output/${agentName}`)).data : null), { refreshInterval: 3000 });
-    const queryRunning = useCallback(async () => {
+    const queryRunning = async () => {
         setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
-    }, [agentName]);
+    };
     useEffect(() => {
         queryRunning();
-    }, [queryRunning])
+    }, [])
 
     const toggleRunning = async () => {
         if (running) {
