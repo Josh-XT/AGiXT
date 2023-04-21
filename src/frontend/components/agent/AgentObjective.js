@@ -1,26 +1,24 @@
 import { useState, useEffect } from "react";
+import { useRouter } from "next/router";
+import axios from "axios";
+import useSWR from "swr";
 import {
     Typography,
     Paper,
     TextField,
     Button,
 } from "@mui/material";
-import axios from "axios";
-import { useRouter } from "next/router";
-import useSWR from "swr";
 export default function AgentObjective() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
-
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/output/${agentName}`)).data : null), { refreshInterval: 3000 });
     useEffect(() => {
         queryRunning();
-    }, [])
+    }, [queryRunning])
     const queryRunning = async () => {
         setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
     }
-
     const toggleRunning = async (objective) => {
         if (running) {
             await axios.delete(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
@@ -31,7 +29,6 @@ export default function AgentObjective() {
         await queryRunning();
         mutate("agents");
     };
-
     return (
         <>
             <TextField

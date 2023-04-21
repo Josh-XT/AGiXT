@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
 import '@/styles/globals.css'
-import { styled, createTheme, ThemeProvider } from '@mui/material/styles';
+import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import axios from 'axios';
+import useSWR from 'swr';
 import {
   Box,
   Drawer,
@@ -11,18 +12,21 @@ import {
   Typography,
   Divider
 } from '@mui/material';
-import useSWR from 'swr';
 import MuiAppBar from '@mui/material/AppBar';
 import IconButton from '@mui/material/IconButton';
+import { 
+  styled, 
+  createTheme, 
+  ThemeProvider 
+} from '@mui/material/styles';
+import { 
+  ChevronLeft,
+  Menu 
+} from '@mui/icons-material';
 import MenuSWR from '@/components/menu/MenuSWR';
 import MenuAgentList from '@/components/menu/MenuAgentList';
-import { MenuDarkSwitch }from '@/components/menu/MenuDarkSwitch';
-import Link from 'next/link';
-import { ChevronLeft, Menu } from '@mui/icons-material';
+import { MenuDarkSwitch } from '@/components/menu/MenuDarkSwitch';
 const drawerWidth = 240;
-
-
-
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     flexGrow: 1,
@@ -41,7 +45,6 @@ const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
     }),
   }),
 );
-
 const AppBar = styled(MuiAppBar, {
   shouldForwardProp: (prop) => prop !== 'open',
 })(({ theme, open }) => ({
@@ -58,7 +61,6 @@ const AppBar = styled(MuiAppBar, {
     }),
   }),
 }));
-
 const DrawerHeader = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
@@ -69,12 +71,10 @@ const DrawerHeader = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.primary.main,
   color: 'white'
 }));
-
 export default function App({ Component, pageProps }) {
   const [open, setOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const agents = useSWR('agents', async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
-  console.log(agents);
 
   const themeGenerator = (darkMode) =>
     createTheme({
@@ -103,22 +103,22 @@ export default function App({ Component, pageProps }) {
       <Box sx={{ display: 'flex' }}>
         <CssBaseline />
         <AppBar position="fixed" open={open}>
-          <Toolbar sx={{display: "flex", justifyContent: "space-between"}}>
-            <Box sx={{display: "flex", alignItems: "center"}}>
-            <IconButton
-              color="inherit"
-              aria-label="open drawer"
-              onClick={handleDrawerOpen}
-              edge="start"
-              sx={{ mr: 2, ...(open && { display: 'none' }) }}
-            >
-              <Menu />
-            </IconButton>
-            <Typography variant="h6" component="h1" noWrap>
-              <Link href="/">
-                Agent LLM
-              </Link>
-            </Typography>
+          <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <IconButton
+                color="inherit"
+                aria-label="open drawer"
+                onClick={handleDrawerOpen}
+                edge="start"
+                sx={{ mr: 2, ...(open && { display: 'none' }) }}
+              >
+                <Menu />
+              </IconButton>
+              <Typography variant="h6" component="h1" noWrap>
+                <Link href="/">
+                  Agent LLM
+                </Link>
+              </Typography>
             </Box>
             <MenuDarkSwitch checked={darkMode} onChange={handleToggleDarkMode} />
           </Toolbar>
@@ -141,7 +141,7 @@ export default function App({ Component, pageProps }) {
               Agents
             </Typography>
             <IconButton onClick={handleDrawerClose}>
-              <ChevronLeft fontSize='large' sx={{color: 'white'}}/>
+              <ChevronLeft fontSize='large' sx={{ color: 'white' }} />
             </IconButton>
           </DrawerHeader>
           <Divider />
@@ -149,7 +149,7 @@ export default function App({ Component, pageProps }) {
             <MenuSWR swr={agents} menu={MenuAgentList} />
           </List>
         </Drawer>
-        <Main open={open} sx={{padding: 0}}>
+        <Main open={open} sx={{ padding: 0 }}>
           <DrawerHeader />
           <Component {...pageProps} />
         </Main>
