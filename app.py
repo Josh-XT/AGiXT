@@ -45,6 +45,10 @@ class GetAgents(Resource):
         agents = CFG.get_agents()
         return {"agents": agents}, 200
 
+class GetAgentConfig(Resource):
+    def get(self, agent_name):
+        agent_config = CFG.get_agent_config(agent_name)
+        return {"agent": agent_config}, 200
 class GetChatHistory(Resource):
     def get(self, agent_name):
         chat_history = CFG.get_chat_history(agent_name)
@@ -61,7 +65,15 @@ class Instruct(Resource):
         agent = AgentLLM(agent_name)
         response = agent.run(objective, max_context_tokens=500, long_term_access=False)
         return {"response": str(response)}, 200
-    
+
+class Chat(Resource):
+    def post(self, agent_name):
+        # TODO: Change this from using the normal instruct and add a chat method to AgentLLM
+        objective = request.json.get("prompt")
+        agent = AgentLLM(agent_name)
+        response = agent.run(objective, max_context_tokens=500, long_term_access=False)
+        return {"response": str(response)}, 200
+
 class GetCommands(Resource):
     def get(self, agent_name):
         commands = Commands(agent_name)
@@ -198,57 +210,61 @@ class RunChain(Resource):
         return {"message": "Prompt chain started"}, 200
 
 # Agents
-api.add_resource(GetAgents, '/api/get_agents')
+api.add_resource(GetAgents, '/api/agent')
 # Output: {"agents": ["agent1", "agent2", "agent3"]}
-api.add_resource(AddAgent, '/api/add_agent/<string:agent_name>')
+api.add_resource(GetAgentConfig, '/api/agent/<string:agent_name>')
+# Output: {"agent_config": {"agent_name": "agent1", "agent_type": "task", "commands": {"command1": "true", "command2": "false"}}}
+api.add_resource(AddAgent, '/api/agent/<string:agent_name>/add')
 # Output: {"message": "Agent 'agent1' added"}
-api.add_resource(RenameAgent, '/api/rename_agent/<string:old_agent_name>/<string:new_agent_name>')
+api.add_resource(RenameAgent, '/api/agent/<string:agent_name>/rename/<string:new_name>')
 # Output: {"message": "Agent 'agent1' renamed to 'agent2'"}
-api.add_resource(DeleteAgent, '/api/delete_agent/<string:agent_name>')
+api.add_resource(DeleteAgent, '/api/agent/<string:agent_name>/delete_agent')
 # Output: {"message": "Agent 'agent1' deleted"}
-api.add_resource(GetCommands, '/api/get_commands/<string:agent_name>')
+api.add_resource(GetCommands, '/api/agent/<string:agent_name>/command')
 # Output: {"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}
-api.add_resource(EnableCommand, '/api/enable_command/<string:agent_name>')
+api.add_resource(EnableCommand, '/api/agent/<string:agent_name>/enable_command')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
-api.add_resource(DisableCommand, '/api/disable_command/<string:agent_name>')
+api.add_resource(DisableCommand, '/api/agent/<string:agent_name>/disable_command')
 # Output: {"message": "Command 'command1' disabled for agent 'agent1'"}
-api.add_resource(DisableAllCommands, '/api/disable_all_commands/<string:agent_name>')
+api.add_resource(DisableAllCommands, '/api/agent/<string:agent_name>/disable_all_commands')
 # Output: {"message": "All commands disabled for agent 'agent1'"}
-api.add_resource(EnableAllCommands, '/api/enable_all_commands/<string:agent_name>')
+api.add_resource(EnableAllCommands, '/api/agent/<string:agent_name>/enable_all_commands')
 # Output: {"message": "All commands enabled for agent 'agent1'"}
-api.add_resource(GetChatHistory, '/api/get_chat_history/<string:agent_name>')
+api.add_resource(GetChatHistory, '/api/<string:agent_name>/history')
 # Output: {"chat_history": ["chat1", "chat2", "chat3"]}
-api.add_resource(Instruct, '/api/instruct/<string:agent_name>')
+api.add_resource(Instruct, '/api/agent/<string:agent_name>/instruct')
 # Output: {"message": "Prompt sent to agent 'agent1'"}
-api.add_resource(WipeAgentMemories, '/api/wipe_agent_memories/<string:agent_name>')
+api.add_resource(Chat, '/api/agent/<string:agent_name>/chat')
+# Output: {"message": "Prompt sent to agent 'agent1'"}
+api.add_resource(WipeAgentMemories, '/api/agent/<string:agent_name>/memory')
 # Output: {"message": "Agent 'agent1' memories wiped"}
 
 # Tasks
-api.add_resource(StartTaskAgent, '/api/task/start/<string:agent_name>')
+api.add_resource(StartTaskAgent, '/api/agent/<string:agent_name>/task/start')
 # Output: {"message": "Task agent 'agent1' started"}
-api.add_resource(StopTaskAgent, '/api/task/stop/<string:agent_name>')
+api.add_resource(StopTaskAgent, '/api/agent/<string:agent_name>/task/stop')
 # Output: {"message": "Task agent 'agent1' stopped"}
-api.add_resource(GetTaskOutput, '/api/task/output/<string:agent_name>')
+api.add_resource(GetTaskOutput, '/api/agent/<string:agent_name>/task')
 # Output: {"output": "output"}
-api.add_resource(GetTaskStatus, '/api/task/status/<string:agent_name>')
+api.add_resource(GetTaskStatus, '/api/agent/<string:agent_name>/task/status/')
 # Output: {"status": "status"}
 
 # Chains
-api.add_resource(GetChains, '/api/get_chains')
+api.add_resource(GetChains, '/api/chain')
 # Output: {chain_name: {step_number: {prompt_type: prompt}}}
-api.add_resource(GetChain, '/api/get_chain')
+api.add_resource(GetChain, '/api/chain/<string:chain_name>')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(AddChain, '/api/add_chain')
+api.add_resource(AddChain, '/api/chain/<string:chain_name>/add')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(AddChainStep, '/api/add_chain_step')
+api.add_resource(AddChainStep, '/api/chain/<string:chain_name>/add_step')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(UpdateStep, '/api/update_step')
+api.add_resource(UpdateStep, '/api/chain/<string:chain_name>/update_step')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(DeleteChain, '/api/delete_chain')
+api.add_resource(DeleteChain, '/api/chain/<string:chain_name>/delete_chain')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(DeleteChainStep, '/api/delete_chain_step/<string:step_number>')
+api.add_resource(DeleteChainStep, '/api/chain/<string:chain_name>/delete_step/<string:step_number>')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(RunChain, '/api/run_chain/<string:agent_name>')
+api.add_resource(RunChain, '/api/chain/<string:chain_name>/run')
 # Output: {step_number: {prompt_type: prompt}}
 
 if __name__ == '__main__':
