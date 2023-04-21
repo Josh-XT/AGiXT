@@ -9,5 +9,5 @@ class AIProvider:
             self.llamacpp = Llama(model_path=CFG.MODEL_PATH)
 
     def instruct(self, prompt):
-        output = self.llamacpp(f"Q: {prompt}", max_tokens=CFG.MAX_TOKENS, stop=["Q:", "\n"], echo=True)
+        output = self.llamacpp(f"Q: {prompt}", n_ctx=CFG.MAX_TOKENS, stop=["Q:", "\n"], echo=True)
         return output["choices"][0]["text"]
