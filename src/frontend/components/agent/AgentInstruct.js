@@ -12,7 +12,7 @@ export default function AgentInstruct() {
   const [instruction, setInstruction] = useState("");
   const agentName = useRouter().query.agent;
   const InstructAgent = async () => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/instruct`, { prompt: instruction }).data;
+    const response = (await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/instruct`, { prompt: instruction })).data;
     console.log(response);
     setResponseHistory((old) => [
       ...old,
