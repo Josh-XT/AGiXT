@@ -1,9 +1,7 @@
 import {
   List,
   ListItem,
-  ListItemText,
   ListItemButton,
-  ListItemIcon,
   Typography,
   Switch,
   Divider
@@ -17,7 +15,7 @@ export default function AgentCommandList({data}) {
   const agentName = useRouter().query.agent;
 
   const handleToggleAllCommands = () => {
-      axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/${data.every((command) => command.enabled) ? "disable" : "enable"}_all_commands/${agentName}`).then(() => mutate(`agent/${agentName}/commands`));
+      axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, {command_name: "*", enable: data.every((command) => command.enabled)?"false":"true"}).then(() => mutate(`agent/${agentName}/commands`));
   }
   return (
     <List dense>

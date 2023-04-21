@@ -1,17 +1,14 @@
 import { useState, useEffect } from "react";
 import {
     Typography,
-    Box,
     Paper,
     TextField,
     Button,
-    Tab,
-    Tabs
 } from "@mui/material";
 import axios from "axios";
 import { useRouter } from "next/router";
 import useSWR from "swr";
-export default function AgentPanel() {
+export default function AgentObjective() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
@@ -21,15 +18,15 @@ export default function AgentPanel() {
         queryRunning();
     }, [])
     const queryRunning = async () => {
-        setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/status/${agentName}`)).data.status);
+        setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
     }
 
     const toggleRunning = async (objective) => {
         if (running) {
-            await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/stop/${agentName}`);
+            await axios.delete(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
         }
         else {
-            await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/start/${agentName}`, { objective: objective });
+            await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`, { objective: objective });
         }
         await queryRunning();
         mutate("agents");

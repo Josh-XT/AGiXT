@@ -73,7 +73,7 @@ const DrawerHeader = styled('div')(({ theme }) => ({
 export default function App({ Component, pageProps }) {
   const [open, setOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const agents = useSWR('agents', async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/get_agents`)).data.agents);
+  const agents = useSWR('agents', async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
   console.log(agents);
 
   const themeGenerator = (darkMode) =>
@@ -98,9 +98,6 @@ export default function App({ Component, pageProps }) {
   const handleToggleDarkMode = useCallback(() => {
     setDarkMode((old) => !old);
   }, []);
-  const handleClick = (e) => {
-    e.stopPropagation();
-  };
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex' }}>
