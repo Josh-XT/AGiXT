@@ -80,43 +80,24 @@ class GetCommands(Resource):
         available_commands = commands.get_available_commands()
         return {"commands": available_commands}, 200
 
-class EnableCommand(Resource):
-    def post(self, agent_name):
+class ToggleCommand(Resource):
+    def patch(self, agent_name):
+        enable = request.json.get("enable")
+        if agent_name == "*":
+            try:
+                commands = Commands(agent_name)
+                for command_name in commands.agent_config["commands"]:
+                    commands.agent_config["commands"][command_name] = enable
+                CFG.update_agent_config(agent_name, commands.agent_config)
+                return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
+            except Exception as e:
+                return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
+        
         command_name = request.json.get("command_name")
         commands = Commands(agent_name)
-        commands.agent_config["commands"][command_name] = "true"
+        commands.agent_config["commands"][command_name] = enable
         CFG.update_agent_config(agent_name, commands.agent_config)
-        return {"message": f"Command '{command_name}' enabled for agent '{agent_name}'."}, 200
-
-class DisableCommand(Resource):
-    def post(self, agent_name):
-        command_name = request.json.get("command_name")
-        commands = Commands(agent_name)
-        commands.agent_config["commands"][command_name] = "false"
-        CFG.update_agent_config(agent_name, commands.agent_config)
-        return {"message": f"Command '{command_name}' disabled for agent '{agent_name}'."}, 200
-
-class EnableAllCommands(Resource):
-    def post(self, agent_name):
-        try:
-            commands = Commands(agent_name)
-            for command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][command_name] = "true"
-            CFG.update_agent_config(agent_name, commands.agent_config)
-            return {"message": f"All commands enabled for agent '{agent_name}'."}, 200
-        except Exception as e:
-            return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
-
-class DisableAllCommands(Resource):
-    def post(self, agent_name):
-        try:
-            commands = Commands(agent_name)
-            for command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][command_name] = "false"
-            CFG.update_agent_config(agent_name, commands.agent_config)
-            return {"message": f"All commands disabled for agent '{agent_name}'."}, 200
-        except Exception as e:
-            return {"message": f"Error disabled all commands for agent '{agent_name}': {str(e)}"}, 500
+        return {"message": f"Command '{command_name}' toggled for agent '{agent_name}'."}, 200
 
 class StartTaskAgent(Resource):
     def post(self, agent_name):
@@ -212,41 +193,35 @@ class RunChain(Resource):
 # Agents
 api.add_resource(GetAgents, '/api/agent')
 # Output: {"agents": ["agent1", "agent2", "agent3"]}
+api.add_resource(AddAgent, '/api/agent')
+# Output: {"message": "Agent 'agent1' added"}
 api.add_resource(GetAgentConfig, '/api/agent/<string:agent_name>')
 # Output: {"agent_config": {"agent_name": "agent1", "agent_type": "task", "commands": {"command1": "true", "command2": "false"}}}
-api.add_resource(AddAgent, '/api/agent/<string:agent_name>/add')
-# Output: {"message": "Agent 'agent1' added"}
-api.add_resource(RenameAgent, '/api/agent/<string:agent_name>/rename/<string:new_name>')
+api.add_resource(RenameAgent, '/api/agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' renamed to 'agent2'"}
-api.add_resource(DeleteAgent, '/api/agent/<string:agent_name>/delete_agent')
+api.add_resource(DeleteAgent, '/api/agent/<string:agent_name>')
 # Output: {"message": "Agent 'agent1' deleted"}
 api.add_resource(GetCommands, '/api/agent/<string:agent_name>/command')
 # Output: {"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}
-api.add_resource(EnableCommand, '/api/agent/<string:agent_name>/enable_command')
+api.add_resource(ToggleCommand, '/api/agent/<string:agent_name>/command')
 # Output: {"message": "Command 'command1' enabled for agent 'agent1'"}
-api.add_resource(DisableCommand, '/api/agent/<string:agent_name>/disable_command')
-# Output: {"message": "Command 'command1' disabled for agent 'agent1'"}
-api.add_resource(DisableAllCommands, '/api/agent/<string:agent_name>/disable_all_commands')
-# Output: {"message": "All commands disabled for agent 'agent1'"}
-api.add_resource(EnableAllCommands, '/api/agent/<string:agent_name>/enable_all_commands')
-# Output: {"message": "All commands enabled for agent 'agent1'"}
-api.add_resource(GetChatHistory, '/api/<string:agent_name>/history')
+api.add_resource(Chat, '/api/agent/<string:agent_name>/chat')
+# Output: {"message": "Prompt sent to agent 'agent1'"}
+api.add_resource(GetChatHistory, '/api/<string:agent_name>/chat')
 # Output: {"chat_history": ["chat1", "chat2", "chat3"]}
 api.add_resource(Instruct, '/api/agent/<string:agent_name>/instruct')
-# Output: {"message": "Prompt sent to agent 'agent1'"}
-api.add_resource(Chat, '/api/agent/<string:agent_name>/chat')
 # Output: {"message": "Prompt sent to agent 'agent1'"}
 api.add_resource(WipeAgentMemories, '/api/agent/<string:agent_name>/memory')
 # Output: {"message": "Agent 'agent1' memories wiped"}
 
 # Tasks
-api.add_resource(StartTaskAgent, '/api/agent/<string:agent_name>/task/start')
+api.add_resource(StartTaskAgent, '/api/agent/<string:agent_name>/task')
 # Output: {"message": "Task agent 'agent1' started"}
-api.add_resource(StopTaskAgent, '/api/agent/<string:agent_name>/task/stop')
+api.add_resource(StopTaskAgent, '/api/agent/<string:agent_name>/task')
 # Output: {"message": "Task agent 'agent1' stopped"}
 api.add_resource(GetTaskOutput, '/api/agent/<string:agent_name>/task')
 # Output: {"output": "output"}
-api.add_resource(GetTaskStatus, '/api/agent/<string:agent_name>/task/status/')
+api.add_resource(GetTaskStatus, '/api/agent/<string:agent_name>/task/status')
 # Output: {"status": "status"}
 
 # Chains
@@ -254,15 +229,15 @@ api.add_resource(GetChains, '/api/chain')
 # Output: {chain_name: {step_number: {prompt_type: prompt}}}
 api.add_resource(GetChain, '/api/chain/<string:chain_name>')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(AddChain, '/api/chain/<string:chain_name>/add')
+api.add_resource(AddChain, '/api/chain')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(AddChainStep, '/api/chain/<string:chain_name>/add_step')
+api.add_resource(AddChainStep, '/api/chain/<string:chain_name>/step')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(UpdateStep, '/api/chain/<string:chain_name>/update_step')
+api.add_resource(UpdateStep, '/api/chain/<string:chain_name>/step/<string:step_number>')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(DeleteChain, '/api/chain/<string:chain_name>/delete_chain')
+api.add_resource(DeleteChain, '/api/chain/<string:chain_name>')
 # Output: {step_number: {prompt_type: prompt}}
-api.add_resource(DeleteChainStep, '/api/chain/<string:chain_name>/delete_step/<string:step_number>')
+api.add_resource(DeleteChainStep, '/api/chain/<string:chain_name>/step/<string:step_number>')
 # Output: {step_number: {prompt_type: prompt}}
 api.add_resource(RunChain, '/api/chain/<string:chain_name>/run')
 # Output: {step_number: {prompt_type: prompt}}
