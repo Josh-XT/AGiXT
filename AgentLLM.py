@@ -253,9 +253,9 @@ class AgentLLM:
         self.add_initial_task()
         self.running = True
         while self.running:
+            self.running = self.get_status()
             task = self.execute_next_task()
             self.display_result(task)
-            self.running = self.get_status()
             if not self.task_list:
                 self.output_list.append(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
