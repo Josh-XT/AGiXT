@@ -87,7 +87,7 @@ The frontend is built using React and Material-UI and communicates with the back
 3. Run the following Docker command in the folder with your `.env` file:
 
 ```
-docker run -it --pull always -p 80:5000 --env-file=.env ghcr.io/josh-xt/agent-llm:main
+docker compose up -d --build
 ```
 
 4. Access the web interface at http://localhost
@@ -303,7 +303,6 @@ Agent-LLM provides several API endpoints for managing agents, managing tasks, an
     Runs a specific chain for an agent.
 
     Output: `{step_number: {prompt_type: prompt}}`
-
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
 
