@@ -223,6 +223,8 @@ class Config():
 
     def get_agents(self):
         memories_dir = "agents"
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
         agents = []
         for file in os.listdir(memories_dir):
             if file.endswith(".yaml"):
