@@ -5,9 +5,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "80:3000"
     env_file:
       - .env
+    depends_on:
+      - backend
   backend:
     build:
       context: ./
