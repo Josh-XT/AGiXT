@@ -89,6 +89,13 @@ class Config():
         self.agent_instances = {}
         self.commands = {}
 
+    def get_providers(self):
+        providers = []
+        for provider in glob.glob("provider/*.py"):
+            if provider != "provider/__init__.py":
+                providers.append(provider.replace("provider/", "").replace(".py", ""))
+        return providers
+
     def get_prompts(self):
         if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
             self.AI_MODEL = "default"

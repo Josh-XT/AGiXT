@@ -25,6 +25,11 @@ swaggerui_blueprint = get_swaggerui_blueprint(
 
 app.register_blueprint(swaggerui_blueprint)
 
+class GetProviders(Resource):
+    def get(self):
+        providers = CFG.get_providers()
+        return {"providers": providers}, 200
+
 class AddAgent(Resource):
     def post(self):
         agent_name = request.json['agent_name']
@@ -188,6 +193,9 @@ class RunChain(Resource):
         chain_name = request.json.get("chain_name")
         CFG.run_chain(agent_name, chain_name)
         return {"message": "Prompt chain started"}, 200
+
+# Providers
+api.add_resource(GetProviders, '/api/provider')
 
 # Agents
 api.add_resource(GetAgents, '/api/agent')
