@@ -101,25 +101,22 @@ class ToggleCommand(Resource):
         except Exception as e:
                     return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500        
 
-class StartTaskAgent(Resource):
-    def post(self, agent_name):
-        objective = request.json.get("objective")
-        if agent_name not in agent_instances:
-            agent_instances[agent_name] = AgentLLM(agent_name)
-        agent_instance = agent_instances[agent_name]
-        agent_instance.set_agent_name(agent_name)
-        agent_instance.set_objective(objective)
-        agent_thread = threading.Thread(target=agent_instance.run_task)
-        agent_thread.start()
-        return {"message": "Task agent started"}, 200
-
-class StopTaskAgent(Resource):
+class ToggleTaskAgent(Resource):
     def post(self, agent_name):
         if agent_name not in agent_instances:
-            return {"message": "Task agent not found"}, 404
-        agent_instance = agent_instances[agent_name]
-        agent_instance.stop_running()
-        return {"message": "Task agent stopped"}, 200
+            objective = request.json.get("objective")
+            if agent_name not in agent_instances:
+                agent_instances[agent_name] = AgentLLM(agent_name)
+            agent_instance = agent_instances[agent_name]
+            agent_instance.set_agent_name(agent_name)
+            agent_instance.set_objective(objective)
+            agent_thread = threading.Thread(target=agent_instance.run_task)
+            agent_thread.start()
+            return {"message": "Task agent started"}, 200
+        else:
+            agent_instance = agent_instances[agent_name]
+            agent_instance.stop_running()
+            return {"message": "Task agent stopped"}, 200
 
 class GetTaskOutput(Resource):
     def get(self, agent_name):
@@ -217,9 +214,8 @@ api.add_resource(WipeAgentMemories, '/api/agent/<string:agent_name>/memory')
 # Output: {"message": "Agent 'agent1' memories wiped"}
 
 # Tasks
-api.add_resource(StartTaskAgent, '/api/agent/<string:agent_name>/task')
+api.add_resource(ToggleTaskAgent, '/api/agent/<string:agent_name>/task')
 # Output: {"message": "Task agent 'agent1' started"}
-api.add_resource(StopTaskAgent, '/api/agent/<string:agent_name>/task')
 # Output: {"message": "Task agent 'agent1' stopped"}
 api.add_resource(GetTaskOutput, '/api/agent/<string:agent_name>/task')
 # Output: {"output": "output"}
