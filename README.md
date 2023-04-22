@@ -1,6 +1,6 @@
 # Agent-LLM
 
-Agent-LLM is a versatile Python application that leverages AI language models for task management and problem-solving. Boasting both short-term and long-term memory capabilities, it recalls previous interactions and context. The application can browse the web, write its own commands, and more. Supporting various AI providers like [OpenAI GPT-3.5, GPT-4, ChatGPT](https://openai.com/), [Google Bard](https://bard.google.com), [Microsoft Bing](https://bing.com), [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui), and [llama.cpp](https://github.com/ggerganov/llama.cpp), Agent-LLM is both flexible and adaptable to diverse use cases. The list of providers will continue to grow.
+Agent-LLM is an Artificial Intelligence Automation Platform designed for efficient AI instruction management across multiple providers. Equipped with adaptive memory, this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to cater to diverse applications.
 
 [<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" height="70" style="margin: 0 10px">](https://discord.gg/vfXjyuKZ)[<img src="https://img.freepik.com/free-icon/twitter_318-674515.jpg" height="70" style="margin: 0 10px">](https://twitter.com/Josh_XT)[<img src="https://qph.cf2.quoracdn.net/main-qimg-729a22aba98d1235fdce4883accaf81e" height="70" style="margin: 0 10px">](https://github.com/Josh-XT/Agent-LLM)
 
@@ -37,35 +37,39 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 
 ## Key Features
 
-- Efficient management of long-term and short-term memory
+- Adaptive long-term and short-term memory management
 
-- Easily pluggable commands for extended functionality
+- Versatile plugin system with extensible commands for various AI models
 
-- Compatibility with multiple AI providers
+- Wide compatibility with multiple AI providers, including:
 
-  - OpenAI GPT-3.5, GPT-4, ChatGPT
-
-  - Google Bard
-
-  - Microsoft Bing
+  - OpenAI GPT-3.5, GPT-4
 
   - Oobabooga Text Generation Web UI
 
+  - Kobold
+
   - llama.cpp
 
-- Web browsing capabilities
+  - FastChat
 
-- Command execution and code evaluation
+  - Google Bard
 
-- Customizable plugin system with prompts for various AI models
+  - And More!
 
-- Docker support for seamless deployment
+- Web browsing and command execution capabilities
+
+- Code evaluation support
+
+- Seamless Docker deployment
 
 - Integration with Huggingface for audio-to-text conversion
 
-- Support for interacting with Twitter, GitHub, Google, DALL-E, and more growing fast.
+- Interoperability with platforms like Twitter, GitHub, Google, DALL-E, and more
 
-- Voice options for text-to-speech, including Brian TTS, Mac OS TTS, and ElevenLabs
+- Text-to-speech options featuring Brian TTS, Mac OS TTS, and ElevenLabs
+
+- Continuously expanding support for new AI providers and services
 
 ## Web Application Features
 
