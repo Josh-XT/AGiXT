@@ -12,11 +12,11 @@ export default function AgentCommandsList({ friendly_name, name, args, enabled }
   const agentName = useRouter().query.agent;
   const [newName, setNewName] = useState("");
   const handleDelete = async () => {
-    await axios.delete(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}`)
+    await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}`)
     mutate(`agents`);
   };
   const handleRename = async () => {
-    await axios.put(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}`, { new_name: newName })
+    await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}`, { new_name: newName })
     mutate(`agents`);
   };
   return (
