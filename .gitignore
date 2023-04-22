@@ -18,3 +18,4 @@ memories/*
 WORKSPACE/*
 *.util.py
 agents/*
+src/*
