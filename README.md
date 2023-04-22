@@ -151,6 +151,7 @@ To run Agent-LLM without Docker:
    2. Execute the following command to install the necessary dependencies:
    ```
    npm install
+   npm run build
    ```
    3. In a separate terminal, navigate to the project's root folder and run the following command to activate the Flask backend server:
    ```
