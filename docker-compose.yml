@@ -1,6 +1,18 @@
-version: '3.8'
+version: "3.8"
 services:
-  agent-llm:
-    image: ghcr.io/josh-xt/agent-llm:main
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+  backend:
+    build:
+      context: ./
+      dockerfile: Dockerfile-backend
+    ports:
+      - "5000:5000"
     env_file:
       - .env
