@@ -13,7 +13,7 @@ import AgentCommand from "./AgentCommand";
 export default function AgentCommandList({ data }) {
   const agentName = useRouter().query.agent;
   const handleToggleAllCommands = async () => {
-    await axios.patch(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: "*", enable: data.every((command) => command.enabled) ? "false" : "true" });
+    await axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`, { command_name: "*", enable: data.every((command) => command.enabled) ? "false" : "true" });
     mutate(`agent/${agentName}/commands`);
   }
   return (

@@ -12,7 +12,7 @@ export default function AgentChat() {
   const [message, setMessage] = useState("");
   const agentName = useRouter().query.agent;
   const MessageAgent = async (message) => {
-    const response = await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/chat`, { prompt: message }).data.response;
+    const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/chat`, { prompt: message }).data.response;
     setChatHistory((old) => [
       ...old,
       `You: ${message}`,
