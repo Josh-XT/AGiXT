@@ -1,6 +1,6 @@
 from Config import Config
-from llama_cpp import Llama
 
+from pyllamacpp.model import Model
 CFG = Config()
 
 class AIProvider:
@@ -10,8 +10,12 @@ class AIProvider:
                 self.max_tokens = int(CFG.MAX_TOKENS)
             except:
                 self.max_tokens = 2000
-            self.llamacpp = Llama(model_path=CFG.MODEL_PATH, n_ctx=self.max_tokens)
+            self.model = Model(ggml_model=CFG.MODEL_PATH, n_ctx=self.max_tokens)
+            # TODO: Need to reseach to add temperature, no obvious flag.
+
+    def new_text_callback(text: str):
+        print(text, end="", flush=True)
 
     def instruct(self, prompt):
-        output = self.llamacpp(f"Q: {prompt}", max_tokens=self.max_tokens, stop=["Q:", "\n"], echo=True)
-        return output["choices"][0]["text"]
+        output = self.model.generate(f"Q: {prompt}", n_predict=55, new_text_callback=self.new_text_callback, n_threads=8)
+        return output
