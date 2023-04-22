@@ -6,7 +6,7 @@ Agent-LLM is a versatile Python application that leverages AI language models fo
 
 ⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs.  We're NOT responsible for your usage under any circumstance.**
 
-![image](https://user-images.githubusercontent.com/102809327/233711863-5de29d73-4857-4a9b-95b4-7f56a5e0a106.png)
+![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
 ⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
