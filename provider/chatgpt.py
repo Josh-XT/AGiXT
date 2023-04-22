@@ -27,7 +27,7 @@ class AIProvider:
         self.browser.get("https://chat.openai.com/auth/login?next=/chat")
         self.pass_verification()
         self.login(CFG.CHATGPT_USERNAME, CFG.CHATGPT_PASSWORD)
-
+        print("Login success!")
         for _ in range(self.head_count - 1):
             self.browser.execute_script(
                 '''window.open("https://chat.openai.com/chat","_blank");''')
