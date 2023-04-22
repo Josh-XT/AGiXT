@@ -6,7 +6,7 @@ import { mutate } from "swr"
 export default function Home() {
   const [name, setName] = useState("");
   const handleCreate = async () => {
-    await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name });
+    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name });
     mutate("agents");
   }
   return <Container>

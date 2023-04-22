@@ -73,7 +73,7 @@ export default function AgentControl({ data }) {
         setOpen(false);
     };
     const agentName = useRouter().query.agent;
-    const commands = useSWR(`agent/${agentName}/commands`, async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`)).data.commands);
+    const commands = useSWR(`agent/${agentName}/commands`, async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/command`)).data.commands);
     return (<>
         <AppBar position="relative" open={open}>
             <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>

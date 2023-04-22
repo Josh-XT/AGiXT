@@ -74,7 +74,7 @@ const DrawerHeader = styled('div')(({ theme }) => ({
 export default function App({ Component, pageProps }) {
   const [open, setOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const agents = useSWR('agents', async () => (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
+  const agents = useSWR('agents', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
 
   const themeGenerator = (darkMode) =>
     createTheme({
