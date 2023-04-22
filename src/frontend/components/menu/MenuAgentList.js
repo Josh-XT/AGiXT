@@ -30,7 +30,7 @@ export default function MenuAgentList({ data }) {
         <ListItem key={agent.name} disablePadding>
           <ListItemButton>
             <ListItemIcon>
-              {agent.running ? <RunCircle /> : <StopCircle />}
+              {agent.status ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
             <Link href={`/agent/${agent.name}`}>
               <ListItemText primary={agent.name} />
