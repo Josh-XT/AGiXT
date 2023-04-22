@@ -253,6 +253,7 @@ class AgentLLM:
         self.add_initial_task()
         self.running = True
         while self.running:
+            self.running = self.get_status()
             task = self.execute_next_task()
             self.display_result(task)
             if not self.task_list:
