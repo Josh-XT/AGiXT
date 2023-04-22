@@ -49,7 +49,7 @@ export default function AgentObjective() {
                 {running ? "Stop" : "Start"} Pursuing Objective
             </Button>
             {
-                taskStatus ?
+                taskStatus.data ?
                     <>
                         <Typography sx={{ mt: "1rem" }} variant="h6" gutterBottom>
                             Objective Work Log
@@ -58,7 +58,7 @@ export default function AgentObjective() {
                             elevation={5}
                             sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
                         >
-                            {taskStatus.map((message, index) => (
+                            {taskStatus.data.map((message, index) => (
                                 <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                                     {message}
                                 </pre>
