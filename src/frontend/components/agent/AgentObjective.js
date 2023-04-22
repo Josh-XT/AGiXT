@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
 import useSWR from "swr";
-import { mutate } from "swr";
 import {
     Typography,
     Paper,
@@ -14,12 +13,12 @@ export default function AgentObjective() {
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/output/${agentName}`)).data : null), { refreshInterval: 3000 });
-    const queryRunning = async () => {
+    const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
-    };
+    }, [agentName]);
     useEffect(() => {
         queryRunning();
-    }, [])
+    }, [queryRunning])
 
     const toggleRunning = async () => {
         if (running) {
@@ -49,7 +48,7 @@ export default function AgentObjective() {
                 {running ? "Stop" : "Start"} Pursuing Objective
             </Button>
             {
-                taskStatus.data ?
+                taskStatus ?
                     <>
                         <Typography sx={{ mt: "1rem" }} variant="h6" gutterBottom>
                             Objective Work Log
@@ -58,7 +57,7 @@ export default function AgentObjective() {
                             elevation={5}
                             sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
                         >
-                            {taskStatus.data.map((message, index) => (
+                            {taskStatus.map((message, index) => (
                                 <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                                     {message}
                                 </pre>
