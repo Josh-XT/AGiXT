@@ -13,7 +13,7 @@ export default function AgentObjective() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
-    const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/task/output/${agentName}`)).data.output : null), { refreshInterval: 3000 });
+    const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`)).data.output : null), { refreshInterval: 3000 });
     const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status);
     }, [agentName]);
@@ -23,7 +23,7 @@ export default function AgentObjective() {
 
     const toggleRunning = async () => {
         if (running) {
-            await axios.delete(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
+            await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
         }
         else {
             await axios.post(`${process.env.API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`, { objective: objective });
@@ -31,7 +31,7 @@ export default function AgentObjective() {
         await queryRunning();
         mutate("agents");
     };
-    console.log(taskStatus);
+    console.log(taskStatus.data);
     return (
         <>
             <TextField
