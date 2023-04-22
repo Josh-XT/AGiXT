@@ -1,3 +1,4 @@
+from typing import Union
 import json
 from duckduckgo_search import ddg
 from Config import Config
@@ -23,7 +24,7 @@ class google(Commands):
             search_results.append(j)
         return json.dumps(search_results, ensure_ascii=False, indent=4)
 
-    def google_official_search(self, query: str, num_results: int = 8) -> str | list[str]:
+    def google_official_search(self, query: str, num_results: int = 8) -> Union[str, list[str]]:
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
 
