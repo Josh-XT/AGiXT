@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   frontend:
-    image: ghcr.io/josh-xt/agent-llm-frontend:v1.0.5
+    image: ghcr.io/josh-xt/agent-llm-frontend:v1.0.6
     ports:
       - "80:3000"
     environment:
@@ -11,7 +11,7 @@ services:
     depends_on:
       - backend
   backend:
-    image: ghcr.io/josh-xt/agent-llm-backend:v1.0.5
+    image: ghcr.io/josh-xt/agent-llm-backend:v1.0.6
     ports:
       - "5000:5000"
     env_file:
