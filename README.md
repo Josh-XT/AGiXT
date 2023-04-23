@@ -10,17 +10,20 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed for efficie
 
 ⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
+## ⚠️ Run this in Docker or a Virtual Machine!
+
+You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
+
 ## Table of Contents
 
 - [Agent-LLM](#agent-llm)
+  - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
   - [Table of Contents](#table-of-contents)
   - [Key Features](#key-features)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
     - [Not using OpenAI? No problem!](#not-using-openai-no-problem)
-  - [Development Environment Installation and Setup](#development-environment-installation-and-setup)
   - [Configuration](#configuration)
-    - [Local Setup (Alternative)](#local-setup-alternative)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
@@ -101,6 +104,8 @@ docker compose up -d
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
 
+**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
 3. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
@@ -108,19 +113,6 @@ We are constantly trying to expand our AI provider support.  Take a look at our 
 5. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/bard.ipynb)
 
 For more detailed setup and configuration instructions, refer to the sections below.
-
-## Development Environment Installation and Setup
-
-1. Clone the repository.
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-```
-2. Install the required Python packages:
-```
-pip install -r requirements.txt
-```
-3. Configure the necessary environment variables in the `.env` file using `.env.example` as a template.
-4. Launch Agent-LLM using Docker (recommended) or by following the steps in the "Local Setup (Alternative)" section to set up the frontend and run the `app.py` script.
 
 ## Configuration
 
@@ -140,27 +132,6 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
 
 For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
-
-### Local Setup (Alternative)
-
-To run Agent-LLM without Docker:
-
-1. Open two separate terminals, one for the backend and one for the front end. Navigate to the Agent-LLM folder in both.
-2. Install dependencies and run the backend:
-   ```
-   pip install -r requirements.txt
-   python app.py
-   ```
-
-3. Install dependencies and run the frontend:
-   ```
-   cd frontend
-   npm install
-   npm run build
-   npm start
-   ```
-
-Access the Agent-LLM web interface at http://localhost:3000.
 
 ## API Endpoints
 
