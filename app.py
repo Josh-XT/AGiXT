@@ -207,4 +207,4 @@ async def run_chain(agent_name: str, chain_name: ChainName):
     return {"message": "Prompt chain started"}
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("app:app", host="127.0.0.1", port=5000, reload=False)
