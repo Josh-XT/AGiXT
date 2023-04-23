@@ -317,13 +317,26 @@ class Config():
     def add_chain(self, chain_name):
         os.mkdir(os.path.join("chains", chain_name))
 
+    def rename_chain(self, chain_name, new_name):
+        os.rename(os.path.join("chains", chain_name), os.path.join("chains", new_name))
+
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         with open(os.path.join("chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"), "w") as f:
             f.write(prompt)
 
+    def add_step(self, chain_name, step_number, prompt_type, prompt):
+        with open(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w") as f:
+            f.write(prompt)
 
     def update_step(self, chain_name, old_step_number, new_step_number, prompt_type):
         os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
+                  os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
+
+    def delete_step(self, chain_name, step_number, prompt_type):
+        os.remove(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"))
+
+    def move_step(self, chain_name, step_number, new_step_number, prompt_type):
+        os.rename(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"),
                   os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
 
     def delete_chain(self, chain_name):

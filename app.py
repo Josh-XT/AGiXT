@@ -12,13 +12,9 @@ CFG = Config()
 app = FastAPI()
 agent_instances = CFG.agent_instances
 
-origins = [
-    "*"
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,7 +69,7 @@ async def get_providers():
     return {"providers": providers}
 
 @app.post("/api/agent")
-async def add_agent(agent_name: AgentName) -> ResponseMessage:
+async def add_agent(agent_name: AgentName) -> dict[str, str]:
     agent_info = CFG.add_agent(agent_name.agent_name)
     return {"message": "Agent added", "agent_file": agent_info['agent_file']}
 
@@ -140,7 +136,7 @@ async def toggle_command(agent_name: str, enable: bool, command_name: str) -> Re
             CFG.update_agent_config(agent_name, commands.agent_config)
             return {"message": f"Command '{command_name}' toggled for agent '{agent_name}'."}
     except Exception as e:
-        return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
+        raise HTTPException(status_code=500, detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}")
 
 @app.post("/api/agent/{agent_name}/task")
 async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
