@@ -13,7 +13,7 @@ class AIProvider:
             self.model = Model(ggml_model=CFG.MODEL_PATH, n_ctx=self.max_tokens)
             # TODO: Need to reseach to add temperature, no obvious flag.
 
-    def new_text_callback(text: str):
+    def new_text_callback(self, text: str):
         print(text, end="", flush=True)
 
     def instruct(self, prompt):
