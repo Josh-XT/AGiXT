@@ -1,6 +1,7 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from pydantic import BaseModel
 from Config import Config
 from AgentLLM import AgentLLM
@@ -66,6 +67,10 @@ class TaskOutput(BaseModel):
 class ToggleCommandPayload(BaseModel):
     command_name: str
     enable: bool
+
+@app.get("/api/docs")
+def read_docs():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="Agent-LLM API")
 
 @app.get("/api/provider")
 async def get_providers():
