@@ -22,14 +22,9 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed for efficie
     - [Docker Setup (Recommended)](#docker-setup-recommended)
     - [Local Setup (Alternative)](#local-setup-alternative)
   - [API Endpoints](#api-endpoints)
-    - [Agent Management](#agent-management)
-    - [Task Management](#task-management)
-    - [Chain Management](#chain-management)
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
-    - [Building Prompts for Plugin System](#building-prompts-for-plugin-system)
-  - [Project Structure](#project-structure)
   - [Acknowledgments](#acknowledgments)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
@@ -81,17 +76,17 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 - Instruct agents: Interact with agents by sending instructions and receiving responses in a chat-like interface.
 - Available commands: View the list of available commands and click on a command to insert it into the objective or instruction input boxes.
 - Dark mode: Toggle between light and dark themes for the frontend.
-
-The frontend is built using React and Material-UI and communicates with the backend through API endpoints.
+- Built using NextJS and Material-UI
+- Communicates with the backend through API endpoints
 
 ## Quick Start
 
-1. Obtain an OpenAI API key from [OpenAI](https://platform.openai.com).
+1. Obtain an OpenAI API key from [OpenAI](https://platform.openai.com) and add it to your `.env` file.
 2. Set the `OPENAI_API_KEY` in your `.env` file using the provided [.env.example](https://github.com/Josh-XT/Agent-LLM/blob/main/.env.example) as a template.
 3. Run the following Docker command in the folder with your `.env` file:
 
 ```
-docker compose up -d --build
+docker compose up -d
 ```
 
 4. Access the web interface at http://localhost
@@ -123,7 +118,7 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **CHATGPT_USERNAME** and **CHATGPT_PASSWORD**: Set the ChatGPT username and password.
 - **COMMANDS_ENABLED**: Enable or disable command extensions.
 - **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
-- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, vicuna, etc.).
+- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, Vicuna, etc.).
 - **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
 - **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
 - **WORKING_DIRECTORY**: Set the agent's working directory.
@@ -138,177 +133,37 @@ To launch the project using Docker:
 
 1. Install Docker on your system.
 2. Access the project's root folder.
-3. Execute the following command to build and activate the containers for both the Flask backend server and the frontend React application:
+3. Execute the following command to build and activate the containers for both the FastAPI backend server and the frontend NextJS application:
 ```
-docker run -it --pull always -p 80:3000 --env-file=.env ghcr.io/josh-xt/agent-llm-frontend:main
-docker run -it --pull always -p 5000:5000 --env-file=.env ghcr.io/josh-xt/agent-llm-backend:main
+docker compose up -d
 ```
 
-Access the web interface at http://localhost
+Access the Agent-LLM web interface at http://localhost .
 
 ### Local Setup (Alternative)
 
 To run Agent-LLM without Docker:
 
-
-1. Set up and run the frontend:
-   1. Head to the `frontend` folder.
-   2. Execute the following command to install the necessary dependencies:
+1. Open two separate terminals, one for the backend and one for the front end. Navigate to the Agent-LLM folder in both.
+2. Install dependencies and run the backend:
    ```
-   npm install
-   npm run build
-   ```
-   3. In a separate terminal, navigate to the project's root folder and run the following command to activate the Flask backend server:
-   ```
+   pip install -r requirements.txt
    python app.py
    ```
-   4. Return to the `frontend` folder and run the following command to initiate the frontend React application:
+
+3. Install dependencies and run the frontend:
    ```
+   cd frontend
+   npm install
+   npm run build
    npm start
    ```
 
+Access the Agent-LLM web interface at http://localhost:3000.
+
 ## API Endpoints
 
-Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains. The following are the available API endpoints:
-
-### Agent Management
-
-1. **Get Agents**: `/api/agent` (GET)
-
-   Retrieves a list of all available agents.
-   
-   Output: `{"agents": ["agent1", "agent2", "agent3"]}`
-
-2. **Add Agent**: `/api/agent` (POST)
-
-   Adds a new agent with the given agent name.
-
-   Output: `{"message": "Agent 'agent1' added"}`
-
-3. **Get Agent Config**: `/api/agent/<string:agent_name>` (GET)
-
-   Retrieves the configuration of an agent with the given agent name.
-
-   Output: `{"agent_config": {"agent_name": "agent1", "agent_type": "task", "commands": {"command1": "true", "command2": "false"}}}`
-
-4. **Rename Agent**: `/api/agent/<string:agent_name>` (PUT)
-
-   Renames an existing agent to a new name.
-
-   Output: `{"message": "Agent 'agent1' renamed to 'agent2'"}`
-
-5. **Delete Agent**: `/api/agent/<string:agent_name>` (DELETE)
-
-   Deletes an existing agent with the given agent name.
-
-   Output: `{"message": "Agent 'agent1' deleted"}`
-
-6. **Get Commands**: `/api/agent/<string:agent_name>/command` (GET)
-
-   Retrieves a list of available commands for an agent.
-
-   Output: `{"commands": [ {"friendly_name": "Friendly Name", "name": "command1", "enabled": True}, {"friendly_name": "Friendly Name 2", "name": "command2", "enabled": False }]}`
-
-7. **Toggle Command**: `/api/agent/<string:agent_name>/command` (PUT)
-
-   Toggles a specific command for an agent.
-
-   Output: `{"message": "Command 'command1' enabled for agent 'agent1'"}`
-
-8. **Chat**: `/api/agent/<string:agent_name>/chat` (POST)
-
-   Sends a chat prompt to the agent and receives a response.
-
-   Output: `{"message": "Prompt sent to agent 'agent1'"}`
-
-9. **Get Chat History**: `/api/<string:agent_name>/chat` (GET)
-
-   Retrieves the chat history of an agent with the given agent name.
-
-   Output: `{"chat_history": ["chat1", "chat2", "chat3"]}`
-
-10. **Instruct**: `/api/agent/<string:agent_name>/instruct` (POST)
-
-   Sends an instruction prompt to the agent and receives a response.
-
-   Output: `{"message": "Prompt sent to agent 'agent1'"}`
-
-11. **Wipe Agent Memories**: `/api/agent/<string:agent_name>/memory` (DELETE)
-
-   Wipes the memories of an agent with the given agent name.
-
-   Output: `{"message": "Agent 'agent1' memories wiped"}`
-
-### Task Management
-
-12. **Toggle Task Agent**: `/api/agent/<string:agent_name>/task` (PUT)
-
-   Toggles the task agent with the given agent name on and off.
-
-   Output: `{"message": "Task agent 'agent1' started"}`
-   Output: `{"message": "Task agent 'agent1' stopped"}`
-
-13. **Get Task Output**: `/api/agent/<string:agent_name>/task` (GET)
-
-   Retrieves the output of the task agent with the given agent name.
-
-   Output: `{"output": "output"}`
-
-14. **Get Task Status**: `/api/agent/<string:agent_name>/task/status` (GET)
-
-    Retrieves the status of the task agent with the given agent name.
-
-    Output: `{"status": "status"}`
-
-### Chain Management
-
-15. **Get Chains**: `/api/chain` (GET)
-
-    Retrieves all available chains.
-
-    Output: `{chain_name: {step_number: {prompt_type: prompt}}}`
-
-16. **Get Chain**: `/api/chain/<string:chain_name>` (GET)
-
-    Retrieves a specific chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-17. **Add Chain**: `/api/chain` (POST)
-
-    Adds a new chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-18. **Add Chain Step**: `/api/chain/<string:chain_name>/step` (POST)
-
-    Adds a step to an existing chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-19. **Update Step**: `/api/chain/<string:chain_name>/step/<string:step_number>` (PUT)
-
-    Updates a step in an existing chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-20. **Delete Chain**: `/api/chain/<string:chain_name>` (DELETE)
-
-    Deletes a specific chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-21. **Delete Chain Step**: `/api/chain/<string:chain_name>/step/<string:step_number>` (DELETE)
-
-    Deletes a step from an existing chain.
-
-    Output: `{step_number: {prompt_type: prompt}}`
-
-22. **Run Chain**: `/api/chain/<string:chain_name>/run` (POST)
-
-    Runs a specific chain for an agent.
-
-    Output: `{step_number: {prompt_type: prompt}}`
+Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
 
 To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (swagger) or http://localhost:5000/redoc (Redoc).
 
@@ -321,27 +176,6 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The application is compatible with OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. To support additional providers, create a new Python file in the `provider` folder and implement the required functionality.
-
-### Building Prompts for Plugin System
-
-Agent-LLM employs a plugin system with customizable prompts for instructing various AI models. These prompts are stored in the `model-prompts` folder and are categorized by model name. Each model has five prompt types:
-
-1. model-prompts/{model}/execute.txt
-2. model-prompts/{model}/priority.txt
-3. model-prompts/{model}/system.txt
-4. model-prompts/{model}/task.txt
-5. model-prompts/{model}/script.txt
-
-For a comprehensive explanation of prompt formats and usage, refer to the [PROMPTS.md](PROMPTS.md) file.
-
-## Project Structure
-
-The project is organized into several folders:
-
-- `commands`: Stores pluggable command modules for enhancing Agent-LLM's functionality.
-- `frontend`: Contains frontend code for Agent-LLM's web interface.
-- `model-prompts`: Houses prompt templates for the various AI models used by Agent-LLM.
-- `provider`: Holds the implementations for the supported AI providers.
 
 ## Acknowledgments
 
