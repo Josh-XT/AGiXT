@@ -17,6 +17,7 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed for efficie
   - [Key Features](#key-features)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
+    - [Not using OpenAI? No problem!](#not-using-openai-no-problem)
   - [Development Environment Installation and Setup](#development-environment-installation-and-setup)
   - [Configuration](#configuration)
     - [Local Setup (Alternative)](#local-setup-alternative)
@@ -89,13 +90,20 @@ wget https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/.env.example
 mv .env.example .env
 ```
 
-1. Run the following Docker command in the folder with your `.env` file:
+3. Run the following Docker command in the folder with your `.env` file:
 
 ```
 docker compose up -d
 ```
 
 4. Access the web interface at http://localhost
+
+### Not using OpenAI? No problem!
+We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
+
+1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
+2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
+3. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
 
 For more detailed setup and configuration instructions, refer to the sections below.
 
