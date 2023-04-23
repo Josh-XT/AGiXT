@@ -24,6 +24,7 @@ pre-commit
 pytz
 pynacl
 python-dotenv
+python-git
 PyGithub
 selenium
 sendgrid
