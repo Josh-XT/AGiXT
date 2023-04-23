@@ -51,6 +51,9 @@ class Config():
         # OpenAI
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+        # Bard
+        self.BARD_TOKEN = os.getenv("BARD_TOKEN")
+
         # Huggingface
         self.HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
         self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = os.getenv("HUGGINGFACE_AUDIO_TO_TEXT_MODEL", "facebook/wav2vec2-large-960h-lv60-self")
