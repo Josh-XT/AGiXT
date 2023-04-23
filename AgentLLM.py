@@ -144,7 +144,7 @@ class AgentLLM:
     def initialize_task_list(self):
         self.task_list = deque([])
 
-    def update_output_list(self, task_id, output):
+    def update_output_list(self, output, task_id=None):
         self.CFG.save_task_output(self.agent_name, task_id, output)
 
     def display_objective_and_initial_task(self):
