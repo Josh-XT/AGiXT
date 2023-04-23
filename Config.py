@@ -4,6 +4,7 @@ import glob
 import shutil
 import importlib
 import yaml
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
@@ -279,7 +280,10 @@ class Config():
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(config, agent_config)
 
-    def get_task_output(self, agent_name, task_id):
+    def get_task_output(self, agent_name, task_id=None):
+        if task_id is None:
+            # Get the latest task
+            task_id = sorted(os.listdir(os.path.join("agents", agent_name, "tasks")))[-1].replace(".txt", "")
         task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
         if os.path.exists(task_output_file):
             with open(task_output_file, "r") as f:
@@ -288,7 +292,9 @@ class Config():
             task_output = ""
         return task_output
     
-    def save_task_output(self, agent_name, task_id, task_output):
+    def save_task_output(self, agent_name, task_output, task_id=None):
+        if task_id is None:
+            task_id = str(uuid.uuid4())
         if not os.path.exists(os.path.join("agents", agent_name, "tasks")):
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
         task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
