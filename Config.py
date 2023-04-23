@@ -96,9 +96,20 @@ class Config():
         memory_file_path = Path(self.memory_file)
         memory_file_path.parent.mkdir(parents=True, exist_ok=True)
         self.memory = self.load_memory()
-        self.get_prompts()
         self.agent_instances = {}
         self.commands = {}
+        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+            self.AI_MODEL = "default"
+        execute_file = f"model-prompts/{self.AI_MODEL}/execute.txt"
+        task_file = f"model-prompts/{self.AI_MODEL}/task.txt"
+        priority_file = f"model-prompts/{self.AI_MODEL}/priority.txt"
+        
+        with open(execute_file, "r") as f:
+            self.EXECUTION_PROMPT = f.read()
+        with open(task_file, "r") as f:
+            self.TASK_PROMPT = f.read()
+        with open(priority_file, "r") as f:
+            self.PRIORITY_PROMPT = f.read()
 
     def get_providers(self):
         providers = []
@@ -107,16 +118,6 @@ class Config():
                 providers.append(provider.replace("provider/", "").replace(".py", ""))
         return providers
 
-    def get_prompts(self):
-        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
-            self.AI_MODEL = "default"
-        with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
-            self.EXECUTION_PROMPT = f.read()
-        with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
-            self.TASK_PROMPT = f.read()
-        with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
-            self.PRIORITY_PROMPT = f.read()
-    
     def create_agent_folder(self, agent_name):
         agent_folder = f"agents/{agent_name}"
         if not os.path.exists("agents"):
