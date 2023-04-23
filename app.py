@@ -6,7 +6,7 @@ from Config import Config
 from AgentLLM import AgentLLM
 from Commands import Commands
 import threading
-from typing import Optional
+from typing import Optional, Dict
 
 CFG = Config()
 app = FastAPI()
@@ -69,19 +69,19 @@ async def get_providers():
     return {"providers": providers}
 
 @app.post("/api/agent")
-async def add_agent(agent_name: AgentName) -> dict[str, str]:
+async def add_agent(agent_name: AgentName) -> Dict[str, str]:
     agent_info = CFG.add_agent(agent_name.agent_name)
     return {"message": "Agent added", "agent_file": agent_info['agent_file']}
 
 @app.put("/api/agent/{agent_name}")
 async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
     CFG.rename_agent(agent_name, new_name.new_name)
-    return {"message": f"Agent {agent_name} renamed to {new_name.new_name}."}
+    return ResponseMessage(message=f"Agent {agent_name} renamed to {new_name.new_name}.")
 
 @app.delete("/api/agent/{agent_name}")
 async def delete_agent(agent_name: str) -> ResponseMessage:
     result = CFG.delete_agent(agent_name)
-    return result
+    return ResponseMessage(message=result["message"])
 
 @app.get("/api/agent")
 async def get_agents():
@@ -101,7 +101,7 @@ async def get_chat_history(agent_name: str):
 @app.delete("/api/agent/{agent_name}/memory")
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     CFG.wipe_agent_memories(agent_name)
-    return {"message": f"Memories for agent {agent_name} deleted."}
+    return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 @app.post("/api/agent/{agent_name}/instruct")
 async def instruct(agent_name: str, objective: Objective):
@@ -129,12 +129,12 @@ async def toggle_command(agent_name: str, enable: bool, command_name: str) -> Re
             for each_command_name in commands.agent_config["commands"]:
                 commands.agent_config["commands"][each_command_name] = enable
             CFG.update_agent_config(agent_name, commands.agent_config)
-            return {"message": f"All commands enabled for agent '{agent_name}'."}
+            return ResponseMessage(message=f"All commands enabled for agent '{agent_name}'.")
         else:
             commands = Commands(agent_name)
             commands.agent_config["commands"][command_name] = enable
             CFG.update_agent_config(agent_name, commands.agent_config)
-            return {"message": f"Command '{command_name}' toggled for agent '{agent_name}'."}
+            return ResponseMessage(message=f"Command '{command_name}' toggled for agent '{agent_name}'.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}")
 
@@ -148,11 +148,10 @@ async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMe
         agent_instance.set_objective(objective.objective)
         agent_thread = threading.Thread(target=agent_instance.run_task)
         agent_thread.start()
-        return {"message": "Task agent started"}
+        return ResponseMessage(message="Task agent started")
     else:
         agent_instance = agent_instances[agent_name]
         agent_instance.stop_running()
-        return {"message": "Task agent stopped"}
 
 @app.get("/api/agent/{agent_name}/task")
 async def get_task_output(agent_name: str) -> TaskOutput:
@@ -185,17 +184,17 @@ async def get_chain(chain_name: ChainName):
 @app.post("/api/chain")
 async def add_chain(chain_name: ChainName) -> ResponseMessage:
     CFG.add_chain(chain_name.chain_name)
-    return {"message": f"Chain '{chain_name.chain_name}' created."}
+    return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 @app.put("/api/chain/{chain_name}")
 async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessage:
     CFG.rename_chain(chain_name, new_name.new_name)
-    return {"message": f"Chain '{chain_name}' renamed to '{new_name.new_name}'."}
+    return ResponseMessage(message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'.")
 
 @app.delete("/api/chain/{chain_name}")
 async def delete_chain(chain_name: str) -> ResponseMessage:
     CFG.delete_chain(chain_name)
-    return {"message": f"Chain '{chain_name}' deleted."}
+    return ResponseMessage(message=f"Chain '{chain_name}' deleted.")
 
 @app.post("/api/chain/{chain_name}/step")
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
