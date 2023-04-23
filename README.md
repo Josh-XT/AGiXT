@@ -83,7 +83,14 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 
 1. Obtain an OpenAI API key from [OpenAI](https://platform.openai.com) and add it to your `.env` file.
 2. Set the `OPENAI_API_KEY` in your `.env` file using the provided [.env.example](https://github.com/Josh-XT/Agent-LLM/blob/main/.env.example) as a template.
-3. Run the following Docker command in the folder with your `.env` file:
+
+```
+wget https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/docker-compose.yml
+wget https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/.env.example
+mv .env.example .env
+```
+
+1. Run the following Docker command in the folder with your `.env` file:
 
 ```
 docker compose up -d
