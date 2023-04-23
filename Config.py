@@ -10,9 +10,9 @@ from inspect import signature, Parameter
 load_dotenv()
 
 class Config():
-    def __init__(self):
+    def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = os.getenv("AGENT_NAME", "Agent-LLM")
+        self.AGENT_NAME = agent_name if agent_name is not None else os.getenv("AGENT_NAME", "default")
         self.AGENTS = glob.glob(os.path.join("memories", "*.yaml"))
         # Goal Configuation
         self.OBJECTIVE = os.getenv("OBJECTIVE", "Solve world hunger")
@@ -89,8 +89,9 @@ class Config():
         
         # Yaml Memory
         self.memory_folder = "agents"
-        self.memory_file = Path(self.memory_folder) / f"{self.agent_name}.yaml"
-        self.memory_file.parent.mkdir(parents=True, exist_ok=True)
+        self.memory_file = f"{self.memory_folder}/{self.AGENT_NAME}.yaml"
+        memory_file_path = Path(self.memory_file)
+        memory_file_path.parent.mkdir(parents=True, exist_ok=True)
         self.memory = self.load_memory()
         self.get_prompts()
         self.agent_instances = {}
@@ -352,7 +353,7 @@ class Config():
         return step_data
 
     def load_memory(self):
-        if self.memory_file.is_file():
+        if os.path.isfile(self.memory_file):
             with open(self.memory_file, "r") as file:
                 memory = yaml.safe_load(file)
                 if memory is None:
