@@ -264,6 +264,8 @@ class Config():
         return agent_config
 
     def get_chat_history(self, agent_name):
+        if not os.path.exists(os.path.join("agents", f"{agent_name}.yaml")):
+            return ""
         with open(os.path.join("agents", f"{agent_name}.yaml"), "r") as f:
             chat_history = f.read()
         return chat_history
@@ -335,8 +337,10 @@ class Config():
         os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
                   os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
 
-    def delete_step(self, chain_name, step_number, prompt_type):
-        os.remove(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"))
+    def delete_step(self, chain_name, step_number):
+        files_to_delete = glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt"))
+        for file_path in files_to_delete:
+            os.remove(file_path)
 
     def move_step(self, chain_name, step_number, new_step_number, prompt_type):
         os.rename(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"),

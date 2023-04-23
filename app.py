@@ -63,6 +63,10 @@ class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
 
+class ToggleCommandPayload(BaseModel):
+    command_name: str
+    enable: bool
+
 @app.get("/api/provider")
 async def get_providers():
     providers = CFG.get_providers()
@@ -80,8 +84,11 @@ async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessa
 
 @app.delete("/api/agent/{agent_name}")
 async def delete_agent(agent_name: str) -> ResponseMessage:
-    result = CFG.delete_agent(agent_name)
-    return ResponseMessage(message=result["message"])
+    result, status_code = CFG.delete_agent(agent_name)
+    if status_code == 200:
+        return ResponseMessage(message=result["message"])
+    else:
+        raise HTTPException(status_code=status_code, detail=result["message"])
 
 @app.get("/api/agent")
 async def get_agents():
@@ -104,9 +111,9 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 @app.post("/api/agent/{agent_name}/instruct")
-async def instruct(agent_name: str, objective: Objective):
+async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(objective.objective, max_context_tokens=500, long_term_access=False)
+    response = agent.run(prompt.prompt, max_context_tokens=500, long_term_access=False)
     return {"response": str(response)}
 
 @app.post("/api/agent/{agent_name}/chat")
@@ -122,19 +129,19 @@ async def get_commands(agent_name: str):
     return {"commands": available_commands}
 
 @app.patch("/api/agent/{agent_name}/command")
-async def toggle_command(agent_name: str, enable: bool, command_name: str) -> ResponseMessage:
+async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> ResponseMessage:
     try:
-        if command_name == "*":
+        if payload.command_name == "*":
             commands = Commands(agent_name)
             for each_command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][each_command_name] = enable
+                commands.agent_config["commands"][each_command_name] = payload.enable
             CFG.update_agent_config(agent_name, commands.agent_config)
             return ResponseMessage(message=f"All commands enabled for agent '{agent_name}'.")
         else:
             commands = Commands(agent_name)
-            commands.agent_config["commands"][command_name] = enable
+            commands.agent_config["commands"][payload.command_name] = payload.enable
             CFG.update_agent_config(agent_name, commands.agent_config)
-            return ResponseMessage(message=f"Command '{command_name}' toggled for agent '{agent_name}'.")
+            return ResponseMessage(message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}")
 
@@ -160,8 +167,8 @@ async def get_task_output(agent_name: str) -> TaskOutput:
     agent_instance = agent_instances[agent_name]
     output = CFG.get_task_output(agent_name, agent_instance)
     if agent_instance.get_status():
-        return {"output": output, "message": "Task agent is still running"}
-    return {"output": output}
+        return TaskOutput(output=output, message="Task agent is still running")
+    return TaskOutput(output=output)
 
 @app.get("/api/agent/{agent_name}/task/status")
 async def get_task_status(agent_name: str):
@@ -176,9 +183,9 @@ async def get_chains():
     chains = CFG.get_chains()
     return chains
 
-@app.get("/api/chain")
-async def get_chain(chain_name: ChainName):
-    chain_data = CFG.get_chain(chain_name.chain_name)
+@app.get("/api/chain/{chain_name}")
+async def get_chain(chain_name: str):
+    chain_data = CFG.get_chain(chain_name)
     return chain_data
 
 @app.post("/api/chain")
@@ -206,7 +213,7 @@ async def update_step(chain_name: str, chain_step: ChainStep) -> ResponseMessage
     CFG.update_step(chain_name, chain_step.step_number, chain_step.agent_name, chain_step.prompt_type, chain_step.prompt)
     return {"message": f"Step {chain_step.step_number} updated for chain '{chain_name}'."}
 
-@app.patch("/api/chain/{chain_name}/step")
+@app.patch("/api/chain/{chain_name}/step/move")
 async def move_step(chain_name: str, chain_step_new_info: ChainStepNewInfo) -> ResponseMessage:
     CFG.move_step(chain_name, chain_step_new_info.old_step_number, chain_step_new_info.new_step_number, chain_step_new_info.prompt_type)
     return {"message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."}
