@@ -6,7 +6,7 @@ from Config import Config
 from AgentLLM import AgentLLM
 from Commands import Commands
 import threading
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 CFG = Config()
 app = FastAPI()
@@ -31,6 +31,12 @@ class Objective(BaseModel):
 
 class Prompt(BaseModel):
     prompt: str
+
+class PromptName(BaseModel):
+    prompt_name: str
+
+class PromptList(BaseModel):
+    prompts: List[str]
 
 class ChainNewName(BaseModel):
     new_name: str
@@ -66,6 +72,9 @@ class TaskOutput(BaseModel):
 class ToggleCommandPayload(BaseModel):
     command_name: str
     enable: bool
+
+class Prompt(BaseModel):
+    prompt: str
 
 @app.get("/api/provider")
 async def get_providers():
@@ -222,6 +231,43 @@ async def move_step(chain_name: str, chain_step_new_info: ChainStepNewInfo) -> R
 async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
     CFG.delete_step(chain_name, step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}
+
+@app.post("/api/prompt")
+async def add_prompt(prompt_name: PromptName, prompt: Prompt) -> ResponseMessage:
+    try:
+        CFG.add_prompt(prompt_name.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt_name.prompt_name}' added.")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/prompt/{prompt_name}")
+async def get_prompt(prompt_name: str):
+    try:
+        prompt_content = CFG.get_prompt(prompt_name)
+        return {"prompt": prompt_content}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@app.get("/api/prompt", response_model=PromptList)
+async def get_prompts():
+    prompts = CFG.get_prompts()
+    return {"prompts": prompts}
+
+@app.delete("/api/prompt/{prompt_name}")
+async def delete_prompt(prompt_name: str) -> ResponseMessage:
+    try:
+        CFG.delete_prompt(prompt_name)
+        return ResponseMessage(message=f"Prompt '{prompt_name}' deleted.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@app.put("/api/prompt/{prompt_name}")
+async def update_prompt(prompt_name: str, prompt: Prompt) -> ResponseMessage:
+    try:
+        CFG.update_prompt(prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt_name}' updated.")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=5000)

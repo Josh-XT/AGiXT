@@ -281,14 +281,22 @@ class Config():
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(config, agent_config)
 
-    def get_task_output(self, agent_name, babyagi_instance):
-        output = babyagi_instance.get_output()
-        with open(os.path.join("model-prompts", "default", "system.txt"), "r") as f:
-            system_prompt = f.read()
-        if system_prompt in output:
-            output = output.replace(system_prompt, "")
-        return output
-
+    def get_task_output(self, agent_name, task_id):
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+        if os.path.exists(task_output_file):
+            with open(task_output_file, "r") as f:
+                task_output = f.read()
+        else:
+            task_output = ""
+        return task_output
+    
+    def save_task_output(self, agent_name, task_id, task_output):
+        if not os.path.exists(os.path.join("agents", agent_name, "tasks")):
+            os.makedirs(os.path.join("agents", agent_name, "tasks"))
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+        with open(task_output_file, "w") as f:
+            f.write(task_output)
+    
     def get_chains(self):
         chains = os.listdir("chains")
         chain_data = {}
@@ -389,3 +397,33 @@ class Config():
     def log_interaction(self, role: str, message: str):
         self.memory["interactions"].append({"role": role, "message": message})
         self.save_memory()
+    
+    def add_prompt(self, prompt_name, prompt):
+        # if prompts folder does not exist, create it
+        if not os.path.exists("prompts"):
+            os.mkdir("prompts")
+        # if prompt file does not exist, create it
+        if not os.path.exists(os.path.join("prompts", f"{prompt_name}.txt")):
+            with open(os.path.join("prompts", f"{prompt_name}.txt"), "w") as f:
+                f.write(prompt)
+        else:
+            raise Exception("Prompt already exists")
+        
+    def get_prompt(self, prompt_name):
+        with open(os.path.join("prompts", f"{prompt_name}.txt"), "r") as f:
+            prompt = f.read()
+        return prompt
+    
+    def get_prompts(self):
+        # Create the path if it doesn't exist
+        if not os.path.exists("prompts"):
+            os.mkdir("prompts")
+        prompts = os.listdir("prompts")
+        return prompts
+    
+    def delete_prompt(self, prompt_name):
+        os.remove(os.path.join("prompts", f"{prompt_name}.txt"))
+
+    def update_prompt(self, prompt_name, prompt):
+        with open(os.path.join("prompts", f"{prompt_name}.txt"), "w") as f:
+            f.write(prompt)
