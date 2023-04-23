@@ -227,7 +227,6 @@ class AgentLLM:
         print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
         print(self.response)
         self.update_output_list(f"Execution agent response:\n\n{self.response}")
-        print(self.output_list)
         return self.response
 
     def display_result(self, task):
