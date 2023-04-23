@@ -5,7 +5,7 @@ from Config import Config
 
 class Commands:
     def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
-        self.CFG = Config()
+        self.CFG = Config(agent_name)
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
