@@ -102,11 +102,12 @@ class AgentLLM:
         return self.response
 
     def store_result(self, task_name: str, result: str):
-        result_id = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(64))
-        if (len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0):
-            self.collection.update(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
-        else:
-            self.collection.add(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
+        if result:
+            result_id = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(64))
+            if (len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0):
+                self.collection.update(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
+            else:
+                self.collection.add(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
 
     def context_agent(self, query: str, top_results_num: int, long_term_access: bool) -> List[str]:
         if long_term_access:
