@@ -25,9 +25,6 @@ class Config():
         self.AI_PROVIDER_URI = os.getenv("AI_PROVIDER_URI", "http://127.0.0.1:7860")
         self.MODEL_PATH = os.getenv("MODEL_PATH")
 
-        # Bing Conversation Style if using Bing. Options are creative, balanced, and precise
-        self.BING_CONVERSATION_STYLE = os.getenv("BING_CONVERSATION_STYLE", "creative").lower()
-
         # ChatGPT Configuration
         self.CHATGPT_USERNAME = os.getenv("CHATGPT_USERNAME")
         self.CHATGPT_PASSWORD = os.getenv("CHATGPT_PASSWORD")
