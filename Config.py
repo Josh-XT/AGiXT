@@ -3,14 +3,16 @@ import json
 import glob
 import shutil
 import importlib
+import yaml
+from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
 load_dotenv()
 
 class Config():
-    def __init__(self):
+    def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = os.getenv("AGENT_NAME", "Agent-LLM")
+        self.AGENT_NAME = agent_name if agent_name is not None else os.getenv("AGENT_NAME", "default")
         self.AGENTS = glob.glob(os.path.join("memories", "*.yaml"))
         # Goal Configuation
         self.OBJECTIVE = os.getenv("OBJECTIVE", "Solve world hunger")
@@ -85,6 +87,12 @@ class Config():
         # Brian TTS
         self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
         
+        # Yaml Memory
+        self.memory_folder = "agents"
+        self.memory_file = f"{self.memory_folder}/{self.AGENT_NAME}.yaml"
+        memory_file_path = Path(self.memory_file)
+        memory_file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.memory = self.load_memory()
         self.get_prompts()
         self.agent_instances = {}
         self.commands = {}
@@ -309,9 +317,10 @@ class Config():
     def add_chain(self, chain_name):
         os.mkdir(os.path.join("chains", chain_name))
 
-    def add_chain_step(self, chain_name, step_number, prompt_type, prompt):
-        with open(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w") as f:
+    def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
+        with open(os.path.join("chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"), "w") as f:
             f.write(prompt)
+
 
     def update_step(self, chain_name, old_step_number, new_step_number, prompt_type):
         os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
@@ -342,3 +351,21 @@ class Config():
             step_number = int(step.split("-")[0])
             step_data[step_number] = self.get_step(chain_name, step_number)
         return step_data
+
+    def load_memory(self):
+        if os.path.isfile(self.memory_file):
+            with open(self.memory_file, "r") as file:
+                memory = yaml.safe_load(file)
+                if memory is None:
+                    memory = {"interactions": []}
+        else:
+            memory = {"interactions": []}
+        return memory
+
+    def save_memory(self):
+        with open(self.memory_file, "w") as file:
+            yaml.safe_dump(self.memory, file)
+
+    def log_interaction(self, role: str, message: str):
+        self.memory["interactions"].append({"role": role, "message": message})
+        self.save_memory()
