@@ -1,4 +1,4 @@
-# Install Flask app dependencies
+# Install FastAPI app dependencies
 FROM python:3.8-slim-buster AS base
 WORKDIR /app
 COPY requirements.txt ./
@@ -10,8 +10,8 @@ RUN apt-get remove -y git build-essential
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
-# Run Flask app with Gunicorn
-FROM base AS gunicorn
+# Run FastAPI app with Uvicorn
+FROM base AS uvicorn
 COPY . /app
 EXPOSE 5000
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
