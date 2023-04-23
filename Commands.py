@@ -69,3 +69,13 @@ class Commands:
         self.commands = self.load_commands(agent_name=self.agent_name)
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
+    
+    def execute_command(self, command_name: str, command_args: dict):
+        command_function, params = self.find_command(command_name)
+        if command_function is None:
+            return False
+        for name, value in command_args.items():
+            if name in params:
+                params[name] = value
+        output = command_function(**params)
+        return output

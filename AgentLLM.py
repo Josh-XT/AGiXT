@@ -72,6 +72,33 @@ class AgentLLM:
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
+        # Check if any commands are in the response and execute them with their arguments if so
+        if commands_enabled:
+            # Parse out everything after Commands: in self.response, each new line is a command
+            commands = re.findall(r"Commands:(.*)", self.response, re.MULTILINE)
+            if len(commands) > 0:
+                response_parts = []
+                for command in commands[0].split("\n"):
+                    command = command.strip()
+                    command_name, command_args = None, {}
+                    # Extract command name and arguments using regex
+                    command_regex = re.match(r'(\w+)\((.*)\)', command)
+                    if command_regex:
+                        command_name, args_str = command_regex.groups()
+                        if args_str:
+                            # Parse arguments string into a dictionary
+                            command_args = dict((key.strip(), value.strip()) for key, value in (arg.split('=') for arg in args_str.split(',')))
+
+                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                    if command_name is not None:
+                        for available_command in self.available_commands:
+                            if available_command["friendly_name"] == command_name:
+                                command_name = available_command["name"]
+                                break
+                        response_parts.append(f"\n\n{self.execute_command(command_name, command_args)}")
+                    else:
+                        response_parts.append(f"\n\nCommand not recognized: {command}")
+                self.response = self.response.replace(commands[0], "".join(response_parts))
         print(f"Response: {self.response}")
         return self.response
 
