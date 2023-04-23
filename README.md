@@ -19,7 +19,6 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed for efficie
   - [Quick Start](#quick-start)
   - [Development Environment Installation and Setup](#development-environment-installation-and-setup)
   - [Configuration](#configuration)
-    - [Docker Setup (Recommended)](#docker-setup-recommended)
     - [Local Setup (Alternative)](#local-setup-alternative)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -131,19 +130,6 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
 
 For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
-
-### Docker Setup (Recommended)
-
-To launch the project using Docker:
-
-1. Install Docker on your system.
-2. Access the project's root folder.
-3. Execute the following command to build and activate the containers for both the FastAPI backend server and the frontend NextJS application:
-```
-docker compose up -d
-```
-
-Access the Agent-LLM web interface at http://localhost .
 
 ### Local Setup (Alternative)
 
