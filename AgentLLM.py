@@ -267,7 +267,7 @@ class AgentLLM:
         return task
 
     def get_output(self):
-        return self.output_list
+        return "".join(self.output_list)
 
     def stop_running(self):
         self.running = False

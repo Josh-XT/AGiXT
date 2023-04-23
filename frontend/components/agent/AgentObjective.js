@@ -59,11 +59,9 @@ export default function AgentObjective() {
                             elevation={5}
                             sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
                         >
-                            {taskStatus.data.map((message, index) => (
-                                <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                                    {message}
-                                </pre>
-                            ))}
+                            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                                {taskStatus.data}
+                            </pre>
                         </Paper>
                     </>
                     : null
