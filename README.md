@@ -140,7 +140,8 @@ To launch the project using Docker:
 2. Access the project's root folder.
 3. Execute the following command to build and activate the containers for both the Flask backend server and the frontend React application:
 ```
-docker run -it --pull always -p 80:5000 --env-file=.env ghcr.io/josh-xt/agent-llm:main
+docker run -it --pull always -p 80:3000 --env-file=.env ghcr.io/josh-xt/agent-llm-frontend:main
+docker run -it --pull always -p 5000:5000 --env-file=.env ghcr.io/josh-xt/agent-llm-backend:main
 ```
 
 Access the web interface at http://localhost
