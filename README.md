@@ -114,8 +114,6 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
 - **AI_PROVIDER_URI**: Set the URI for custom AI providers such as Oobabooga Text Generation Web UI (default is http://127.0.0.1:7860).
 - **MODEL_PATH**: Set the path to the AI model if using llama.cpp or other custom providers.
-- **BING_CONVERSATION_STYLE**: Set the conversation style if using Microsoft Bing (options are creative, balanced, and precise).
-- **CHATGPT_USERNAME** and **CHATGPT_PASSWORD**: Set the ChatGPT username and password.
 - **COMMANDS_ENABLED**: Enable or disable command extensions.
 - **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
 - **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, Vicuna, etc.).
