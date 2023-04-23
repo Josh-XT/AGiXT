@@ -7,6 +7,8 @@ RUN apt-get install -y --no-install-recommends git build-essential
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN apt-get remove -y git build-essential
+RUN apt-get install libgomp1 -y
+RUN apt-get install git -y
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
