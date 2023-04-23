@@ -1,5 +1,5 @@
 # Install FastAPI app dependencies
-FROM python:3.8-slim-buster AS base
+FROM python:3.10-slim-buster AS base
 WORKDIR /app
 COPY requirements.txt ./
 RUN apt-get update
