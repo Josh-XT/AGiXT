@@ -104,6 +104,8 @@ We are constantly trying to expand our AI provider support.  Take a look at our 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
 3. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
+4. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/chatgpt.ipynb)
+5. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/bard.ipynb)
 
 For more detailed setup and configuration instructions, refer to the sections below.
 
