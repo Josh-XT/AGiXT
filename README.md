@@ -310,7 +310,7 @@ Agent-LLM provides several API endpoints for managing agents, managing tasks, an
 
     Output: `{step_number: {prompt_type: prompt}}`
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/api/docs when running the application locally, or http://localhost/api/docs if running with Docker.
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (swagger) or http://localhost:5000/redoc (Redoc).
 
 ## Extending Functionality
 
