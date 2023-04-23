@@ -6,6 +6,7 @@ from Config import Config
 from AgentLLM import AgentLLM
 from Commands import Commands
 import threading
+from typing import Optional
 
 CFG = Config()
 app = FastAPI()
@@ -35,6 +36,9 @@ class Objective(BaseModel):
 class Prompt(BaseModel):
     prompt: str
 
+class ChainNewName(BaseModel):
+    new_name: str
+
 class ChainName(BaseModel):
     chain_name: str
 
@@ -56,23 +60,30 @@ class ChainStepNewInfo(BaseModel):
     new_step_number: int
     prompt_type: str
 
+class ResponseMessage(BaseModel):
+    message: str
+
+class TaskOutput(BaseModel):
+    output: str
+    message: Optional[str] = None
+
 @app.get("/api/provider")
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 @app.post("/api/agent")
-async def add_agent(agent_name: AgentName):
+async def add_agent(agent_name: AgentName) -> ResponseMessage:
     agent_info = CFG.add_agent(agent_name.agent_name)
     return {"message": "Agent added", "agent_file": agent_info['agent_file']}
 
 @app.put("/api/agent/{agent_name}")
-async def rename_agent(agent_name: str, new_name: AgentNewName):
+async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
     CFG.rename_agent(agent_name, new_name.new_name)
     return {"message": f"Agent {agent_name} renamed to {new_name.new_name}."}
 
 @app.delete("/api/agent/{agent_name}")
-async def delete_agent(agent_name: str):
+async def delete_agent(agent_name: str) -> ResponseMessage:
     result = CFG.delete_agent(agent_name)
     return result
 
@@ -92,7 +103,7 @@ async def get_chat_history(agent_name: str):
     return {"chat_history": chat_history}
 
 @app.delete("/api/agent/{agent_name}/memory")
-async def wipe_agent_memories(agent_name: str):
+async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     CFG.wipe_agent_memories(agent_name)
     return {"message": f"Memories for agent {agent_name} deleted."}
 
@@ -104,7 +115,6 @@ async def instruct(agent_name: str, objective: Objective):
 
 @app.post("/api/agent/{agent_name}/chat")
 async def chat(agent_name: str, prompt: Prompt):
-    # TODO: Change this from using the normal instruct and add a chat method to AgentLLM
     agent = AgentLLM(agent_name)
     response = agent.run(prompt.prompt, max_context_tokens=500, long_term_access=False)
     return {"response": str(response)}
@@ -116,7 +126,7 @@ async def get_commands(agent_name: str):
     return {"commands": available_commands}
 
 @app.patch("/api/agent/{agent_name}/command")
-async def toggle_command(agent_name: str, enable: bool, command_name: str):
+async def toggle_command(agent_name: str, enable: bool, command_name: str) -> ResponseMessage:
     try:
         if command_name == "*":
             commands = Commands(agent_name)
@@ -133,7 +143,7 @@ async def toggle_command(agent_name: str, enable: bool, command_name: str):
         return {"message": f"Error enabled all commands for agent '{agent_name}': {str(e)}"}, 500
 
 @app.post("/api/agent/{agent_name}/task")
-async def toggle_task_agent(agent_name: str, objective: Objective):
+async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
     if agent_name not in agent_instances:
         if agent_name not in agent_instances:
             agent_instances[agent_name] = AgentLLM(agent_name)
@@ -149,7 +159,7 @@ async def toggle_task_agent(agent_name: str, objective: Objective):
         return {"message": "Task agent stopped"}
 
 @app.get("/api/agent/{agent_name}/task")
-async def get_task_output(agent_name: str):
+async def get_task_output(agent_name: str) -> TaskOutput:
     if agent_name not in agent_instances:
         raise HTTPException(status_code=404, detail="Task agent not found")
     agent_instance = agent_instances[agent_name]
@@ -177,34 +187,39 @@ async def get_chain(chain_name: ChainName):
     return chain_data
 
 @app.post("/api/chain")
-async def add_chain(chain_name: ChainName):
+async def add_chain(chain_name: ChainName) -> ResponseMessage:
     CFG.add_chain(chain_name.chain_name)
-    return {"message": f"Chain '{chain_name.chain_name}' created"}
+    return {"message": f"Chain '{chain_name.chain_name}' created."}
 
-@app.post("/api/chain/step")
-async def add_chain_step(chain_step: ChainStep):
-    CFG.add_chain_step(chain_step.chain_name, chain_step.step_number, chain_step.agent_name, chain_step.prompt_type, chain_step.prompt)
-    return {"message": f"Step '{chain_step.step_number}' created for chain '{chain_step.chain_name}'"}
+@app.put("/api/chain/{chain_name}")
+async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessage:
+    CFG.rename_chain(chain_name, new_name.new_name)
+    return {"message": f"Chain '{chain_name}' renamed to '{new_name.new_name}'."}
 
-@app.post("/api/chain/step/update")
-async def update_step(chain_step_new_info: ChainStepNewInfo):
-    CFG.update_step(chain_step_new_info.chain_name, chain_step_new_info.old_step_number, chain_step_new_info.new_step_number, chain_step_new_info.prompt_type)
-    return {"message": f"Step '{chain_step_new_info.old_step_number}' changed to '{chain_step_new_info.new_step_number}' for chain '{chain_step_new_info.chain_name}' with prompt type {chain_step_new_info.prompt_type}."}
+@app.delete("/api/chain/{chain_name}")
+async def delete_chain(chain_name: str) -> ResponseMessage:
+    CFG.delete_chain(chain_name)
+    return {"message": f"Chain '{chain_name}' deleted."}
 
-@app.delete("/api/chain")
-async def delete_chain(chain_name: ChainName):
-    CFG.delete_chain(chain_name.chain_name)
-    return {"message": f"Chain '{chain_name.chain_name}' deleted"}
+@app.post("/api/chain/{chain_name}/step")
+async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
+    CFG.add_step(chain_name, step_info.step_number, step_info.prompt_type, step_info.prompt)
+    return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
-@app.delete("/api/chain/step/{step_number}")
-async def delete_chain_step(step_number: int, chain_name: ChainName):
-    CFG.delete_chain_step(chain_name.chain_name, step_number)
-    return {"message": f"Step '{step_number}' deleted for chain '{chain_name.chain_name}'"}
+@app.put("/api/chain/{chain_name}/step")
+async def update_step(chain_name: str, chain_step: ChainStep) -> ResponseMessage:
+    CFG.update_step(chain_name, chain_step.step_number, chain_step.agent_name, chain_step.prompt_type, chain_step.prompt)
+    return {"message": f"Step {chain_step.step_number} updated for chain '{chain_name}'."}
 
-@app.post("/api/chain/run")
-async def run_chain(agent_name: str, chain_name: ChainName):
-    CFG.run_chain(agent_name, chain_name.chain_name)
-    return {"message": "Prompt chain started"}
+@app.patch("/api/chain/{chain_name}/step")
+async def move_step(chain_name: str, chain_step_new_info: ChainStepNewInfo) -> ResponseMessage:
+    CFG.move_step(chain_name, chain_step_new_info.old_step_number, chain_step_new_info.new_step_number, chain_step_new_info.prompt_type)
+    return {"message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."}
+
+@app.delete("/api/chain/{chain_name}/step/{step_number}")
+async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
+    CFG.delete_step(chain_name, step_number)
+    return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="127.0.0.1", port=5000, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=5000)
