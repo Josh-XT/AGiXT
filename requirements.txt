@@ -4,11 +4,8 @@ captcha-solver
 chromadb
 docker
 duckduckgo_search
-Flask
-Flask-CORS
-Flask-RESTful
-Flask-Swagger
-Flask-Swagger-UI
+fastapi
+uvicorn
 git+https://github.com/huggingface/transformers
 gitpython
 google-api-python-client

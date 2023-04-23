@@ -9,7 +9,6 @@ from typing import List, Dict
 import chromadb
 from chromadb.utils import embedding_functions
 from Config import Config
-from YamlMemory import YamlMemory
 from commands.web_requests import web_requests
 from Commands import Commands
 
@@ -42,7 +41,6 @@ class AgentLLM:
         ai_module = importlib.import_module(f"provider.{self.CFG.AI_PROVIDER}")
         self.ai_instance = ai_module.AIProvider()
         self.instruct = self.ai_instance.instruct
-        self.yaml_memory = YamlMemory(agent_name)
         self.agent_name = agent_name
         self.output_list = []
         self.running = False
@@ -64,7 +62,7 @@ class AgentLLM:
 
     def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
         if not self.CFG.NO_MEMORY:
-            self.yaml_memory.log_interaction("USER", task)
+            self.CFG.log_interaction("USER", task)
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
@@ -73,7 +71,7 @@ class AgentLLM:
         self.response = self.instruct(prompt)
         if self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
-            self.yaml_memory.log_interaction(self.agent_name, self.response)
+            self.CFG.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")
         return self.response
 
@@ -86,7 +84,7 @@ class AgentLLM:
 
     def context_agent(self, query: str, top_results_num: int, long_term_access: bool) -> List[str]:
         if long_term_access:
-            interactions = self.yaml_memory.memory["interactions"]
+            interactions = self.CFG.memory["interactions"]
             context = [interaction["message"] for interaction in interactions[-top_results_num:]]
             context = self.chunk_content("\n\n".join(context))[:top_results_num]
         else:
