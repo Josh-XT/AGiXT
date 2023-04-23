@@ -281,14 +281,22 @@ class Config():
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(config, agent_config)
 
-    def get_task_output(self, agent_name, babyagi_instance):
-        output = babyagi_instance.get_output()
-        with open(os.path.join("model-prompts", "default", "system.txt"), "r") as f:
-            system_prompt = f.read()
-        if system_prompt in output:
-            output = output.replace(system_prompt, "")
-        return output
-
+    def get_task_output(self, agent_name, task_id):
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+        if os.path.exists(task_output_file):
+            with open(task_output_file, "r") as f:
+                task_output = f.read()
+        else:
+            task_output = ""
+        return task_output
+    
+    def save_task_output(self, agent_name, task_id, task_output):
+        if not os.path.exists(os.path.join("agents", agent_name, "tasks")):
+            os.makedirs(os.path.join("agents", agent_name, "tasks"))
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+        with open(task_output_file, "w") as f:
+            f.write(task_output)
+    
     def get_chains(self):
         chains = os.listdir("chains")
         chain_data = {}

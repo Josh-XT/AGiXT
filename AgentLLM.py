@@ -42,7 +42,6 @@ class AgentLLM:
         self.ai_instance = ai_module.AIProvider()
         self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
-        self.output_list = []
         self.running = False
 
     def get_agent_commands(self) -> List[str]:
@@ -144,9 +143,12 @@ class AgentLLM:
     def initialize_task_list(self):
         self.task_list = deque([])
 
+    def update_output_list(self, task_id, output):
+        self.CFG.save_task_output(self.agent_name, task_id, output)
+
     def display_objective_and_initial_task(self):
-        self.output_list.append(f"Objective: {self.primary_objective}")
-        self.output_list.append(f"Initial task: {self.initial_task}")
+        self.update_output_list(f"Objective: {self.primary_objective}")
+        self.update_output_list(f"Initial task: {self.initial_task}")
         print("\033[94m\033[1m" + "\n*****OBJECTIVE*****\n" + "\033[0m\033[0m")
         print(f"{self.primary_objective}")
         print("\033[93m\033[1m" + "\nInitial task:" + "\033[0m\033[0m" + f" {self.initial_task}")
@@ -164,7 +166,7 @@ class AgentLLM:
         prompt = prompt.replace("{task_description}", task_description)
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
         response = self.run(prompt, commands_enabled=False)
-        self.output_list.append(f"\n\nTask creation agent response:\n\n{response}")
+        self.update_output_list(f"\n\nTask creation agent response:\n\n{response}")
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -178,7 +180,7 @@ class AgentLLM:
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
         response = self.run(prompt, commands_enabled=False)
-        self.output_list.append(f"Prioritization agent response: {response}")
+        self.update_output_list(f"Prioritization agent response: {response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
@@ -190,7 +192,7 @@ class AgentLLM:
         self.display_task_list()
 
     def display_task_list(self):
-        self.output_list.append(f"Task list:\n\n{self.task_list}")
+        self.update_output_list(f"Task list:\n\n{self.task_list}")
         print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
         for task in self.task_list:
             print(f"{task['task_id']}. {task['task_name']}")
@@ -223,14 +225,14 @@ class AgentLLM:
         print(f"{task_id}: {task}")
         print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
         print(self.response)
-        self.output_list.append(f"Execution agent response:\n\n{self.response}")
+        self.update_output_list(f"Execution agent response:\n\n{self.response}")
         print(self.output_list)
         return self.response
 
     def display_result(self, task):
         self.display_task_list()
-        self.output_list.append(f"Task:\n\n{task['task_id']}: {task['task_name']}")
-        self.output_list.append(f"Result:\n\n{self.response}")
+        self.update_output_list(f"Task:\n\n{task['task_id']}: {task['task_name']}")
+        self.update_output_list(f"Result:\n\n{self.response}")
         print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
         print(f"{task['task_id']}: {task['task_name']}")
         print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
@@ -266,9 +268,6 @@ class AgentLLM:
         self.prioritization_agent(this_task_id)
         return task
 
-    def get_output(self):
-        return self.output_list
-
     def stop_running(self):
         self.running = False
 
@@ -282,7 +281,7 @@ class AgentLLM:
             task = self.execute_next_task()
             self.display_result(task)
             if not self.task_list:
-                self.output_list.append(f"\n\nAll tasks complete.")
+                self.update_output_list(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
             time.sleep(0.5)  # Sleep before checking the task list again
