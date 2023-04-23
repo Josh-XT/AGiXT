@@ -415,6 +415,9 @@ class Config():
         return prompt
     
     def get_prompts(self):
+        # Create the path if it doesn't exist
+        if not os.path.exists("prompts"):
+            os.mkdir("prompts")
         prompts = os.listdir("prompts")
         return prompts
     
