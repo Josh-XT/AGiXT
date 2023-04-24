@@ -8,11 +8,11 @@ import {
   Divider
 } from "@mui/material";
 import {
-  RunCircle,
-  StopCircle,
+  RunCircle, 
+  StopCircle, 
   AddCircle
 } from "@mui/icons-material";
-export default function MenuAgentList({ data }) {
+export default function MenuPromptList({ data }) {
   return (
     <List>
       <ListItem disablePadding>
@@ -20,8 +20,8 @@ export default function MenuAgentList({ data }) {
           <ListItemIcon>
             <AddCircle />
           </ListItemIcon>
-          <Link href={`/new/agent`}>
-            <ListItemText primary="Add A New Agent" />
+          <Link href={`/new/prompt`}>
+            <ListItemText primary="Add A New Prompt" />
           </Link>
         </ListItemButton>
       </ListItem>
