@@ -1,6 +1,8 @@
 from Config import Config
-
-from pyllamacpp.model import Model
+try:
+    from pyllamacpp.model import Model
+except:
+    print("Failed to import pyllamacpp.")
 CFG = Config()
 
 class AIProvider:

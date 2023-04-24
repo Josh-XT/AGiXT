@@ -15,7 +15,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile-backend
+      dockerfile: Dockerfile-mac-backend
     ports:
       - "5001:5000"
     env_file:
