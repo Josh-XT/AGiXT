@@ -10,13 +10,24 @@ import {
 import {
   RunCircle,
   StopCircle,
-  AddCircle
+  AddCircle,
+  Home
 } from "@mui/icons-material";
+import { useRouter } from 'next/router';
 export default function MenuAgentList({ data }) {
+  const router = useRouter();
+ 
   return (
     <List>
-      <ListItem disablePadding>
-        <ListItemButton>
+      <ListItemButton selected={ router.pathname.split("/")[1]=="agent"&&!router.query.agent }>
+          <ListItemIcon>
+            <Home />
+          </ListItemIcon>
+          <Link href={`/agent`}>
+            <ListItemText primary="Agent Homepage" />
+          </Link>
+        </ListItemButton>
+        <ListItemButton selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="agent"}>
           <ListItemIcon>
             <AddCircle />
           </ListItemIcon>
@@ -24,11 +35,9 @@ export default function MenuAgentList({ data }) {
             <ListItemText primary="Add A New Agent" />
           </Link>
         </ListItemButton>
-      </ListItem>
       <Divider />
       {data.map((agent) => (
-        <ListItem key={agent.name} disablePadding>
-          <ListItemButton>
+          <ListItemButton key={agent.name} selected={router.query.agent==agent.name}>
             <ListItemIcon>
               {agent.status ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
@@ -36,7 +45,6 @@ export default function MenuAgentList({ data }) {
               <ListItemText primary={agent.name} />
             </Link>
           </ListItemButton>
-        </ListItem>
       ))}
     </List>
   );

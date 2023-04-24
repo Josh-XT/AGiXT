@@ -1,14 +1,11 @@
 import '@/styles/globals.css'
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import axios from 'axios';
-import useSWR from 'swr';
 import {
   Box,
   Drawer,
   CssBaseline,
   Toolbar,
-  List,
   Typography,
   Divider
 } from '@mui/material';
@@ -21,10 +18,13 @@ import {
 } from '@mui/material/styles';
 import { 
   ChevronLeft,
-  Menu 
+  Menu,
+  SupportAgent,
+  ChatBubble,
+  InsertLink,
+  SmartToy
 } from '@mui/icons-material';
-import MenuSWR from '@/components/menu/MenuSWR';
-import MenuAgentList from '@/components/menu/MenuAgentList';
+import MenuList from '@/components/menu/MenuList';
 import { MenuDarkSwitch } from '@/components/menu/MenuDarkSwitch';
 const drawerWidth = 240;
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
@@ -74,7 +74,29 @@ const DrawerHeader = styled('div')(({ theme }) => ({
 export default function App({ Component, pageProps }) {
   const [open, setOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const agents = useSWR('agents', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
+  const pages = [
+    {
+      name: "Providers",
+      href: "provider",
+      Icon: SmartToy
+    },
+    {
+      name: "Agents",
+      href: "agent",
+      Icon: SupportAgent
+    },
+    {
+      name: "Prompts",
+      href: "prompt",
+      Icon: ChatBubble
+    },
+    {
+      name: "Chains",
+      href: "chain",
+      Icon: InsertLink
+    },
+  ];
+
 
   const themeGenerator = (darkMode) =>
     createTheme({
@@ -138,16 +160,14 @@ export default function App({ Component, pageProps }) {
         >
           <DrawerHeader sx={{ justifyContent: "space-between", pl: "1rem" }}>
             <Typography variant="h6" component="h1" noWrap sx={{ fontWeight: "bold" }}>
-              Agents
+              Main Menu
             </Typography>
             <IconButton onClick={handleDrawerClose}>
               <ChevronLeft fontSize='large' sx={{ color: 'white' }} />
             </IconButton>
           </DrawerHeader>
           <Divider />
-          <List>
-            <MenuSWR swr={agents} menu={MenuAgentList} />
-          </List>
+          <MenuList pages={pages}/>
         </Drawer>
         <Main open={open} sx={{ padding: 0 }}>
           <DrawerHeader />
