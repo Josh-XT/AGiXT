@@ -22,6 +22,7 @@ You're welcome to disregard this message, but if you do and the AI decides that 
   - [Key Features](#key-features)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
+    - [Running a Mac?](#running-a-mac)
     - [Not using OpenAI? No problem!](#not-using-openai-no-problem)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
@@ -100,6 +101,14 @@ docker compose up -d
 ```
 
 4. Access the web interface at http://localhost
+
+### Running a Mac?
+
+You'll need to run `docker-compose` to build if the command above does not work.
+
+```
+docker-compose -f docker-compose-mac.yml up -d --build
+```
 
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
