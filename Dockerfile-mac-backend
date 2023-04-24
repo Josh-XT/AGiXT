@@ -1,0 +1,19 @@
+# Install FastAPI app dependencies
+FROM python:3.10-slim-buster AS base
+WORKDIR /app
+COPY requirements-mac.txt ./
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends git build-essential
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements-mac.txt
+RUN apt-get remove -y git build-essential
+RUN apt-get install libgomp1 -y
+RUN apt-get install git -y
+RUN apt-get autoremove -y
+RUN rm -rf /var/lib/apt/lists/*
+
+# Run FastAPI app with Uvicorn
+FROM base AS uvicorn
+COPY . /app
+EXPOSE 5000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
