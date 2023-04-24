@@ -67,7 +67,7 @@ You're welcome to disregard this message, but if you do and the AI decides that 
 
 - Seamless Docker deployment
 
-- Integration with Huggingface for audio-to-text conversion
+- Integration with Hugging Face for audio-to-text conversion
 
 - Interoperability with platforms like Twitter, GitHub, Google, DALL-E, and more
 
@@ -142,7 +142,7 @@ Agent-LLM utilizes a `.env` configuration file to store AI language model settin
 - **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
 - **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
 - **WORKING_DIRECTORY**: Set the agent's working directory.
-- **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Huggingface, Selenium, Twitter, and GitHub.
+- **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Hugging Face, Selenium, Twitter, and GitHub.
 - **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
 
 For a detailed explanation of each setting, refer to the `.env.example` file provided in the repository.
