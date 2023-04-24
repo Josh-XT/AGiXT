@@ -1,7 +1,6 @@
 # Install FastAPI app dependencies
 FROM python:3.10-slim-buster AS base
 WORKDIR /app
-COPY requirements.txt ./
 COPY requirements-mac.txt ./
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends git build-essential
