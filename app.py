@@ -129,7 +129,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=500, long_term_access=False)
+    response = agent.run(prompt.prompt, max_context_tokens=500, commands_enabled=False)
     return {"response": str(response)}
 
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
