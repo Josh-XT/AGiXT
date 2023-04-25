@@ -6,10 +6,13 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 
 ## Project Links 🌐
 
-| GitHub                    | Discord |
-|-----------------------------------|-------------------------|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) |
+| GitHub                    | Discord | Outreach Email |
+|-----------------------------------|-------------------------|-----|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) |
 
+Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
+
+**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
 
 ## Our Team 🧑‍💻
 | Josh (@JoshXT)                    | James (@JamesonRGrieve) | 
