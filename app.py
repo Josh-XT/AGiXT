@@ -10,7 +10,8 @@ from typing import Optional, Dict, List
 
 CFG = Config()
 app = FastAPI()
-agent_instances = CFG.agent_instances
+agent_threads = {}
+agent_stop_events = {}
 
 app.add_middleware(
     CORSMiddleware,
@@ -155,36 +156,38 @@ async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> Resp
         raise HTTPException(status_code=500, detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}")
 
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
-async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
-    if agent_name not in agent_instances:
-        if agent_name not in agent_instances:
-            agent_instances[agent_name] = AgentLLM(agent_name)
-        agent_instance = agent_instances[agent_name]
-        agent_instance.set_agent_name(agent_name)
-        agent_instance.set_objective(objective.objective)
-        agent_thread = threading.Thread(target=agent_instance.run_task)
-        agent_thread.start()
-        return ResponseMessage(message="Task agent started")
-    else:
-        agent_instance = agent_instances[agent_name]
-        agent_instance.stop_running()
+async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
+    # If it's running stop it.
+    if agent_name in CFG.agent_instances and CFG.agent_instances[agent_name].get_status():
+        agent_stop_events[agent_name].set()
+        del agent_threads[agent_name]
+        del agent_stop_events[agent_name]
+        return ResponseMessage(message="Task agent stopped")
+    # Otherwise start it.
+    # If it doesn't exist, create it.
+    if agent_name not in CFG.agent_instances:
+        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+    CFG.agent_instances[agent_name].set_objective(objective.objective)
+    stop_event = threading.Event()
+    agent_stop_events[agent_name] = stop_event
+    agent_thread = threading.Thread(target=CFG.agent_instances[agent_name].run_task, args=(stop_event,))
+    agent_threads[agent_name] = agent_thread
+    agent_thread.start()
+    return ResponseMessage(message="Task agent started")
+
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
-    if agent_name not in agent_instances:
-        raise HTTPException(status_code=404, detail="Task agent not found")
-    agent_instance = agent_instances[agent_name]
-    output = CFG.get_task_output(agent_name, agent_instance)
-    if agent_instance.get_status():
-        return TaskOutput(output=output, message="Task agent is still running")
-    return TaskOutput(output=output)
+    if agent_name not in CFG.agent_instances:
+        return TaskOutput(output="", message="")
+    return TaskOutput(output=CFG.get_task_output(agent_name, CFG.agent_instances[agent_name].primary_objective), message="Task agent is still running")
+
 
 @app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
 async def get_task_status(agent_name: str):
-    if agent_name not in agent_instances:
+    if agent_name not in CFG.agent_instances:
         return {"status": False}
-    agent_instance = agent_instances[agent_name]
-    status = agent_instance.get_status()
+    status = CFG.agent_instances[agent_name].get_status()
     return {"status": status}
 
 @app.get("/api/chain", tags=["Chain"])

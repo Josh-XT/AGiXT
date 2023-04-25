@@ -112,8 +112,8 @@ class Config():
     def get_providers(self):
         providers = []
         for provider in glob.glob("provider/*.py"):
-            if provider != "provider/__init__.py":
-                providers.append(provider.replace("provider/", "").replace(".py", ""))
+            if "__init__.py" not in provider:
+                providers.append(os.path.splitext(os.path.basename(provider))[0])
         return providers
 
     def create_agent_folder(self, agent_name):
@@ -280,26 +280,32 @@ class Config():
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(config, agent_config)
 
-    def get_task_output(self, agent_name, task_id=None):
-        if task_id is None:
-            # Get the latest task
-            task_id = sorted(os.listdir(os.path.join("agents", agent_name, "tasks")))[-1].replace(".txt", "")
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+    def get_task_output(self, agent_name, primary_objective=None):
+        print(agent_name)
+        print(primary_objective)
+        if primary_objective is None:
+            # TODO: Generating a random UUID on a load won't really accomplish anything. Should just return.
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
         if os.path.exists(task_output_file):
             with open(task_output_file, "r") as f:
                 task_output = f.read()
         else:
             task_output = ""
-        return task_output
+        return task_output        
     
-    def save_task_output(self, agent_name, task_output, task_id=None):
-        if task_id is None:
-            task_id = str(uuid.uuid4())
-        if not os.path.exists(os.path.join("agents", agent_name, "tasks")):
+    def save_task_output(self, agent_name, task_output, primary_objective=None):
+        # Check if agents/{agent_name}/tasks/task_name.txt exists
+        # If it does, append to it
+        # If it doesn't, create it
+        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
-        with open(task_output_file, "w") as f:
+        if primary_objective is None:
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
+        with open(task_output_file, "a" if os.path.exists(task_output_file) else "w") as f:
             f.write(task_output)
+        return task_output
     
     def get_chains(self):
         chains = os.listdir("chains")
@@ -419,10 +425,11 @@ class Config():
         return prompt
     
     def get_prompts(self):
-        # Create the path if it doesn't exist
-        if not os.path.exists("prompts"):
-            os.mkdir("prompts")
-        prompts = os.listdir("prompts")
+        # Get all files in prompts folder that end in .txt and replace .txt with empty string
+        prompts = []
+        for file in os.listdir("prompts"):
+            if file.endswith(".txt"):
+                prompts.append(file.replace(".txt", ""))
         return prompts
     
     def delete_prompt(self, prompt_name):
