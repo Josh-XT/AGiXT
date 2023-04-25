@@ -303,12 +303,8 @@ class Config():
         if primary_objective is None:
             primary_objective = str(uuid.uuid4())
         task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
-        if os.path.exists(task_output_file):
-            with open(task_output_file, "a") as f:
-                f.write(task_output)
-        else:
-            with open(task_output_file, "w") as f:
-                f.write(task_output)
+        with open(task_output_file, "a" if os.path.exists(task_output_file) else "w") as f:
+            f.write(task_output)
         return task_output
     
     def get_chains(self):

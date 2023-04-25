@@ -158,6 +158,7 @@ async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> Resp
 
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
 async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
+    print(agent_instances[agent_name].agent_name)
     if agent_name not in agent_instances:
         agent_instances[agent_name] = AgentLLM(agent_name)
         agent_instances[agent_name].set_objective(objective.objective)
