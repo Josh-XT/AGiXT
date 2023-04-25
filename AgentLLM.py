@@ -4,6 +4,7 @@ import string
 import argparse
 import re
 import spacy
+import time
 from collections import deque
 from typing import List, Dict
 import chromadb
@@ -11,7 +12,14 @@ from chromadb.utils import embedding_functions
 from Config import Config
 from commands.web_requests import web_requests
 from Commands import Commands
-nlp = spacy.load("en_core_web_sm")
+import spacy
+from spacy.cli import download
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    print("Downloading spacy model...")
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 class AgentLLM:
     def __init__(self, agent_name: str = "default", primary_objective=None):
         self.CFG = Config(agent_name)
@@ -215,19 +223,25 @@ class AgentLLM:
         return self.run(prompt)
 
     def run_task(self, stop_event):
+        self.update_output_list(f"Starting task with objective: {self.primary_objective}.\n\n")
+        if len(self.task_list) == 0:
+            self.task_list.append({"task_id": 1, "task_name": "Develop a task list."})
         self.stop_running_event = stop_event
-        while self.task_list and not stop_event.is_set():
-            task = self.task_list.popleft()
-            self.update_output(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
+        while not stop_event.is_set():
+            if self.task_list == []:
+                break
+            if len(self.task_list) > 0:
+                task = self.task_list.popleft()
+            self.update_output_list(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
             result = self.execution_agent(task["task_name"], task["task_id"])
-            self.update_output(f"\nTask Result:\n\n{result}\n")
+            self.update_output_list(f"\nTask Result:\n\n{result}\n")
             new_tasks = self.task_creation_agent({"data": result}, task["task_name"], [t["task_name"] for t in self.task_list])
-            self.update_output(f"\nNew Tasks:\n\n{new_tasks}\n")
+            self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
             for new_task in new_tasks:
                 new_task.update({"task_id": len(self.task_list) + 1})
                 self.task_list.append(new_task)
             self.prioritization_agent()
-        print("All tasks completed or stopped.")
+        self.update_output_list("All tasks completed or stopped.")
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
