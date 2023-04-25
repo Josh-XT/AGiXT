@@ -261,7 +261,7 @@ class AgentLLM:
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
         #self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"\n\nPrioritization Agent Response: {response}")
+        self.update_output_list(f"\n\nPrioritization Agent Response:\n{response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
