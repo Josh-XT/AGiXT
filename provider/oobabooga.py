@@ -18,5 +18,8 @@ class AIProvider:
             'truncation_length': 4096, 'ban_eos_token': False
         }
         response = requests.post(f"{CFG.AI_PROVIDER_URI}/run/textgen", json={"data": [json.dumps([prompt, params])]})
-        stripped_string = re.sub(r"(?<!\\)\\(?!n)", "", response.json()['data'][0])
-        return stripped_string
+        data = response.json()
+        if "data" in data:
+            data = data["data"]
+            data = re.sub(r"(?<!\\)\\(?!n)", "", data[0])
+        return data
