@@ -10,13 +10,23 @@ import {
 import {
   RunCircle, 
   StopCircle, 
-  AddCircle
+  AddCircle,
+  Home
 } from "@mui/icons-material";
+import {useRouter} from 'next/router';
 export default function MenuPromptList({ data }) {
+  const router = useRouter();
   return (
     <List>
-      <ListItem disablePadding>
-        <ListItemButton>
+      <ListItemButton selected={ router.pathname.split("/")[1]=="prompt"&&!router.query.prompt }>
+          <ListItemIcon>
+            <Home />
+          </ListItemIcon>
+          <Link href={`/prompt`}>
+            <ListItemText primary="Prompt Homepage" />
+          </Link>
+        </ListItemButton>
+        <ListItemButton disabled selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="prompt"}>
           <ListItemIcon>
             <AddCircle />
           </ListItemIcon>
@@ -24,19 +34,16 @@ export default function MenuPromptList({ data }) {
             <ListItemText primary="Add A New Prompt" />
           </Link>
         </ListItemButton>
-      </ListItem>
       <Divider />
-      {data.map((agent) => (
-        <ListItem key={agent.name} disablePadding>
-          <ListItemButton>
+      {data.map((prompt) => (
+          <ListItemButton key={prompt} disabled>
             <ListItemIcon>
-              {agent.status ? <RunCircle /> : <StopCircle />}
+              {prompt.status ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
-            <Link href={`/agent/${agent.name}`}>
-              <ListItemText primary={agent.name} />
+            <Link href={`/prompt/${prompt}`}>
+              <ListItemText primary={prompt} />
             </Link>
           </ListItemButton>
-        </ListItem>
       ))}
     </List>
   );

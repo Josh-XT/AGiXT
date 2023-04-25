@@ -5,16 +5,15 @@ import { Container, TextField, Button, Typography } from '@mui/material';
 import { mutate } from "swr"
 import useSWR from 'swr';
 import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
-import MenuAgentList from '@/components/agent/AgentList';
+import AgentList from '@/components/agent/AgentList';
 export default function Home() {
   const [name, setName] = useState("");
   const handleCreate = async () => {
     await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name });
-    mutate("agents");
+    mutate("agent");
   }
-  const docs = useSWR('docs/agent', async () => (await axios.get("https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/docs/README.md")).data);
-  const agents = useSWR('agents', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
-  return <DoubleSidedMenu title={"Add a New Agent"} leftHeading={"Agents"} leftSWR={agents} leftMenu={MenuAgentList} rightHeading={null} rightSWR={null} rightMenu={null} content={() => <Container>
+  const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
+  return <DoubleSidedMenu title={"Add a New Agent"} leftHeading={"Agents"} leftSWR={agents} leftMenu={AgentList} rightHeading={null} rightSWR={null} rightMenu={null} content={() => <Container>
     <Typography variant='h6' component='h2' marginY={"1rem"}>
       Add a New Agent
     </Typography>

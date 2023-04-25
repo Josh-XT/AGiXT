@@ -6,12 +6,12 @@ import {
   ListItemIcon,
 } from "@mui/material";
 import {useRouter} from 'next/router';
-export default function MenuAgentList({ pages }) {
+export default function MenuList({ pages }) {
   const router = useRouter();
   return (
     <List>
       {pages.map(({name, href, Icon}) => (
-          <ListItemButton key={name} disabled={name!=="Agents"} selected={router.pathname.split("/")[1]==href}>
+          <ListItemButton key={name} selected={router.pathname.split("/")[1]==href}>
             <ListItemIcon>
               <Icon />
             </ListItemIcon>

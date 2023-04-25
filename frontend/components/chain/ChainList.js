@@ -10,13 +10,25 @@ import {
 import {
   RunCircle, 
   StopCircle, 
-  AddCircle
+  AddCircle,
+  Home
 } from "@mui/icons-material";
+import {useRouter} from 'next/router';
 export default function MenuChainList({ data }) {
+  const router = useRouter();
+  console.log(data);
+  console.log(Object.keys(data));
   return (
     <List>
-      <ListItem disablePadding>
-        <ListItemButton>
+      <ListItemButton key={"home"} selected={ router.pathname.split("/")[1]=="chain"&&!router.query.chain }>
+          <ListItemIcon>
+            <Home />
+          </ListItemIcon>
+          <Link href={`/chain`}>
+            <ListItemText primary="Chain Homepage" />
+          </Link>
+        </ListItemButton>
+        <ListItemButton disabled key={"new"} selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="chain"}>
           <ListItemIcon>
             <AddCircle />
           </ListItemIcon>
@@ -24,19 +36,16 @@ export default function MenuChainList({ data }) {
             <ListItemText primary="Add A New Chain" />
           </Link>
         </ListItemButton>
-      </ListItem>
       <Divider />
-      {data.map((agent) => (
-        <ListItem key={agent.name} disablePadding>
-          <ListItemButton>
+      {Object.keys(data).map((chain) => (
+          <ListItemButton disabled key={chain}>
             <ListItemIcon>
-              {agent.status ? <RunCircle /> : <StopCircle />}
+              {chain.status ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
-            <Link href={`/agent/${agent.name}`}>
-              <ListItemText primary={agent.name} />
+            <Link href={`/chain/${chain}`}>
+              <ListItemText primary={chain} />
             </Link>
           </ListItemButton>
-        </ListItem>
       ))}
     </List>
   );
