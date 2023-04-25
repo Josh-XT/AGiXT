@@ -4,7 +4,6 @@ import string
 import argparse
 import re
 import spacy
-import time
 from collections import deque
 from typing import List, Dict
 import chromadb
