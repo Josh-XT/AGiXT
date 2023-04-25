@@ -14,7 +14,7 @@ export default function AgentObjective() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
-    const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`)).data.output : null), { refreshInterval: running?3000:0, revalidateOnFocus: false });
+    const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`)).data.output.split("\n") : null), { refreshInterval: running?3000:0, revalidateOnFocus: false });
     const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task/status`)).data.status, {objective: objective});
     }, [agentName]);

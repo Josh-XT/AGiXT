@@ -157,31 +157,31 @@ async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> Resp
 
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
 async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
-    print(CFG.agent_instances[agent_name].agent_name)
-    if agent_name not in CFG.agent_instances:
-        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
-        CFG.agent_instances[agent_name].set_objective(objective.objective)
-        stop_event = threading.Event()
-        agent_stop_events[agent_name] = stop_event
-        agent_thread = threading.Thread(target=CFG.agent_instances[agent_name].run_task, args=(stop_event,))
-        agent_threads[agent_name] = agent_thread
-        agent_thread.start()
-        return ResponseMessage(message="Task agent started")
-    else:
+    # If it's running stop it.
+    if agent_name in CFG.agent_instances and CFG.agent_instances[agent_name].get_status():
         agent_stop_events[agent_name].set()
-        del CFG.agent_instances[agent_name]
         del agent_threads[agent_name]
         del agent_stop_events[agent_name]
         return ResponseMessage(message="Task agent stopped")
+    # Otherwise start it.
+    # If it doesn't exist, create it.
+    if agent_name not in CFG.agent_instances:
+        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+    CFG.agent_instances[agent_name].set_objective(objective.objective)
+    stop_event = threading.Event()
+    agent_stop_events[agent_name] = stop_event
+    agent_thread = threading.Thread(target=CFG.agent_instances[agent_name].run_task, args=(stop_event,))
+    agent_threads[agent_name] = agent_thread
+    agent_thread.start()
+    return ResponseMessage(message="Task agent started")
+
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
-    agent_instance = AgentLLM(agent_name)
-    CFG.agent_instances[agent_name] = agent_instance
-    output = CFG.agent_instances[agent_name].get_output_list()
-    if agent_instance.get_status():
-        return TaskOutput(output=output, message="Task agent is still running")
-    return TaskOutput(output=f"{output}")
+    if agent_name not in CFG.agent_instances:
+        return TaskOutput(output="", message="")
+    return TaskOutput(output=CFG.get_task_output(agent_name, CFG.agent_instances[agent_name].primary_objective), message="Task agent is still running")
+
 
 @app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
 async def get_task_status(agent_name: str):

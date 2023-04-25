@@ -16,7 +16,7 @@ import {
 import { useRouter } from 'next/router';
 export default function MenuAgentList({ data }) {
   const router = useRouter();
- 
+  console.log(data);
   return (
     <List>
       <ListItemButton selected={ router.pathname.split("/")[1]=="agent"&&!router.query.agent }>

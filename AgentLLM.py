@@ -143,7 +143,7 @@ class AgentLLM:
         self.agent_name = agent_name
 
     def get_status(self):
-        return self.running
+        return not self.stop_running_event.is_set()
 
     def initialize_task_list(self):
         self.task_list = deque([])
@@ -225,7 +225,7 @@ class AgentLLM:
         else:
             prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         self.update_output_list(f"Execution Agent Task:\n"+f"{task_id}: {task}")
-        self.update_output_list(f"Execution Agent Prompt:\n"+f"{prompt}")
+        #self.update_output_list(f"Execution Agent Prompt:\n"+f"{prompt}")
         # Run the Prompt
         self.response = self.run(prompt)
         self.update_output_list(f"Response:\n{self.response}")
@@ -241,7 +241,7 @@ class AgentLLM:
         prompt = prompt.replace("{task_description}", task_description)
         # Prompt Engineering - Task List
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
-        self.update_output_list(f"Task Creation Agent Prompt:\n"+f"{prompt}")
+        #self.update_output_list(f"Task Creation Agent Prompt:\n"+f"{prompt}")
         response = self.run(prompt, commands_enabled=False)
         self.update_output_list(f"Task Creation Agent Response:\n{response}")
         if response is None:
@@ -259,7 +259,7 @@ class AgentLLM:
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         # Prompt Engineering - Task Names
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
-        self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
+        #self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
         response = self.run(prompt, commands_enabled=False)
         self.update_output_list(f"Prioritization Agent Response: {response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
