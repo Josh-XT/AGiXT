@@ -4,7 +4,7 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 
 ![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
-## Project Links 🌐
+## Project Links 🌐 / Contact ☎️
 
 | GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
 |-----------------------------------|-|------------------------|-----|---|
@@ -29,12 +29,12 @@ Please use the outreach email for media, sponsorship, or to contact us for other
 ## Table of Contents 📖
 
 - [Agent-LLM](#agent-llm)
-  - [Project Links 🌐](#project-links-🌐)
+  - [Project Links 🌐 / Contact ☎️](#project-links-🌐--contact-☎️)
   - [Our Team 🧑‍💻](#our-team-🧑‍💻)
   - [⚠️ Warnings ⚠️](#⚠️-warnings-⚠️)
   - [Table of Contents 📖](#table-of-contents-📖)
-  - [Media ⏯️](#media-⏯️)
-  - [Key Features](#key-features)
+  - [Media Coverage ⏯️](#media-coverage-⏯️)
+  - [Key Features 🗝️](#key-features-🗝️)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
     - [Running a Mac?](#running-a-mac)
@@ -49,13 +49,13 @@ Please use the outreach email for media, sponsorship, or to contact us for other
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
 
-## Media ⏯️
+## Media Coverage ⏯️
 
 ### Video
 - From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
 
 
-## Key Features
+## Key Features 🗝️
 
 - Adaptive long-term and short-term memory management
 
@@ -134,7 +134,7 @@ docker-compose -f docker-compose-mac.yml up -d --build
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
 
-**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#⚠️-warnings-⚠️)
 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
@@ -167,7 +167,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (swagger) or http://localhost:5000/redoc (Redoc).
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (Swagger) or http://localhost:5000/redoc (Redoc).
 
 ## Extending Functionality
 
@@ -178,6 +178,8 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The application is compatible with OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. To support additional providers, create a new Python file in the `provider` folder and implement the required functionality.
+
+**Coming Soon: Any providers defined in the `.env` file will be usable on different agents in the application and will not need to be manually switched.**
 
 ## Acknowledgments
 
@@ -190,10 +192,10 @@ Please consider exploring and contributing to these projects as well.
 
 ## Contributing
 
-We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@JostXT](https://twitter.com/JostXT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
 
 ## Donations and Sponsorships
-We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@Josh_XT](https://twitter.com/Josh_XT).
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 
