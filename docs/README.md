@@ -4,37 +4,25 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 
 ![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
-## Project Links 🌐 / Contact ☎️
+## ⚠️ Run this in Docker or a Virtual Machine!
+You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
 
-| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
-|-----------------------------------|-|------------------------|-----|---|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
+## ⚠️ Monitor Your Usage!
+Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
 
-Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
-
-**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
-
-## Our Team 🧑‍💻
-| Josh (@JoshXT)                    | James (@JamesonRGrieve) | 
-|-----------------------------------|-----------------------------------|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
-
-
-## ⚠️ Warnings ⚠️ 
-- **Please note that using some AI providers (such as OpenAI's GPT API) can be expensive!** Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
-- **Run this in Docker or a Virtual Machine!** You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
-- **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
-
+## ⚠️ Under Development!
+This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
 ## Table of Contents 📖
 
-- [Agent-LLM](#agent-llm)
-  - [Project Links 🌐 / Contact ☎️](#project-links-🌐--contact-☎️)
-  - [Our Team 🧑‍💻](#our-team-🧑‍💻)
-  - [⚠️ Warnings ⚠️](#⚠️-warnings-⚠️)
-  - [Table of Contents 📖](#table-of-contents-📖)
-  - [Media Coverage ⏯️](#media-coverage-⏯️)
-  - [Key Features 🗝️](#key-features-🗝️)
+- [Agent-LLM (Large Language Model)](#agent-llm-large-language-model)
+  - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+  - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
+  - [⚠️ Under Development!](#️-under-development)
+  - [Table of Contents 📖](#table-of-contents-)
+  - [Media Coverage ⏯️](#media-coverage-️)
+    - [Video](#video)
+  - [Key Features 🗝️](#key-features-️)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
     - [Running a Mac?](#running-a-mac)
@@ -48,6 +36,8 @@ Please use the outreach email for media, sponsorship, or to contact us for other
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
+  - [Project Links 🌐 / Contact ☎️](#project-links---contact-️)
+  - [Our Team 🧑‍💻](#our-team-)
 
 ## Media Coverage ⏯️
 
@@ -134,7 +124,7 @@ docker-compose -f docker-compose-mac.yml up -d --build
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
 
-**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#⚠️-warnings-⚠️)
+**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
@@ -192,7 +182,7 @@ Please consider exploring and contributing to these projects as well.
 
 ## Contributing
 
-We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@JostXT](https://twitter.com/JostXT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
+We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@Josh_XT](https://twitter.com/Josh_XT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
 
 ## Donations and Sponsorships
 We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
@@ -202,3 +192,18 @@ We're always looking for ways to improve Agent-LLM and make it more useful for o
 ## Usage
 
 Run Agent-LLM using Docker (recommended) or by running the `app.py` script. The application will load the initial task and objective from the configuration file and begin task execution. As tasks are completed, Agent-LLM will generate new tasks, prioritize them, and continue working through the task list.
+
+## Project Links 🌐 / Contact ☎️
+
+| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
+|-----------------------------------|-|------------------------|-----|---|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
+
+Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
+
+**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
+
+## Our Team 🧑‍💻
+| Josh (@Josh-XT)                    | James (@JamesonRGrieve) | 
+|-----------------------------------|-----------------------------------|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
