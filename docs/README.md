@@ -13,12 +13,23 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 ## ⚠️ Under Development!
 This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
+## Project Links 🌐 / Contact ☎️
+
+| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
+|-----------------------------------|-|------------------------|-----|---|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
+
+Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
+
+**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
+
 ## Table of Contents 📖
 
 - [Agent-LLM (Large Language Model)](#agent-llm-large-language-model)
   - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
   - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
   - [⚠️ Under Development!](#️-under-development)
+  - [Project Links 🌐 / Contact ☎️](#project-links---contact-️)
   - [Table of Contents 📖](#table-of-contents-)
   - [Media Coverage ⏯️](#media-coverage-️)
     - [Video](#video)
@@ -34,7 +45,6 @@ This project is under active development and may still have issues. We appreciat
     - [AI Providers](#ai-providers)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
-  - [Project Links 🌐 / Contact ☎️](#project-links---contact-️)
   - [Our Team 🧑‍💻](#our-team-)
   - [Acknowledgments](#acknowledgments)
 
@@ -178,16 +188,6 @@ We welcome contributions to Agent-LLM! If you're interested in contributing, ple
 We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
-
-## Project Links 🌐 / Contact ☎️
-
-| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
-|-----------------------------------|-|------------------------|-----|---|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
-
-Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
-
-**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
 
 ## Our Team 🧑‍💻
 | Josh (@Josh-XT)                    | James (@JamesonRGrieve) | 
