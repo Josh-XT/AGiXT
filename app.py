@@ -164,6 +164,7 @@ async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMe
         return ResponseMessage(message="Task agent started")
     else:
         agent_instances[agent_name].stop_running()
+        return ResponseMessage(message="Task agent stopped")
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str, objective: str = None) -> TaskOutput:

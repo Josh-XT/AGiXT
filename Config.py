@@ -281,6 +281,8 @@ class Config():
             json.dump(config, agent_config)
 
     def get_task_output(self, agent_name, primary_objective=None):
+        print(agent_name)
+        print(primary_objective)
         if primary_objective is None:
             primary_objective = str(uuid.uuid4())
         task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")

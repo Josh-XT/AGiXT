@@ -24,7 +24,7 @@ export default function AgentObjective() {
 
     const toggleRunning = async () => {
         if (running) {
-            await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`);
+            await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`, {objective: "" });
         }
         else {
             await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent/${agentName}/task`, { objective: objective });
