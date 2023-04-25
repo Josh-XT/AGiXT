@@ -4,7 +4,7 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 
 ![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
-## Project Links 🌐
+## Project Links 🌐 / Contact ☎️
 
 | GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
 |-----------------------------------|-|------------------------|-----|---|
@@ -29,12 +29,12 @@ Please use the outreach email for media, sponsorship, or to contact us for other
 ## Table of Contents 📖
 
 - [Agent-LLM](#agent-llm)
-  - [Project Links 🌐](#project-links-🌐)
+  - [Project Links 🌐 / Contact ☎️](#project-links-🌐--contact-☎️)
   - [Our Team 🧑‍💻](#our-team-🧑‍💻)
   - [⚠️ Warnings ⚠️](#⚠️-warnings-⚠️)
   - [Table of Contents 📖](#table-of-contents-📖)
-  - [Media ⏯️](#media-⏯️)
-  - [Key Features](#key-features)
+  - [Media Coverage ⏯️](#media-coverage-⏯️)
+  - [Key Features 🗝️](#key-features-🗝️)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
     - [Running a Mac?](#running-a-mac)
@@ -49,13 +49,13 @@ Please use the outreach email for media, sponsorship, or to contact us for other
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
 
-## Media ⏯️
+## Media Coverage ⏯️
 
 ### Video
 - From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
 
 
-## Key Features
+## Key Features 🗝️
 
 - Adaptive long-term and short-term memory management
 
