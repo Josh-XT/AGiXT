@@ -12,6 +12,7 @@ CFG = Config()
 app = FastAPI()
 agent_instances = CFG.agent_instances
 agent_threads = {}
+agent_stop_events = {}
 
 app.add_middleware(
     CORSMiddleware,
@@ -156,19 +157,23 @@ async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> Resp
         raise HTTPException(status_code=500, detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}")
 
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
-async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
+async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
     if agent_name not in agent_instances:
         agent_instances[agent_name] = AgentLLM(agent_name)
         agent_instances[agent_name].set_objective(objective.objective)
-        agent_thread = threading.Thread(target=agent_instances[agent_name].run_task)
+        stop_event = threading.Event()
+        agent_stop_events[agent_name] = stop_event
+        agent_thread = threading.Thread(target=agent_instances[agent_name].run_task, args=(stop_event,))
         agent_threads[agent_name] = agent_thread
         agent_thread.start()
         return ResponseMessage(message="Task agent started")
     else:
+        agent_stop_events[agent_name].set()
+        agent_threads[agent_name].join()
         agent_instances[agent_name].stop_running()
-        agent_threads[agent_name].stop()
         del agent_instances[agent_name]
         del agent_threads[agent_name]
+        del agent_stop_events[agent_name]
         return ResponseMessage(message="Task agent stopped")
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
