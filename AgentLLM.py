@@ -16,8 +16,8 @@ class AgentLLM:
     def __init__(self, primary_objective=None, initial_task=None, agent_name: str = "default"):
         self.CFG = Config(agent_name)
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
-        self.initial_task = self.CFG.INITIAL_TASK if initial_task == None else initial_task
         self.initialize_task_list()
+        # TODO: Put loading of agent commands into Commands.__init__()
         self.commands = Commands(agent_name)
         self.available_commands = self.get_agent_commands()
         self.web_requests = web_requests()
@@ -42,8 +42,8 @@ class AgentLLM:
         self.ai_instance = ai_module.AIProvider()
         self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
-        self.running = False
         self.output_list = []
+        self.stop_running_event = None
 
     def get_output_list(self):
         return self.output_list
@@ -149,30 +149,101 @@ class AgentLLM:
         self.task_list = deque([])
 
     def update_output_list(self, output):
-        self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
-        self.output_list.append(output)
-
-    def display_objective_and_initial_task(self):
-        self.update_output_list(f"Objective: {self.primary_objective}")
-        self.update_output_list(f"Initial task: {self.initial_task}")
-        print("\033[94m\033[1m" + "\n*****OBJECTIVE*****\n" + "\033[0m\033[0m")
-        print(f"{self.primary_objective}")
-        print("\033[93m\033[1m" + "\nInitial task:" + "\033[0m\033[0m" + f" {self.initial_task}")
-
-    def add_initial_task(self):
-        self.task_list.append({"task_id": 1, "task_name": self.initial_task})
+        print(self.CFG.save_task_output(self.agent_name, output, self.primary_objective))
+        #self.output_list.append(output)
 
     def set_objective(self, new_objective):
         self.primary_objective = new_objective
 
-    def task_creation_agent(self, objective: str, result: Dict, task_description: str, task_list: List[str]):
+    def run_task(self, stop_event):  # Main loop
+        # Add the first task
+        self.task_list = []
+        self.stop_running_event = stop_event
+        task = self.primary_objective
+        # While stop endpoint has not been fired.
+        while not stop_event.is_set():
+            # Execution Agent runs the next task.
+            task = self.execute_next_task()
+            if task is not None:
+                print("Done task.")
+                if not self.task_list:
+                    self.update_output_list("All tasks complete.")
+                    break
+            else:
+                print("Aborted.")
+            
+
+    def execute_next_task(self):
+        if not self.task_list:
+            task = {"task_id": 0, "task_name": "Develop a task list."}
+        else:
+             task = self.task_list.popleft()
+        this_task_id = task["task_id"]
+        # Deal with prospective hallucinations.
+        if type(this_task_id) != int:
+            this_task_id = ''.join(re.findall(r'\d+', this_task_id))
+            try:
+                this_task_id = int(this_task_id)
+            except:
+                this_task_id = 2
+        # Load the task.
+        this_task_name = task["task_name"]
+        if this_task_name != "":
+            # Initial loop, creates large goals.
+            if not self.stop_running_event.is_set():
+                self.response = self.execution_agent(this_task_name, this_task_id)
+            # Iniail loop, creates sub-goals.
+            if not self.stop_running_event.is_set():
+                new_tasks = self.task_creation_agent(
+                    { "data": self.response },
+                    this_task_name,
+                    [t["task_name"] for t in self.task_list],
+                )
+            if not self.stop_running_event.is_set():
+                task_id_counter = this_task_id
+                for new_task in new_tasks:
+                    task_id_counter += 1
+                    new_task.update({"task_id": task_id_counter})
+                    self.task_list.append(new_task)
+                self.prioritization_agent(this_task_id)
+                return task
+            return None
+        # We didn't have a task description, but we had a task ID... Somehow.
+        else:
+            return None
+
+    def execution_agent(self, task, task_id):
+        prompt = self.CFG.EXECUTION_PROMPT
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Task
+        prompt = prompt.replace("{task}", task)
+        # Prompt Engineering - Commands
+        friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
+        if task_id == 0 or len(self.available_commands) == 0:
+            prompt = prompt.replace("{COMMANDS}", "No commands.")
+        else:
+            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
+        self.update_output_list(f"Execution Agent Task:\n"+f"{task_id}: {task}")
+        self.update_output_list(f"Execution Agent Prompt:\n"+f"{prompt}")
+        # Run the Prompt
+        self.response = self.run(prompt)
+        self.update_output_list(f"Response:\n{self.response}")
+        return self.response
+
+    def task_creation_agent(self, result: Dict, task_description: str, task_list: List[str]):
         prompt = self.CFG.TASK_PROMPT
-        prompt = prompt.replace("{objective}", objective)
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Result
         prompt = prompt.replace("{result}", str(result))
+        # Prompt Engineering - Task Description
         prompt = prompt.replace("{task_description}", task_description)
+        # Prompt Engineering - Task List
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
+        self.update_output_list(f"Task Creation Agent Prompt:\n"+f"{prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"\n\nTask creation agent response:\n\n{response}")
+        self.update_output_list(f"Task Creation Agent Response:\n{response}")
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -182,11 +253,15 @@ class AgentLLM:
         task_names = [t["task_name"] for t in self.task_list]
         next_task_id = this_task_id + 1
         prompt = self.CFG.PRIORITY_PROMPT
+        # Prompt Engineering - Objective
         prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Task ID
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
+        # Prompt Engineering - Task Names
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
+        self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"Prioritization agent response: {response}")
+        self.update_output_list(f"Prioritization Agent Response: {response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
@@ -195,99 +270,7 @@ class AgentLLM:
                 task_id = task_parts[0].strip()
                 task_name = task_parts[1].strip()
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
-        self.display_task_list()
-
-    def display_task_list(self):
-        self.update_output_list(f"Task list:\n\n{self.task_list}")
-        print("\033[95m\033[1m" + "\n*****TASK LIST*****\n" + "\033[0m\033[0m")
-        for task in self.task_list:
-            print(f"{task['task_id']}. {task['task_name']}")
-
-    def execution_agent(self, objective, task, task_id, context=None):
-        prompt = self.CFG.EXECUTION_PROMPT
-        prompt = prompt.replace("{objective}", objective)
-        prompt = prompt.replace("{task}", task)
-        # Get all friendly names in commands into an array
-        friendly_names = []
-        self.commands = Commands(self.agent_name)
-        self.available_commands = self.get_agent_commands()
-        print("\033[92m\033[1m" + "\n*****COMMANDS*****\n" + "\033[0m\033[0m")
-        print(self.available_commands)
-        if self.commands is not None:
-            for command in self.available_commands:
-                if command["enabled"] != False:
-                    friendly_names.append(f"{command['friendly_name']} - {command['name']}({command['args']})")
-            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
-        if context is not None:
-            context = list(context)  # Convert set to list
-        prompt = prompt.replace("{context}", str(context))
-        print("\033[92m\033[1m" + "\n*****PROMPT*****\n" + "\033[0m\033[0m")
-        print(prompt)
-        if task_id == 0:
-            self.response = self.run(prompt, commands_enabled=False)
-        else:
-            self.response = self.run(prompt)
-        print("\033[91m\033[1m" + "\n*****EXECUTION AGENT*****\n" + "\033[0m\033[0m")
-        print(f"{task_id}: {task}")
-        print("\033[93m\033[1m" + "\n*****RESPONSE*****\n" + "\033[0m\033[0m")
-        print(self.response)
-        self.update_output_list(f"Execution agent response:\n\n{self.response}")
-        return self.response
-
-    def display_result(self, task):
-        self.display_task_list()
-        self.update_output_list(f"Task:\n\n{task['task_id']}: {task['task_name']}")
-        self.update_output_list(f"Result:\n\n{self.response}")
-        print("\033[92m\033[1m" + "\n*****NEXT TASK*****\n" + "\033[0m\033[0m")
-        print(f"{task['task_id']}: {task['task_name']}")
-        print("\033[93m\033[1m" + "\n*****RESULT*****\n" + "\033[0m\033[0m")
-        print(self.response)
-
-    def execute_next_task(self):
-        if self.task_list:
-            task = self.task_list.popleft()
-        else:
-            task = {"task_id": 0, "task_name": self.initial_task}
-        this_task_id = task["task_id"]
-        if type(this_task_id) != int:
-            this_task_id = ''.join(re.findall(r'\d+', this_task_id))
-            try:
-                this_task_id = int(this_task_id)
-            except:
-                this_task_id = 2
-        this_task_name = task["task_name"]
-        if this_task_name != "":
-            self.response = self.execution_agent(self.primary_objective, this_task_name, this_task_id)
-            new_tasks = self.task_creation_agent(
-                self.primary_objective,
-                { "data": self.response },
-                this_task_name,
-                [t["task_name"] for t in self.task_list],
-            )
-            task_id_counter = this_task_id
-            for new_task in new_tasks:
-                task_id_counter += 1
-                new_task.update({"task_id": task_id_counter})
-                self.task_list.append(new_task)
-            self.prioritization_agent(this_task_id)
-            return task
-
-    def stop_running(self):
-        self.running = False
-
-    def run_task(self, stop_event):  # Main loop
-        # Add the first task
-        task = self.primary_objective
-        self.add_initial_task()
-        while not stop_event.is_set():
-            task = self.execute_next_task()
-            if task is not None:
-                self.display_result(task)
-            if not self.task_list:
-                self.update_output_list(f"\n\nAll tasks complete.")
-                print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
-                break
-
+        self.update_output_list(f"Task List:\n{self.task_list}")
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
