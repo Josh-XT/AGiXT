@@ -25,7 +25,7 @@ export default function AgentPanel() {
       <Tabs value={tab} onChange={handleTabChange} sx={{ mb: "0.5rem" }}>
         <Tab label="Chat With Agent" />
         <Tab label="Instruct Agent" />
-        <Tab label="Provide Agent With Objective" />
+        <Tab label="Set Agent Objective" />
         <Tab label="Administrate Agent" />
       </Tabs>
       {tabs[tab]}

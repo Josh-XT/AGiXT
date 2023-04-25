@@ -1,30 +1,40 @@
-# Agent-LLM
+# Agent-LLM (Large Language Model)
 
-Agent-LLM is an Artificial Intelligence Automation Platform designed for efficient AI instruction management across multiple providers. Equipped with adaptive memory, this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to cater to diverse applications.
+Agent-LLM is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers. Our agents are equipped with adaptive memory, and this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to empower diverse applications.
 
-[<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" height="70" style="margin: 0 10px">](https://discord.gg/vfXjyuKZ)[<img src="https://img.freepik.com/free-icon/twitter_318-674515.jpg" height="70" style="margin: 0 10px">](https://twitter.com/Josh_XT)[<img src="https://qph.cf2.quoracdn.net/main-qimg-729a22aba98d1235fdce4883accaf81e" height="70" style="margin: 0 10px">](https://github.com/Josh-XT/Agent-LLM)
-
-⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs.  We're NOT responsible for your usage under any circumstance.**
-
-
-⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
-
-## Screenshot and Video
 ![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
-From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
+## Project Links 🌐 / Contact ☎️
 
-## ⚠️ Run this in Docker or a Virtual Machine!
+| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
+|-----------------------------------|-|------------------------|-----|---|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
 
-You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
+Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
 
-## Table of Contents
+**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
+
+## Our Team 🧑‍💻
+| Josh (@JoshXT)                    | James (@JamesonRGrieve) | 
+|-----------------------------------|-----------------------------------|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
+
+
+## ⚠️ Warnings ⚠️ 
+- **Please note that using some AI providers (such as OpenAI's GPT API) can be expensive!** Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
+- **Run this in Docker or a Virtual Machine!** You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
+- **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
+
+
+## Table of Contents 📖
 
 - [Agent-LLM](#agent-llm)
-  - [Screenshot and Video](#screenshot-and-video)
-  - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
-  - [Table of Contents](#table-of-contents)
-  - [Key Features](#key-features)
+  - [Project Links 🌐 / Contact ☎️](#project-links-🌐--contact-☎️)
+  - [Our Team 🧑‍💻](#our-team-🧑‍💻)
+  - [⚠️ Warnings ⚠️](#⚠️-warnings-⚠️)
+  - [Table of Contents 📖](#table-of-contents-📖)
+  - [Media Coverage ⏯️](#media-coverage-⏯️)
+  - [Key Features 🗝️](#key-features-🗝️)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
     - [Running a Mac?](#running-a-mac)
@@ -39,7 +49,13 @@ You're welcome to disregard this message, but if you do and the AI decides that 
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
 
-## Key Features
+## Media Coverage ⏯️
+
+### Video
+- From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
+
+
+## Key Features 🗝️
 
 - Adaptive long-term and short-term memory management
 
@@ -118,7 +134,7 @@ docker-compose -f docker-compose-mac.yml up -d --build
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
 
-**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#⚠️-warnings-⚠️)
 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
@@ -151,7 +167,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (swagger) or http://localhost:5000/redoc (Redoc).
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (Swagger) or http://localhost:5000/redoc (Redoc).
 
 ## Extending Functionality
 
@@ -162,6 +178,8 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The application is compatible with OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. To support additional providers, create a new Python file in the `provider` folder and implement the required functionality.
+
+**Coming Soon: Any providers defined in the `.env` file will be usable on different agents in the application and will not need to be manually switched.**
 
 ## Acknowledgments
 
@@ -174,10 +192,10 @@ Please consider exploring and contributing to these projects as well.
 
 ## Contributing
 
-We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@JostXT](https://twitter.com/JostXT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
 
 ## Donations and Sponsorships
-We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@Josh_XT](https://twitter.com/Josh_XT).
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 

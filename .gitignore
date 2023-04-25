@@ -11,7 +11,7 @@ env/
 .vscode/
 .idea/
 
-models
+models/*
 llama.cpp
 node_modules
 memories/*
