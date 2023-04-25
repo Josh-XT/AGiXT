@@ -32,12 +32,11 @@ This project is under active development and may still have issues. We appreciat
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
-  - [Acknowledgments](#acknowledgments)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
-  - [Usage](#usage)
   - [Project Links 🌐 / Contact ☎️](#project-links---contact-️)
   - [Our Team 🧑‍💻](#our-team-)
+  - [Acknowledgments](#acknowledgments)
 
 ## Media Coverage ⏯️
 
@@ -171,15 +170,6 @@ To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The
 
 **Coming Soon: Any providers defined in the `.env` file will be usable on different agents in the application and will not need to be manually switched.**
 
-## Acknowledgments
-
-This project was inspired by and utilizes code from the following repositories:
-
-- [babyagi](https://github.com/yoheinakajima/babyagi)
-- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT)
-
-Please consider exploring and contributing to these projects as well.
-
 ## Contributing
 
 We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@Josh_XT](https://twitter.com/Josh_XT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
@@ -188,10 +178,6 @@ We welcome contributions to Agent-LLM! If you're interested in contributing, ple
 We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
-
-## Usage
-
-Run Agent-LLM using Docker (recommended) or by running the `app.py` script. The application will load the initial task and objective from the configuration file and begin task execution. As tasks are completed, Agent-LLM will generate new tasks, prioritize them, and continue working through the task list.
 
 ## Project Links 🌐 / Contact ☎️
 
@@ -207,3 +193,12 @@ Please use the outreach email for media, sponsorship, or to contact us for other
 | Josh (@Josh-XT)                    | James (@JamesonRGrieve) | 
 |-----------------------------------|-----------------------------------|
 | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
+
+## Acknowledgments
+
+This project was inspired by and utilizes code from the following repositories:
+
+- [babyagi](https://github.com/yoheinakajima/babyagi)
+- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT)
+
+Please consider exploring and contributing to these projects as well.
