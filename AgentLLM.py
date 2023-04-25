@@ -291,11 +291,9 @@ class AgentLLM:
                 break
 
             # Check if the stop_event is set before continuing the loop
-            if stop_event.is_set():
+            if stop_event.wait(timeout=0.5):
                 self.running = False
                 break
-
-            time.sleep(0.5)  # Sleep before checking the task list again
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
