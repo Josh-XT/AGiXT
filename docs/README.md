@@ -6,9 +6,9 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 
 ## Project Links 🌐
 
-| GitHub                    | Discord | Outreach Email | Facebook Group |
-|-----------------------------------|-------------------------|-----|---|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) |[<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) 
+| GitHub                    | Twitter | Discord | Outreach Email | Facebook Group |
+|-----------------------------------|-|------------------------|-----|---|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) |[<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) 
 
 Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
 
