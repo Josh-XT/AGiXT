@@ -256,22 +256,21 @@ class AgentLLM:
             except:
                 this_task_id = 2
         this_task_name = task["task_name"]
-        if this_task_name == "":
-            return self.execute_next_task()
-        self.response = self.execution_agent(self.primary_objective, this_task_name, this_task_id)
-        new_tasks = self.task_creation_agent(
-            self.primary_objective,
-            { "data": self.response },
-            this_task_name,
-            [t["task_name"] for t in self.task_list],
-        )
-        task_id_counter = this_task_id
-        for new_task in new_tasks:
-            task_id_counter += 1
-            new_task.update({"task_id": task_id_counter})
-            self.task_list.append(new_task)
-        self.prioritization_agent(this_task_id)
-        return task
+        if this_task_name != "":
+            self.response = self.execution_agent(self.primary_objective, this_task_name, this_task_id)
+            new_tasks = self.task_creation_agent(
+                self.primary_objective,
+                { "data": self.response },
+                this_task_name,
+                [t["task_name"] for t in self.task_list],
+            )
+            task_id_counter = this_task_id
+            for new_task in new_tasks:
+                task_id_counter += 1
+                new_task.update({"task_id": task_id_counter})
+                self.task_list.append(new_task)
+            self.prioritization_agent(this_task_id)
+            return task
 
     def stop_running(self):
         self.running = False
@@ -287,6 +286,7 @@ class AgentLLM:
                 self.update_output_list(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
                 break
+
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
