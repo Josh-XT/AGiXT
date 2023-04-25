@@ -117,7 +117,7 @@ mv .env.example .env
 3. Run the following Docker command in the folder with your `.env` file:
 
 ```
-docker compose up -d
+docker compose up -d --build
 ```
 
 4. Access the web interface at http://localhost
