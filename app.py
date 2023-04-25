@@ -157,20 +157,18 @@ async def toggle_command(agent_name: str, payload: ToggleCommandPayload) -> Resp
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
 async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
     if agent_name not in agent_instances:
-        agent_instance = agent_instances[agent_name]
-        agent_instance.set_objective(objective.objective)
-        agent_thread = threading.Thread(target=agent_instance.run_task)
+        agent_instances[agent_name] = AgentLLM(agent_name)
+        agent_instances[agent_name].set_objective(objective.objective)
+        agent_thread = threading.Thread(target=agent_instances[agent_name].run_task)
         agent_thread.start()
         return ResponseMessage(message="Task agent started")
     else:
-        agent_instance = agent_instances[agent_name]
-        agent_instance.stop_running()
+        agent_instances[agent_name].stop_running()
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str, objective: str = None) -> TaskOutput:
-    if agent_name not in agent_instances:
-        raise HTTPException(status_code=404, detail="Task agent not found")
-    agent_instance = agent_instances[agent_name]
+    agent_instance = AgentLLM(agent_name)
+    agent_instances[agent_name] = agent_instance
     output = CFG.get_task_output(agent_name, primary_objective=objective)
     if agent_instance.get_status():
         return TaskOutput(output=output, message="Task agent is still running")
@@ -180,8 +178,7 @@ async def get_task_output(agent_name: str, objective: str = None) -> TaskOutput:
 async def get_task_status(agent_name: str):
     if agent_name not in agent_instances:
         return {"status": False}
-    agent_instance = agent_instances[agent_name]
-    status = agent_instance.get_status()
+    status = agent_instances[agent_name].get_status()
     return {"status": status}
 
 @app.get("/api/chain", tags=["Chain"])
