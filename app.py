@@ -170,7 +170,7 @@ async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMe
 async def get_task_output(agent_name: str, objective: str = None) -> TaskOutput:
     agent_instance = AgentLLM(agent_name)
     agent_instances[agent_name] = agent_instance
-    output = CFG.get_task_output(agent_name, primary_objective=objective)
+    output = agent_instances[agent_name].get_output_list()
     if agent_instance.get_status():
         return TaskOutput(output=output, message="Task agent is still running")
     return TaskOutput(output=output)

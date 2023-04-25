@@ -43,7 +43,11 @@ class AgentLLM:
         self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
         self.running = False
+        self.output_list = []
 
+    def get_output_list(self):
+        return self.output_list
+    
     def get_agent_commands(self) -> List[str]:
         return self.commands.get_available_commands()
 
@@ -146,6 +150,7 @@ class AgentLLM:
 
     def update_output_list(self, output):
         self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
+        self.output_list.append(output)
 
     def display_objective_and_initial_task(self):
         self.update_output_list(f"Objective: {self.primary_objective}")
