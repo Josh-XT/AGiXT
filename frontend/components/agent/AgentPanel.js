@@ -17,6 +17,7 @@ export default function AgentPanel() {
   const tabs = [
     <AgentChat key="chat" />,
     <AgentInstruct key="instruct" />,
+    <AgentObjective key="objective" />,
     <AgentAdmin key="admin" />
   ];
   return (
@@ -24,6 +25,7 @@ export default function AgentPanel() {
       <Tabs value={tab} onChange={handleTabChange} sx={{ mb: "0.5rem" }}>
         <Tab label="Chat With Agent" />
         <Tab label="Instruct Agent" />
+        <Tab label="Set Agent Objective" />
         <Tab label="Administrate Agent" />
       </Tabs>
       {tabs[tab]}
