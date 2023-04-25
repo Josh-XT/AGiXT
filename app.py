@@ -167,13 +167,13 @@ async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMe
         return ResponseMessage(message="Task agent stopped")
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
-async def get_task_output(agent_name: str, objective: str = None) -> TaskOutput:
+async def get_task_output(agent_name: str) -> TaskOutput:
     agent_instance = AgentLLM(agent_name)
     agent_instances[agent_name] = agent_instance
     output = agent_instances[agent_name].get_output_list()
     if agent_instance.get_status():
         return TaskOutput(output=output, message="Task agent is still running")
-    return TaskOutput(output=output)
+    return TaskOutput(output=f"{output}")
 
 @app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
 async def get_task_status(agent_name: str):
