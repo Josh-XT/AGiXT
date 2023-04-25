@@ -112,8 +112,8 @@ class Config():
     def get_providers(self):
         providers = []
         for provider in glob.glob("provider/*.py"):
-            if provider != "provider/__init__.py":
-                providers.append(provider.replace("provider/", "").replace(".py", ""))
+            if "__init__.py" not in provider:
+                providers.append(os.path.splitext(os.path.basename(provider))[0])
         return providers
 
     def create_agent_folder(self, agent_name):
