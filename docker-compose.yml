@@ -1,7 +1,9 @@
 version: "3.8"
 services:
   frontend:
-    image: ghcr.io/josh-xt/agent-llm-frontend:v1.0.8
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "80:3000"
     environment:
@@ -11,8 +13,10 @@ services:
     depends_on:
       - backend
   backend:
-    image: ghcr.io/josh-xt/agent-llm-backend:v1.0.8
+    build:
+      context: .
+      dockerfile: Dockerfile-backend
     ports:
-      - "5000:5000"
+      - "5001:5000"
     env_file:
       - .env
