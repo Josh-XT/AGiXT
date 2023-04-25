@@ -284,6 +284,7 @@ class Config():
         print(agent_name)
         print(primary_objective)
         if primary_objective is None:
+            # TODO: Generating a random UUID on a load won't really accomplish anything. Should just return.
             primary_objective = str(uuid.uuid4())
         task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
         if os.path.exists(task_output_file):
