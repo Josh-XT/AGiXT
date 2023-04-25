@@ -280,26 +280,33 @@ class Config():
         with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
             json.dump(config, agent_config)
 
-    def get_task_output(self, agent_name, task_id=None):
-        if task_id is None:
-            # Get the latest task
-            task_id = sorted(os.listdir(os.path.join("agents", agent_name, "tasks")))[-1].replace(".txt", "")
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
+    def get_task_output(self, agent_name, primary_objective=None):
+        if primary_objective is None:
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
         if os.path.exists(task_output_file):
             with open(task_output_file, "r") as f:
                 task_output = f.read()
         else:
             task_output = ""
-        return task_output
+        return task_output        
     
-    def save_task_output(self, agent_name, task_output, task_id=None):
-        if task_id is None:
-            task_id = str(uuid.uuid4())
-        if not os.path.exists(os.path.join("agents", agent_name, "tasks")):
+    def save_task_output(self, agent_name, task_output, primary_objective=None):
+        # Check if agents/{agent_name}/tasks/task_name.txt exists
+        # If it does, append to it
+        # If it doesn't, create it
+        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{task_id}.txt")
-        with open(task_output_file, "w") as f:
-            f.write(task_output)
+        if primary_objective is None:
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
+        if os.path.exists(task_output_file):
+            with open(task_output_file, "a") as f:
+                f.write(task_output)
+        else:
+            with open(task_output_file, "w") as f:
+                f.write(task_output)
+        return task_output
     
     def get_chains(self):
         chains = os.listdir("chains")
