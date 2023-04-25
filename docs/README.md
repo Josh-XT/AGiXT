@@ -1,29 +1,36 @@
-# Agent-LLM
+# Agent-LLM (Large Language Model)
 
-Agent-LLM is an Artificial Intelligence Automation Platform designed for efficient AI instruction management across multiple providers. Equipped with adaptive memory, this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to cater to diverse applications.
+Agent-LLM is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers. Our agents are equipped with adaptive memory, and this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to empower diverse applications.
 
-[<img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png" height="70" style="margin: 0 10px">](https://discord.gg/vfXjyuKZ)[<img src="https://img.freepik.com/free-icon/twitter_318-674515.jpg" height="70" style="margin: 0 10px">](https://twitter.com/Josh_XT)[<img src="https://qph.cf2.quoracdn.net/main-qimg-729a22aba98d1235fdce4883accaf81e" height="70" style="margin: 0 10px">](https://github.com/Josh-XT/Agent-LLM)
-
-⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs.  We're NOT responsible for your usage under any circumstance.**
-
-
-⚠️ **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
-
-## Screenshot and Video
 ![image](https://user-images.githubusercontent.com/102809327/233758245-94535c01-d4e8-4f9c-9b1c-244873361c85.png)
 
-From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
+## Project Links 🌐
 
-## ⚠️ Run this in Docker or a Virtual Machine!
+| GitHub                    | Discord |
+|-----------------------------------|-------------------------|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) |
 
-You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
 
-## Table of Contents
+## Our Team 🧑‍💻
+| Josh (@JoshXT)                    | James (@JamesonRGrieve) | 
+|-----------------------------------|-----------------------------------|
+| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
+
+
+## ⚠️ Warnings ⚠️ 
+- **Please note that using some AI providers (such as OpenAI's GPT API) can be expensive!** Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
+- **Run this in Docker or a Virtual Machine!** You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
+- **This project is under active development and may still have issues.** We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
+
+
+## Table of Contents 📖
 
 - [Agent-LLM](#agent-llm)
-  - [Screenshot and Video](#screenshot-and-video)
-  - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
-  - [Table of Contents](#table-of-contents)
+  - [Project Links 🌐](#project-links-🌐)
+  - [Our Team 🧑‍💻](#our-team-🧑‍💻)
+  - [⚠️ Warnings ⚠️](#⚠️-warnings-⚠️)
+  - [Table of Contents 📖](#table-of-contents-📖)
+  - [Media ⏯️](#media-⏯️)
   - [Key Features](#key-features)
   - [Web Application Features](#web-application-features)
   - [Quick Start](#quick-start)
@@ -38,6 +45,12 @@ You're welcome to disregard this message, but if you do and the AI decides that 
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Usage](#usage)
+
+## Media ⏯️
+
+### Video
+- From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [Agent LLM: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
+
 
 ## Key Features
 
