@@ -4,8 +4,10 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends git build-essential
+RUN apt-get install g++ -y
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
+pip install --force-reinstall --no-cache-dir hnswlib
 RUN apt-get remove -y git build-essential
 RUN apt-get install libgomp1 -y
 RUN apt-get install git -y
