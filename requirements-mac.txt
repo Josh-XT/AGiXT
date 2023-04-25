@@ -33,3 +33,4 @@ tiktoken
 tweepy
 undetected-chromedriver==3.1.7
 webdriver_manager
+spacy
