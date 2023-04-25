@@ -281,7 +281,8 @@ class AgentLLM:
         self.add_initial_task()
         while not stop_event.is_set():
             task = self.execute_next_task()
-            self.display_result(task)
+            if task is not None:
+                self.display_result(task)
             if not self.task_list:
                 self.update_output_list(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
