@@ -2,8 +2,8 @@ import importlib
 import secrets
 import string
 import argparse
-import time
 import re
+import spacy
 from collections import deque
 from typing import List, Dict
 import chromadb
@@ -11,13 +11,19 @@ from chromadb.utils import embedding_functions
 from Config import Config
 from commands.web_requests import web_requests
 from Commands import Commands
-
+import spacy
+from spacy.cli import download
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    print("Downloading spacy model...")
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 class AgentLLM:
     def __init__(self, agent_name: str = "default", primary_objective=None):
         self.CFG = Config(agent_name)
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initialize_task_list()
-        # TODO: Put loading of agent commands into Commands.__init__()
         self.commands = Commands(agent_name)
         self.available_commands = self.get_agent_commands()
         self.web_requests = web_requests()
@@ -55,7 +61,7 @@ class AgentLLM:
         trimmed_context = []
         total_tokens = 0
         for item in context:
-            item_tokens = len(item.split())  # Assuming words as tokens, adjust as needed
+            item_tokens = len(nlp(item))
             if total_tokens + item_tokens <= max_tokens:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
@@ -64,15 +70,15 @@ class AgentLLM:
         return trimmed_context
 
     def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
-        if not self.CFG.NO_MEMORY:
+        if self.CFG.NO_MEMORY:
+            prompt = task
+        else:
             self.CFG.log_interaction("USER", task)
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
-        else:
-            prompt = task
         self.response = self.instruct(prompt)
-        if self.CFG.NO_MEMORY:
+        if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
         # Check if any commands are in the response and execute them with their arguments if so
@@ -113,11 +119,11 @@ class AgentLLM:
             else:
                 self.collection.add(ids=result_id, documents=result, metadatas={"task": task_name, "result": result})
 
-    def context_agent(self, query: str, top_results_num: int, long_term_access: bool) -> List[str]:
+    def context_agent(self, query: str, top_results_num: int, long_term_access: bool = False) -> List[str]:
         if long_term_access:
             interactions = self.CFG.memory["interactions"]
             context = [interaction["message"] for interaction in interactions[-top_results_num:]]
-            context = self.chunk_content("\n\n".join(context))[:top_results_num]
+            context = self.chunk_content("\n\n".join(context))[-top_results_num:]
         else:
             count = self.collection.count()
             if count == 0:
@@ -133,10 +139,19 @@ class AgentLLM:
 
     def chunk_content(self, content: str, max_length: int = 500) -> List[str]:
         content_chunks = []
-        content_length = len(content)
-        for i in range(0, content_length, max_length):
-            chunk = content[i:i + max_length]
-            content_chunks.append(chunk)
+        doc = nlp(content)
+        length = 0
+        chunk = []
+        for sent in doc.sents:
+            if length + len(sent) <= max_length:
+                chunk.append(sent.text)
+                length += len(sent)
+            else:
+                content_chunks.append(" ".join(chunk))
+                chunk = [sent.text]
+                length = len(sent)
+        if chunk:
+            content_chunks.append(" ".join(chunk))
         return content_chunks
 
     def set_agent_name(self, agent_name):
@@ -155,83 +170,7 @@ class AgentLLM:
     def set_objective(self, new_objective):
         self.primary_objective = new_objective
 
-    def run_task(self, stop_event):  # Main loop
-        # Add the first task
-        self.task_list = []
-        self.stop_running_event = stop_event
-        task = self.primary_objective
-        # While stop endpoint has not been fired.
-        while not stop_event.is_set():
-            # Execution Agent runs the next task.
-            task = self.execute_next_task()
-            if task is not None:
-                print("Done task.")
-                if not self.task_list:
-                    self.update_output_list("All tasks complete.")
-                    break
-            else:
-                print("Aborted.")
-            
-
-    def execute_next_task(self):
-        if not self.task_list:
-            task = {"task_id": 0, "task_name": "Develop a task list."}
-        else:
-             task = self.task_list.popleft()
-        this_task_id = task["task_id"]
-        # Deal with prospective hallucinations.
-        if type(this_task_id) != int:
-            this_task_id = ''.join(re.findall(r'\d+', this_task_id))
-            try:
-                this_task_id = int(this_task_id)
-            except:
-                this_task_id = 2
-        # Load the task.
-        this_task_name = task["task_name"]
-        if this_task_name != "":
-            # Initial loop, creates large goals.
-            if not self.stop_running_event.is_set():
-                self.response = self.execution_agent(this_task_name, this_task_id)
-            # Iniail loop, creates sub-goals.
-            if not self.stop_running_event.is_set():
-                new_tasks = self.task_creation_agent(
-                    { "data": self.response },
-                    this_task_name,
-                    [t["task_name"] for t in self.task_list],
-                )
-            if not self.stop_running_event.is_set():
-                task_id_counter = this_task_id
-                for new_task in new_tasks:
-                    task_id_counter += 1
-                    new_task.update({"task_id": task_id_counter})
-                    self.task_list.append(new_task)
-                self.prioritization_agent(this_task_id)
-                return task
-            return None
-        # We didn't have a task description, but we had a task ID... Somehow.
-        else:
-            return None
-
-    def execution_agent(self, task, task_id):
-        prompt = self.CFG.EXECUTION_PROMPT
-        # Prompt Engineering - Objective
-        prompt = prompt.replace("{objective}", self.primary_objective)
-        # Prompt Engineering - Task
-        prompt = prompt.replace("{task}", task)
-        # Prompt Engineering - Commands
-        friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
-        if task_id == 0 or len(self.available_commands) == 0:
-            prompt = prompt.replace("{COMMANDS}", "No commands.")
-        else:
-            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
-        self.update_output_list(f"\n\nExecution Agent Task:\n"+f"{task_id}: {task}")
-        #self.update_output_list(f"Execution Agent Prompt:\n"+f"{prompt}")
-        # Run the Prompt
-        self.response = self.run(prompt)
-        self.update_output_list(f"\nExecution Agent Response:\n{self.response}")
-        return self.response
-
-    def task_creation_agent(self, result: Dict, task_description: str, task_list: List[str]):
+    def task_creation_agent(self, result: Dict, task_description: str, task_list: List[str]) -> List[Dict]:
         prompt = self.CFG.TASK_PROMPT
         # Prompt Engineering - Objective
         prompt = prompt.replace("{objective}", self.primary_objective)
@@ -241,17 +180,13 @@ class AgentLLM:
         prompt = prompt.replace("{task_description}", task_description)
         # Prompt Engineering - Task List
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
-        #self.update_output_list(f"Task Creation Agent Prompt:\n"+f"{prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"\n\nTask Creation Agent Response:\n{response}")
-        if response is None:
-            return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
         return [{"task_name": task_name} for task_name in new_tasks]
 
-    def prioritization_agent(self, this_task_id: int = 1):
+    def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
-        next_task_id = this_task_id + 1
+        next_task_id = len(self.task_list) + 1
         prompt = self.CFG.PRIORITY_PROMPT
         # Prompt Engineering - Objective
         prompt = prompt.replace("{objective}", self.primary_objective)
@@ -259,9 +194,7 @@ class AgentLLM:
         prompt = prompt.replace("{next_task_id}", str(next_task_id))
         # Prompt Engineering - Task Names
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
-        #self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"\n\nPrioritization Agent Response:\n{response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
@@ -270,7 +203,44 @@ class AgentLLM:
                 task_id = task_parts[0].strip()
                 task_name = task_parts[1].strip()
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
-        #self.update_output_list(f"Task List:\n{self.task_list}")
+
+    def execution_agent(self, task: str, task_id: int) -> str:
+        context = self.context_agent(query=f"{self.primary_objective} {task}", top_results_num=5)
+        prompt = self.CFG.EXECUTION_PROMPT
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Task
+        prompt = prompt.replace("{task}", task)
+        # Prompt Engineering - Context
+        prompt = prompt.replace("{context}", "\n".join(context))
+        # Prompt Engineering - Commands
+        friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
+        if task_id == 0 or len(self.available_commands) == 0:
+            prompt = prompt.replace("{COMMANDS}", "No commands.")
+        else:
+            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
+        return self.run(prompt)
+
+    def run_task(self, stop_event):
+        self.update_output_list(f"Starting task with objective: {self.primary_objective}.\n\n")
+        if len(self.task_list) == 0:
+            self.task_list.append({"task_id": 1, "task_name": "Develop a task list."})
+        self.stop_running_event = stop_event
+        while not stop_event.is_set():
+            if self.task_list == []:
+                break
+            if len(self.task_list) > 0:
+                task = self.task_list.popleft()
+            self.update_output_list(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
+            result = self.execution_agent(task["task_name"], task["task_id"])
+            self.update_output_list(f"\nTask Result:\n\n{result}\n")
+            new_tasks = self.task_creation_agent({"data": result}, task["task_name"], [t["task_name"] for t in self.task_list])
+            self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
+            for new_task in new_tasks:
+                new_task.update({"task_id": len(self.task_list) + 1})
+                self.task_list.append(new_task)
+            self.prioritization_agent()
+        self.update_output_list("All tasks completed or stopped.")
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
