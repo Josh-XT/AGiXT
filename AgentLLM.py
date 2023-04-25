@@ -54,7 +54,7 @@ class AgentLLM:
         trimmed_context = []
         total_tokens = 0
         for item in context:
-            item_tokens = len(item.split())  # Assuming words as tokens, adjust as needed
+            item_tokens = len(nlp(item))
             if total_tokens + item_tokens <= max_tokens:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
@@ -132,10 +132,19 @@ class AgentLLM:
 
     def chunk_content(self, content: str, max_length: int = 500) -> List[str]:
         content_chunks = []
-        content_length = len(content)
-        for i in range(0, content_length, max_length):
-            chunk = content[i:i + max_length]
-            content_chunks.append(chunk)
+        doc = nlp(content)
+        length = 0
+        chunk = []
+        for sent in doc.sents:
+            if length + len(sent) <= max_length:
+                chunk.append(sent.text)
+                length += len(sent)
+            else:
+                content_chunks.append(" ".join(chunk))
+                chunk = [sent.text]
+                length = len(sent)
+        if chunk:
+            content_chunks.append(" ".join(chunk))
         return content_chunks
 
     def set_agent_name(self, agent_name):
@@ -155,12 +164,15 @@ class AgentLLM:
         self.primary_objective = new_objective
 
     def task_creation_agent(self, result: Dict, task_description: str, task_list: List[str]) -> List[Dict]:
-        prompt = f"""
-        You are a task creation AI that uses the result of an execution agent to create new tasks with the following objective: {self.primary_objective},
-        The last completed task has the result: {result}.
-        This result was based on this task description: {task_description}. These are incomplete tasks: {', '.join(task_list)}.
-        Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks.
-        Return the tasks as an array."""
+        prompt = self.CFG.TASK_PROMPT
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Result
+        prompt = prompt.replace("{result}", str(result))
+        # Prompt Engineering - Task Description
+        prompt = prompt.replace("{task_description}", task_description)
+        # Prompt Engineering - Task List
+        prompt = prompt.replace("{tasks}", ", ".join(task_list))
         response = self.run(prompt, commands_enabled=False)
         new_tasks = response.split("\n") if "\n" in response else [response]
         return [{"task_name": task_name} for task_name in new_tasks]
@@ -168,13 +180,13 @@ class AgentLLM:
     def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
         next_task_id = len(self.task_list) + 1
-        prompt = f"""
-        You are a task prioritization AI tasked with cleaning the formatting of and re-prioritizing the following tasks: {task_names}.
-        Consider the ultimate objective of your team:{self.primary_objective}.
-        Do not remove any tasks. Return the result as a numbered list, like:
-        #. First task
-        #. Second task
-        Start the task list with number {next_task_id}."""
+        prompt = self.CFG.PRIORITY_PROMPT
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Task ID
+        prompt = prompt.replace("{next_task_id}", str(next_task_id))
+        # Prompt Engineering - Task Names
+        prompt = prompt.replace("{task_names}", ", ".join(task_names))
         response = self.run(prompt, commands_enabled=False)
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
@@ -186,11 +198,20 @@ class AgentLLM:
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
 
     def execution_agent(self, task: str, task_id: int) -> str:
-        context = self.context_agent(query=self.primary_objective, top_results_num=5)
-        prompt = f"""
-        You are an AI who performs one task based on the following objective: {self.primary_objective}\n.
-        Take into account these previously completed tasks: {context}\n.
-        Your task: {task}\nResponse:"""
+        context = self.context_agent(query=f"{self.primary_objective} {task}", top_results_num=5)
+        prompt = self.CFG.EXECUTION_PROMPT
+        # Prompt Engineering - Objective
+        prompt = prompt.replace("{objective}", self.primary_objective)
+        # Prompt Engineering - Task
+        prompt = prompt.replace("{task}", task)
+        # Prompt Engineering - Context
+        prompt = prompt.replace("{context}", "\n".join(context))
+        # Prompt Engineering - Commands
+        friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
+        if task_id == 0 or len(self.available_commands) == 0:
+            prompt = prompt.replace("{COMMANDS}", "No commands.")
+        else:
+            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         return self.run(prompt)
 
     def run_task(self, stop_event):
