@@ -419,10 +419,11 @@ class Config():
         return prompt
     
     def get_prompts(self):
-        # Create the path if it doesn't exist
-        if not os.path.exists("prompts"):
-            os.mkdir("prompts")
-        prompts = os.listdir("prompts")
+        # Get all files in prompts folder that end in .txt and replace .txt with empty string
+        prompts = []
+        for file in os.listdir("prompts"):
+            if file.endswith(".txt"):
+                prompts.append(file.replace(".txt", ""))
         return prompts
     
     def delete_prompt(self, prompt_name):
