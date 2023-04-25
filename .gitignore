@@ -19,5 +19,3 @@ WORKSPACE/*
 *.util.py
 agents/*
 src/*
-yarn.lock
-package-lock.json
