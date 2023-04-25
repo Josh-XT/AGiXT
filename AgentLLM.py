@@ -270,7 +270,7 @@ class AgentLLM:
                 task_id = task_parts[0].strip()
                 task_name = task_parts[1].strip()
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
-        self.update_output_list(f"Task List:\n{self.task_list}")
+        #self.update_output_list(f"Task List:\n{self.task_list}")
 
     def run_chain_step(self, agent_name, step_data):
         for prompt_type, prompt in step_data.items():
