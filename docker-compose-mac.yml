@@ -7,7 +7,7 @@ services:
     ports:
       - "80:3000"
     environment:
-      NEXT_PUBLIC_API_URI: http://backend:5001
+      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:5001}
     env_file:
       - .env
     depends_on:
