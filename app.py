@@ -11,6 +11,7 @@ from typing import Optional, Dict, List
 CFG = Config()
 app = FastAPI()
 agent_instances = CFG.agent_instances
+agent_threads = {}
 
 app.add_middleware(
     CORSMiddleware,
@@ -160,10 +161,14 @@ async def toggle_task_agent(agent_name: str, objective: Objective) -> ResponseMe
         agent_instances[agent_name] = AgentLLM(agent_name)
         agent_instances[agent_name].set_objective(objective.objective)
         agent_thread = threading.Thread(target=agent_instances[agent_name].run_task)
+        agent_threads[agent_name] = agent_thread
         agent_thread.start()
         return ResponseMessage(message="Task agent started")
     else:
         agent_instances[agent_name].stop_running()
+        agent_threads[agent_name].stop()
+        del agent_instances[agent_name]
+        del agent_threads[agent_name]
         return ResponseMessage(message="Task agent stopped")
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
