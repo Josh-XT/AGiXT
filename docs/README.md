@@ -134,7 +134,7 @@ docker-compose -f docker-compose-mac.yml up -d --build
 ### Not using OpenAI? No problem!
 We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
 
-**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#⚠️-warnings-⚠️)
 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
 2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
@@ -167,7 +167,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (swagger) or http://localhost:5000/redoc (Redoc).
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (Swagger) or http://localhost:5000/redoc (Redoc).
 
 ## Extending Functionality
 
@@ -178,6 +178,8 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The application is compatible with OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. To support additional providers, create a new Python file in the `provider` folder and implement the required functionality.
+
+**Coming Soon: Any providers defined in the `.env` file will be usable on different agents in the application and will not need to be manually switched.**
 
 ## Acknowledgments
 
@@ -190,10 +192,10 @@ Please consider exploring and contributing to these projects as well.
 
 ## Contributing
 
-We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@Josh_XT](https://twitter.com/Josh_XT) on Twitter.
+We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@JostXT](https://twitter.com/JostXT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
 
 ## Donations and Sponsorships
-We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@Josh_XT](https://twitter.com/Josh_XT).
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 
