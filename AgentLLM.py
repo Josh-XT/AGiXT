@@ -224,11 +224,11 @@ class AgentLLM:
             prompt = prompt.replace("{COMMANDS}", "No commands.")
         else:
             prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
-        self.update_output_list(f"Execution Agent Task:\n"+f"{task_id}: {task}")
+        self.update_output_list(f"\n\nExecution Agent Task:\n"+f"{task_id}: {task}")
         #self.update_output_list(f"Execution Agent Prompt:\n"+f"{prompt}")
         # Run the Prompt
         self.response = self.run(prompt)
-        self.update_output_list(f"Response:\n{self.response}")
+        self.update_output_list(f"\nExecution Agent Response:\n{self.response}")
         return self.response
 
     def task_creation_agent(self, result: Dict, task_description: str, task_list: List[str]):
@@ -243,7 +243,7 @@ class AgentLLM:
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
         #self.update_output_list(f"Task Creation Agent Prompt:\n"+f"{prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"Task Creation Agent Response:\n{response}")
+        self.update_output_list(f"\n\nTask Creation Agent Response:\n{response}")
         if response is None:
             return []  # Return an empty list when the response is None
         new_tasks = response.split("\n") if "\n" in response else [response]
@@ -261,7 +261,7 @@ class AgentLLM:
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
         #self.update_output_list(f"Prioritization Agent Prompt: {prompt}")
         response = self.run(prompt, commands_enabled=False)
-        self.update_output_list(f"Prioritization Agent Response: {response}")
+        self.update_output_list(f"\n\nPrioritization Agent Response: {response}")
         new_tasks = response.split("\n") if "\n" in response else [response]
         self.task_list = deque()
         for task_string in new_tasks:
