@@ -13,7 +13,7 @@ from commands.web_requests import web_requests
 from Commands import Commands
 
 class AgentLLM:
-    def __init__(self, primary_objective=None, initial_task=None, agent_name: str = "default"):
+    def __init__(self, agent_name: str = "default", primary_objective=None):
         self.CFG = Config(agent_name)
         self.primary_objective = self.CFG.OBJECTIVE if primary_objective == None else primary_objective
         self.initialize_task_list()
