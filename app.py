@@ -169,8 +169,6 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
         return ResponseMessage(message="Task agent started")
     else:
         agent_stop_events[agent_name].set()
-        agent_threads[agent_name].join()
-        agent_instances[agent_name].stop_running()
         del agent_instances[agent_name]
         del agent_threads[agent_name]
         del agent_stop_events[agent_name]

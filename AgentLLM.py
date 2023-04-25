@@ -280,19 +280,12 @@ class AgentLLM:
         # Add the first task
         task = self.primary_objective
         self.add_initial_task()
-        self.running = True
-        while self.running:
-            self.running = self.get_status()
+        while not stop_event.is_set():
             task = self.execute_next_task()
             self.display_result(task)
             if not self.task_list:
                 self.update_output_list(f"\n\nAll tasks complete.")
                 print("\033[91m\033[1m" + "\n*****ALL TASKS COMPLETE*****\n" + "\033[0m\033[0m")
-                break
-
-            # Check if the stop_event is set before continuing the loop
-            if stop_event.wait(timeout=0.5):
-                self.running = False
                 break
 
     def run_chain_step(self, agent_name, step_data):
