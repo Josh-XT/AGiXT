@@ -70,7 +70,10 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
+    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True, instruction: bool = False):
+        if instruction:
+            with open("prompts/Instruction.txt", "r") as f:
+                task = f"{f.read()}\n\n{task}"
         if self.CFG.NO_MEMORY:
             prompt = task
         else:
