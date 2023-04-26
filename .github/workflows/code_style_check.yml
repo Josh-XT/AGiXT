@@ -22,6 +22,9 @@ jobs:
         with:
           node-version: 14
 
+      - name: Upgrade pip
+        run: pip install --upgrade pip
+
       - name: Install Python dependencies
         run: pip install black nb-black
 
