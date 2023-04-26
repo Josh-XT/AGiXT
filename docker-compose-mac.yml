@@ -7,7 +7,7 @@ services:
     ports:
       - "80:3000"
     environment:
-      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:5001}
+      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     env_file:
       - .env
     depends_on:
@@ -17,6 +17,6 @@ services:
       context: .
       dockerfile: Dockerfile-mac-backend
     ports:
-      - "5001:5000"
+      - "7437:7437"
     env_file:
       - .env
