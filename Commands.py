@@ -23,7 +23,7 @@ class Commands:
     def get_available_commands(self):
         available_commands = []
         for command in self.commands:
-            friendly_name, command_name, command_args = command
+            friendly_name, command_module, command_name, command_args = command
             if (
                 "commands" in self.agent_config
                 and friendly_name in self.agent_config["commands"]
