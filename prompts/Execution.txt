@@ -18,8 +18,10 @@ REASONING: The reasoning behind your responses.
 
 PLAN: Your plan for achieving the task.
 
-CRITICISM: Your critism of the thoughts, reasoning, and plan.
+CRITICISM: Your criticism of the thoughts, reasoning, and plan.
 
-COMMANDS: If you choose to use any commands, list them and their inputs where necessary.  List the commands in the order that they need to be executed with the format being command_name(args). Do not explain, just list the command_name(args).
+RESPONSE: Your response to the task.
+
+COMMANDS: If you choose to use any commands, list them and their inputs where necessary.  List the commands in the order that they need to be executed with the format being command_name(args). DO NOT EXPLAIN THE COMMANDS PURPOSES, THIS IS NOT A CONVERSATION, THESE ARE INSTRUCTIONS. If you choose to use no commands, simply say "None."
 
 Response: 

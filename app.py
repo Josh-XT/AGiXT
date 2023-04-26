@@ -123,7 +123,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 @app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
 async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=500, long_term_access=False)
+    response = agent.run(prompt.prompt, max_context_tokens=500, long_term_access=False, instruction=True)
     return {"response": str(response)}
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
