@@ -26,7 +26,10 @@ jobs:
         run: pip install black nbqa
 
       - name: Install JavaScript dependencies
-        run: npm install -g eslint
+        run: |
+          cd frontend
+          npm install
+          npm install -g eslint
 
       - name: Run Black on Python files
         run: black --check $(find . -type f -name "*.py")
