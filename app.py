@@ -273,4 +273,4 @@ async def update_prompt(prompt_name: str, prompt: Prompt) -> ResponseMessage:
         raise HTTPException(status_code=404, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=5000)
+    uvicorn.run(app, host="127.0.0.1", port=7437)
