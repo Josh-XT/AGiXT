@@ -3,6 +3,7 @@ from Config import Config
 
 CFG = Config()
 
+
 class AIProvider:
     def __init__(self):
         if CFG.AI_PROVIDER.lower() == "bard":
@@ -10,4 +11,4 @@ class AIProvider:
 
     def instruct(self, prompt):
         response = self.chatbot.ask(prompt)
-        return response['content'].replace("\n", "\n")
+        return response["content"].replace("\n", "\n")

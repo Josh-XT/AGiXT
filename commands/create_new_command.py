@@ -6,11 +6,10 @@ from AgentLLM import AgentLLM
 
 CFG = Config()
 
+
 class create_new_command(Commands):
     def __init__(self):
-        self.commands = {
-            "Create a new command": self.create_command
-        }
+        self.commands = {"Create a new command": self.create_command}
 
     def command_exists(self, file_name: str) -> bool:
         return os.path.exists(f"commands/{file_name}.py")

@@ -10,11 +10,10 @@ from Commands import Commands
 
 CFG = Config()
 
+
 class image_generator(Commands):
     def __init__(self):
-        self.commands = {
-            "Generate Image": self.generate_image
-        }
+        self.commands = {"Generate Image": self.generate_image}
 
     def generate_image(self, prompt: str) -> str:
         filename = f"{str(uuid.uuid4())}.jpg"
@@ -27,7 +26,9 @@ class image_generator(Commands):
             return "No Image Provider Set"
 
     def generate_image_with_hf(self, prompt: str, filename: str) -> str:
-        API_URL = "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
+        API_URL = (
+            "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
+        )
         if CFG.HUGGINGFACE_API_TOKEN is None:
             raise ValueError(
                 "You need to set your Hugging Face API token in the config file."

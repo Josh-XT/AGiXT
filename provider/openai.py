@@ -1,6 +1,9 @@
 import openai
 from Config import Config
+
 CFG = Config()
+
+
 class AIProvider:
     def __init__(self):
         openai.api_key = CFG.OPENAI_API_KEY

@@ -6,12 +6,13 @@ from Config import Config
 
 CFG = Config()
 
+
 class audio_text(Commands):
     def __init__(self):
         if CFG.HUGGINGFACE_API_KEY is not None:
             self.commands = {
                 "Read Audio from File": self.read_audio_from_file,
-                "Read Audio": self.read_audio
+                "Read Audio": self.read_audio,
             }
 
     def read_audio_from_file(self, audio_path: str):

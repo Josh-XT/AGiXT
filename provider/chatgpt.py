@@ -7,17 +7,18 @@ from Config import Config
 
 CFG = Config()
 
+
 class AIProvider:
     def __init__(self):
         self.head_count = 2
         self.head_responses = [[] for _ in range(self.head_count)]
         self.login_xq = '//button[//div[text()="Log in"]]'
         self.continue_xq = '//button[text()="Continue"]'
-        self.next_cq = 'prose'
-        self.button_tq = 'button'
+        self.next_cq = "prose"
+        self.button_tq = "button"
         self.done_xq = '//button[//div[text()="Done"]]'
-        self.chatbox_cq = 'text-base'
-        self.wait_cq = 'text-2xl'
+        self.chatbox_cq = "text-base"
+        self.wait_cq = "text-2xl"
         self.reset_xq = '//a[text()="New chat"]'
         options = uc.ChromeOptions()
         options.add_argument("--incognito")
@@ -29,7 +30,8 @@ class AIProvider:
         print("Login success!")
         for _ in range(self.head_count - 1):
             self.browser.execute_script(
-                '''window.open("https://chat.openai.com/chat","_blank");''')
+                """window.open("https://chat.openai.com/chat","_blank");"""
+            )
             time.sleep(1)
 
     def switch_to_tab(self, idx: int = 0):
@@ -53,8 +55,10 @@ class AIProvider:
             self.switch_to_tab(head)
             self.driver.reset_thread()
 
-    def start_conversation(self, text_1: str, text_2: str, use_response_1: bool= True):
-        assert len(self.head_responses) >= 2, "At least 2 heads is necessary for a conversation"
+    def start_conversation(self, text_1: str, text_2: str, use_response_1: bool = True):
+        assert (
+            len(self.head_responses) >= 2
+        ), "At least 2 heads is necessary for a conversation"
 
         f_response = self.interact(0, text_1)
         text_2 = text_2 + f_response if use_response_1 else text_2
@@ -65,7 +69,7 @@ class AIProvider:
 
         return f_response, s_response
 
-    def continue_conversation(self, text_1: str= None, text_2: str= None):
+    def continue_conversation(self, text_1: str = None, text_2: str = None):
         text_1 = text_1 or self.head_responses[1][-1]
 
         f_response = self.interact(0, text_1)
@@ -79,7 +83,7 @@ class AIProvider:
 
     def pass_verification(self):
         while self.check_login_page():
-            verify_button = self.browser.find_elements(By.ID, 'challenge-stage')
+            verify_button = self.browser.find_elements(By.ID, "challenge-stage")
             if len(verify_button):
                 try:
                     verify_button[0].click()
@@ -123,7 +127,9 @@ class AIProvider:
         done_button = next_button.find_elements(By.TAG_NAME, self.button_tq)[1]
         done_button.click()
 
-    def sleepy_find_element(self, by, query, attempt_count: int = 20, sleep_duration: int = 1):
+    def sleepy_find_element(
+        self, by, query, attempt_count: int = 20, sleep_duration: int = 1
+    ):
         for _ in range(attempt_count):
             item = self.browser.find_elements(by, query)
             if len(item) > 0:
@@ -141,7 +147,7 @@ class AIProvider:
         return
 
     def instruct(self, prompt: str):
-        text_area = self.browser.find_element(By.TAG_NAME, 'textarea')
+        text_area = self.browser.find_element(By.TAG_NAME, "textarea")
         for each_line in prompt.split("\n"):
             text_area.send_keys(each_line)
             text_area.send_keys(Keys.SHIFT + Keys.ENTER)

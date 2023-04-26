@@ -3,6 +3,7 @@ from typing import List, Optional
 from Commands import Commands
 from AgentLLM import AgentLLM
 
+
 class cicd(Commands):
     def __init__(self):
         self.commands = {
@@ -37,7 +38,9 @@ class cicd(Commands):
 
     def improve_code(self, suggestions: List[str], code: str) -> str:
         args = [json.dumps(suggestions), code]
-        function_string = "def generate_improved_code(suggestions: List[str], code: str) -> str:"
+        function_string = (
+            "def generate_improved_code(suggestions: List[str], code: str) -> str:"
+        )
         description_string = "Improves the provided code based on the suggestions provided, making no other changes."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
         return AgentLLM().run(prompt, commands_enabled=False)
@@ -52,6 +55,8 @@ class cicd(Commands):
     def run_ci_cd_pipeline(self, repo_url: str) -> str:
         args = [repo_url]
         function_string = "def run_pipeline(repo_url: str) -> str:"
-        description_string = "Runs the entire CI/CD pipeline for the given repository URL."
+        description_string = (
+            "Runs the entire CI/CD pipeline for the given repository URL."
+        )
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
         return AgentLLM().run(prompt, commands_enabled=False)
