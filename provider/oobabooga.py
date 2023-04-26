@@ -1,5 +1,4 @@
 import requests
-import json
 import random
 import re
 from Config import Config
