@@ -66,12 +66,11 @@ class Commands:
                         command_function,
                     ) in command_class.commands.items():
                         params = self.get_command_params(command_function)
+                        # Store the module along with the function name
                         commands.append(
-                            (command_name, command_function.__name__, params)
+                            (command_name, module, command_function.__name__, params)
                         )
-        if not commands:
-            # No commands imported for {module_name} due to missing configuration requirements.
-            return []
+        # Return the commands list
         return commands
 
     def get_command_params(self, func):
@@ -85,9 +84,9 @@ class Commands:
         return params
 
     def find_command(self, command_name: str):
-        for name, function_name, params in self.commands:
+        for name, module, function_name, params in self.commands:
             if name == command_name:
-                command_function = getattr(self, function_name)
+                command_function = getattr(module, function_name)
                 return command_function, params
         return None, None
 
