@@ -7,6 +7,8 @@ CFG = Config()
 class work_with_ai(Commands):
     def __init__(self):
         agents = CFG.get_agents()
+        if agents == None:
+            agents = []
         self.commands = {}
         for agent in agents:
             if "name" in agent:
