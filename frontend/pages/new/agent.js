@@ -9,10 +9,10 @@ import AgentList from '@/components/agent/AgentList';
 export default function Home() {
   const [name, setName] = useState("");
   const handleCreate = async () => {
-    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`, { agent_name: name });
+    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`, { agent_name: name });
     mutate("agent");
   }
-  const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:5000'}/api/agent`)).data.agents);
+  const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);
   return <DoubleSidedMenu title={"Add a New Agent"} leftHeading={"Agents"} leftSWR={agents} leftMenu={AgentList} rightHeading={null} rightSWR={null} rightMenu={null} content={() => <Container>
     <Typography variant='h6' component='h2' marginY={"1rem"}>
       Add a New Agent

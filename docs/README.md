@@ -166,7 +166,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:5000/docs (Swagger) or http://localhost:5000/redoc (Redoc).
+To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:7437/docs (Swagger) or http://localhost:7437/redoc (Redoc).
 
 ## Extending Functionality
 
