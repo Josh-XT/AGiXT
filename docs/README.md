@@ -50,6 +50,7 @@ This project is under active development and may still have issues. We appreciat
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Our Team 🧑‍💻](#our-team-)
   - [Acknowledgments](#acknowledgments)
+  - [History](#history)
 
 ## Media Coverage ⏯️
 
@@ -206,4 +207,5 @@ This project was inspired by and utilizes code from the following repositories:
 
 Please consider exploring and contributing to these projects as well.
 
+## History
 ![Star History Chart](https://api.star-history.com/svg?repos=Josh-XT/Agent-LLM&type=Dat)
