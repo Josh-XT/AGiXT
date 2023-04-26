@@ -1,6 +1,5 @@
 import os
 import os.path
-from pathlib import Path
 from typing import Generator, List
 from Commands import Commands
 from Config import Config
