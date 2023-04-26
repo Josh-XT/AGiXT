@@ -12,6 +12,7 @@ from Config import Config
 from commands.web_requests import web_requests
 from Commands import Commands
 import json
+from json.decoder import JSONDecodeError
 import spacy
 from spacy.cli import download
 try:
@@ -111,7 +112,13 @@ class AgentLLM:
                             # Parse arguments string into a dictionary
                             args_str = args_str.replace('\'', '"')
                             args_str = args_str.replace('None','null')
-                            command_args = json.loads(args_str)
+                            try:
+                                command_args = json.loads(args_str)
+                            except JSONDecodeError as e:
+                                # error parsing args, send command_name to None so trying to execute command won't crash
+                                command_name = None
+                                print(f"Error: {e}")
+                            
                     # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                     if command_name is not None:
                         for available_command in self.available_commands:
