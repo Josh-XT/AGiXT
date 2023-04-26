@@ -1,0 +1,41 @@
+name: Code Style Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 14
+
+      - name: Install Python dependencies
+        run: pip install black nbqa
+
+      - name: Install JavaScript dependencies
+        run: |
+          cd frontend
+          npm install
+          npm install -g eslint
+
+      - name: Run Black on Python files
+        run: black --check $(find . -type f -name "*.py")
+
+      - name: Run ESLint on JavaScript files
+        run: eslint .
+
+      - name: Run nbqa with Black on Jupyter Notebooks
+        run: nbqa black . --check
