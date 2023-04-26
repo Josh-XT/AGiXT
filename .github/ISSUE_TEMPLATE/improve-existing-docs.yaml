@@ -6,8 +6,6 @@ body:
   - type: markdown
     attributes:
       value: |
-        **HUBBERS!!** This is the github/docs open source repo. You may want to open an issue in the internal-only github/docs-content repo instead.
-
         * For questions, ask in [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&color=5865f2)](https://discord.gg/wEjgrzMbrm).
         * Before you file an issue read the [Contributing guide](./CONTRIBUTING.md).
         * Check to make sure someone hasn't already opened a similar [GitHub Issues](https://github.com/Josh-XT/Agent-LLM/issues).
