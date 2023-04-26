@@ -71,9 +71,6 @@ class AgentLLM:
         return trimmed_context
 
     def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True, instruction: bool = False):
-        if instruction:
-            with open("prompts/Instruction.txt", "r") as f:
-                task = f"{f.read()}\n\n{task}"
         if self.CFG.NO_MEMORY:
             prompt = task
         else:
@@ -81,6 +78,18 @@ class AgentLLM:
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
+        if instruction:
+            # Command and prompt injection for instruction mode
+            with open("prompts/Instruction.txt", "r") as f:
+                instruction_prompt = f.read()
+            if prompt == task:
+                prompt = f"{instruction_prompt}\n\nTask: {task}"
+            prompt = f"{instruction_prompt}\n\n{prompt}"
+            friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
+            if len(self.available_commands) == 0:
+                prompt = prompt.replace("{COMMANDS}", "No commands.")
+            else:
+                prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         self.response = self.instruct(prompt)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
@@ -104,7 +113,6 @@ class AgentLLM:
                             args_str = args_str.replace('\'', '"')
                             args_str = args_str.replace('None','null')
                             command_args = json.loads(args_str)
-                            
                     # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                     if command_name is not None:
                         for available_command in self.available_commands:
