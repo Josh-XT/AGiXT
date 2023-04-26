@@ -7,11 +7,12 @@ from playwright.sync_api import sync_playwright
 
 CFG = Config()
 
+
 class web_playwright(Commands):
     def __init__(self):
         self.commands = {
             "Scrape Text with Playwright": self.scrape_text,
-            "Scrape Links with Playwright": self.scrape_links
+            "Scrape Links with Playwright": self.scrape_links,
         }
 
     def scrape_text(self, url: str) -> str:
@@ -29,7 +30,9 @@ class web_playwright(Commands):
 
                 text = soup.get_text()
                 lines = (line.strip() for line in text.splitlines())
-                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                chunks = (
+                    phrase.strip() for line in lines for phrase in line.split("  ")
+                )
                 text = "\n".join(chunk for chunk in chunks if chunk)
 
             except Exception as e:
@@ -57,7 +60,9 @@ class web_playwright(Commands):
                     (link.text, urljoin(url, link["href"]))
                     for link in soup.find_all("a", href=True)
                 ]
-                formatted_links = [f"{link_text} ({link_url})" for link_text, link_url in hyperlinks]
+                formatted_links = [
+                    f"{link_text} ({link_url})" for link_text, link_url in hyperlinks
+                ]
 
             except Exception as e:
                 formatted_links = f"Error: {str(e)}"

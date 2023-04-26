@@ -21,11 +21,10 @@ from captcha_solver import CaptchaSolver
 FILE_DIR = Path(__file__).parent.parent
 CFG = Config()
 
+
 class web_selenium(Commands):
     def __init__(self):
-        self.commands = {
-            "Browse Website": self.browse_website
-        }
+        self.commands = {"Browse Website": self.browse_website}
 
     def browse_website(self, url: str, question: str) -> Tuple[str, WebDriver]:
         driver, text = self.scrape_text_with_selenium(url)
@@ -37,7 +36,10 @@ class web_selenium(Commands):
         if len(links) > 5:
             links = links[:5]
         self.close_browser(driver)
-        return f"Answer gathered from website: {summary_text} \n \n Links: {links}", driver
+        return (
+            f"Answer gathered from website: {summary_text} \n \n Links: {links}",
+            driver,
+        )
 
     def scrape_text_with_selenium(self, url: str) -> Tuple[WebDriver, str]:
         logging.getLogger("selenium").setLevel(logging.CRITICAL)
@@ -72,8 +74,8 @@ class web_selenium(Commands):
         # Check for captcha and solve it
         captcha_element = driver.find_element_by_css_selector('img[src^="/captcha/"]')
         if captcha_element:
-            captcha_image = captcha_element.get_attribute('src')
-            solver = CaptchaSolver('browser')
+            captcha_image = captcha_element.get_attribute("src")
+            solver = CaptchaSolver("browser")
             captcha_solution = solver.solve_captcha(captcha_image)
             captcha_input = driver.find_element_by_css_selector('input[name="captcha"]')
             captcha_input.send_keys(captcha_solution)

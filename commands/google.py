@@ -6,11 +6,12 @@ from Commands import Commands
 
 CFG = Config()
 
+
 class google(Commands):
     def __init__(self):
         self.commands = {
             "Google Search": self.google_search,
-            "Google Official Search": self.google_official_search
+            "Google Official Search": self.google_official_search,
         }
 
     def google_search(self, query: str, num_results: int = 8) -> str:
@@ -24,7 +25,9 @@ class google(Commands):
             search_results.append(j)
         return json.dumps(search_results, ensure_ascii=False, indent=4)
 
-    def google_official_search(self, query: str, num_results: int = 8) -> Union[str, List[str]]:
+    def google_official_search(
+        self, query: str, num_results: int = 8
+    ) -> Union[str, List[str]]:
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
 

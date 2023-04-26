@@ -8,11 +8,10 @@ import gtts
 
 CFG = Config()
 
+
 class voice(Commands):
     def __init__(self):
-        self.commands = {
-            "Speak with TTS": self.speak
-        }
+        self.commands = {"Speak with TTS": self.speak}
         self._mutex = Semaphore(1)
 
     def speak(self, text: str, engine: str = "gtts", voice_index: int = 0) -> bool:
@@ -34,7 +33,9 @@ class voice(Commands):
         return True
 
     def _brian_speech(self, text: str) -> bool:
-        tts_url = f"https://api.streamelements.com/kappa/v2/speech?voice=Brian&text={text}"
+        tts_url = (
+            f"https://api.streamelements.com/kappa/v2/speech?voice=Brian&text={text}"
+        )
         response = requests.get(tts_url)
 
         if response.status_code == 200:
@@ -52,7 +53,7 @@ class voice(Commands):
             "Content-Type": "application/json",
             "xi-api-key": CFG.ELEVENLABS_API_KEY,
         }
-        
+
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voices[voice_index]}"
         response = requests.post(tts_url, headers=headers, json={"text": text})
 
