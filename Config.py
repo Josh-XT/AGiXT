@@ -81,6 +81,9 @@ class Config():
         # SearXNG - List of these at https://searx.space/
         self.SEARXNG_INSTANCE_URL = os.getenv("SEARXNG_INSTANCE_URL", "https://searx.work")
 
+        # Discord
+        self.DISCORD_API_KEY = os.getenv("DISCORD_API_KEY")
+
         # Voice (Choose one: ElevenLabs, Brian, Mac OS)
         # Elevenlabs
         self.ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
