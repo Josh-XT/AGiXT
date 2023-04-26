@@ -10,13 +10,13 @@ The following is a set of guidelines for contributing to this repository. These 
 
 This section guides you through submitting a bug report for this project. Following these guidelines helps maintainers and the community understand your report, reproduce the behavior, and find related reports.
 
-- Use the [bug report template](./.github/ISSUE_TEMPLATE/bug-report.md) to create a new issue.
+- Use the [bug report template](./ISSUE_TEMPLATE/bug-report.md) to create a new issue.
 
 ### Suggesting Enhancements
 
 This section guides you through submitting an enhancement suggestion for this project, including completely new features and minor improvements to existing functionality. Following these guidelines helps maintainers and the community understand your suggestion and make decisions.
 
-- Use the [feature request template](./.github/ISSUE_TEMPLATE/feature-request.md) to create a new issue.
+- Use the [feature request template](./ISSUE_TEMPLATE/feature-request.md) to create a new issue.
 
 ### Pull Requests
 
@@ -25,7 +25,7 @@ This section guides you through submitting an enhancement suggestion for this pr
 3. If you've changed APIs, update the documentation.
 4. Ensure the test suite passes.
 5. Make sure your code follows the project's coding style (e.g., Black for Python code).
-6. Issue that pull request using the [pull request template](./.github/PULL_REQUEST_TEMPLATE/pull_request_template.yml)!
+6. Issue that pull request using the [pull request template](./PULL_REQUEST_TEMPLATE/pull_request_template.yml)!
 
 ## Styleguides
 
