@@ -1,0 +1,59 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for this project
+labels: ['enhancement']
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: '## :sparkles: Feature Request :sparkles:'
+  - type: input
+    id: title
+    attributes:
+      label: 'Title'
+      description: 'Provide a brief, clear title for the feature request'
+      placeholder: 'Example: Add a "Dark Mode" theme option'
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 'Problem Description'
+      description: 'Describe the problem you are trying to solve or the limitation you are facing'
+      placeholder: 'I often work at night and find the bright interface hard on my eyes, if there is an open issue please link it with #number'
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 'Proposed Solution'
+      description: 'Describe the solution you would like to see implemented'
+      placeholder: 'Add a "Dark Mode" theme option in the settings that applies a dark color scheme to the interface'
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 'Alternatives Considered'
+      description: 'List any alternative solutions or features you have considered'
+      placeholder: 'I have tried using browser extensions to apply a dark theme, but they do not work well with this application'
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 'Additional Context'
+      description: 'Provide any additional context or information about the feature request (e.g., screenshots, mockups, etc.)'
+      placeholder: 'Here is a link to a sample "Dark Mode" color scheme I found online: https://example.com/dark-theme'
+    validations:
+      required: false
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: 'Acknowledgements'
+      description: 'Please confirm the following:'
+      options:
+        - label: 'I have searched the existing issues to make sure this feature has not been requested yet'
+          required: true
+        - label: 'I have provided enough information for the maintainers to understand and evaluate the feature request'
+          required: true

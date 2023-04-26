@@ -1,5 +1,12 @@
 # Agent-LLM (Large Language Model)
 
+![Release](https://img.shields.io/github/v/release/Josh-XT/Agent-LLM) [![Status](https://img.shields.io/badge/status-beta-blue)](https://github.com/josh-xt/Agent-LLM) [![License: MIT](https://img.shields.io/github/license/Josh-XT/Agent-LLM)](https://github.com/Josh-XT/Agent-LLM/blob/main/LICENSE) [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&color=5865f2)](https://discord.gg/vfXjyuKZ) [![FollowOnTwitter](https://img.shields.io/twitter/follow/AgentLLM?style=social)](https://twitter.com/AgentLLM) [![e-mail](https://img.shields.io/badge/OUTREACH-e-mail-red)](mailto:contact@agent-llm.com) [![FacebookGroup](https://img.shields.io/badge/Facebook-group-blue)](https://www.facebook.com/groups/agentllm)
+![Docker](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/docker-image.yml?branch=main&label=Docker) 
+
+Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
+
+**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to [GitHub Issues](https://github.com/Josh-XT/Agent-LLM/issues) or [Discord](https://discord.gg/vfXjyuKZ).
+
 Agent-LLM is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers. Our agents are equipped with adaptive memory, and this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, Agent-LLM is constantly evolving to empower diverse applications.
 
 ![image](https://user-images.githubusercontent.com/102809327/234344654-a1a4201b-594b-4a00-ac78-279a2e5bbe43.png)
@@ -12,16 +19,6 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 
 ## ⚠️ Under Development!
 This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
-
-## Project Links 🌐 / Contact ☎️
-
-| GitHub                    | Twitter | Discord |  Facebook Group | Outreach Email |
-|-----------------------------------|-|------------------------|-----|---|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT/Agent-LLM) | [<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/AgentLLM) | [<img src="https://www.iconfinder.com/icons/3069758/download/png/512" height="50">](https://discord.gg/vfXjyuKZ) | [<img src="https://www.iconfinder.com/icons/1298738/download/png/512" height="50">](https://www.facebook.com/groups/agentllm) | [<img src="https://www.iconfinder.com/icons/8168620/download/png/512" height="50">](mailto:contact@agent-llm.com) | 
-
-Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
-
-**Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to GitHub Issues or Discord.
 
 ## Table of Contents 📖
 
@@ -182,10 +179,10 @@ To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The
 
 ## Contributing
 
-We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, follow [@AgentLLM](https://twitter.com/AgentLLM), [@Josh_XT](https://twitter.com/Josh_XT) and [@JamesonRGrieve](https://twitter.com/JamesonRGrieve) on Twitter, and [join our Discord](https://discord.gg/Na8M7mTayp).
+We welcome contributions to Agent-LLM! If you're interested in contributing, please check out the open issues, submit pull requests, or suggest new features. To stay updated on the project's progress, [![FollowOnTwitter](https://img.shields.io/twitter/follow/AgentLLM?style=social)](https://twitter.com/AgentLLM), [![FollowOnTwitterJosh_XT](https://img.shields.io/twitter/follow/Josh_XT?style=social)](https://twitter.com/Josh_XT) and [![FollowOnTwitterJamesonRGrieve](https://img.shields.io/twitter/follow/JamesonRGrieve?style=social)](https://twitter.com/JamesonRGrieve), [![Join our Discord](https://img.shields.io/discord/1097720481970397356?label=JoinOurDiscord&logo=discord&logoColor=white&color=5865f2)](https://discord.gg/Na8M7mTayp).
 
 ## Donations and Sponsorships
-We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [Outreach Email](mailto:contact@agent-llm.com), [Discord server](https://discord.gg/Na8M7mTayp) or Twitter [@AgentLMM](https://twitter.com/AgentLMM).
+We appreciate any support for Agent-LLM's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please contact us through our [![e-mail](https://img.shields.io/badge/OUTREACH-e-mail-red)](mailto:contact@agent-llm.com), [![Discord Server](https://img.shields.io/discord/1097720481970397356?label=DiscordServer&logo=discord&logoColor=white&color=5865f2)](https://discord.gg/Na8M7mTayp) or[![FollowOnTwitter](https://img.shields.io/twitter/follow/AgentLLM?style=social)](https://twitter.com/AgentLLM).
 
 We're always looking for ways to improve Agent-LLM and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
 

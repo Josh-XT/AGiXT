@@ -1,0 +1,84 @@
+name: Bug Report
+description: File a bug report to help us improve
+labels: ['bug']
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: '## :beetle: Bug Report :beetle:'
+  - type: input
+    id: title
+    attributes:
+      label: 'Title'
+      description: 'Provide a brief, clear title for the bug report'
+      placeholder: 'Example: Unexpected behavior when clicking "Submit"'
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 'Description'
+      description: 'Please provide a clear and concise description of the bug'
+      placeholder: 'When I click "Submit", the page refreshes instead of showing a confirmation message'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 'Steps to Reproduce'
+      description: 'Provide the steps to reproduce the bug'
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See the error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 'Expected Behavior'
+      description: 'Please describe the expected behavior'
+      placeholder: 'After clicking "Submit", a confirmation message should appear'
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 'Actual Behavior'
+      description: 'Please describe the actual behavior that you experienced'
+      placeholder: 'The page refreshes without showing a confirmation message'
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 'Additional Context'
+      description: 'Provide any additional context or information that may help diagnose the issue (e.g., browser version, operating system, etc.)'
+      placeholder: 'The issue occurs in Chrome 96.0.4664.93 on macOS 11.6.1'
+    validations:
+      required: false
+  - type: checkboxes
+    id: python-version
+    attributes:
+      label: 'Python Version'
+      description: 'Select the Python version(s) affected by this bug'
+      options:
+        - label: 'Python <= 3.9'
+        - label: 'Python 3.10'
+        - label: 'Python 3.11'
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: 'Acknowledgements'
+      description: 'Please confirm the following:'
+      options:
+        - label: 'I have searched the existing issues to make sure this bug has not been reported yet'
+          required: true
+        - label: 'I am using the latest version of the software'
+          required: true
+        - label: 'I have provided enough information for the maintainers to reproduce and diagnose the issue'
+          required: true

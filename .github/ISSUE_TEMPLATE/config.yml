@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question in Discord
+    url: https://discord.gg/R4tqghAgSE
+    about: Ask questions and discuss with other community members
+  - name: Write an e-mail
+    url: mailto:contact@agent-llm.com
+    about: Questions, sponsoring, media-links, and more
