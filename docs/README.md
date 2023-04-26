@@ -33,7 +33,6 @@ This project is under active development and may still have issues. We appreciat
   - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
   - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
   - [⚠️ Under Development!](#️-under-development)
-  - [Project Links 🌐 / Contact ☎️](#project-links---contact-️)
   - [Table of Contents 📖](#table-of-contents-)
   - [Media Coverage ⏯️](#media-coverage-️)
     - [Video](#video)
@@ -206,3 +205,5 @@ This project was inspired by and utilizes code from the following repositories:
 - [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT)
 
 Please consider exploring and contributing to these projects as well.
+
+![Star History Chart](https://api.star-history.com/svg?repos=Josh-XT/Agent-LLM&type=Dat)
