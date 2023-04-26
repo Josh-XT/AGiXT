@@ -19,5 +19,5 @@ FROM scratch AS uvicorn
 COPY --from=base / /
 WORKDIR /app
 COPY . .
-EXPOSE 5000
+EXPOSE 7437
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
