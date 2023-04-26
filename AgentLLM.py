@@ -84,7 +84,7 @@ class AgentLLM:
         # Check if any commands are in the response and execute them with their arguments if so
         if commands_enabled:
             # Parse out everything after Commands: in self.response, each new line is a command
-            commands = re.findall(r"Commands:(.*)", f"{self.response}", re.MULTILINE)
+            commands = re.findall(r"(?i)Commands:[\n]*(.*)", f"{self.response}",re.DOTALL)
             if len(commands) > 0:
                 response_parts = []
                 for command in commands[0].split("\n"):
@@ -104,7 +104,7 @@ class AgentLLM:
                             if available_command["friendly_name"] == command_name:
                                 command_name = available_command["name"]
                                 break
-                        response_parts.append(f"\n\n{self.commands.execute_command(command_name, command_args)}")
+                        response_parts.append(f"\n\n{self.execute_command(command_name, command_args)}")
                     else:
                         response_parts.append(f"\n\nCommand not recognized: {command}")
                 self.response = self.response.replace(commands[0], "".join(response_parts))
