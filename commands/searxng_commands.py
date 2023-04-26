@@ -6,7 +6,7 @@ from Config import Config
 
 CFG = Config()
 
-class searxng_operations(Commands):
+class searxng_commands(Commands):
     def __init__(self):
         if CFG.SEARXNG_INSTANCE_URL:
             self.commands = {
