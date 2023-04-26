@@ -43,7 +43,7 @@ body:
       label: 'Checklist'
       description: 'Please go through the following checklist to ensure your pull request meets the requirements'
       options:
-        - label: 'I have read the [Contribution Guidelines](CONTRIBUTING.md)'
+        - label: 'I have read the [Contribution Guidelines](./CONTRIBUTING.md)'
         - label: 'My code follows the style guidelines of this project (using the Black code formatter)'
         - label: 'I have performed a self-review of my own code'
         - label: 'I have added tests that prove my changes are effective or that my feature works'
