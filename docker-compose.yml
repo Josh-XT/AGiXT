@@ -1,22 +1,24 @@
 version: "3.8"
 services:
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "80:3000"
+    image: ghcr.io/josh-xt/agent-llm-frontend
+    init: true
+    env_file:
+      - .env
     environment:
       NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
-    env_file:
-      - .env
+    ports:
+      - "80:3000"
     depends_on:
       - backend
+
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile-backend
-    ports:
-      - "7437:7437"
+    image: ghcr.io/josh-xt/agent-llm-backend
+    init: true
     env_file:
       - .env
+    ports:
+      - "7437:7437"
+    # volumes: # Optional persistent data
+    #   - ./data/agents:/app/agents:rw
+    #   - ./data/workspace:/app/WORKSPACE:rw

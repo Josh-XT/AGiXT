@@ -117,17 +117,17 @@ mv .env.example .env
 3. Run the following Docker command in the folder with your `.env` file:
 
 ```
-docker compose up -d --build
+docker compose up -d
 ```
 
 4. Access the web interface at http://localhost
 
 ### Running a Mac?
 
-You'll need to run `docker-compose` to build if the command above does not work.
+You'll need to run `docker compose` to build if the command above does not work.
 
 ```
-docker-compose -f docker-compose-mac.yml up -d --build
+docker compose -f docker-compose-mac.yml up -d
 ```
 
 ### Not using OpenAI? No problem!
