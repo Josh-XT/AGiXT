@@ -121,7 +121,10 @@ class AgentLLM:
                                 break
                         response_parts.append(f"\n\n{self.commands.execute_command(command_name, command_args)}")
                     else:
-                        response_parts.append(f"\n\nCommand not recognized: {command}")
+                        if command == "None.":
+                            response_parts.append(f"\n\nNo commands were executed.")
+                        else:
+                            response_parts.append(f"\n\nCommand not recognized: {command}")
                 self.response = self.response.replace(commands[0], "".join(response_parts))
         print(f"Response: {self.response}")
         return self.response
