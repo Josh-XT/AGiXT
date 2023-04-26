@@ -6,19 +6,18 @@ from Config import Config
 
 CFG = Config()
 
+
 class sendgrid_email(Commands):
     def __init__(self):
         if CFG.SENDGRID_API_KEY:
-            self.commands = {
-                "Send Email with Sendgrid": self.send_email
-            }
+            self.commands = {"Send Email with Sendgrid": self.send_email}
 
     def send_email(self, to_email: str, subject: str, content: str) -> List[str]:
         message = Mail(
             from_email=CFG.SENDGRID_EMAIL,
             to_emails=to_email,
             subject=subject,
-            html_content=content
+            html_content=content,
         )
 
         try:

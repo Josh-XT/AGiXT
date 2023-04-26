@@ -6,6 +6,7 @@ from Config import Config
 
 CFG = Config()
 
+
 class discord_commands(Commands):
     def __init__(self):
         if CFG.DISCORD_API_KEY:
@@ -15,13 +16,14 @@ class discord_commands(Commands):
                 "Delete Discord Message": self.delete_message,
                 "Create Discord Invite": self.create_invite,
                 "Get Discord Servers": self.get_servers,
-                "Get Discord Server Information": self.get_server_info
+                "Get Discord Server Information": self.get_server_info,
             }
             intents = discord.Intents.default()
             intents.typing = False
             intents.presences = False
             self.bot = commands.Bot(command_prefix=CFG.PREFIX, intents=intents)
             self.bot.run(CFG.DISCORD_API_KEY)
+
             @self.bot.event
             async def on_ready():
                 print(f"{self.bot.user.name} is ready")
@@ -54,4 +56,8 @@ class discord_commands(Commands):
 
     async def get_server_info(self, server_id: int):
         server = self.bot.get_guild(server_id)
-        return {"name": server.name, "owner": server.owner, "member_count": server.member_count}
+        return {
+            "name": server.name,
+            "owner": server.owner,
+            "member_count": server.member_count,
+        }

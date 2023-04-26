@@ -1,9 +1,11 @@
 from Config import Config
+
 try:
     from pyllamacpp.model import Model
 except:
     print("Failed to import pyllamacpp.")
 CFG = Config()
+
 
 class AIProvider:
     def __init__(self):

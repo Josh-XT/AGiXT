@@ -7,11 +7,12 @@ from docker.errors import ImageNotFound
 
 CFG = Config()
 
+
 class execute_code(Commands):
     def __init__(self):
         self.commands = {
             "Execute Python File": self.execute_python_file,
-            "Execute Shell": self.execute_shell
+            "Execute Shell": self.execute_shell,
         }
 
     def execute_python_file(self, file: str):
@@ -42,7 +43,9 @@ class execute_code(Commands):
                 client.images.get(image_name)
                 print(f"Image '{image_name}' found locally")
             except ImageNotFound:
-                print(f"Image '{image_name}' not found locally, pulling from Docker Hub")
+                print(
+                    f"Image '{image_name}' not found locally, pulling from Docker Hub"
+                )
                 low_level_client = docker.APIClient()
                 for line in low_level_client.pull(image_name, stream=True, decode=True):
                     status = line.get("status")
@@ -79,7 +82,9 @@ class execute_code(Commands):
     def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
         os.chdir(current_dir)
-        print(f"Executing command '{command_line}' in working directory '{os.getcwd()}'")
+        print(
+            f"Executing command '{command_line}' in working directory '{os.getcwd()}'"
+        )
         result = subprocess.run(command_line, capture_output=True, shell=True)
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
 

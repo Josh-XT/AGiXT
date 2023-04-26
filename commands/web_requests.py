@@ -7,6 +7,7 @@ from Config import Config
 
 CFG = Config()
 
+
 class web_requests(Commands):
     def __init__(self):
         self.session = requests.Session()

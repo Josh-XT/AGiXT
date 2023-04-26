@@ -5,18 +5,21 @@ from Config import Config
 
 CFG = Config()
 
+
 class github(Commands):
     def __init__(self):
         if CFG.GITHUB_USERNAME is None and CFG.GITHUB_API_KEY is None:
             self.commands = {
                 "Clone Github Repository": self.clone_repo,
-                "Create Github Repository": self.create_repo
+                "Create Github Repository": self.create_repo,
             }
 
     def clone_repo(self, repo_url: str, clone_path: str) -> str:
         split_url = repo_url.split("//")
         if CFG.GITHUB_USERNAME is not None and CFG.GITHUB_API_KEY is not None:
-            auth_repo_url = f"//{CFG.GITHUB_USERNAME}:{CFG.GITHUB_API_KEY}@".join(split_url)
+            auth_repo_url = f"//{CFG.GITHUB_USERNAME}:{CFG.GITHUB_API_KEY}@".join(
+                split_url
+            )
         else:
             auth_repo_url = "//".join(split_url)
         try:
@@ -32,7 +35,7 @@ class github(Commands):
         repo_url = repo.clone_url
         repo_dir = f"./{repo_name}"
         repo = git.Repo.init(repo_dir)
-        with open(f"{repo_dir}/README.md", 'w') as f:
+        with open(f"{repo_dir}/README.md", "w") as f:
             f.write(readme)
         repo.git.add(A=True)
         repo.git.commit(m="Added README")

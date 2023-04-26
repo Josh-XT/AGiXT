@@ -8,17 +8,21 @@ import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
+
 load_dotenv()
 
-class Config():
+
+class Config:
     def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = agent_name if agent_name is not None else os.getenv("AGENT_NAME", "default")
+        self.AGENT_NAME = (
+            agent_name if agent_name is not None else os.getenv("AGENT_NAME", "default")
+        )
         self.AGENTS = glob.glob(os.path.join("memories", "*.yaml"))
         # Goal Configuation
         self.OBJECTIVE = os.getenv("OBJECTIVE", "Solve world hunger")
         self.INITIAL_TASK = os.getenv("INITIAL_TASK", "Develop a task list")
-        
+
         # AI Configuration
         self.AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
 
@@ -34,16 +38,18 @@ class Config():
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
-        
+
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
-        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", "false").lower()
+        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv(
+            "USE_LONG_TERM_MEMORY_ONLY", "false"
+        ).lower()
 
         # Model configuration
         self.AI_MODEL = os.getenv("AI_MODEL", "gpt-3.5-turbo").lower()
         self.AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.4))
         self.MAX_TOKENS = os.getenv("MAX_TOKENS", 2000)
-        
+
         # Extensions Configuration
 
         # OpenAI
@@ -54,8 +60,10 @@ class Config():
 
         # Huggingface
         self.HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-        self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = os.getenv("HUGGINGFACE_AUDIO_TO_TEXT_MODEL", "facebook/wav2vec2-large-960h-lv60-self")
-        
+        self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = os.getenv(
+            "HUGGINGFACE_AUDIO_TO_TEXT_MODEL", "facebook/wav2vec2-large-960h-lv60-self"
+        )
+
         # Selenium
         self.SELENIUM_WEB_BROWSER = os.getenv("SELENIUM_WEB_BROWSER", "chrome").lower()
 
@@ -79,7 +87,9 @@ class Config():
         self.MICROSOFT_365_REDIRECT_URI = os.getenv("MICROSOFT_365_REDIRECT_URI")
 
         # SearXNG - List of these at https://searx.space/
-        self.SEARXNG_INSTANCE_URL = os.getenv("SEARXNG_INSTANCE_URL", "https://searx.work")
+        self.SEARXNG_INSTANCE_URL = os.getenv(
+            "SEARXNG_INSTANCE_URL", "https://searx.work"
+        )
 
         # Discord
         self.DISCORD_API_KEY = os.getenv("DISCORD_API_KEY")
@@ -93,7 +103,7 @@ class Config():
 
         # Brian TTS
         self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
-        
+
         # Yaml Memory
         self.memory_folder = "agents"
         self.memory_file = f"{self.memory_folder}/{self.AGENT_NAME}.yaml"
@@ -107,7 +117,7 @@ class Config():
         execute_file = f"model-prompts/{self.AI_MODEL}/execute.txt"
         task_file = f"model-prompts/{self.AI_MODEL}/task.txt"
         priority_file = f"model-prompts/{self.AI_MODEL}/priority.txt"
-        
+
         with open(execute_file, "r") as f:
             self.EXECUTION_PROMPT = f.read()
         with open(task_file, "r") as f:
@@ -147,11 +157,11 @@ class Config():
     def load_commands(self):
         commands = []
         command_files = self.load_command_files()
-        for command_file in command_files:    
+        for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
             command_class = getattr(module, module_name)()
-            if hasattr(command_class, 'commands'):
+            if hasattr(command_class, "commands"):
                 for command_name, command_function in command_class.commands.items():
                     params = self.get_command_params(command_function)
                     commands.append((command_name, command_function.__name__, params))
@@ -161,28 +171,53 @@ class Config():
         agent_config_file = os.path.join(agent_folder, "config.json")
         if not os.path.exists(agent_config_file):
             with open(agent_config_file, "w") as f:
-                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+                f.write(
+                    json.dumps(
+                        {
+                            "commands": {
+                                command_name: "true"
+                                for command_name, _, _ in self.commands
+                            }
+                        }
+                    )
+                )
         return agent_config_file
 
     def load_agent_config(self, agent_name):
         try:
-            with open(os.path.join("agents", agent_name, "config.json")) as agent_config:
+            with open(
+                os.path.join("agents", agent_name, "config.json")
+            ) as agent_config:
                 try:
                     agent_config_data = json.load(agent_config)
                 except json.JSONDecodeError:
                     agent_config_data = {}
                     # Populate the agent_config with all commands enabled
-                    agent_config_data["commands"] = {command_name: "true" for command_name, _, _ in self.load_commands(agent_name)}
+                    agent_config_data["commands"] = {
+                        command_name: "true"
+                        for command_name, _, _ in self.load_commands(agent_name)
+                    }
                     # Save the updated agent_config to the file
-                    with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config_file:
+                    with open(
+                        os.path.join("agents", agent_name, "config.json"), "w"
+                    ) as agent_config_file:
                         json.dump(agent_config_data, agent_config_file)
         except:
             # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
             agent_config_file = os.path.join("agents", agent_name, "config.json")
             with open(agent_config_file, "w") as f:
-                f.write(json.dumps({"commands": {command_name: "true" for command_name, _, _ in self.commands}}))
+                f.write(
+                    json.dumps(
+                        {
+                            "commands": {
+                                command_name: "true"
+                                for command_name, _, _ in self.commands
+                            }
+                        }
+                    )
+                )
         return agent_config_data
-    
+
     def create_agent_yaml_file(self, agent_name):
         memories_dir = "agents"
         if not os.path.exists(memories_dir):
@@ -195,7 +230,7 @@ class Config():
         with open(os.path.join(memories_dir, agent_file), "w") as f:
             f.write("")
         return agent_file
-    
+
     def write_agent_config(self, agent_config, config_data):
         with open(agent_config, "w") as f:
             json.dump(config_data, f)
@@ -283,7 +318,9 @@ class Config():
             shutil.rmtree(memories_folder)
 
     def update_agent_config(self, agent_name, config):
-        with open(os.path.join("agents", agent_name, "config.json"), "w") as agent_config:
+        with open(
+            os.path.join("agents", agent_name, "config.json"), "w"
+        ) as agent_config:
             json.dump(config, agent_config)
 
     def get_task_output(self, agent_name, primary_objective=None):
@@ -292,14 +329,16 @@ class Config():
         if primary_objective is None:
             # TODO: Generating a random UUID on a load won't really accomplish anything. Should just return.
             primary_objective = str(uuid.uuid4())
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
+        task_output_file = os.path.join(
+            "agents", agent_name, "tasks", f"{primary_objective}.txt"
+        )
         if os.path.exists(task_output_file):
             with open(task_output_file, "r") as f:
                 task_output = f.read()
         else:
             task_output = ""
-        return task_output        
-    
+        return task_output
+
     def save_task_output(self, agent_name, task_output, primary_objective=None):
         # Check if agents/{agent_name}/tasks/task_name.txt exists
         # If it does, append to it
@@ -308,11 +347,15 @@ class Config():
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
         if primary_objective is None:
             primary_objective = str(uuid.uuid4())
-        task_output_file = os.path.join("agents", agent_name, "tasks", f"{primary_objective}.txt")
-        with open(task_output_file, "a" if os.path.exists(task_output_file) else "w") as f:
+        task_output_file = os.path.join(
+            "agents", agent_name, "tasks", f"{primary_objective}.txt"
+        )
+        with open(
+            task_output_file, "a" if os.path.exists(task_output_file) else "w"
+        ) as f:
             f.write(task_output)
         return task_output
-    
+
     def get_chains(self):
         chains = os.listdir("chains")
         chain_data = {}
@@ -350,35 +393,52 @@ class Config():
         os.rename(os.path.join("chains", chain_name), os.path.join("chains", new_name))
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
-        with open(os.path.join("chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"), "w") as f:
+        with open(
+            os.path.join(
+                "chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"
+            ),
+            "w",
+        ) as f:
             f.write(prompt)
 
     def add_step(self, chain_name, step_number, prompt_type, prompt):
-        with open(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w") as f:
+        with open(
+            os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w"
+        ) as f:
             f.write(prompt)
 
     def update_step(self, chain_name, old_step_number, new_step_number, prompt_type):
-        os.rename(os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
-                  os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
+        os.rename(
+            os.path.join("chains", chain_name, f"{old_step_number}-{prompt_type}.txt"),
+            os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"),
+        )
 
     def delete_step(self, chain_name, step_number):
-        files_to_delete = glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt"))
+        files_to_delete = glob.glob(
+            os.path.join("chains", chain_name, f"{step_number}-*.txt")
+        )
         for file_path in files_to_delete:
             os.remove(file_path)
 
     def move_step(self, chain_name, step_number, new_step_number, prompt_type):
-        os.rename(os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"),
-                  os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"))
+        os.rename(
+            os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"),
+            os.path.join("chains", chain_name, f"{new_step_number}-{prompt_type}.txt"),
+        )
 
     def delete_chain(self, chain_name):
         shutil.rmtree(os.path.join("chains", chain_name))
 
     def delete_chain_step(self, chain_name, step_number):
-        for file in glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt")):
+        for file in glob.glob(
+            os.path.join("chains", chain_name, f"{step_number}-*.txt")
+        ):
             os.remove(file)
 
     def get_step(self, chain_name, step_number):
-        step_files = glob.glob(os.path.join("chains", chain_name, f"{step_number}-*.txt"))
+        step_files = glob.glob(
+            os.path.join("chains", chain_name, f"{step_number}-*.txt")
+        )
         step_data = {}
         for file in step_files:
             prompt_type = file.split("-")[1].split(".")[0]
@@ -413,7 +473,7 @@ class Config():
     def log_interaction(self, role: str, message: str):
         self.memory["interactions"].append({"role": role, "message": message})
         self.save_memory()
-    
+
     def add_prompt(self, prompt_name, prompt):
         # if prompts folder does not exist, create it
         if not os.path.exists("prompts"):
@@ -424,12 +484,12 @@ class Config():
                 f.write(prompt)
         else:
             raise Exception("Prompt already exists")
-        
+
     def get_prompt(self, prompt_name):
         with open(os.path.join("prompts", f"{prompt_name}.txt"), "r") as f:
             prompt = f.read()
         return prompt
-    
+
     def get_prompts(self):
         # Get all files in prompts folder that end in .txt and replace .txt with empty string
         prompts = []
@@ -437,7 +497,7 @@ class Config():
             if file.endswith(".txt"):
                 prompts.append(file.replace(".txt", ""))
         return prompts
-    
+
     def delete_prompt(self, prompt_name):
         os.remove(os.path.join("prompts", f"{prompt_name}.txt"))
 

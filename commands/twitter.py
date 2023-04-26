@@ -4,11 +4,10 @@ from Commands import Commands
 
 CFG = Config()
 
+
 class twitter(Commands):
     def __init__(self):
-        self.commands = {
-            "Send Tweet": self.send_tweet
-        }
+        self.commands = {"Send Tweet": self.send_tweet}
 
     def send_tweet(tweet_text):
         # Authenticate to Twitter

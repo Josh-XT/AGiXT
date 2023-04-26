@@ -1,5 +1,6 @@
 import importlib
 
+
 class Provider:
     def __init__(self, name):
         try:
@@ -11,6 +12,7 @@ class Provider:
 
     def __getattr__(self, attr):
         return getattr(self.instance, attr)
+
 
 def __getattr__(name):
     return Provider(name)
