@@ -29,7 +29,7 @@ jobs:
         run: npm install -g eslint
 
       - name: Run Black on Python files
-        run: black --check .
+        run: black --check $(find . -type f -name "*.py")
 
       - name: Run ESLint on JavaScript files
         run: eslint .
