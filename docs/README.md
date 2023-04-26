@@ -1,7 +1,14 @@
 # Agent-LLM (Large Language Model)
 
-![Release](https://img.shields.io/github/v/release/Josh-XT/Agent-LLM) [![Status](https://img.shields.io/badge/status-beta-blue)](https://github.com/josh-xt/Agent-LLM) [![License: MIT](https://img.shields.io/github/license/Josh-XT/Agent-LLM)](https://github.com/Josh-XT/Agent-LLM/blob/main/LICENSE) [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&color=5865f2)](https://discord.gg/vfXjyuKZ) [![FollowOnTwitter](https://img.shields.io/twitter/follow/AgentLLM?color=5865f2&label=follow%20%40AgentLLM&style=plastic)](https://twitter.com/AgentLLM) [![e-mail](https://img.shields.io/badge/OUTREACH-e--mail-red)](mailto:contact@agent-llm.com) [![FacebookGroup](https://img.shields.io/badge/Facebook-group-blue)](https://www.facebook.com/groups/agentllm)
-![Docker](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/docker-image.yml?branch=main&label=Docker) 
+![RELEASE](https://img.shields.io/github/v/release/Josh-XT/Agent-LLM?label=Release%20Version&style=plastic) 
+[![STATUS](https://img.shields.io/badge/status-beta-blue?label=Release%20Status&style=plastic)](https://github.com/josh-xt/Agent-LLM) 
+[![LICENSE: MIT](https://img.shields.io/github/license/Josh-XT/Agent-LLM?label=License&style=plastic)](https://github.com/Josh-XT/Agent-LLM/blob/main/LICENSE) 
+![Docker](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/docker-image.yml?branch=main&label=Docker&style=plastic) 
+
+[![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/vfXjyuKZ) 
+[![Twitter](https://img.shields.io/badge/Twitter-Follow_@AgentLLM-blue?logo=twitter&style=plastic)](https://twitter.com/AgentLLM) 
+[![FacebookGroup](https://img.shields.io/badge/Facebook-Join_Our_Group-blue?logo=facebook&style=plastic)](https://www.facebook.com/groups/agentllm)
+[![EMail](https://img.shields.io/badge/E--Mail-Outreach_&_Media-5865f2?logo=gmail&style=plastic)](https://twitter.com/AgentLLM) 
 
 Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
 
