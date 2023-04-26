@@ -11,6 +11,7 @@ from chromadb.utils import embedding_functions
 from Config import Config
 from commands.web_requests import web_requests
 from Commands import Commands
+import json
 import spacy
 from spacy.cli import download
 try:
@@ -96,8 +97,11 @@ class AgentLLM:
                         command_name, args_str = command_regex.groups()
                         if args_str:
                             # Parse arguments string into a dictionary
-                            command_args = dict((key.strip(), value.strip()) for key, value in (arg.split('=') for arg in args_str.split(',')))
-
+                            #command_args = dict((key.strip(), value.strip()) for key, value in (arg.split('=') for arg in args_str.split(',')))
+                            args_str = args_str.replace('\'', '"')
+                            args_str = args_str.replace('None','null')
+                            command_args = json.loads(args_str)
+                            
                     # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                     if command_name is not None:
                         for available_command in self.available_commands:
