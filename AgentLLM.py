@@ -104,7 +104,7 @@ class AgentLLM:
                             if available_command["friendly_name"] == command_name:
                                 command_name = available_command["name"]
                                 break
-                        response_parts.append(f"\n\n{self.execute_command(command_name, command_args)}")
+                        response_parts.append(f"\n\n{self.commands.run_command(command_name, **command_args)}")
                     else:
                         response_parts.append(f"\n\nCommand not recognized: {command}")
                 self.response = self.response.replace(commands[0], "".join(response_parts))
