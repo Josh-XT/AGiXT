@@ -92,7 +92,7 @@ class AgentLLM:
                     command = command.strip()
                     command_name, command_args = None, {}
                     # Extract command name and arguments using regex
-                    command_regex = re.match(r'(\w+)\((.*)\)', command)
+                    command_regex = re.search(r'(\w+)\((.*)\)', command)
                     if command_regex:
                         command_name, args_str = command_regex.groups()
                         if args_str:
