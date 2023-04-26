@@ -17,7 +17,7 @@ class AIProvider:
             'early_stopping': False, 'seed': seed, 'add_bos_token': True, 'custom_stopping_strings': [],
             'truncation_length': 4096, 'ban_eos_token': False
         }
-        response = requests.post(f"{CFG.AI_PROVIDER_URI}/run/textgen", json={"data": [json.dumps([prompt, params])]})
+        response = requests.post(f"{CFG.AI_PROVIDER_URI}/api/v1/generate", json={"data": [json.dumps([prompt, params])]})
         data = response.json()
         if "data" in data:
             data = data["data"]
