@@ -70,7 +70,7 @@ class AgentLLM:
                 break
         return trimmed_context
 
-    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True):
+    def run(self, task: str, max_context_tokens: int = 500, long_term_access: bool = False, commands_enabled: bool = True, instruction: bool = False):
         if self.CFG.NO_MEMORY:
             prompt = task
         else:
@@ -78,6 +78,18 @@ class AgentLLM:
             context = self.context_agent(query=task, top_results_num=3, long_term_access=long_term_access)
             context = self.trim_context(context, max_context_tokens)
             prompt = self.get_prompt_with_context(task=task, context=context)
+        if instruction:
+            # Command and prompt injection for instruction mode
+            with open("prompts/Instruction.txt", "r") as f:
+                instruction_prompt = f.read()
+            if prompt == task:
+                prompt = f"{instruction_prompt}\n\nTask: {task}"
+            prompt = f"{instruction_prompt}\n\n{prompt}"
+            friendly_names = map(lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})", self.available_commands)
+            if len(self.available_commands) == 0:
+                prompt = prompt.replace("{COMMANDS}", "No commands.")
+            else:
+                prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
         self.response = self.instruct(prompt)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
@@ -97,11 +109,9 @@ class AgentLLM:
                         command_name, args_str = command_regex.groups()
                         if args_str:
                             # Parse arguments string into a dictionary
-                            #command_args = dict((key.strip(), value.strip()) for key, value in (arg.split('=') for arg in args_str.split(',')))
                             args_str = args_str.replace('\'', '"')
                             args_str = args_str.replace('None','null')
                             command_args = json.loads(args_str)
-                            
                     # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                     if command_name is not None:
                         for available_command in self.available_commands:
@@ -110,7 +120,10 @@ class AgentLLM:
                                 break
                         response_parts.append(f"\n\n{self.commands.execute_command(command_name, command_args)}")
                     else:
-                        response_parts.append(f"\n\nCommand not recognized: {command}")
+                        if command == "None.":
+                            response_parts.append(f"\n\nNo commands were executed.")
+                        else:
+                            response_parts.append(f"\n\nCommand not recognized: {command}")
                 self.response = self.response.replace(commands[0], "".join(response_parts))
         print(f"Response: {self.response}")
         return self.response
