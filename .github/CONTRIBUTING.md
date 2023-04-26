@@ -10,13 +10,13 @@ The following is a set of guidelines for contributing to this repository. These 
 
 This section guides you through submitting a bug report for this project. Following these guidelines helps maintainers and the community understand your report, reproduce the behavior, and find related reports.
 
-- Use the [bug report template](./ISSUE_TEMPLATE/bug-report.md) to create a new issue.
+- Use the [bug report template](./ISSUE_TEMPLATE/bug-report.yml) to create a new issue.
 
 ### Suggesting Enhancements
 
 This section guides you through submitting an enhancement suggestion for this project, including completely new features and minor improvements to existing functionality. Following these guidelines helps maintainers and the community understand your suggestion and make decisions.
 
-- Use the [feature request template](./ISSUE_TEMPLATE/feature-request.md) to create a new issue.
+- Use the [feature request template](./ISSUE_TEMPLATE/feature-request.yml) to create a new issue.
 
 ### Pull Requests
 
