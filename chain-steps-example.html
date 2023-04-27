@@ -1,0 +1,103 @@
+<html>
+  <head>
+    <style>
+      .step {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .step-number {
+        width: 50px;
+        text-align: center;
+        margin-right: 10px;
+      }
+
+      .step-options {
+        width: 150px;
+        margin-right: 10px;
+      }
+
+      .step-textarea {
+        flex-grow: 1;
+      }
+
+      .add-remove-btns {
+        display: flex;
+        justify-content: center;
+        margin-top: 10px;
+      }
+
+      .add-remove-btn {
+        width: 50px;
+        height: 50px;
+        border: 1px solid #ccc;
+        border-radius: 25px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-right: 10px;
+        cursor: pointer;
+      }
+
+      .move-btns {
+        display: flex;
+        margin-right: 10px;
+      }
+
+      .move-btn {
+        width: 30px;
+        height: 30px;
+        border: 1px solid #ccc;
+        border-radius: 15px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-right: 10px;
+        cursor: pointer;
+      }
+
+      .agent-options {
+        width: 150px;
+        margin-right: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="steps-container">
+      <div class="step">
+        <div class="add-remove-btns">
+          <div class="add-remove-btn">-</div>
+        </div>
+        <div class="move-btns">
+          <div class="move-btn">⇧</div>
+          <div class="move-btn">⇩</div>
+        </div>
+        <div class="step-number">1</div>
+        <div class="step-options">
+          <select>
+            <option value="custom-prompt">Custom prompt</option>
+            <option value="saved-prompt">Saved prompt</option>
+            <option value="instruct">Instruct</option>
+            <option value="command">Command</option>
+          </select>
+        </div>
+        <div class="step-textarea">
+          <textarea></textarea>
+        </div>
+        <div class="agent-options">
+          <select>
+            <option value="">Select an agent</option>
+            <option value="agent1">Agent 1</option>
+            <option value="agent2">Agent 2</option>
+            <option value="agent3">Agent 3</option>
+            <option value="agent4">Agent 4</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="add-remove-btns">
+      <div class="add-remove-btn">+</div>
+    </div>
+  </body>
+</html>
