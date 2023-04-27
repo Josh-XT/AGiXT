@@ -1,0 +1,118 @@
+name: Bug Report
+description: File a bug report to help us improve the project.
+labels: ['type | report | bug', 'needs triage']
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: '## :beetle: Bug Report :beetle:'
+  - type: markdown
+    attributes:
+      value: |
+        * Ask questions in [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/vfXjyuKZ).
+        * Before you file an issue read the [Contributing guide](./CONTRIBUTING.md).
+        * Check to make sure someone hasn't already opened a [similar issue](https://github.com/Josh-XT/Agent-LLM/issues).
+  - type: textarea
+    id: description
+    attributes:
+      label: 'Description'
+      description: 'Please provide a clear and concise description of the bug.'
+      placeholder: 'When I click the '...' button, the page refreshes instead of showing a confirmation message.'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 'Steps to Reproduce the Bug'
+      description: 'Provide the steps to reproduce the bug, be specific.'
+      placeholder: |
+        1. Go to the '...' page.
+        2. Click on the '...' button.
+        3. Scroll down to '...'.
+        4. Observe the error.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 'Expected Behavior'
+      description: 'Please describe the expected behavior when the steps above are followed.'
+      placeholder: 'After clicking the '...' button, a confirmation message should appear.'
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 'Actual Behavior'
+      description: 'Please describe the actual behavior that you experienced when following the steps above.'
+      placeholder: 'The page refreshes without showing a confirmation message.'
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 'Additional Context / Screenshots'
+      description: 'Provide any additional context or information that may help diagnose the issue.'
+      placeholder: 'The issue occurs in Chrome 96.0.4664.93 on macOS 11.6.1.'
+    validations:
+      required: false
+  - type: checkboxes
+    id: os
+    attributes:
+      label: 'Operating System'
+      description: 'Select the operating system(s) on which you experienced this bug.'
+      options:
+        - label: 'Microsoft Windows'
+        - label: 'Apple MacOS'
+        - label: 'Linux'
+        - label: 'Android'
+        - label: 'iOS'
+        - label: 'Other'
+    validations:
+      required: true
+  - type: checkboxes
+    id: python-version
+    attributes:
+      label: 'Python Version'
+      description: 'Select the Python version(s) affected by this bug.'
+      options:
+        - label: 'Python <= 3.9'
+        - label: 'Python 3.10'
+        - label: 'Python 3.11'
+    validations:
+      required: true
+  - type: checkboxes
+    id: environment
+    attributes:
+      label: 'Environment Type - Connection'
+      description: 'Select the environment(s) on which you experienced this bug (if you run frontend and backend on the same machine, select local).'
+      options:
+        - label: 'Local'
+        - label: 'Remote'
+    validations:
+      required: true
+  - type: checkboxes
+    id: containerized
+    attributes:
+      label: 'Environment Type - Container'
+      description: 'Select the container setup on which you experienced this bug.'
+      options:
+        - label: 'Using Docker'
+        - label: 'Not Using Docker'
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: 'Acknowledgements'
+      description: 'Please confirm the following:'
+      options:
+        - label: 'My issue title is concise, descriptive, and in title casing.'
+          required: true
+        - label: 'I have searched the existing issues to make sure this bug has not been reported yet.'
+          required: true
+        - label: 'I am using the latest version of Agent-LLM.'
+          required: true
+        - label: 'I have provided enough information for the maintainers to reproduce and diagnose the issue.'
+          required: true
