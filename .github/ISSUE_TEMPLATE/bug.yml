@@ -16,7 +16,8 @@ body:
     attributes:
       label: 'Description'
       description: 'Please provide a clear and concise description of the bug.'
-      placeholder: 'When I click the '...' button, the page refreshes instead of showing a confirmation message.'
+      placeholder: |
+        When I click the '...' button, the page refreshes instead of showing a confirmation message.
     validations:
       required: true
   - type: textarea
@@ -36,7 +37,8 @@ body:
     attributes:
       label: 'Expected Behavior'
       description: 'Please describe the expected behavior when the steps above are followed.'
-      placeholder: 'After clicking the '...' button, a confirmation message should appear.'
+      placeholder: |
+        After clicking the '...' button, a confirmation message should appear.
     validations:
       required: true
   - type: textarea
