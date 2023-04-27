@@ -169,9 +169,13 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 
 ## API Endpoints
 
-Agent-LLM provides several API endpoints for managing agents, managing tasks, and managing chains.
+Agent-LLM provides several API endpoints for managing agents, prompts and chains.
 
-To learn more about the API endpoints and their usage, visit the API documentation at http://localhost:7437/docs (Swagger) or http://localhost:7437/redoc (Redoc).
+To learn more about the API endpoints and their usage, visit the API documentation at 
+- [Swagger](http://localhost:7437/docs)
+- [Redoc](http://localhost:7437/redoc)
+
+This documentation is hosted locally and the frontend must be running for these links to work.
 
 ## Extending Functionality
 
@@ -199,16 +203,18 @@ We're always looking for ways to improve Agent-LLM and make it more useful for o
 ## Our Team 🧑‍💻
 | Josh (@Josh-XT)                    | James (@JamesonRGrieve) | 
 |-----------------------------------|-----------------------------------|
-| [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/Josh-XT)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/Josh_XT) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/joshxt/) | [<img src="https://www.iconfinder.com/icons/4202098/download/png/512" height="50">](https://github.com/JamesonRGrieve)[<img src="https://www.iconfinder.com/icons/5296514/download/png/512" height="50">](https://twitter.com/JamesonRGrieve) [<img src="https://www.iconfinder.com/icons/5296501/download/png/512" height="50">](https://www.linkedin.com/in/jamesonrgrieve/)                |
+|[![GitHub](https://img.shields.io/badge/GitHub-Follow_@Josh--XT-white?logo=github&style=plastic)](https://github.com/Josh-XT)|[![GitHub](https://img.shields.io/badge/GitHub-Follow_@JamesonRGrieve-white?logo=github&style=plastic)](https://github.com/JamesonRGrieve)|
+|[![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh__XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)|[![Twitter](https://img.shields.io/badge/Twitter-Follow_@JamesonRGrieve-blue?logo=twitter&style=plastic)](https://twitter.com/JamesonRGrieve)|
+|[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_@JoshXT-blue?logo=linkedin&style=plastic)](https://www.linkedin.com/in/joshxt/)|[![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_@JamesonRGrieve-blue?logo=linkedin&style=plastic)](https://www.linkedin.com/in/jamesonrgrieve/)|
 
 ## Acknowledgments
 
-This project was inspired by and utilizes code from the following repositories:
+This project was inspired by and is built using code from the following open-source repositories:
 
-- [babyagi](https://github.com/yoheinakajima/babyagi)
-- [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT)
+- [![BabyAGI](https://img.shields.io/badge/GitHub-babyagi-white?logo=github&style=plastic) ![BabyAGI](https://img.shields.io/github/stars/yoheinakajima/babyagi?style=social)](https://github.com/yoheinakajima/babyagi)
+- [![Auto-GPT](https://img.shields.io/badge/GitHub-Auto--GPT-white?logo=github&style=plastic) ![Auto-GPT](https://img.shields.io/github/stars/Significant-Gravitas/Auto-GPT?style=social)](https://github.com/Significant-Gravitas/Auto-GPT)
 
-Please consider exploring and contributing to these projects as well.
+Please consider exploring and contributing to these projects if you like what we are doing.
 
 ## History
 ![Star History Chart](https://api.star-history.com/svg?repos=Josh-XT/Agent-LLM&type=Dat)
