@@ -107,3 +107,7 @@ a {
   }
 }
 */
+
+img:not([src^="https://img.shields.io"]) {
+  width: 100%;
+}
