@@ -68,7 +68,12 @@ class Commands:
                         params = self.get_command_params(command_function)
                         # Store the module along with the function name
                         commands.append(
-                            (command_name, getattr(module, module_name), command_function.__name__, params)
+                            (
+                                command_name,
+                                getattr(module, module_name),
+                                command_function.__name__,
+                                params,
+                            )
                         )
         # Return the commands list
         return commands
@@ -102,5 +107,5 @@ class Commands:
         for name, value in command_args.items():
             if name in params:
                 params[name] = value
-        output = command_function(self,**params)
+        output = command_function(self, **params)
         return output
