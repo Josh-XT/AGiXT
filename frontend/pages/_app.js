@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import MenuList from '@/components/menu/MenuList';
 import { MenuDarkSwitch } from '@/components/menu/MenuDarkSwitch';
+import { red } from '@mui/material/colors';
 const drawerWidth = 240;
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
@@ -106,7 +107,7 @@ export default function App({ Component, pageProps, dark }) {
         primary: {
           main: "#273043",
         },
-      },
+      }
     });
   const theme = themeGenerator(darkMode);
 
