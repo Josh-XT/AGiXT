@@ -1,8 +1,6 @@
 name: Feature Request / Enhancement
 description: Suggest a new feature or feature enhancement for the project.
 labels: ['needs triage']
-assignees: []
-
 body:
   - type: markdown
     attributes:

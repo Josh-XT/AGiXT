@@ -1,7 +1,6 @@
 name: Documentation Improvement / Clarity
 description: Make a suggestion to improve the project documentation.
-labels:
-  - content
+labels: ['needs triage']
 body:
   - type: markdown
     attributes:
