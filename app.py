@@ -256,7 +256,7 @@ async def get_chains():
 @app.get("/api/chain/{chain_name}", tags=["Chain"])
 async def get_chain(chain_name: str):
     chain_data = CFG.get_chain(chain_name)
-    return chain_data
+    return {"chain": chain_data}
 
 
 @app.post("/api/chain", tags=["Chain"])
