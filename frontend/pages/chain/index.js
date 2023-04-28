@@ -13,6 +13,4 @@ export default function Home() {
       <ReactMarkdown>{data}</ReactMarkdown>
     )} />;
   </Container>} />;
-
-;
 }
