@@ -60,12 +60,12 @@ export default function ChainStep({ stepNum, updateCallback }) {
     };
     return (
         <>
-
             <Paper elevation={5} sx={{ padding: "0.5rem", display: "flex", flexDirection: "column", my: "1rem", fontSize: "1rem" }}>
                 <Accordion expanded={expanded} onChange={handleChange}>
                     <AccordionSummary sx={{ flexDirection: "row-reverse", alignItems: "center" }} expandIcon={<ExpandCircleDownOutlined />}>
-                        <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", mx: "0.5rem" }}>
+                        <Box  sx={{ display: "flex", justifyContent: "center", alignItems: "center", mx: "0.5rem"}}>
                             {expanded?null:<Typography variant="h6" sx={{mr:"2rem"}}>Step Inputs</Typography>}
+                            <Box onClick={(e) => {e.stopPropagation()}} sx={{ display: "flex", justifyContent: "center", alignItems: "center"}}>
                             <IconButton size="large"><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
                             <Avatar sx={{ fontWeight: "bolder" }}>{stepNum}</Avatar>
                             <IconButton size="large"><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
@@ -79,6 +79,8 @@ export default function ChainStep({ stepNum, updateCallback }) {
                                 <MenuItem value={0}>Select an Output Save Location...</MenuItem>
                             </Select>
                             <IconButton size="large"><HighlightOff sx={{ fontSize: "2rem" }} /></IconButton>
+                            </Box>
+
                         </Box>
                     </AccordionSummary>
                     <AccordionDetails>

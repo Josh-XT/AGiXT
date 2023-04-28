@@ -14,6 +14,16 @@ import {
 import { useRouter } from 'next/router';
 export default function ProviderList({ data }) {
   const router = useRouter();
+  const providerMap = {
+    "bard": "Bard",
+    "chatgpt": "ChatGPT",
+    "fastchat": "FastChat",
+    "huggingchat": "HuggingChat",
+    "kobold": "Kobold",
+    "llamacpp": "LlamaCPP",
+    "oobabooga": "OobaBooga",
+    "openai"  : "OpenAI"
+  }
   return (
     <List>
       <ListItemButton selected={ router.pathname.split("/")[1]=="provider"&&!router.query.provider }>
@@ -31,7 +41,7 @@ export default function ProviderList({ data }) {
               <SmartToy />
             </ListItemIcon>
             <Link href={`/provider/${provider}`}>
-              <ListItemText primary={provider} />
+              <ListItemText primary={providerMap[provider]} />
             </Link>
           </ListItemButton>
       ))}

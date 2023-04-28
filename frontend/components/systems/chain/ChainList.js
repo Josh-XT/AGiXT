@@ -11,6 +11,8 @@ import {
   RunCircle, 
   StopCircle, 
   AddCircle,
+  AddLink,
+  InsertLink,
   Home
 } from "@mui/icons-material";
 import {useRouter} from 'next/router';
@@ -30,7 +32,7 @@ export default function MenuChainList({ data }) {
         </ListItemButton>
         <ListItemButton key={"new"} selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="chain"}>
           <ListItemIcon>
-            <AddCircle />
+            <AddLink />
           </ListItemIcon>
           <Link href={`/new/chain`}>
             <ListItemText primary="Add A New Chain" />
@@ -40,7 +42,7 @@ export default function MenuChainList({ data }) {
       {(data?Object.keys(data):null)?.map((chain) => (
           <ListItemButton key={chain}>
             <ListItemIcon>
-              {chain.status ? <RunCircle /> : <StopCircle />}
+              <InsertLink />
             </ListItemIcon>
             <Link href={`/chain/${chain}`}>
               <ListItemText primary={chain} />
