@@ -28,7 +28,7 @@ export default function MenuChainList({ data }) {
             <ListItemText primary="Chain Homepage" />
           </Link>
         </ListItemButton>
-        <ListItemButton disabled key={"new"} selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="chain"}>
+        <ListItemButton key={"new"} selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="chain"}>
           <ListItemIcon>
             <AddCircle />
           </ListItemIcon>
@@ -38,7 +38,7 @@ export default function MenuChainList({ data }) {
         </ListItemButton>
       <Divider />
       {(data?Object.keys(data):null)?.map((chain) => (
-          <ListItemButton disabled key={chain}>
+          <ListItemButton key={chain}>
             <ListItemIcon>
               {chain.status ? <RunCircle /> : <StopCircle />}
             </ListItemIcon>
