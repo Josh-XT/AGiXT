@@ -6,18 +6,18 @@ from Config import Config
 
 class Commands:
     def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
-        self.CFG = Config(agent_name)
+        if agent_name == "undefined":
+            self.agent_name = "default"
+        else:
+            self.agent_name = agent_name
+        self.CFG = Config(self.agent_name)
+        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
+        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
             self.commands = []
-        if agent_name == "undefined":
-            agent_name = "default"
-        self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
-        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
-        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
-
-        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.available_commands = self.get_available_commands()
 
     def get_available_commands(self):
@@ -92,8 +92,8 @@ class Commands:
         for name, module, function_name, params in self.commands:
             if function_name == command_name:
                 command_function = getattr(module, function_name)
-                return command_function, params
-        return None, None
+                return command_function, module, params  # Updated return statement
+        return None, None, None  # Updated return statement
 
     def get_commands_list(self):
         self.commands = self.load_commands(agent_name=self.agent_name)
@@ -101,11 +101,11 @@ class Commands:
         return commands_list
 
     def execute_command(self, command_name: str, command_args: dict):
-        command_function, params = self.find_command(command_name)
+        command_function, module, params = self.find_command(command_name)
         if command_function is None:
             return False
         for name, value in command_args.items():
             if name in params:
                 params[name] = value
-        output = command_function(self, **params)
+        output = command_function(module, **params)
         return output
