@@ -17,7 +17,6 @@ gtts
 InstructorEmbedding
 jsonschema
 openai
-pinecone-client
 playwright
 playsound
 pre-commit
