@@ -11,6 +11,6 @@ export default function Home() {
   return <PopoutDrawerWrapper title={"Chain Homepage"} leftHeading={"Chains"} leftSWR={chains} leftMenu={ChainList} rightHeading={null} rightSWR={null} rightMenu={null} ><Container>
     <ContentSWR swr={docs} content={({ data }) => (
       <ReactMarkdown>{data}</ReactMarkdown>
-    )} />;
+    )} />
   </Container></PopoutDrawerWrapper>;
 }

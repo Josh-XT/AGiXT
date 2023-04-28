@@ -15,7 +15,7 @@ export default function Provider() {
     <Container>
       <ContentSWR swr={docs} content={({ data }) => (
         <ReactMarkdown>{data}</ReactMarkdown>
-      )} />;
+      )} />
     </Container></PopoutDrawerWrapper>;
 
 

@@ -12,8 +12,6 @@ export default function Home() {
     <Container>
     <ContentSWR swr={docs} content={({ data }) => (
       <ReactMarkdown>{data}</ReactMarkdown>
-    )} />;
-  </Container></PopoutDrawerWrapper>
-
-;
+    )} />
+  </Container></PopoutDrawerWrapper>;
 }
