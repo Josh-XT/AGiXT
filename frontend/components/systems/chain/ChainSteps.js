@@ -6,22 +6,16 @@ import { mutate } from "swr";
 import useSWR from "swr";
 import {
     Typography,
-    Paper,
-    TextField,
     Box,
-    Button,
     IconButton,
 } from "@mui/material";
 import {
-    ArrowCircleUp,
-    ArrowCircleDown,
     AddCircleOutline,
-    HighlightOff,
     InsertLink,
     LowPriority
 } from '@mui/icons-material';
 import ChainStep from "./ChainStep";
-export default function AgentObjective() {
+export default function ChainSteps() {
     /*
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");

@@ -13,11 +13,11 @@ export default function AgentAdmin({ friendly_name, name, args, enabled }) {
   const [newName, setNewName] = useState("");
   const handleDelete = async () => {
     await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`)
-    mutate(`agents`);
+    mutate(`agent`);
   };
   const handleRename = async () => {
     await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`, { new_name: newName })
-    mutate(`agents`);
+    mutate(`agent`);
   };
   return (
     <Container>

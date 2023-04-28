@@ -17,11 +17,11 @@ export default function PromptAdmin({ friendly_name, name, args, enabled }) {
   console.log(prompt);
   const handleDelete = async () => {
     await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt/${promptName}`)
-    mutate(`prompts`);
+    mutate(`prompt`);
   };
   const handleSave = async () => {
     await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt/${promptName}`, { prompt_name: newName, prompt: newBody })
-    mutate(`prompts`);
+    mutate(`prompt`);
   };
   return (
     <Container>
