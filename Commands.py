@@ -92,8 +92,8 @@ class Commands:
         for name, module, function_name, params in self.commands:
             if function_name == command_name:
                 command_function = getattr(module, function_name)
-                return command_function, params
-        return None, None
+                return command_function, module, params  # Updated return statement
+        return None, None, None  # Updated return statement
 
     def get_commands_list(self):
         self.commands = self.load_commands(agent_name=self.agent_name)
@@ -101,11 +101,11 @@ class Commands:
         return commands_list
 
     def execute_command(self, command_name: str, command_args: dict):
-        command_function, params = self.find_command(command_name)
+        command_function, module, params = self.find_command(command_name)
         if command_function is None:
             return False
         for name, value in command_args.items():
             if name in params:
                 params[name] = value
-        output = command_function(self, **params)
+        output = command_function(module, **params)
         return output
