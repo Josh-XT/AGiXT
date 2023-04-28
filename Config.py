@@ -357,7 +357,10 @@ class Config:
 
     def get_chain(self, chain_name):
         chain_steps = os.listdir(os.path.join("chains", chain_name))
-        chain_data = {}
+        chain_data = {
+            "chain_name": chain_name,
+            "steps": [],
+        }
         for step in chain_steps:
             step_number = step.split("-")[0]
             agent_name = step.split("-")[1]
@@ -365,9 +368,8 @@ class Config:
             prompt_name = step.split("-")[3].replace(".txt", "")
             with open(os.path.join("chains", chain_name, step), "r") as f:
                 prompt = f.read()
-            chain_data.append(
+            chain_data[chain_name].append(
                 {
-                    "chain_name": chain_name,
                     "step_number": step_number,
                     "agent_name": agent_name,
                     "prompt_name": prompt_name,
