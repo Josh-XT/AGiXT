@@ -40,29 +40,40 @@ export default function ChainSteps() {
     };
     console.log(taskStatus.data);
     */
-    return (
-        <>
-            <ChainStep stepNum={1} updateCallback={() => { return null; }} />
+   const router = useRouter();
+    const steps = useSWR('chain/'+router.query.chain, async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}`)).data.chain[router.query.chain]);
+    console.log(steps.data);
+    return steps?.data?.map((step, index) => {return <>
+            <ChainStep {...step} updateCallback={() => { return null; }} />
             <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <IconButton>
-                    <InsertLink sx={{ fontSize: "2rem" }} />
-                </IconButton>
-                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Concurrently With</Typography>
+                    {
+                        index === steps.data.length-1
+                        ?
+                        <>
+                        <IconButton>
+                            <AddCircleOutline sx={{ fontSize: "2rem" }} />
+                        </IconButton>
+                        <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Add Step</Typography>
+                        </>
+                        :
+                        (
+                            step.run_next_concurrent
+                            ?
+                            <>
+                            <IconButton>
+                                <InsertLink sx={{ fontSize: "2rem" }} />
+                            </IconButton>
+                            <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Concurrently With</Typography>
+                            </>
+                            :
+                            <>
+                            <IconButton>
+                                <LowPriority sx={{ fontSize: "2rem" }} />
+                            </IconButton>
+                            <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Sequentially Before</Typography>
+                            </>
+                        )
+                    }
             </Box>
-            <ChainStep stepNum={2} updateCallback={() => { return null; }} />
-            <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <IconButton>
-                    <LowPriority sx={{ fontSize: "2rem" }} />
-                </IconButton>
-                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Sequentially Before</Typography>
-            </Box>
-            <ChainStep stepNum={3} updateCallback={() => { return null; }} />
-            <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <IconButton>
-                    <AddCircleOutline sx={{ fontSize: "2rem" }} />
-                </IconButton>
-                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Add Step</Typography>
-            </Box>
-        </>
-    );
+        </>});
 };

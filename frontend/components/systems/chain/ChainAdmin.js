@@ -19,11 +19,15 @@ export default function ChainAdmin({ friendly_name, name, args, enabled }) {
     await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`, { new_name: newName })
     mutate(`chain`);
   };
+  const handleRun = async () => {
+    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`)
+  };
   return (
     <Container>
       <TextField fullWidth variant="outlined" label="New Chain Name" value={newName} onChange={(e) => { setNewName(e.target.value) }} />
       <Button variant="contained" color="primary" onClick={handleRename} sx={{ marginY: "1rem" }}>Rename Chain</Button>
       <Divider sx={{my: "1.5rem"}}/>
+      <Button onClick={handleRun} variant="contained" color="success" sx={{mr: "1rem"}}>Run Chain</Button>
       <Button onClick={handleDelete} variant="contained" color="error">Delete Chain</Button>
     </Container>
   );

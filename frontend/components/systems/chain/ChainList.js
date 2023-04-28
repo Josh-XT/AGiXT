@@ -39,7 +39,7 @@ export default function MenuChainList({ data }) {
           </Link>
         </ListItemButton>
       <Divider />
-      {(data?Object.keys(data):null)?.map((chain) => (
+      {data.map((chain) => (
           <ListItemButton key={chain}>
             <ListItemIcon>
               <InsertLink />

@@ -28,7 +28,7 @@ import {
     InsertLink,
     LowPriority
 } from '@mui/icons-material';
-export default function ChainStep({ stepNum, updateCallback }) {
+export default function ChainStep({ step_number, agent_name, prompt_name, prompt_type, prompt, updateCallback }) {
     const [running, setRunning] = useState(false);
     /*
     const agentName = useRouter().query.agent;
@@ -52,7 +52,10 @@ export default function ChainStep({ stepNum, updateCallback }) {
     };
     console.log(taskStatus.data);
     */
-
+    const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);
+    const prompts = useSWR('prompt', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt`)).data.prompts);
+    console.log(agents);
+    console.log(prompts);
     const [expanded, setExpanded] = useState(false);
 
     const handleChange = () => {
@@ -67,16 +70,21 @@ export default function ChainStep({ stepNum, updateCallback }) {
                             {expanded?null:<Typography variant="h6" sx={{mr:"2rem"}}>Step Inputs</Typography>}
                             <Box onClick={(e) => {e.stopPropagation()}} sx={{ display: "flex", justifyContent: "center", alignItems: "center"}}>
                             <IconButton size="large"><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
-                            <Avatar sx={{ fontWeight: "bolder" }}>{stepNum}</Avatar>
+                            <Avatar sx={{ fontWeight: "bolder" }}>{step_number}</Avatar>
                             <IconButton size="large"><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
-                            <Select label="Agent" sx={{ mx: "0.5rem" }} value={0}>
+                            <Select label="Agent" sx={{ mx: "0.5rem" }} value={(agents.data?agents?.data?.indexOf(agent_name):0)==-1?0:agents?.data?.indexOf(agent_name)}>
                                 <MenuItem value={0}>Select an Agent...</MenuItem>
+                                {agents?.data?.map((agent) => {
+                                        return <MenuItem key={agent.name} value={agent.name} selected={agent_name===agent.name}>{agent.name}</MenuItem>;
+                                    })}
+                                
                             </Select>
-                            <Select label="Prompt" sx={{ mx: "0.5rem" }} value={0}>
+                            <Select label="Prompt" sx={{ mx: "0.5rem" }} value={(prompts.data?prompts?.data?.indexOf(prompt_name):0)==-1?0:prompts?.data?.indexOf(prompt_name)}>
                                 <MenuItem value={0}>Select a Prompt...</MenuItem>
-                            </Select>
-                            <Select label="Save Output In" sx={{ mx: "0.5rem" }} value={0}>
-                                <MenuItem value={0}>Select an Output Save Location...</MenuItem>
+                                {prompts?.data?.map((prompt) => {
+                                        return <MenuItem key={prompt} value={prompt} selected={agent_name===prompt}>{prompt}</MenuItem>;
+                                    })}
+                                
                             </Select>
                             <IconButton size="large"><HighlightOff sx={{ fontSize: "2rem" }} /></IconButton>
                             </Box>
