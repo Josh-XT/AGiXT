@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import useSWR from 'swr';
-import ChainPanel from './ChainPanel';
+import ChainPanel from '../prompt/PromptPanel';
 import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
 import ChainList from './ChainList';
 export default function ChainControl({ data }) {

@@ -8,7 +8,7 @@ import {
   Divider,
   Container
 } from "@mui/material";
-export default function AgentCommandsList({ friendly_name, name, args, enabled }) {
+export default function AgentAdmin({ friendly_name, name, args, enabled }) {
   const agentName = useRouter().query.agent;
   const [newName, setNewName] = useState("");
   const handleDelete = async () => {

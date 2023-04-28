@@ -3,10 +3,9 @@ import {
   Tab,
   Tabs
 } from "@mui/material";
-import ChainSteps from "./ChainSteps";
-import ChainSaves from "./ChainSaves";
+import PromptAdmin from "../prompt/PromptAdmin";
 import { useTheme } from "@mui/material/styles";
-export default function ChainPanel() {
+export default function PromptPanel() {
   const [tab, setTab] = useState(0);
 
   const handleTabChange = (event, newTab) => {
@@ -14,14 +13,12 @@ export default function ChainPanel() {
   };
   const theme = useTheme();
   const tabs = [
-    <ChainSteps key="step" />,
-    <ChainSaves key="saves" />
+    <PromptAdmin key="admin" />,
   ];
   return (
     <>
       <Tabs value={tab} onChange={handleTabChange} TabIndicatorProps={{ style: { background: theme.palette.mode == "dark"?"#FFF":"#000" } }} sx={{ mb: "0.5rem" }} textColor={theme.palette.mode == "dark"?"white":"black"}>
-        <Tab label="Configure Chain Steps" />
-        <Tab label="Configure Output Save Locations" />
+        <Tab label="Administrate Prompt" />
       </Tabs>
       {tabs[tab]}
     </>
