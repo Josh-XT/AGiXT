@@ -29,7 +29,7 @@ jobs:
         run: |
           cd frontend
           npm install
-          npm install -g eslint eslint-config-next
+          npm install -g eslint eslint-config-next @babel/core @babel/eslint-parser
 
       - name: Run Black on Python files
         run: black --check $(find . -type f -name "*.py")
