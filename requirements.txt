@@ -32,6 +32,6 @@ tiktoken
 tweepy
 undetected-chromedriver==3.1.7
 webdriver_manager
-pyllamacpp
+pyllamacpp==1.0.7
 spacy
 discord
