@@ -29,7 +29,7 @@ class AIProvider:
                     "top_k": 50,
                     "truncate": 1024,
                     "watermark": False,
-                    "max_new_tokens": max_tokens - len(prompt),
+                    "max_new_tokens": max_tokens,
                     "stop": ["<|endoftext|>"],
                     "return_full_text": False,
                 },
