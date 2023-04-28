@@ -349,6 +349,7 @@ class Config:
         )
         with open(
             task_output_file, "a" if os.path.exists(task_output_file) else "w"
+            , encoding="utf-8"
         ) as f:
             f.write(task_output)
         return task_output
