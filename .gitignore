@@ -19,3 +19,4 @@ WORKSPACE/*
 *.util.py
 agents/*
 src/*
+*.code-workspace
