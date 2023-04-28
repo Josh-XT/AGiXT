@@ -316,6 +316,12 @@ async def move_step(
     }
 
 
+@app.post("/api/chain/{chain_name}/run", tags=["Chain"])
+async def run_chain(chain_name: str) -> ResponseMessage:
+    CFG.run_chain(chain_name)
+    return {"message": f"Chain '{chain_name}' started."}
+
+
 @app.delete("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
 async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
     CFG.delete_step(chain_name, step_number)
