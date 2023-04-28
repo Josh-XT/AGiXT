@@ -17,7 +17,7 @@ export default function AgentObjective() {
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task`)).data.output.split("\n") : null), { refreshInterval: running?3000:0, revalidateOnFocus: false });
     const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task/status`)).data.status, {objective: objective});
-    }, [agentName]);
+    }, [agentName, objective]);
     useEffect(() => {
         queryRunning();
     }, [queryRunning])

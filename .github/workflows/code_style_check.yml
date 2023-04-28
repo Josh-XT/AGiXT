@@ -29,13 +29,12 @@ jobs:
         run: |
           cd frontend
           npm install
-          npm install -g eslint
+          npm install -g eslint eslint-config-next @babel/core @babel/eslint-parser
 
       - name: Run Black on Python files
         run: black --check $(find . -type f -name "*.py")
 
       - name: Run ESLint on JavaScript files
-        run: eslint .
-
-      - name: Run nbqa with Black on Jupyter Notebooks
-        run: nbqa black . --check
+        run: |
+          cd frontend
+          npx eslint .

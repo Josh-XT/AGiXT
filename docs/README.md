@@ -69,6 +69,8 @@ This project is under active development and may still have issues. We appreciat
 
   - OpenAI GPT-3.5, GPT-4
 
+  - [Hugging Face Huggingchat](https://huggingface.co/chat/)
+
   - Oobabooga Text Generation Web UI
 
   - Kobold
@@ -141,10 +143,11 @@ We are constantly trying to expand our AI provider support.  Take a look at our 
 **Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
 1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
-2. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
-3. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
-4. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/chatgpt.ipynb)
-5. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/bard.ipynb)
+2. [Huggingchat](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/huggingchat.ipynb)
+3. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
+4. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
+5. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/chatgpt.ipynb)
+6. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/bard.ipynb)
 
 For more detailed setup and configuration instructions, refer to the sections below.
 
