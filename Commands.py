@@ -6,18 +6,18 @@ from Config import Config
 
 class Commands:
     def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
-        self.CFG = Config(agent_name)
+        if agent_name == "undefined":
+            self.agent_name = "default"
+        else:
+            self.agent_name = agent_name
+        self.CFG = Config(self.agent_name)
+        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
+        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
             self.commands = []
-        if agent_name == "undefined":
-            agent_name = "default"
-        self.agent_name = self.CFG.AGENT_NAME if agent_name is None else agent_name
-        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
-        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
-
-        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.available_commands = self.get_available_commands()
 
     def get_available_commands(self):
