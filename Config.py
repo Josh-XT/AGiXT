@@ -357,10 +357,8 @@ class Config:
 
     def get_chain(self, chain_name):
         chain_steps = os.listdir(os.path.join("chains", chain_name))
-        chain_data = {
-            "chain_name": chain_name,
-            "steps": [],
-        }
+        chain_data = {}
+        chain_data[chain_name] = []
         for step in chain_steps:
             step_number = step.split("-")[0]
             agent_name = step.split("-")[1]
