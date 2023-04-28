@@ -2,9 +2,9 @@ import axios from 'axios';
 import useSWR from 'swr';
 import ReactMarkdown from 'react-markdown';
 import { Container } from '@mui/material';
-import ContentSWR from '@/components/content/ContentSWR';
-import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
-import PromptList from '@/components/prompt/PromptList';
+import ContentSWR from '@/components/data/ContentSWR';
+import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
+import PromptList from '@/components/systems/prompt/PromptList';
 import {useRouter} from 'next/router';
 export default function Home() {
   const router = useRouter();

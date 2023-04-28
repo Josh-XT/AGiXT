@@ -1,9 +1,9 @@
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import useSWR from 'swr';
-import ContentSWR from '@/components/content/ContentSWR';
-import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
-import ProviderList from '@/components/provider/ProviderList';
+import ContentSWR from '@/components/data/ContentSWR';
+import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
+import ProviderList from '@/components/systems/provider/ProviderList';
 import { Container } from '@mui/material';
 import ReactMarkdown from 'react-markdown';
 export default function Provider() {

@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Container, TextField, Button, Typography } from '@mui/material';
 import { mutate } from "swr"
 import useSWR from 'swr';
-import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
-import PromptList from '@/components/prompt/PromptList';
+import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
+import PromptList from '@/components/systems/prompt/PromptList';
 export default function Home() {
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");

@@ -2,7 +2,7 @@ import { useRouter } from 'next/router';
 import axios from 'axios';
 import useSWR from 'swr';
 import ChainPanel from './ChainPanel';
-import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
+import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
 import ChainList from './ChainList';
 export default function ChainControl({ data }) {
     const chainName = useRouter().query.chain;

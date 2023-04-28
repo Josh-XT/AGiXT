@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Container, TextField, Button, Typography } from '@mui/material';
 import { mutate } from "swr"
 import useSWR from 'swr';
-import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
-import ChainList from '@/components/chain/ChainList';
+import DoubleSidedMenu from '@/components/content/PopoutDrawerWrapper';
+import ChainList from '@/components/systems/chain/ChainList';
 export default function Home() {
   const [name, setName] = useState("");
   const [chain, setChain] = useState("");
