@@ -38,6 +38,11 @@ class Prompt(BaseModel):
     prompt: str
 
 
+class CustomPrompt(BaseModel):
+    prompt_name: str
+    prompt: str
+
+
 class PromptName(BaseModel):
     prompt_name: str
 
@@ -318,10 +323,10 @@ async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
 
 
 @app.post("/api/prompt", tags=["Prompt"])
-async def add_prompt(prompt_name: PromptName, prompt: Prompt) -> ResponseMessage:
+async def add_prompt(prompt: CustomPrompt) -> ResponseMessage:
     try:
-        CFG.add_prompt(prompt_name.prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name.prompt_name}' added.")
+        CFG.add_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -351,10 +356,11 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
 
 
 @app.put("/api/prompt/{prompt_name}", tags=["Prompt"])
-async def update_prompt(prompt_name: str, prompt: Prompt) -> ResponseMessage:
+async def update_prompt(prompt: CustomPrompt) -> ResponseMessage:
     try:
-        CFG.update_prompt(prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name}' updated.")
+        # prompt_body
+        CFG.update_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
