@@ -80,7 +80,6 @@ export default function ChainStep({ stepNum, updateCallback }) {
                             </Select>
                             <IconButton size="large"><HighlightOff sx={{ fontSize: "2rem" }} /></IconButton>
                             </Box>
-
                         </Box>
                     </AccordionSummary>
                     <AccordionDetails>

@@ -10,6 +10,7 @@ import {
     TextField,
     Box,
     Button,
+    IconButton,
 } from "@mui/material";
 import {
     ArrowCircleUp,
@@ -49,15 +50,25 @@ export default function AgentObjective() {
         <>
             <ChainStep stepNum={1} updateCallback={() => { return null; }} />
             <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <InsertLink sx={{ fontSize: "2rem" }} />
+                <IconButton>
+                    <InsertLink sx={{ fontSize: "2rem" }} />
+                </IconButton>
                 <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Concurrently With</Typography>
             </Box>
             <ChainStep stepNum={2} updateCallback={() => { return null; }} />
             <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <LowPriority sx={{ fontSize: "2rem" }} />
+                <IconButton>
+                    <LowPriority sx={{ fontSize: "2rem" }} />
+                </IconButton>
                 <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Sequentially Before</Typography>
             </Box>
             <ChainStep stepNum={3} updateCallback={() => { return null; }} />
+            <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
+                <IconButton>
+                    <AddCircleOutline sx={{ fontSize: "2rem" }} />
+                </IconButton>
+                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Add Step</Typography>
+            </Box>
         </>
     );
 };
