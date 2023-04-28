@@ -1,5 +1,6 @@
 import '@/styles/globals.css'
 import { useState, useCallback } from 'react';
+import { setCookie, getCookie } from 'cookies-next';
 import Link from 'next/link';
 import {
   Box,
@@ -26,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import MenuList from '@/components/menu/MenuList';
 import { MenuDarkSwitch } from '@/components/menu/MenuDarkSwitch';
+import { red } from '@mui/material/colors';
 const drawerWidth = 240;
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
@@ -71,9 +73,9 @@ const DrawerHeader = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.primary.main,
   color: 'white'
 }));
-export default function App({ Component, pageProps }) {
+export default function App({ Component, pageProps, dark }) {
   const [open, setOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(dark);
   const pages = [
     {
       name: "Providers",
@@ -105,7 +107,7 @@ export default function App({ Component, pageProps }) {
         primary: {
           main: "#273043",
         },
-      },
+      }
     });
   const theme = themeGenerator(darkMode);
 
@@ -118,7 +120,12 @@ export default function App({ Component, pageProps }) {
   };
 
   const handleToggleDarkMode = useCallback(() => {
-    setDarkMode((old) => !old);
+    setDarkMode((oldVal) => 
+      {
+        const newVal = !oldVal;
+        setCookie("dark", newVal.toString());
+        return newVal;
+      });
   }, []);
   return (
     <ThemeProvider theme={theme}>
@@ -177,5 +184,7 @@ export default function App({ Component, pageProps }) {
     </ThemeProvider>
   );
 }
-
-
+App.getInitialProps = async ({ ctx }) => {
+  const dark = getCookie("dark", ctx);
+  return { dark: dark };
+}
