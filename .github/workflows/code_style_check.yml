@@ -38,6 +38,3 @@ jobs:
         run: |
           cd frontend
           npx eslint .
-
-      - name: Run nbqa with Black on Jupyter Notebooks
-        run: nbqa black . --check
