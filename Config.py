@@ -376,9 +376,6 @@ class Config:
                     "run_next_concurrent": False,
                 }
             )
-            if step_number not in chain_data:
-                chain_data[step_number] = {}
-            chain_data[step_number][prompt_type] = prompt
         return chain_data
 
     def get_chains(self):
