@@ -17,7 +17,7 @@ import {useRouter} from 'next/router';
 export default function MenuChainList({ data }) {
   const router = useRouter();
   console.log(data);
-  console.log(Object.keys(data));
+  console.log(data?Object.keys(data):null);
   return (
     <List>
       <ListItemButton key={"home"} selected={ router.pathname.split("/")[1]=="chain"&&!router.query.chain }>
@@ -37,7 +37,7 @@ export default function MenuChainList({ data }) {
           </Link>
         </ListItemButton>
       <Divider />
-      {Object.keys(data).map((chain) => (
+      {(data?Object.keys(data):null)?.map((chain) => (
           <ListItemButton disabled key={chain}>
             <ListItemIcon>
               {chain.status ? <RunCircle /> : <StopCircle />}

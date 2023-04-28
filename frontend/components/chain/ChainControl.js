@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import useSWR from 'swr';
-import ChainPanel from './AgentPanel';
+import ChainPanel from './ChainPanel';
 import DoubleSidedMenu from '@/components/content/DoubleSidedMenu';
 import ChainList from './ChainList';
 export default function AgentControl({ data }) {
