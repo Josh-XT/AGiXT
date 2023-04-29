@@ -33,19 +33,13 @@ class AIProvider:
                     "stop": ["<|endoftext|>"],
                     "return_full_text": False,
                 },
-                "stream": True,
+                "stream": False,
                 "options": {"use_cache": False},
             },
-            stream=True,
+            stream=False,
         )
-
-        last_response = None
-        for chunk in res.iter_content(chunk_size=None):
-            if chunk:
-                data = loads(chunk.decode("utf-8")[5:])
-                if "error" not in data:
-                    last_response = data
-                else:
-                    print("error: ", data["error"])
-                    break
-        return last_response["generated_text"]
+        data = res.json()
+        data = data[0]
+        if "generated_text" in data:
+            data = data["generated_text"]
+        return data
