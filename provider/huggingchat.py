@@ -38,8 +38,11 @@ class AIProvider:
             },
             stream=False,
         )
-        data = res.json()
-        data = data[0]
-        if "generated_text" in data:
-            data = data["generated_text"]
-        return data
+        try:
+            data = res.json()
+        except ValueError:
+            print("Invalid JSON response")
+            data = {}
+
+        data = data[0] if data else {}
+        return data.get("generated_text", "")
