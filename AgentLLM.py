@@ -130,6 +130,11 @@ class AgentLLM:
                 response_parts = []
                 for command in commands[0].split("\n"):
                     command = command.strip()
+                    # Check if the command starts with a number and strip out everything until the first letter
+                    if command and command[0].isdigit():
+                        first_letter = re.search(r"[a-zA-Z]", command)
+                        if first_letter:
+                            command = command[first_letter.start() :]
                     command_name, command_args = None, {}
                     # Extract command name and arguments using regex
                     command_regex = re.search(r"(\w+)\((.*)\)", command)
