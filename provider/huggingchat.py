@@ -38,10 +38,6 @@ class AIProvider:
             },
             stream=True,
         )
-        if res.status_code != 200:
-            print(f"Status code: {res.status_code}")
-            print(f"Response content: {res.content}")
-            raise Exception("Failed to send prompt to AI")
 
         last_response = None
         for chunk in res.iter_content(chunk_size=None):
