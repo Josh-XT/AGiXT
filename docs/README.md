@@ -138,16 +138,18 @@ docker compose -f docker-compose-mac.yml up -d
 ```
 
 ### Not using OpenAI? No problem!
-We are constantly trying to expand our AI provider support.  Take a look at our Jupyter Notebooks for Quick starts for these:
+We are constantly trying to expand our AI provider support.  Take a look at our Quick starts for these:
 
 **Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
-1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/openai.ipynb)
-2. [Huggingchat](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/huggingchat.ipynb)
-3. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/llamacpp.ipynb)
-4. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/oobabooga.ipynb)
-5. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/chatgpt.ipynb)
-6. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/notebooks/bard.ipynb)
+1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/OPENAI.md)
+2. [Huggingchat](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/HUGGINGCHAT.md)
+3. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/LLAMACPP.md)
+4. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/OOBABOOGA.md)
+5. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/CHATGPT.md)
+6. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/BARD.md)
+7. [FastChat](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/FASTCHAT.md)
+8. [Kobold](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/KOBOLD.md)
 
 For more detailed setup and configuration instructions, refer to the sections below.
 
