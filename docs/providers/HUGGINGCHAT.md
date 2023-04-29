@@ -1,13 +1,9 @@
 # Agent-LLM
 
-## AI Provider: ChatGPT
+## AI Provider: Hugging Face Huggingchat
 
-- [ChatGPT](https://chat.openai.com/)
+- [Hugging Face Huggingchat](https://huggingface.co/chat/)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
-
-## Disclaimer
-
-We are not responsible if OpenAI bans your ChatGPT account for doing this. This may not be consistent with their rules to use their services in this way. This was developed for experimental purposes and we assume no responsibility for how you use it.
 
 ## Quick Start Guide
 
@@ -21,14 +17,15 @@ cd "Agent-LLM"
 pip install -r "requirements.txt"
 ```
 
-2. Create your `.env` below. Replace your `CHATGPT_USERNAME` and `CHATGPT_PASSWORD` with your login credentials for ChatGPT.
+2. Create your `.env` below.
 
 
 
 ```
-AI_PROVIDER=chatgpt
-CHATGPT_USERNAME=your@email.com
-CHATGPT_PASSWORD=yourpassword
+AI_PROVIDER=huggingchat
+AI_MODEL=openassistant
+AI_TEMPERATURE=0.2
+MAX_TOKENS=2048
 ```
 
 3. Start the back end application for Agent-LLM.
