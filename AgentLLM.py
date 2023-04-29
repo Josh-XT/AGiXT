@@ -240,7 +240,10 @@ class AgentLLM:
         self.agent_name = agent_name
 
     def get_status(self):
-        return not self.stop_running_event.is_set()
+        try:
+            return not self.stop_running_event.is_set()
+        except:
+            return False
 
     def initialize_task_list(self):
         self.task_list = deque([])
