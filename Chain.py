@@ -105,12 +105,36 @@ class Chain:
         if new_step_number < step_number:
             # Shift all the steps in between the new and old step number down by 1
             for i in range(step_number - 1, new_step_number - 1, -1):
-                self.move_step(chain_name, i, i + 1, agent_name)
+                old_pattern = os.path.join("chains", chain_name, f"{i}-*-*")
+                old_files = glob.glob(old_pattern)
+                if old_files:
+                    old_file = old_files[0]
+                    _, old_agent_name, old_prompt_type = os.path.splitext(
+                        os.path.basename(old_file)
+                    )[0].split("-")
+                    new_file = os.path.join(
+                        "chains",
+                        chain_name,
+                        f"{i + 1}-{old_agent_name}-{old_prompt_type}",
+                    )
+                    os.rename(old_file, new_file)
         # If the step is moving down
         elif new_step_number > step_number:
             # Shift all the steps in between the old and new step number up by 1
             for i in range(step_number + 1, new_step_number + 1):
-                self.move_step(chain_name, i, i - 1, agent_name)
+                old_pattern = os.path.join("chains", chain_name, f"{i}-*-*")
+                old_files = glob.glob(old_pattern)
+                if old_files:
+                    old_file = old_files[0]
+                    _, old_agent_name, old_prompt_type = os.path.splitext(
+                        os.path.basename(old_file)
+                    )[0].split("-")
+                    new_file = os.path.join(
+                        "chains",
+                        chain_name,
+                        f"{i - 1}-{old_agent_name}-{old_prompt_type}",
+                    )
+                    os.rename(old_file, new_file)
 
         # Extract agent_name and prompt_type from the file name
         _, current_agent_name, current_prompt_type = os.path.splitext(
