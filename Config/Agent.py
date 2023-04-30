@@ -222,28 +222,6 @@ class Agent(Config):
 
         return {"message": f"Agent {agent_name} deleted."}, 200
 
-    def get_agents(self):
-        memories_dir = "agents"
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        agents = []
-        for file in os.listdir(memories_dir):
-            if file.endswith(".yaml"):
-                agents.append(file.replace(".yaml", ""))
-        output = []
-        if not agents:
-            # Create a new agent
-            self.add_agent("Agent-LLM", {})
-            agents = ["Agent-LLM"]
-        for agent in agents:
-            try:
-                agent_instance = self.agent_instances[agent]
-                status = agent_instance.get_status()
-            except:
-                status = False
-            output.append({"name": agent, "status": status})
-        return output
-
     def get_agent_config(self):
         agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
         if os.path.exists(agent_file):
