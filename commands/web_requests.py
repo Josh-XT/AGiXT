@@ -3,15 +3,12 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 from Commands import Commands
-from Config import Config
-
-CFG = Config()
 
 
 class web_requests(Commands):
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": CFG.AGENT_NAME})
+        self.session.headers.update({"User-Agent": "Agent-LLM/1.0"})
         self.commands = {
             "Is Valid URL": self.is_valid_url,
             "Sanitize URL": self.sanitize_url,

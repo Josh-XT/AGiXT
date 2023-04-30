@@ -4,7 +4,7 @@ from Config import Config
 CFG = Config()
 
 
-class AIProvider:
+class BardProvider:
     def __init__(self, BARD_TOKEN: str = ""):
         self.requirements = ["GoogleBard"]
         if CFG.AI_PROVIDER.lower() == "bard":

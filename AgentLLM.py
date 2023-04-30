@@ -57,10 +57,11 @@ class AgentLLM:
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.embedding_function,
         )
-        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.agent_name = agent_name
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
         self.stop_running_event = None
+        self.instruct = self.CFG.instruct
 
     def get_output_list(self):
         return self.output_list

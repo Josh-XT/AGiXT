@@ -1,8 +1,8 @@
 from requests.sessions import Session
 
 
-class AIProvider:
-    def __init__(self, AI_TEMPERATURE: float = 0.7, MAX_TOKENS: int = 2000):
+class HuggingchatProvider:
+    def __init__(self, AI_TEMPERATURE: float = 0.7, MAX_TOKENS: int = 2000, **kwargs):
         self.requirements = []
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS

@@ -4,7 +4,7 @@ except:
     print("Failed to import pyllamacpp.")
 
 
-class AIProvider:
+class LlamacppProvider:
     def __init__(
         self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, AI_TEMPERATURE: float = 0.7
     ):

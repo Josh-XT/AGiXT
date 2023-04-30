@@ -1,7 +1,7 @@
 import openai
 
 
-class AIProvider:
+class OpenaiProvider:
     def __init__(
         self,
         OPENAI_API_KEY: str = "",

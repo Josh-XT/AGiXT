@@ -3,7 +3,7 @@ import random
 import re
 
 
-class AIProvider:
+class OobaboogaProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",

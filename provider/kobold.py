@@ -1,7 +1,7 @@
 import requests
 
 
-class AIProvider:
+class KoboldProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",

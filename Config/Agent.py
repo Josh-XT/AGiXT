@@ -22,12 +22,22 @@ class Agent(Config):
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
         if self.AGENT_CONFIG is not None:
-            self.AI_PROVIDER = self.AGENT_CONFIG["provider"]
-            self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+            if "provider" in self.AGENT_CONFIG:
+                self.AI_PROVIDER = self.AGENT_CONFIG["provider"]
+            else:
+                self.AI_PROVIDER = "huggingchat"
+            if "settings" in self.AGENT_CONFIG:
+                self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+            else:
+                self.PROVIDER_SETTINGS = {
+                    "AI_MODEL": "openassistant",
+                    "AI_TEMPERATURE": 0.9,
+                    "MAX_TOKENS": 2096,
+                }
             self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
             self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-
+        self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
         if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
             self.AI_MODEL = "default"
         with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
@@ -38,8 +48,6 @@ class Agent(Config):
             self.PRIORITY_PROMPT = f.read()
 
         self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
-        self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
-        self._create_directory_if_not_exists(self.WORKING_DIRECTORY)
 
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
@@ -59,10 +67,6 @@ class Agent(Config):
         for key in keys:
             if key in self.AGENT_CONFIG:
                 setattr(self, key, self.AGENT_CONFIG[key])
-
-    def _create_directory_if_not_exists(self, directory):
-        if not os.path.exists(directory):
-            os.makedirs(directory)
 
     def _create_parent_directories(self, file_path):
         path = Path(file_path)
@@ -106,8 +110,12 @@ class Agent(Config):
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
+    def load_command_files(self):
+        command_files = glob.glob("commands/*.py")
+        return command_files
+
     def create_agent_config_file(self, agent_name, **kwargs):
-        agent_config_file = os.path.join("agents", agent_name, "config.json")
+        agent_config_file = os.path.join(agent_name, "config.json")
         if not os.path.exists(agent_config_file):
             with open(agent_config_file, "w") as f:
                 f.write(

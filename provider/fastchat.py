@@ -2,7 +2,7 @@ import requests
 import json
 
 
-class AIProvider:
+class FastchatProvider:
     def __init__(self, AI_PROVIDER_URI: str = "", AI_MODEL: str = ""):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI

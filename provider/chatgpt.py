@@ -5,7 +5,7 @@ import time
 import undetected_chromedriver as uc
 
 
-class AIProvider:
+class ChatgptProvider:
     def __init__(self, CHATGPT_USERNAME: str = "", CHATGPT_PASSWORD: str = ""):
         self.requirements = ["undetected-chromedriver", "selenium", "webdriver-manager"]
         self.head_count = 2

@@ -7,6 +7,8 @@ load_dotenv()
 
 class Config:
     def __init__(self):
+        self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
+        self._create_directory_if_not_exists(self.WORKING_DIRECTORY)
         # Extensions Configuration
 
         # OpenAI
@@ -60,6 +62,10 @@ class Config:
 
         # Brian TTS
         self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
+
+    def _create_directory_if_not_exists(self, directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
     def get_providers(self):
         providers = []
