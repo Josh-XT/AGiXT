@@ -11,15 +11,13 @@ class Chain:
         for step in chain_steps:
             step_number = step.split("-")[0]
             agent_name = step.split("-")[1]
-            prompt_type = step.split("-")[2]
-            prompt_name = step.split("-")[3].replace(".txt", "")
+            prompt_type = step.split("-")[2].replace(".txt", "")
             with open(os.path.join("chains", chain_name, step), "r") as f:
                 prompt = f.read()
             chain_data[chain_name].append(
                 {
                     "step_number": step_number,
                     "agent_name": agent_name,
-                    "prompt_name": prompt_name,
                     "prompt_type": prompt_type,
                     "prompt": prompt,
                     "run_next_concurrent": False,
