@@ -20,7 +20,6 @@ export default function Home() {
     </Typography>
    <form>
     <TextField fullWidth variant="outlined" label="Chain Name" value={name} onChange={(e) => {setName(e.target.value)}} />
-    <TextField fullWidth variant="outlined" label="Chain Body" multiline rows={50} value={chain} onChange={(e) => {setChain(e.target.value)}} />
     <Button variant="contained" color="primary" onClick={handleCreate} sx={{marginY: "1rem"}}>Add a New Chain</Button>
    </form>
   </Container></PopoutDrawerWrapper>;
