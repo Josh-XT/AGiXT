@@ -37,7 +37,6 @@ import StepTypeInstruction from "./step_types/StepTypeInstruction";
 export default function ChainStep({ step_number, last_step, agent_name, prompt_name, prompt_type, prompt }) {
     const [agentName, setAgentName] = useState(agent_name);
     const [promptName, setPromptName] = useState(prompt_name);
-    const [promptType, setPromptType] = useState(prompt_type);
     const [promptText, setPromptText] = useState(prompt);
     const [expanded, setExpanded] = useState(false);
     const [stepType, setStepType] = useState(-1);
@@ -73,9 +72,6 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     };
     const handleSave = () => {
         axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
-            chain_name: "Edited",
-            command_name: "Edited",
-            command_args: "Edited",
             prompt_name: "Edited",
             prompt_type: "Edited",
             prompt: "Edited",
