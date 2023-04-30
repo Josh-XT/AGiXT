@@ -167,7 +167,7 @@ async def delete_agent(agent_name: str) -> ResponseMessage:
 
 @app.get("/api/agent", tags=["Agent"])
 async def get_agents():
-    agents = Agent("default").get_agents()
+    agents = CFG.get_agents()
     return {"agents": agents}
 
 
