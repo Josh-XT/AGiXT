@@ -347,7 +347,6 @@ async def update_step(
 ) -> ResponseMessage:
     Chain().update_step(
         chain_name,
-        step_number,
         chain_step.step_number,
         chain_step.prompt_type,
         chain_step.prompt,
