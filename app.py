@@ -99,20 +99,22 @@ class AgentSettings(BaseModel):
     settings: Dict[str, Any]
 
 
+# Get list of providers
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 
-# Get provider settings
+# Get available provider settings
+# These should be used to set new agents settings.
 @app.get("/api/provider/{provider_name}", tags=["Provider"])
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name)
     return {"settings": settings}
 
 
-# Get all provider settings
+# Get all available provider settings
 @app.get("/api/provider/settings", tags=["Provider"])
 async def get_all_provider_settings():
     settings = get_all_provider_options()
@@ -125,7 +127,7 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
 
 
-# Expecting a payload like this:
+# For adding new agents, expecting a payload like this:
 # {
 #    "agent_name": "test",
 #    "settings": {
@@ -136,6 +138,8 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
 #        "MAX_TOKENS": 4096,
 #    }
 # }
+# Take what you get from "/api/provider/{provider_name}" endpoint to set the settings.
+# Get user input for each of those settings for the agent.
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
