@@ -114,7 +114,7 @@ class Agent(Config):
         command_files = glob.glob("commands/*.py")
         return command_files
 
-    def create_agent_config_file(self, agent_name, **kwargs):
+    def create_agent_config_file(self, agent_name, provider_settings):
         agent_config_file = os.path.join(agent_name, "config.json")
         if not os.path.exists(agent_config_file):
             with open(agent_config_file, "w") as f:
@@ -125,7 +125,7 @@ class Agent(Config):
                                 command_name: "false"
                                 for command_name, _, _ in self.commands
                             },
-                            **kwargs,
+                            "settings": provider_settings,
                         }
                     )
                 )
