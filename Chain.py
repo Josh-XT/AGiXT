@@ -44,9 +44,12 @@ class Chain:
         ) as f:
             f.write(prompt)
 
-    def add_step(self, chain_name, step_number, prompt_type, prompt):
+    def add_step(self, chain_name, step_number, prompt_type, prompt, agent_name=None):
         with open(
-            os.path.join("chains", chain_name, f"{step_number}-{prompt_type}.txt"), "w"
+            os.path.join(
+                "chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"
+            ),
+            "w",
         ) as f:
             f.write(prompt)
 

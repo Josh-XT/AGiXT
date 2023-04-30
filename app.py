@@ -60,6 +60,7 @@ class ChainName(BaseModel):
 
 class StepInfo(BaseModel):
     step_number: int
+    agent_name: str
     prompt_type: str
     prompt: str
 
@@ -331,7 +332,11 @@ async def delete_chain(chain_name: str) -> ResponseMessage:
 @app.post("/api/chain/{chain_name}/step", tags=["Chain"])
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     Chain().add_step(
-        chain_name, step_info.step_number, step_info.prompt_type, step_info.prompt
+        chain_name,
+        step_info.step_number,
+        step_info.prompt_type,
+        step_info.prompt,
+        step_info.agent_name,
     )
     return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
