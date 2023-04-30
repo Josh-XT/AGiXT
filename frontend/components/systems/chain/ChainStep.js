@@ -65,12 +65,12 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     const step_types = useMemo(() => {
         return [
             {name: "prompt", component: <StepTypePrompt agent_name={agent_name} prompt_name={prompt_name} prompt={prompt} />},
-            {name: "command", component: <StepTypeCommand command_name={command_name} command_args={command_args}/>},
+            {name: "command", component: <StepTypeCommand prompt={prompt}/>},
             {name: "task", component: <StepTypeTask agent_name={agent_name} prompt={prompt}/>},
             {name: "instruction", component: <StepTypeInstruction agent_name={agent_name} prompt={prompt}/>},
-            {name: "chain", component: <StepTypeChain chain_name={chain_name}/>}
+            {name: "chain", component: <StepTypeChain prompt={prompt}/>}
         ]
-    }, [agent_name, prompt_name, prompt, chain_name, command_name, command_args]);
+    }, [agent_name, prompt_name, prompt]);
     useEffect(() => {
         setStepType(step_types.findIndex((step_type) => step_type.name == prompt_type));
     }, [prompt_type, step_types])
