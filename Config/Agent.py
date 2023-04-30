@@ -233,7 +233,7 @@ class Agent(Config):
         output = []
         if not agents:
             # Create a new agent
-            self.add_agent("Agent-LLM")
+            self.add_agent("Agent-LLM", {})
             agents = ["Agent-LLM"]
         for agent in agents:
             try:
@@ -250,7 +250,7 @@ class Agent(Config):
             with open(agent_file, "r") as f:
                 agent_config = json.load(f)
         else:
-            self.add_agent(self.AGENT_NAME)
+            self.add_agent(self.AGENT_NAME, {})
             agent_config = self.get_agent_config()
         return agent_config
 
