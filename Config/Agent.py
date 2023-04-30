@@ -161,8 +161,8 @@ class Agent(Config):
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
-    def create_agent_config_file(self, agent_folder):
-        agent_config_file = os.path.join(agent_folder, "config.json")
+    def create_agent_config_file(self, agent_name, **kwargs):
+        agent_config_file = os.path.join("agents", agent_name, "config.json")
         if not os.path.exists(agent_config_file):
             with open(agent_config_file, "w") as f:
                 f.write(
@@ -172,13 +172,7 @@ class Agent(Config):
                                 command_name: "false"
                                 for command_name, _, _ in self.commands
                             },
-                            "provider": {
-                                "name": "openai",
-                                "OPENAI_API_KEY": "",
-                                "AI_MODEL": "gpt-3.5-turbo",
-                                "AI_TEMPERATURE": 0.4,
-                                "AI_MAX_TOKENS": 4096,
-                            },
+                            **kwargs,
                         }
                     )
                 )
@@ -195,25 +189,27 @@ class Agent(Config):
                     agent_config_data = {}
                     # Populate the agent_config with all commands enabled
                     agent_config_data["commands"] = {
-                        command_name: "true"
+                        command_name: "false"
                         for command_name, _, _ in self.load_commands(agent_name)
                     }
+                    agent_config_data["provider"] = "huggingchat"
                     # Save the updated agent_config to the file
                     with open(
                         os.path.join("agents", agent_name, "config.json"), "w"
                     ) as agent_config_file:
                         json.dump(agent_config_data, agent_config_file)
         except:
-            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "true"}
+            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "false"}
             agent_config_file = os.path.join("agents", agent_name, "config.json")
             with open(agent_config_file, "w") as f:
                 f.write(
                     json.dumps(
                         {
                             "commands": {
-                                command_name: "true"
+                                command_name: "false"
                                 for command_name, _, _ in self.commands
-                            }
+                            },
+                            "provider": "huggingchat",
                         }
                     )
                 )
@@ -236,10 +232,10 @@ class Agent(Config):
         with open(agent_config, "w") as f:
             json.dump(config_data, f)
 
-    def add_agent(self, agent_name):
+    def add_agent(self, agent_name, provider_settings):
         agent_file = self.create_agent_yaml_file(agent_name)
         agent_folder = self.create_agent_folder(agent_name)
-        agent_config = self.create_agent_config_file(agent_folder)
+        agent_config = self.create_agent_config_file(agent_folder, provider_settings)
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:

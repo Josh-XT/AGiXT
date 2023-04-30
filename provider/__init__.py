@@ -3,6 +3,24 @@ import subprocess
 import pkg_resources
 import glob
 import os
+import inspect
+
+
+def get_provider_options(provider_name):
+    module = importlib.import_module(f"provider.{provider_name}")
+    provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+    signature = inspect.signature(provider_class.__init__)
+    options = [param for param in signature.parameters if param != "self"]
+    return options
+
+
+def get_all_provider_options():
+    provider_options = {}
+    for provider_file in glob.glob("provider/*.py"):
+        if "__init__.py" not in provider_file:
+            provider_name = os.path.splitext(os.path.basename(provider_file))[0]
+            provider_options[provider_name] = get_provider_options(provider_name)
+    return provider_options
 
 
 class Provider:

@@ -6,7 +6,8 @@ from Config import Config
 from AgentLLM import AgentLLM
 from Commands import Commands
 import threading
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
+from provider import get_all_provider_options, get_provider_options
 
 CFG = Config()
 app = FastAPI()
@@ -93,16 +94,48 @@ class Prompt(BaseModel):
     prompt: str
 
 
+class AgentSettings(BaseModel):
+    agent_name: str
+    settings: Dict[str, Any]
+
+
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 
+# Get provider settings
+@app.get("/api/provider/{provider_name}", tags=["Provider"])
+async def get_provider_settings(provider_name: str):
+    settings = get_provider_options(provider_name)
+    return {"settings": settings}
+
+
+# Get all provider settings
+@app.get("/api/provider/settings", tags=["Provider"])
+async def get_all_provider_settings():
+    settings = get_all_provider_options()
+    return {"settings": settings}
+
+
 @app.post("/api/agent", tags=["Agent"])
-async def add_agent(agent_name: AgentName) -> Dict[str, str]:
-    agent_info = CFG.add_agent(agent_name.agent_name)
+async def add_agent(agent: AgentSettings) -> Dict[str, str]:
+    agent_info = CFG.add_agent(agent.agent_name, agent.settings)
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
+
+
+# Expecting a payload like this:
+# {
+#    "agent_name": "test",
+#    "settings": {
+#        "provider": "openai",
+#        "OPENAI_API_KEY": "sk-...",
+#        "AI_MODEL": "gpt-3.5-turbo",
+#        "AI_TEMPERATURE": 0.7,
+#        "MAX_TOKENS": 4096,
+#    }
+# }
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])

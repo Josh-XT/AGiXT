@@ -15,6 +15,7 @@ import json
 from json.decoder import JSONDecodeError
 import spacy
 from spacy.cli import download
+from provider import get_provider_flags
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -59,8 +60,10 @@ class AgentLLM:
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.embedding_function,
         )
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         ai_module = importlib.import_module(f"provider.{self.CFG.AI_PROVIDER}")
-        self.ai_instance = ai_module.AIProvider()
+        # Need to add the actual provider settings for the agent into the AIProvider class
+        self.ai_instance = ai_module.AIProvider()  # args in here
         self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
         self.output_list = []
