@@ -1,11 +1,11 @@
 from Commands import Commands
-from Config.Agent import Agent
+from Config import Config
 from AgentLLM import AgentLLM
 
 
 class work_with_ai(Commands):
     def __init__(self):
-        agents = Agent().get_agents()
+        agents = Config().get_agents()
         self.commands = {}
         if agents != None:
             for agent in agents:
