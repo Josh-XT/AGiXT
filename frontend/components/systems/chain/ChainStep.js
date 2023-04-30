@@ -70,13 +70,22 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
             mutate('chain/' + router.query.chain);
         });
     };
+    useEffect(() => {
+        setAgentName(agent_name);
+    }, [agent_name]);
+    useEffect(() => {
+        setPromptName(prompt_name);
+    }, [prompt_name]);
+    useEffect(() => {
+        setPromptText(prompt);
+    }, [prompt]);
     const handleSave = () => {
         axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
             step_number: step_number,
-            prompt_name: "Edited",
-            prompt_type: "Edited",
-            prompt: "Edited",
-            agent_name: "Edited"
+            prompt_name: promptName,
+            prompt_type: promptType,
+            prompt: promptText,
+            agent_name: agentName
         }).then(() => {
             mutate('chain/' + router.query.chain);
         });
