@@ -54,7 +54,13 @@ class Chain:
             f.write(prompt)
 
     def update_step(
-        self, chain_name, old_step_number, new_step_number, prompt_type, agent_name=None
+        self,
+        chain_name,
+        old_step_number,
+        new_step_number,
+        prompt_type,
+        prompt,
+        agent_name=None,
     ):
         os.rename(
             os.path.join(
@@ -68,6 +74,15 @@ class Chain:
                 f"{new_step_number}-{agent_name}-{prompt_type}.txt",
             ),
         )
+        with open(
+            os.path.join(
+                "chains",
+                chain_name,
+                f"{new_step_number}-{agent_name}-{prompt_type}.txt",
+            ),
+            "w",
+        ) as f:
+            f.write(prompt)
 
     def delete_step(self, chain_name, step_number):
         files_to_delete = glob.glob(
