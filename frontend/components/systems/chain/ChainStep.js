@@ -72,6 +72,7 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     };
     const handleSave = () => {
         axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
+            step_number: step_number,
             prompt_name: "Edited",
             prompt_type: "Edited",
             prompt: "Edited",
