@@ -336,12 +336,14 @@ async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
 
-@app.put("/api/chain/{chain_name}/step", tags=["Chain"])
-async def update_step(chain_name: str, chain_step: ChainStep) -> ResponseMessage:
+@app.put("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
+async def update_step(
+    chain_name: str, step_number: int, chain_step: ChainStep
+) -> ResponseMessage:
     Chain().update_step(
         chain_name,
+        step_number,
         chain_step.step_number,
-        chain_step.agent_name,
         chain_step.prompt_type,
         chain_step.prompt,
     )
