@@ -75,7 +75,6 @@ class ChainStep(BaseModel):
 class ChainStepNewInfo(BaseModel):
     old_step_number: int
     new_step_number: int
-    prompt_type: str
 
 
 class ResponseMessage(BaseModel):
@@ -363,9 +362,6 @@ async def move_step(
         chain_name,
         chain_step_new_info.old_step_number,
         chain_step_new_info.new_step_number,
-        chain_step_new_info.prompt_type,
-        chain_step_new_info.prompt,
-        chain_step_new_info.agent_name,
     )
     return {
         "message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."

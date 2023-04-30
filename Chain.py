@@ -80,9 +80,7 @@ class Chain:
         for file_path in files_to_delete:
             os.remove(file_path)
 
-    def move_step(
-        self, chain_name, step_number, new_step_number, prompt_type, agent_name=None
-    ):
+    def move_step(self, chain_name, step_number, new_step_number):
         # Define the file pattern for the existing step
         file_pattern = os.path.join("chains", chain_name, f"{step_number}-*-*.txt")
 
