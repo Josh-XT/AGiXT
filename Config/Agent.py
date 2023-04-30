@@ -223,18 +223,18 @@ class Agent(Config):
         return {"message": f"Agent {agent_name} deleted."}, 200
 
     def get_agent_config(self):
-        agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
-        if os.path.exists(agent_file):
-            with open(agent_file, "r") as f:
-                file_content = f.read().strip()
-                if file_content:
-                    agent_config = json.loads(file_content)
-                else:
-                    self.add_agent(self.AGENT_NAME, {})
-                    agent_config = self.get_agent_config()
-        else:
-            self.add_agent(self.AGENT_NAME, {})
-            agent_config = self.get_agent_config()
+        while True:
+            agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
+            if os.path.exists(agent_file):
+                with open(agent_file, "r") as f:
+                    file_content = f.read().strip()
+                    if file_content:
+                        agent_config = json.loads(file_content)
+                        break
+                    else:
+                        self.add_agent(self.AGENT_NAME, {})
+            else:
+                self.add_agent(self.AGENT_NAME, {})
         return agent_config
 
     def update_agent_config(self, agent_name, config):
