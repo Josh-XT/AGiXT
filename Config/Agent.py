@@ -188,7 +188,7 @@ class Agent(Config):
     def add_agent(self, agent_name, provider_settings):
         agent_file = self.create_agent_yaml_file(agent_name)
         agent_folder = self.create_agent_folder(agent_name)
-        agent_config = self.create_agent_config_file(agent_folder, provider_settings)
+        agent_config = self.create_agent_config_file(agent_name, provider_settings)
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
