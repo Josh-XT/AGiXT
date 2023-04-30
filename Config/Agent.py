@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from inspect import signature, Parameter
 from provider import Provider
 from Config import Config
+from Commands import Commands
 
 load_dotenv()
 
@@ -61,7 +62,8 @@ class Agent(Config):
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
         self.agent_instances = {}
-        self.commands = {}
+        self.commands = Commands(self.AGENT_NAME)
+        self.available_commands = self.commands.get_available_commands()
 
     def _load_agent_config_keys(self, keys):
         for key in keys:
@@ -123,7 +125,7 @@ class Agent(Config):
                         {
                             "commands": {
                                 command_name: "false"
-                                for command_name, _, _ in self.commands
+                                for command_name, _, _ in self.available_commands
                             },
                             "settings": provider_settings,
                         }
@@ -160,7 +162,7 @@ class Agent(Config):
                         {
                             "commands": {
                                 command_name: "false"
-                                for command_name, _, _ in self.commands
+                                for command_name, _, _ in self.available_commands
                             },
                             "provider": "huggingchat",
                         }
