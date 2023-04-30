@@ -44,7 +44,12 @@ export default function ChainSteps() {
     const steps = useSWR('chain/' + router.query.chain, async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}`)).data.chain[router.query.chain]);
     console.log(steps.data);
     const handleAdd = () => {
-        axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step`).then(() => {
+        axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step`, {
+            agent_name: "",
+            prompt_type: "",
+            prompt: "",
+            step_number: steps.data.length+1
+        }).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };
