@@ -129,7 +129,7 @@ async def get_all_provider_settings():
 
 @app.post("/api/agent", tags=["Agent"])
 async def add_agent(agent: AgentSettings) -> Dict[str, str]:
-    agent_info = Agent(agent.agent_name, agent.settings)
+    agent_info = Agent(agent.agent_name).add_agent(agent.agent_name, agent.settings)
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
 
 
