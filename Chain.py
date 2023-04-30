@@ -83,16 +83,40 @@ class Chain:
     def move_step(
         self, chain_name, step_number, new_step_number, prompt_type, agent_name=None
     ):
-        os.rename(
-            os.path.join(
-                "chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"
-            ),
-            os.path.join(
-                "chains",
-                chain_name,
-                f"{new_step_number}-{agent_name}-{prompt_type}.txt",
-            ),
+        # Define the file pattern for the existing step
+        file_pattern = os.path.join("chains", chain_name, f"{step_number}-*-*.txt")
+
+        # Search for existing files matching the pattern
+        existing_files = glob.glob(file_pattern)
+
+        # If no matching file is found, print an error message and return
+        if not existing_files:
+            print(f"No file found for step {step_number} in chain '{chain_name}'.")
+            return
+
+        # If multiple files match the pattern, print a warning
+        if len(existing_files) > 1:
+            print(
+                f"Warning: Multiple files found for step {step_number} in chain '{chain_name}'. Using the first one."
+            )
+
+        # Get the first matching file
+        src_file = existing_files[0]
+
+        # Extract agent_name and prompt_type from the file name
+        _, current_agent_name, current_prompt_type = os.path.splitext(
+            os.path.basename(src_file)
+        )[0].split("-")
+
+        # Construct the destination file name
+        dst_file = os.path.join(
+            "chains",
+            chain_name,
+            f"{new_step_number}-{current_agent_name}-{current_prompt_type}.txt",
         )
+
+        # Move the file
+        os.rename(src_file, dst_file)
 
     def delete_chain(self, chain_name):
         shutil.rmtree(os.path.join("chains", chain_name))
