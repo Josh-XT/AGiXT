@@ -1,14 +1,15 @@
 import os
 import json
 import glob
+import uuid
 import shutil
 import importlib
 import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
-from Config import Config
 from provider import Provider
+from Config import Config
 
 load_dotenv()
 
@@ -21,22 +22,24 @@ class Agent(Config):
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
         if self.AGENT_CONFIG is not None:
-            self.AI_PROVIDER = self.AGENT_CONFIG["AI_PROVIDER"]
-            provider_instance = Provider(self.AI_PROVIDER)
-            provider_settings = provider_instance.get_settings()
+            self.AI_PROVIDER = self.AGENT_CONFIG["provider"]
+            self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+            self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+            self.instruct = self.PROVIDER.instruct
+            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
 
-        # AI_PROVIDER_URI is only needed for custom AI providers such as Oobabooga Text Generation Web UI
-        self.AI_PROVIDER_URI = os.getenv("AI_PROVIDER_URI", "http://127.0.0.1:7860")
-        self.MODEL_PATH = os.getenv("MODEL_PATH")
-
-        # ChatGPT Configuration
-        self.CHATGPT_USERNAME = os.getenv("CHATGPT_USERNAME")
-        self.CHATGPT_PASSWORD = os.getenv("CHATGPT_PASSWORD")
+        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+            self.AI_MODEL = "default"
+        with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
+            self.EXECUTION_PROMPT = f.read()
+        with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
+            self.TASK_PROMPT = f.read()
+        with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
+            self.PRIORITY_PROMPT = f.read()
 
         self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
-        if not os.path.exists(self.WORKING_DIRECTORY):
-            os.makedirs(self.WORKING_DIRECTORY)
+        self._create_directory_if_not_exists(self.WORKING_DIRECTORY)
 
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
@@ -44,73 +47,26 @@ class Agent(Config):
             "USE_LONG_TERM_MEMORY_ONLY", "false"
         ).lower()
 
-        # Model configuration
-        self.AI_MODEL = os.getenv("AI_MODEL", "gpt-3.5-turbo").lower()
-        self.AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.4))
-        self.MAX_TOKENS = os.getenv("MAX_TOKENS", 2000)
-
-        # Extensions Configuration
-
-        # OpenAI
-        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-        # Bard
-        self.BARD_TOKEN = os.getenv("BARD_TOKEN")
-
-        # Huggingface
-        self.HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-        self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = os.getenv(
-            "HUGGINGFACE_AUDIO_TO_TEXT_MODEL", "facebook/wav2vec2-large-960h-lv60-self"
-        )
-
-        # Selenium
-        self.SELENIUM_WEB_BROWSER = os.getenv("SELENIUM_WEB_BROWSER", "chrome").lower()
-
-        # Twitter
-        self.TW_CONSUMER_KEY = os.getenv("TW_CONSUMER_KEY")
-        self.TW_CONSUMER_SECRET = os.getenv("TW_CONSUMER_SECRET")
-        self.TW_ACCESS_TOKEN = os.getenv("TW_ACCESS_TOKEN")
-        self.TW_ACCESS_TOKEN_SECRET = os.getenv("TW_ACCESS_TOKEN_SECRET")
-
-        # Github
-        self.GITHUB_API_KEY = os.getenv("GITHUB_API_KEY")
-        self.GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
-
-        # Sendgrid
-        self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-        self.SENDGRID_EMAIL = os.getenv("SENDGRID_EMAIL")
-
-        # Microsft 365
-        self.MICROSOFT_365_CLIENT_ID = os.getenv("MICROSOFT_365_CLIENT_ID")
-        self.MICROSOFT_365_CLIENT_SECRET = os.getenv("MICROSOFT_365_CLIENT_SECRET")
-        self.MICROSOFT_365_REDIRECT_URI = os.getenv("MICROSOFT_365_REDIRECT_URI")
-
-        # SearXNG - List of these at https://searx.space/
-        self.SEARXNG_INSTANCE_URL = os.getenv(
-            "SEARXNG_INSTANCE_URL", "https://searx.work"
-        )
-
-        # Discord
-        self.DISCORD_API_KEY = os.getenv("DISCORD_API_KEY")
-
-        # Voice (Choose one: ElevenLabs, Brian, Mac OS)
-        # Elevenlabs
-        self.ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-        self.ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Josh")
-        # Mac OS TTS
-        self.USE_MAC_OS_TTS = os.getenv("USE_MAC_OS_TTS", "false").lower()
-
-        # Brian TTS
-        self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
-
         # Yaml Memory
         self.memory_folder = "agents"
         self.memory_file = f"{self.memory_folder}/{self.AGENT_NAME}.yaml"
-        memory_file_path = Path(self.memory_file)
-        memory_file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
         self.agent_instances = {}
         self.commands = {}
+
+    def _load_agent_config_keys(self, keys):
+        for key in keys:
+            if key in self.AGENT_CONFIG:
+                setattr(self, key, self.AGENT_CONFIG[key])
+
+    def _create_directory_if_not_exists(self, directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+    def _create_parent_directories(self, file_path):
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     def get_provider(self):
         config_file = self.get_agent_config()
@@ -134,10 +90,6 @@ class Agent(Config):
             os.makedirs(agent_folder)
         return agent_folder
 
-    def load_command_files(self):
-        command_files = glob.glob("commands/*.py")
-        return command_files
-
     def get_command_params(self, func):
         params = {}
         sig = signature(func)
@@ -150,7 +102,7 @@ class Agent(Config):
 
     def load_commands(self):
         commands = []
-        command_files = self.load_command_files()
+        command_files = glob.glob("commands/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
@@ -338,3 +290,35 @@ class Agent(Config):
     def log_interaction(self, role: str, message: str):
         self.memory["interactions"].append({"role": role, "message": message})
         self.save_memory()
+
+    def get_task_output(self, agent_name, primary_objective=None):
+        if primary_objective is None:
+            return "No primary objective specified."
+        task_output_file = os.path.join(
+            "agents", agent_name, "tasks", f"{primary_objective}.txt"
+        )
+        if os.path.exists(task_output_file):
+            with open(task_output_file, "r") as f:
+                task_output = f.read()
+        else:
+            task_output = ""
+        return task_output
+
+    def save_task_output(self, agent_name, task_output, primary_objective=None):
+        # Check if agents/{agent_name}/tasks/task_name.txt exists
+        # If it does, append to it
+        # If it doesn't, create it
+        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
+            os.makedirs(os.path.join("agents", agent_name, "tasks"))
+        if primary_objective is None:
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join(
+            "agents", agent_name, "tasks", f"{primary_objective}.txt"
+        )
+        with open(
+            task_output_file,
+            "a" if os.path.exists(task_output_file) else "w",
+            encoding="utf-8",
+        ) as f:
+            f.write(task_output)
+        return task_output

@@ -8,14 +8,13 @@ from collections import deque
 from typing import List, Dict
 import chromadb
 from chromadb.utils import embedding_functions
-from Config import Config
+from Config.Agent import Agent
 from commands.web_requests import web_requests
 from Commands import Commands
 import json
 from json.decoder import JSONDecodeError
 import spacy
 from spacy.cli import download
-from provider import get_provider_flags
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -27,13 +26,11 @@ except:
 
 class AgentLLM:
     def __init__(self, agent_name: str = "default", primary_objective=None):
-        self.CFG = Config(agent_name)
-        self.primary_objective = (
-            self.CFG.OBJECTIVE if primary_objective == None else primary_objective
-        )
+        self.CFG = Agent(agent_name)
+        self.primary_objective = primary_objective
         self.initialize_task_list()
         self.commands = Commands(agent_name)
-        self.available_commands = self.get_agent_commands()
+        self.available_commands = self.commands.get_available_commands()
         self.web_requests = web_requests()
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
@@ -61,19 +58,12 @@ class AgentLLM:
             embedding_function=self.embedding_function,
         )
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
-        ai_module = importlib.import_module(f"provider.{self.CFG.AI_PROVIDER}")
-        # Need to add the actual provider settings for the agent into the AIProvider class
-        self.ai_instance = ai_module.AIProvider()  # args in here
-        self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
         self.output_list = []
         self.stop_running_event = None
 
     def get_output_list(self):
         return self.output_list
-
-    def get_agent_commands(self) -> List[str]:
-        return self.commands.get_available_commands()
 
     def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
         trimmed_context = []

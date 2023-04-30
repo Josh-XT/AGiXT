@@ -1,10 +1,9 @@
-from Config import Config
 import os
 import glob
 import shutil
 
 
-class Chain(Config):
+class Chain:
     def get_chains(self):
         chains = os.listdir("chains")
         chain_data = {}

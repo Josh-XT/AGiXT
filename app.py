@@ -139,7 +139,7 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
 #    }
 # }
 # Take what you get from "/api/provider/{provider_name}" endpoint to set the settings.
-# Get user input for each of those settings for the agent.
+# Get user input for each of those settings up the new agent.
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])

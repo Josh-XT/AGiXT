@@ -1,8 +1,7 @@
 import os
-from Config import Config
 
 
-class Prompts(Config):
+class CustomPrompt:
     def add_prompt(self, prompt_name, prompt):
         # if prompts folder does not exist, create it
         if not os.path.exists("prompts"):
