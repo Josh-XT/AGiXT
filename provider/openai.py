@@ -6,13 +6,14 @@ CFG = Config()
 
 class AIProvider:
     def __init__(self):
+        self.settings = [
+            "OPENAI_API_KEY",
+            "AI_MODEL",
+            "AI_TEMPERATURE",
+            "MAX_TOKENS",
+        ]
+        self.requirements = ["openai"]
         openai.api_key = CFG.OPENAI_API_KEY
-        if "gpt-4" in CFG.AI_MODEL.lower():
-            print(
-                "\033[91m\033[1m"
-                + "\n*****USING GPT-4. POTENTIALLY EXPENSIVE. MONITOR YOUR COSTS*****"
-                + "\033[0m\033[0m"
-            )
 
     def instruct(self, prompt):
         if not CFG.AI_MODEL.startswith("gpt-"):

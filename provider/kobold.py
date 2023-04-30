@@ -5,6 +5,14 @@ CFG = Config()
 
 
 class AIProvider:
+    def __init__(self):
+        self.settings = [
+            "AI_PROVIDER_URI",
+            "MAX_TOKENS",
+            "TEMPERATURE",
+        ]
+        self.requirements = []
+
     def instruct(self, prompt):
         try:
             max_tokens = int(CFG.MAX_TOKENS)

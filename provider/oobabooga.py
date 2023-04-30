@@ -7,6 +7,14 @@ CFG = Config()
 
 
 class AIProvider:
+    def __init__(self):
+        self.settings = [
+            "AI_PROVIDER_URI",
+            "MAX_TOKENS",
+            "AI_TEMPERATURE",
+        ]
+        self.requirements = []
+
     def instruct(self, prompt, seed=None):
         if seed is None:
             seed = random.randint(1, 1000000000)

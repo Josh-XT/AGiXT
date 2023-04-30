@@ -1,11 +1,17 @@
 from Config import Config
 from requests.sessions import Session
-from json import loads
 
 CFG = Config()
 
 
 class AIProvider:
+    def __init__(self):
+        self.settings = [
+            "MAX_TOKENS",
+            "AI_TEMPERATURE",
+        ]
+        self.requirements = []
+
     def instruct(self, prompt: str) -> str:
         session = Session()
         session.get(url="https://huggingface.co/chat/")

@@ -10,6 +10,8 @@ CFG = Config()
 
 class AIProvider:
     def __init__(self):
+        self.settings = ["CHATGPT_USERNAME", "CHATGPT_PASSWORD"]
+        self.requirements = ["undetected-chromedriver", "selenium", "webdriver-manager"]
         self.head_count = 2
         self.head_responses = [[] for _ in range(self.head_count)]
         self.login_xq = '//button[//div[text()="Log in"]]'

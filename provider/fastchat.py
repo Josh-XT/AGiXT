@@ -6,6 +6,13 @@ CFG = Config()
 
 
 class AIProvider:
+    def __init__(self):
+        self.settings = [
+            "AI_PROVIDER_URI",
+            "AI_MODEL",
+        ]
+        self.requirements = []
+
     def instruct(self, prompt):
         messages = [{"role": "system", "content": prompt}]
         params = {"model": CFG.AI_MODEL, "messages": messages}
