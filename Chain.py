@@ -100,3 +100,8 @@ class Chain:
             step_number = int(step.split("-")[0])
             step_data[step_number] = self.get_step(chain_name, step_number)
         return step_data
+
+    def run_chain(self, chain_name):
+        chain_data = self.get_chain(chain_name)
+        for step_number, step_data in chain_data.items():
+            self.run_chain_step(step_data)

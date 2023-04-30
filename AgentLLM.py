@@ -370,11 +370,6 @@ class AgentLLM:
                             break
                     self.commands.execute_command(command_name, command_args)
 
-    def run_chain(self, chain_name):
-        chain_data = self.CFG.get_chain(chain_name)
-        for step_number, step_data in chain_data.items():
-            self.run_chain_step(step_data)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
