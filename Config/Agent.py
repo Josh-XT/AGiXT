@@ -115,15 +115,19 @@ class Agent(Config):
         return command_files
 
     def create_agent_config_file(self, agent_name, provider_settings):
-        agent_config_file = os.path.join("agents", agent_name, "config.json")
+        agent_config_dir = os.path.join("agents", agent_name)
+        agent_config_file = os.path.join(agent_config_dir, "config.json")
+
+        if not os.path.exists(agent_config_dir):
+            os.makedirs(agent_config_dir)
+
         if not os.path.exists(agent_config_file):
             with open(agent_config_file, "w") as f:
                 f.write(
                     json.dumps(
                         {
                             "commands": {
-                                command_name: "false"
-                                for command_name, _, _ in self.commands
+                                command_name: "false" for command_name in self.commands
                             },
                             "settings": provider_settings,
                         }
