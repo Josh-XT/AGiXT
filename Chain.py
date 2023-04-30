@@ -54,21 +54,23 @@ class Chain:
             f.write(prompt)
 
     def update_step(
-        self,
-        chain_name,
-        step_number,
-        prompt_type,
-        prompt,
-        agent_name=None,
+        self, chain_name, step_number, prompt_type, prompt, agent_name=None
     ):
-        with open(
-            os.path.join(
-                "chains",
-                chain_name,
-                f"{step_number}-{agent_name}-{prompt_type}.txt",
-            ),
-            "w",
-        ) as f:
+        # Define the file pattern
+        file_pattern = os.path.join("chains", chain_name, f"{step_number}-*-*.txt")
+
+        # Search for existing files matching the pattern
+        existing_files = glob.glob(file_pattern)
+
+        # If a file already exists, remove it
+        for file in existing_files:
+            os.remove(file)
+
+        # Create a new file with the updated information
+        new_file_name = os.path.join(
+            "chains", chain_name, f"{step_number}-{agent_name}-{prompt_type}.txt"
+        )
+        with open(new_file_name, "w") as f:
             f.write(prompt)
 
     def delete_step(self, chain_name, step_number):
