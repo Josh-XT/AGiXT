@@ -1,29 +1,29 @@
 import requests
-from Config import Config
-
-CFG = Config()
 
 
 class AIProvider:
-    def __init__(self):
-        self.settings = [
-            "AI_PROVIDER_URI",
-            "MAX_TOKENS",
-            "TEMPERATURE",
-        ]
+    def __init__(
+        self,
+        AI_PROVIDER_URI: str = "",
+        MAX_TOKENS: int = 2000,
+        AI_TEMPERATURE: float = 0.7,
+    ):
         self.requirements = []
+        self.AI_PROVIDER_URI = AI_PROVIDER_URI
+        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_TEMPERATURE = AI_TEMPERATURE
 
     def instruct(self, prompt):
         try:
-            max_tokens = int(CFG.MAX_TOKENS)
+            max_tokens = int(self.MAX_TOKENS)
         except:
             max_tokens = 2000
         response = requests.post(
-            f"{CFG.AI_PROVIDER_URI}/generate",
+            f"{self.AI_PROVIDER_URI}/generate",
             json={
                 "prompt": prompt,
                 "max_length": max_tokens,
-                "temperature": float(CFG.TEMPERATURE),
+                "temperature": float(self.AI_TEMPERATURE),
             },
         )
         try:

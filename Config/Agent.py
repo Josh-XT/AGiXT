@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
 from Config import Config
+from provider import Provider
 
 load_dotenv()
 
@@ -16,10 +17,13 @@ class Agent(Config):
     def __init__(self, agent_name=None):
         # General Configuration
         self.AGENT_NAME = agent_name if agent_name is not None else "default"
-        self.AGENTS = glob.glob(os.path.join("memories", "*.yaml"))
-
+        # Need to get the following from the agent config file:
+        self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
-        self.AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
+        if self.AGENT_CONFIG is not None:
+            self.AI_PROVIDER = self.AGENT_CONFIG["AI_PROVIDER"]
+            provider_instance = Provider(self.AI_PROVIDER)
+            provider_settings = provider_instance.get_settings()
 
         # AI_PROVIDER_URI is only needed for custom AI providers such as Oobabooga Text Generation Web UI
         self.AI_PROVIDER_URI = os.getenv("AI_PROVIDER_URI", "http://127.0.0.1:7860")
@@ -108,6 +112,13 @@ class Agent(Config):
         self.agent_instances = {}
         self.commands = {}
 
+    def get_provider(self):
+        config_file = self.get_agent_config()
+        if "provider" in config_file:
+            return config_file["provider"]
+        else:
+            return "openai"
+
     def get_providers(self):
         providers = []
         for provider in glob.glob("provider/*.py"):
@@ -158,9 +169,16 @@ class Agent(Config):
                     json.dumps(
                         {
                             "commands": {
-                                command_name: "true"
+                                command_name: "false"
                                 for command_name, _, _ in self.commands
-                            }
+                            },
+                            "provider": {
+                                "name": "openai",
+                                "OPENAI_API_KEY": "",
+                                "AI_MODEL": "gpt-3.5-turbo",
+                                "AI_TEMPERATURE": 0.4,
+                                "AI_MAX_TOKENS": 4096,
+                            },
                         }
                     )
                 )
@@ -277,13 +295,14 @@ class Agent(Config):
             output.append({"name": agent, "status": status})
         return output
 
-    def get_agent_config(self, agent_name):
-        agent_file = os.path.abspath(f"agents/{agent_name}/config.json")
+    def get_agent_config(self):
+        agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
         if os.path.exists(agent_file):
             with open(agent_file, "r") as f:
                 agent_config = json.load(f)
         else:
-            agent_config = {}
+            self.add_agent(self.AGENT_NAME)
+            agent_config = self.get_agent_config()
         return agent_config
 
     def update_agent_config(self, agent_name, config):

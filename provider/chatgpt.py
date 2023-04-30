@@ -3,14 +3,10 @@ from selenium.webdriver.common.keys import Keys
 import selenium.common.exceptions as Exceptions
 import time
 import undetected_chromedriver as uc
-from Config import Config
-
-CFG = Config()
 
 
 class AIProvider:
-    def __init__(self):
-        self.settings = ["CHATGPT_USERNAME", "CHATGPT_PASSWORD"]
+    def __init__(self, CHATGPT_USERNAME: str = "", CHATGPT_PASSWORD: str = ""):
         self.requirements = ["undetected-chromedriver", "selenium", "webdriver-manager"]
         self.head_count = 2
         self.head_responses = [[] for _ in range(self.head_count)]
@@ -28,7 +24,7 @@ class AIProvider:
         self.browser.set_page_load_timeout(15)
         self.browser.get("https://chat.openai.com/auth/login?next=/chat")
         self.pass_verification()
-        self.login(CFG.CHATGPT_USERNAME, CFG.CHATGPT_PASSWORD)
+        self.login(CHATGPT_USERNAME, CHATGPT_PASSWORD)
         print("Login success!")
         for _ in range(self.head_count - 1):
             self.browser.execute_script(

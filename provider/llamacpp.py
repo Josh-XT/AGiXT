@@ -1,24 +1,24 @@
-from Config import Config
-
 try:
     from pyllamacpp.model import Model
 except:
     print("Failed to import pyllamacpp.")
-CFG = Config()
 
 
 class AIProvider:
-    def __init__(self):
-        self.settings = ["MODEL_PATH", "MAX_TOKENS", "AI_TEMPERATURE"]
+    def __init__(
+        self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, AI_TEMPERATURE: float = 0.7
+    ):
         self.requirements = ["pyllamacpp"]
-        if CFG.MODEL_PATH:
+        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.MAX_TOKENS = MAX_TOKENS
+        if MODEL_PATH:
             try:
-                self.max_tokens = int(CFG.MAX_TOKENS)
+                self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
-                self.max_tokens = 2000
-            self.model = Model(ggml_model=CFG.MODEL_PATH, n_ctx=self.max_tokens)
+                self.MAX_TOKENS = 2000
+            self.model = Model(ggml_model=MODEL_PATH, n_ctx=self.MAX_TOKENS)
 
     def instruct(self, prompt):
         return self.model.generate(
-            prompt, n_predict=55, n_threads=8, temp=float(CFG.AI_TEMPERATURE)
+            prompt, n_predict=55, n_threads=8, temp=float(self.AI_TEMPERATURE)
         )
