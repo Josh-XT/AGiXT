@@ -58,12 +58,12 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
         setExpanded(old => !old);
     };
     const handleIncrement = () => {
-        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number + 1 }).then(() => {
+        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: Number(step_number) + 1 }).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };
     const handleDecrement = () => {
-        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number - 1 }).then(() => {
+        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: Number(step_number) - 1 }).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };
