@@ -1,5 +1,6 @@
 import importlib
 import subprocess
+import pkg_resources
 
 
 class Provider:
@@ -20,8 +21,10 @@ class Provider:
 
     def install_requirements(self):
         requirements = getattr(self.instance, "requirements", [])
+        installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
         for requirement in requirements:
-            subprocess.run(["pip", "install", requirement], check=True)
+            if requirement.lower() not in installed_packages:
+                subprocess.run(["pip", "install", requirement], check=True)
 
 
 def __getattr__(name):
