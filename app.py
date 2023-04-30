@@ -351,6 +351,7 @@ async def update_step(
         chain_step.step_number,
         chain_step.prompt_type,
         chain_step.prompt,
+        chain_step.agent_name,
     )
     return {
         "message": f"Step {chain_step.step_number} updated for chain '{chain_name}'."
@@ -366,6 +367,8 @@ async def move_step(
         chain_step_new_info.old_step_number,
         chain_step_new_info.new_step_number,
         chain_step_new_info.prompt_type,
+        chain_step_new_info.prompt,
+        chain_step_new_info.agent_name,
     )
     return {
         "message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."
