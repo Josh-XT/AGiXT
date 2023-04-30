@@ -66,7 +66,6 @@ class StepInfo(BaseModel):
 
 
 class ChainStep(BaseModel):
-    chain_name: str
     step_number: int
     agent_name: str
     prompt_type: str
@@ -74,7 +73,6 @@ class ChainStep(BaseModel):
 
 
 class ChainStepNewInfo(BaseModel):
-    chain_name: str
     old_step_number: int
     new_step_number: int
     prompt_type: str
