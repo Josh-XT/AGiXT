@@ -30,8 +30,8 @@ import {
     LowPriority
 } from '@mui/icons-material';
 import StepTypePrompt from "./step_types/StepTypePrompt";
-import StepTypeCommand  from "./step_types/StepTypeCommand";
-import StepTypeChain    from "./step_types/StepTypeChain";
+import StepTypeCommand from "./step_types/StepTypeCommand";
+import StepTypeChain from "./step_types/StepTypeChain";
 import StepTypeTask from "./step_types/StepTypeTask";
 import StepTypeInstruction from "./step_types/StepTypeInstruction";
 export default function ChainStep({ step_number, last_step, agent_name, prompt_name, prompt_type, prompt }) {
@@ -43,30 +43,27 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     const router = useRouter();
     const [modified, setModified] = useState(true);
     const step_types = useMemo(() => {
-        setAgentName(agent_name);
-        setPromptName(prompt_name);
-        setPromptText(prompt);
         return [
-            {name: "prompt", component: <StepTypePrompt agent_name={agentName} prompt_name={promptName} prompt={promptText} />},
-            {name: "command", component: <StepTypeCommand prompt={promptText}/>},
-            {name: "task", component: <StepTypeTask agent_name={agentName} prompt={promptText}/>},
-            {name: "instruction", component: <StepTypeInstruction agent_name={agentName} prompt={promptText}/>},
-            {name: "chain", component: <StepTypeChain prompt={promptText}/>}
+            { name: "prompt", component: <StepTypePrompt agent_name={agentName} prompt_name={promptName} prompt={promptText} /> },
+            { name: "command", component: <StepTypeCommand prompt={promptText} /> },
+            { name: "task", component: <StepTypeTask agent_name={agentName} prompt={promptText} /> },
+            { name: "instruction", component: <StepTypeInstruction agent_name={agentName} prompt={promptText} /> },
+            { name: "chain", component: <StepTypeChain prompt={promptText} /> }
         ]
-    }, [agent_name, prompt_name, prompt_type, prompt]);
+    }, [agentName, promptName, promptText]);
     useEffect(() => {
         setStepType(step_types.findIndex((step_type) => step_type.name == prompt_type));
     }, [prompt_type, step_types])
     const handleChange = () => {
-      setExpanded(old => !old);
+        setExpanded(old => !old);
     };
     const handleIncrement = () => {
-        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number+1 }).then(() => {
+        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number + 1 }).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };
     const handleDecrement = () => {
-        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number-1 }).then(() => {
+        axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/move`, { old_step_number: step_number, new_step_number: step_number - 1 }).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };
@@ -101,21 +98,21 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
             <Paper elevation={5} sx={{ padding: "0.5rem", display: "flex", flexDirection: "column", my: "1rem", fontSize: "1rem" }}>
                 <Accordion expanded={expanded} onChange={handleChange}>
                     <AccordionSummary sx={{ flexDirection: "row-reverse", alignItems: "center" }} expandIcon={<ExpandCircleDownOutlined />}>
-                        <Box  sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", mx: "0.5rem", flex: 1}}>
-                            {expanded?null:<Typography variant="h6" sx={{mr:"2rem"}}>Step Inputs</Typography>}
-                            <Box onClick={(e) => {e.stopPropagation()}} sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", flex: 1}}>
-                            <IconButton onClick={handleIncrement} size="large" disabled={step_number==1}><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
-                            <Avatar sx={{ fontWeight: "bolder" }}>{step_number}</Avatar>
-                            <IconButton onClick={handleDecrement} size="large" disabled={last_step}><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
-                            <Select label="Type" sx={{ mx: "0.5rem" }} value={stepType} onChange={(e) => setStepType(e.target.value)}>
-                                <MenuItem value={-1}>Select a Type...</MenuItem>
-                                {step_types.map((type, index) => {
+                        <Box sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", mx: "0.5rem", flex: 1 }}>
+                            {expanded ? null : <Typography variant="h6" sx={{ mr: "2rem" }}>Step Inputs</Typography>}
+                            <Box onClick={(e) => { e.stopPropagation() }} sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", flex: 1 }}>
+                                <IconButton onClick={handleIncrement} size="large" disabled={step_number == 1}><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
+                                <Avatar sx={{ fontWeight: "bolder" }}>{step_number}</Avatar>
+                                <IconButton onClick={handleDecrement} size="large" disabled={last_step}><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
+                                <Select label="Type" sx={{ mx: "0.5rem" }} value={stepType} onChange={(e) => setStepType(e.target.value)}>
+                                    <MenuItem value={-1}>Select a Type...</MenuItem>
+                                    {step_types.map((type, index) => {
                                         return <MenuItem key={index} value={index}>{type.name.replace(/\b\w/g, s => s.toUpperCase())}</MenuItem>;
                                     })}
-                            </Select>
-                            {stepType!==-1?step_types[stepType].component:null}
-                            {modified?<IconButton onClick={handleSave} size="large"><SaveRounded sx={{ fontSize: "2rem" }} /></IconButton>:null}
-                            <IconButton onClick={handleDelete} size="large"><HighlightOff sx={{ fontSize: "2rem" }} /></IconButton>
+                                </Select>
+                                {stepType !== -1 ? step_types[stepType].component : null}
+                                {modified ? <IconButton onClick={handleSave} size="large"><SaveRounded sx={{ fontSize: "2rem" }} /></IconButton> : null}
+                                <IconButton onClick={handleDelete} size="large"><HighlightOff sx={{ fontSize: "2rem" }} /></IconButton>
                             </Box>
                         </Box>
                     </AccordionSummary>
