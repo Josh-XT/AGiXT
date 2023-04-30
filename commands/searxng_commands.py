@@ -13,7 +13,7 @@ class searxng_commands(Commands):
             self.commands = {"Searx Search": self.search_searx}
 
     def search_searx(self, query: str, category: str = "general") -> List[str]:
-        searx_url = CFG.SEARX_INSTANCE_URL.rstrip("/") + "/search"
+        searx_url = CFG.SEARXNG_INSTANCE_URL.rstrip("/") + "/search"
         payload = {
             "q": query,
             "categories": category,

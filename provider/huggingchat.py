@@ -33,21 +33,16 @@ class AIProvider:
                     "stop": ["<|endoftext|>"],
                     "return_full_text": False,
                 },
-                "stream": True,
+                "stream": False,
                 "options": {"use_cache": False},
             },
-            stream=True,
+            stream=False,
         )
+        try:
+            data = res.json()
+        except ValueError:
+            print("Invalid JSON response")
+            data = {}
 
-        assert res.status_code == 200, "Failed to send message"
-
-        last_response = None
-        for chunk in res.iter_content(chunk_size=None):
-            if chunk:
-                data = loads(chunk.decode("utf-8")[5:])
-                if "error" not in data:
-                    last_response = data
-                else:
-                    print("error: ", data["error"])
-                    break
-        return last_response["generated_text"]
+        data = data[0] if data else {}
+        return data.get("generated_text", "")
