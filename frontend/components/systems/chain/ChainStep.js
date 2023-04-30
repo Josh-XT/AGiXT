@@ -34,43 +34,27 @@ import StepTypeCommand  from "./step_types/StepTypeCommand";
 import StepTypeChain    from "./step_types/StepTypeChain";
 import StepTypeTask from "./step_types/StepTypeTask";
 import StepTypeInstruction from "./step_types/StepTypeInstruction";
-export default function ChainStep({ step_number, last_step, agent_name, prompt_name, prompt_type, prompt, command_name, command_args, chain_name, updateCallback }) {
-    const [running, setRunning] = useState(false);
-    /*
-    const agentName = useRouter().query.agent;
-    const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task`)).data.output.split("\n") : null), { refreshInterval: running ? 3000 : 0, revalidateOnFocus: false });
-    const queryRunning = useCallback(async () => {
-        setRunning((await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task/status`)).data.status, { objective: objective });
-    }, [agentName]);
-    useEffect(() => {
-        queryRunning();
-    }, [queryRunning])
-
-    const toggleRunning = async () => {
-        if (running) {
-            await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task`, { objective: "" });
-        }
-        else {
-            await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task`, { objective: objective });
-        }
-        await queryRunning();
-        mutate("agents");
-    };
-    console.log(taskStatus.data);
-    */
+export default function ChainStep({ step_number, last_step, agent_name, prompt_name, prompt_type, prompt }) {
+    const [agentName, setAgentName] = useState(agent_name);
+    const [promptName, setPromptName] = useState(prompt_name);
+    const [promptType, setPromptType] = useState(prompt_type);
+    const [promptText, setPromptText] = useState(prompt);
     const [expanded, setExpanded] = useState(false);
     const [stepType, setStepType] = useState(-1);
     const router = useRouter();
-    const [modified, setModified] = useState(false);
+    const [modified, setModified] = useState(true);
     const step_types = useMemo(() => {
+        setAgentName(agent_name);
+        setPromptName(prompt_name);
+        setPromptText(prompt);
         return [
-            {name: "prompt", component: <StepTypePrompt agent_name={agent_name} prompt_name={prompt_name} prompt={prompt} />},
-            {name: "command", component: <StepTypeCommand prompt={prompt}/>},
-            {name: "task", component: <StepTypeTask agent_name={agent_name} prompt={prompt}/>},
-            {name: "instruction", component: <StepTypeInstruction agent_name={agent_name} prompt={prompt}/>},
-            {name: "chain", component: <StepTypeChain prompt={prompt}/>}
+            {name: "prompt", component: <StepTypePrompt agent_name={agentName} prompt_name={promptName} prompt={promptText} />},
+            {name: "command", component: <StepTypeCommand prompt={promptText}/>},
+            {name: "task", component: <StepTypeTask agent_name={agentName} prompt={promptText}/>},
+            {name: "instruction", component: <StepTypeInstruction agent_name={agentName} prompt={promptText}/>},
+            {name: "chain", component: <StepTypeChain prompt={promptText}/>}
         ]
-    }, [agent_name, prompt_name, prompt]);
+    }, [agent_name, prompt_name, prompt_type, prompt]);
     useEffect(() => {
         setStepType(step_types.findIndex((step_type) => step_type.name == prompt_type));
     }, [prompt_type, step_types])
@@ -89,13 +73,13 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     };
     const handleSave = () => {
         axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
-            chain_name: chain_name,
-            command_name: command_name,
-            command_args: command_args,
-            prompt_name: prompt_name,
-            prompt_type: prompt_type,
-            prompt: prompt,
-            agent_name: agent_name
+            chain_name: "Edited",
+            command_name: "Edited",
+            command_args: "Edited",
+            prompt_name: "Edited",
+            prompt_type: "Edited",
+            prompt: "Edited",
+            agent_name: "Edited"
         }).then(() => {
             mutate('chain/' + router.query.chain);
         });

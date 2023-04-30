@@ -12,10 +12,10 @@ export default function StepTypePrompt({agent_name, prompt_name}) {
     const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);
     const prompts = useSWR('prompt', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt`)).data.prompts);
     useEffect(() => {
-        setTask(prompt);
+        setPromptText(prompt);
     }, [prompt]);
     useEffect(() => {
-        setAgent(prompts.data&&prompt_name?prompts.data.findIndex((prompt) => prompt.name == prompt_name):-1);
+        setPrompt(prompts.data&&prompt_name?prompts.data.findIndex((prompt) => prompt.name == prompt_name):-1);
     }, [prompts.data, prompt_name]);
     useEffect(() => {
         setAgent(agents.data&&agent_name?agents.data.findIndex((agent) => agent.name == agent_name):-1);
