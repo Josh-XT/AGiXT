@@ -80,7 +80,9 @@ class Chain:
         for file_path in files_to_delete:
             os.remove(file_path)
 
-    def move_step(self, chain_name, step_number, new_step_number):
+    def move_step(
+        self, chain_name, step_number, new_step_number, prompt_type, agent_name=None
+    ):
         # Define the file pattern for the existing step
         file_pattern = os.path.join("chains", chain_name, f"{step_number}-*-*.txt")
 
@@ -100,6 +102,17 @@ class Chain:
 
         # Get the first matching file
         src_file = existing_files[0]
+
+        # If the step is moving up
+        if new_step_number < step_number:
+            # Shift all the steps in between the new and old step number down by 1
+            for i in range(step_number - 1, new_step_number - 1, -1):
+                self.move_step(chain_name, i, i + 1, prompt_type, agent_name)
+        # If the step is moving down
+        elif new_step_number > step_number:
+            # Shift all the steps in between the old and new step number up by 1
+            for i in range(step_number + 1, new_step_number + 1):
+                self.move_step(chain_name, i, i - 1, prompt_type, agent_name)
 
         # Extract agent_name and prompt_type from the file name
         _, current_agent_name, current_prompt_type = os.path.splitext(
