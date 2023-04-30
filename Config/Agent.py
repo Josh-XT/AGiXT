@@ -226,7 +226,12 @@ class Agent(Config):
         agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
         if os.path.exists(agent_file):
             with open(agent_file, "r") as f:
-                agent_config = json.load(f)
+                file_content = f.read().strip()
+                if file_content:
+                    agent_config = json.loads(file_content)
+                else:
+                    self.add_agent(self.AGENT_NAME, {})
+                    agent_config = self.get_agent_config()
         else:
             self.add_agent(self.AGENT_NAME, {})
             agent_config = self.get_agent_config()
