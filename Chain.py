@@ -4,35 +4,32 @@ import shutil
 
 
 class Chain:
-    def get_chains(self):
-        chains = os.listdir("chains")
-        chain_data = {}
-        for chain in chains:
-            chain_steps = os.listdir(os.path.join("chains", chain))
-            for step in chain_steps:
-                step_number = step.split("-")[0]
-                prompt_type = step.split("-")[1]
-                with open(os.path.join("chains", chain, step), "r") as f:
-                    prompt = f.read()
-                if chain not in chain_data:
-                    chain_data[chain] = {}
-                if step_number not in chain_data[chain]:
-                    chain_data[chain][step_number] = {}
-                chain_data[chain][step_number][prompt_type] = prompt
-        return chain_data
-
     def get_chain(self, chain_name):
         chain_steps = os.listdir(os.path.join("chains", chain_name))
         chain_data = {}
+        chain_data[chain_name] = []
         for step in chain_steps:
             step_number = step.split("-")[0]
-            prompt_type = step.split("-")[1]
+            agent_name = step.split("-")[1]
+            prompt_type = step.split("-")[2]
+            prompt_name = step.split("-")[3].replace(".txt", "")
             with open(os.path.join("chains", chain_name, step), "r") as f:
                 prompt = f.read()
-            if step_number not in chain_data:
-                chain_data[step_number] = {}
-            chain_data[step_number][prompt_type] = prompt
+            chain_data[chain_name].append(
+                {
+                    "step_number": step_number,
+                    "agent_name": agent_name,
+                    "prompt_name": prompt_name,
+                    "prompt_type": prompt_type,
+                    "prompt": prompt,
+                    "run_next_concurrent": False,
+                }
+            )
         return chain_data
+
+    def get_chains(self):
+        chains = os.listdir("chains")
+        return chains
 
     def add_chain(self, chain_name):
         os.mkdir(os.path.join("chains", chain_name))

@@ -97,6 +97,11 @@ class Prompt(BaseModel):
     prompt: str
 
 
+class CustomPromptModel(BaseModel):
+    prompt_name: str
+    prompt: str
+
+
 class AgentSettings(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
@@ -294,7 +299,13 @@ async def get_chains():
 @app.get("/api/chain/{chain_name}", tags=["Chain"])
 async def get_chain(chain_name: str):
     chain_data = Chain().get_chain(chain_name)
-    return chain_data
+    return {"chain": chain_data}
+
+
+@app.post("/api/chain/{chain_name}/run", tags=["Chain"])
+async def run_chain(chain_name: str) -> ResponseMessage:
+    CFG.run_chain(chain_name)
+    return {"message": f"Chain '{chain_name}' started."}
 
 
 @app.post("/api/chain", tags=["Chain"])
@@ -361,19 +372,19 @@ async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
 
 
 @app.post("/api/prompt", tags=["Prompt"])
-async def add_prompt(prompt_name: PromptName, prompt: Prompt) -> ResponseMessage:
+async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        Chain().add_prompt(prompt_name.prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name.prompt_name}' added.")
+        CustomPrompt().add_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=Prompt)
+@app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=CustomPromptModel)
 async def get_prompt(prompt_name: str):
     try:
         prompt_content = CustomPrompt().get_prompt(prompt_name)
-        return {"prompt": prompt_content}
+        return {"prompt_name": prompt_name, "prompt": prompt_content}
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -394,10 +405,10 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
 
 
 @app.put("/api/prompt/{prompt_name}", tags=["Prompt"])
-async def update_prompt(prompt_name: str, prompt: Prompt) -> ResponseMessage:
+async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        CustomPrompt().update_prompt(prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name}' updated.")
+        CustomPrompt().update_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 

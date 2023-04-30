@@ -337,17 +337,42 @@ class AgentLLM:
             self.prioritization_agent()
         self.update_output_list("All tasks completed or stopped.")
 
-    def run_chain_step(self, agent_name, step_data):
+    def run_chain_step(self, step_data):
         for prompt_type, prompt in step_data.items():
             if prompt_type == "instruction":
                 self.run(prompt)
             elif prompt_type == "task":
                 self.run_task(prompt)
+            elif prompt_type == "command":
+                command = prompt.strip()
+                command_name, command_args = None, {}
+                # Extract command name and arguments using regex
+                command_regex = re.search(r"(\w+)\((.*)\)", command)
+                if command_regex:
+                    command_name, args_str = command_regex.groups()
+                    if args_str:
+                        # Parse arguments string into a dictionary
+                        args_str = args_str.replace("'", '"')
+                        args_str = args_str.replace("None", "null")
+                        try:
+                            command_args = json.loads(args_str)
+                        except JSONDecodeError as e:
+                            # error parsing args, send command_name to None so trying to execute command won't crash
+                            command_name = None
+                            print(f"Error: {e}")
 
-    def run_chain(self, agent_name, chain_name):
-        chain_data = self.CFG.get_steps(chain_name)
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.available_commands:
+                        if available_command["friendly_name"] == command_name:
+                            command_name = available_command["name"]
+                            break
+                    self.commands.execute_command(command_name, command_args)
+
+    def run_chain(self, chain_name):
+        chain_data = self.CFG.get_chain(chain_name)
         for step_number, step_data in chain_data.items():
-            self.run_chain_step(agent_name, step_data)
+            self.run_chain_step(step_data)
 
 
 if __name__ == "__main__":
