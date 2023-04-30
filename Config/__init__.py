@@ -1,4 +1,5 @@
 import os
+import glob
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -59,3 +60,10 @@ class Config:
 
         # Brian TTS
         self.USE_BRIAN_TTS = os.getenv("USE_BRIAN_TTS", "true").lower()
+
+    def get_providers(self):
+        providers = []
+        for provider in glob.glob("provider/*.py"):
+            if "__init__.py" not in provider:
+                providers.append(os.path.splitext(os.path.basename(provider))[0])
+        return providers

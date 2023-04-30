@@ -75,13 +75,6 @@ class Agent(Config):
         else:
             return "openai"
 
-    def get_providers(self):
-        providers = []
-        for provider in glob.glob("provider/*.py"):
-            if "__init__.py" not in provider:
-                providers.append(os.path.splitext(os.path.basename(provider))[0])
-        return providers
-
     def create_agent_folder(self, agent_name):
         agent_folder = f"agents/{agent_name}"
         if not os.path.exists("agents"):
