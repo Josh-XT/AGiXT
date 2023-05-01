@@ -5,9 +5,9 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import { mutate } from "swr";
 import useSWR from "swr";
-export default function StepTypePrompt({agent_name, prompt_name}) {
+export default function StepTypePrompt({agent_name, set_agent_name, prompt_name, set_prompt_name, prompt, set_prompt}) {
     const [agent, setAgent] = useState(-1);
-    const [prompt, setPrompt] = useState(-1);
+    const [promptNameVal, setPromptNameVal] = useState(-1);
     const [promptText, setPromptText] = useState("");
     const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);
     const prompts = useSWR('prompt', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt`)).data.prompts);
@@ -28,7 +28,7 @@ export default function StepTypePrompt({agent_name, prompt_name}) {
             })}
         </Select>
 
-        <Select label="Prompt" sx={{ mx: "0.5rem" }} value={prompt} onChange={(e) => setPrompt(e.target.value)}>
+        <Select label="Prompt" sx={{ mx: "0.5rem" }} value={promptNameVal} onChange={(e) => setPrompt(e.target.value)}>
             <MenuItem value={-1}>Select a Prompt...</MenuItem>
             <MenuItem value={-2}>[New Prompt]</MenuItem>
             {prompts?.data?.map((prompt, index) => {
@@ -36,6 +36,6 @@ export default function StepTypePrompt({agent_name, prompt_name}) {
             })}
         </Select>
 
-        {prompt===-2?<TextField label="New Prompt" value={promptText} onChange={(e) => setPromptText(e.target.value)} multiline lines={20} sx={{ mx: "0.5rem", flex: 1 }} />:null}
+        {promptNameVal===-2?<TextField label="New Prompt" value={promptText} onChange={(e) => setPromptText(e.target.value)} multiline lines={20} sx={{ mx: "0.5rem", flex: 1 }} />:null}
     </>;
 }

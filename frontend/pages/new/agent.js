@@ -9,7 +9,7 @@ import AgentList from '../../components/systems/agent/AgentList';
 export default function Home() {
   const [name, setName] = useState("");
   const handleCreate = async () => {
-    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`, { agent_name: name });
+    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`, { agent_name: name, settings: { provider: "huggingchat" } });
     mutate("agent");
   }
   const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);

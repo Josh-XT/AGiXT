@@ -5,7 +5,7 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import { mutate } from "swr";
 import useSWR from "swr";
-export default function StepTypeCommand({prompt}) {
+export default function StepTypeCommand({prompt, set_prompt}) {
     const [command, setCommand] = useState(-1);
     const [args, setArgs] = useState("");
     // TODO: Get commands directly from API without going through agent.
@@ -25,6 +25,6 @@ export default function StepTypeCommand({prompt}) {
             })}
         </Select>
 
-        <TextField label="Args" value={args} onChange={(e)=>{setArgs(e.target.value)}} sx={{ mx: "0.5rem", flex: 1 }} />
+        <TextField label="Args" value={args} onChange={(e)=>{setArgs(e.target.value); if (command !== -1) set_prompt(`${commands[command]}(${e.target.value})`);}} sx={{ mx: "0.5rem", flex: 1 }} />
     </>;
 }

@@ -44,11 +44,11 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     const [modified, setModified] = useState(true);
     const step_types = useMemo(() => {
         return [
-            { name: "prompt", component: <StepTypePrompt agent_name={agentName} prompt_name={promptName} prompt={promptText} /> },
-            { name: "command", component: <StepTypeCommand prompt={promptText} /> },
-            { name: "task", component: <StepTypeTask agent_name={agentName} prompt={promptText} /> },
-            { name: "instruction", component: <StepTypeInstruction agent_name={agentName} prompt={promptText} /> },
-            { name: "chain", component: <StepTypeChain prompt={promptText} /> }
+            { name: "prompt", component: <StepTypePrompt agent_name={agentName} set_agent_name={setAgentName} prompt_name={promptName} set_prompt_name={setPromptName} prompt={promptText} set_prompt={setPromptText} /> },
+            { name: "command", component: <StepTypeCommand prompt={promptText} set_prompt={setPromptText} /> },
+            { name: "task", component: <StepTypeTask agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+            { name: "instruction", component: <StepTypeInstruction agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+            { name: "chain", component: <StepTypeChain prompt={promptText}  set_prompt={setPromptText} /> }
         ]
     }, [agentName, promptName, promptText]);
     useEffect(() => {
@@ -80,7 +80,7 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
         axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
             step_number: step_number,
             prompt_name: promptName,
-            prompt_type: promptType,
+            prompt_type: step_types[stepType].name,
             prompt: promptText,
             agent_name: agentName
         }).then(() => {
@@ -101,9 +101,9 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
                         <Box sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", mx: "0.5rem", flex: 1 }}>
                             {expanded ? null : <Typography variant="h6" sx={{ mr: "2rem" }}>Step Inputs</Typography>}
                             <Box onClick={(e) => { e.stopPropagation() }} sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center", flex: 1 }}>
-                                <IconButton onClick={handleIncrement} size="large" disabled={step_number == 1}><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
+                                <IconButton onClick={handleDecrement} size="large" disabled={step_number == 1}><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
                                 <Avatar sx={{ fontWeight: "bolder" }}>{step_number}</Avatar>
-                                <IconButton onClick={handleDecrement} size="large" disabled={last_step}><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
+                                <IconButton onClick={handleIncrement} size="large" disabled={last_step}><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
                                 <Select label="Type" sx={{ mx: "0.5rem" }} value={stepType} onChange={(e) => setStepType(e.target.value)}>
                                     <MenuItem value={-1}>Select a Type...</MenuItem>
                                     {step_types.map((type, index) => {
