@@ -227,7 +227,8 @@ class Agent(Config):
                 self.add_agent(self.AGENT_NAME, {})
         return agent_config
 
-    def update_agent_config(self, agent_name, new_config):
+    def update_agent_config(self, new_config):
+        agent_name = self.AGENT_NAME
         agent_config_file = os.path.join("agents", agent_name, "config.json")
         if os.path.exists(agent_config_file):
             with open(agent_config_file, "r") as f:
