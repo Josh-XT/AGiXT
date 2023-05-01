@@ -23,7 +23,7 @@ export default function ChainAdmin({ friendly_name, name, args, enabled }) {
     router.push(`/chain/${newName}`);
   };
   const handleRun = async () => {
-    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`)
+    await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}/run`)
   };
   return (
     <Container>

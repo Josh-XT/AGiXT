@@ -33,7 +33,7 @@ export default function AgentAdmin() {
     "AI_TEMPERATURE": <Box key={"AI_TEMPERATURE"} sx={{my: "1rem",display: "flex", alignItems: "center"}}><Slider min={0.1} max={1} step={0.1} sx={{mr: "1rem"}} value={fieldValues.AI_TEMPERATURE} onChange={(e) => setFieldValues({...fieldValues, AI_TEMPERATURE: e.target.value})} /><TextField label="AI Temperature" value={fieldValues.AI_TEMPERATURE} onChange={(e) => setFieldValues({...fieldValues, AI_TEMPERATURE: e.target.value})} /></Box>,
 
   };
-  
+  console.log(agentConfig);
   const handleConfigure = async () => {
     console.log( { provider: provider, settings: {...fieldValues} });
     // TODO: Get agent_name out of the body of the request.
@@ -43,7 +43,7 @@ export default function AgentAdmin() {
   useEffect(() => {
     if (agentConfig.data?.agent?.settings?.provider)
     {
-      const newFieldValues = agentConfig.data.agent.settings;
+      const newFieldValues = {...agentConfig.data.agent.settings};
       console.log(newFieldValues);
       setProvider(agentConfig.data.agent.settings.provider);
       delete newFieldValues.provider;
