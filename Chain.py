@@ -57,7 +57,7 @@ class Chain:
         self, chain_name, step_number, prompt_type, prompt, agent_name=None
     ):
         # Define the file pattern
-        file_pattern = os.path.join("chains", chain_name, f"{step_number}-*-*.txt")
+        file_pattern = os.path.join("chains", chain_name, f"{step_number}-*")
 
         # Search for existing files matching the pattern
         existing_files = glob.glob(file_pattern)
