@@ -1,16 +1,18 @@
 import requests
 import json
-from Config import Config
-
-CFG = Config()
 
 
-class AIProvider:
+class FastchatProvider:
+    def __init__(self, AI_PROVIDER_URI: str = "", AI_MODEL: str = "", **kwargs):
+        self.requirements = []
+        self.AI_PROVIDER_URI = AI_PROVIDER_URI
+        self.AI_MODEL = AI_MODEL
+
     def instruct(self, prompt):
         messages = [{"role": "system", "content": prompt}]
-        params = {"model": CFG.AI_MODEL, "messages": messages}
+        params = {"model": self.AI_MODEL, "messages": messages}
         response = requests.post(
-            f"{CFG.AI_PROVIDER_URI}/v1/chat/completions",
+            f"{self.AI_PROVIDER_URI}/v1/chat/completions",
             json={"data": [json.dumps([prompt, params])]},
         )
         return response.json()["data"][0].replace("\n", "\n")

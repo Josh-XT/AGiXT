@@ -4,9 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AgentLLM import AgentLLM
+from Config.Agent import Agent
 from Commands import Commands
+from Chain import Chain
+from CustomPrompt import CustomPrompt
 import threading
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
+from provider import get_provider_options
 
 CFG = Config()
 app = FastAPI()
@@ -56,12 +60,12 @@ class ChainName(BaseModel):
 
 class StepInfo(BaseModel):
     step_number: int
+    agent_name: str
     prompt_type: str
     prompt: str
 
 
 class ChainStep(BaseModel):
-    chain_name: str
     step_number: int
     agent_name: str
     prompt_type: str
@@ -69,10 +73,8 @@ class ChainStep(BaseModel):
 
 
 class ChainStepNewInfo(BaseModel):
-    chain_name: str
     old_step_number: int
     new_step_number: int
-    prompt_type: str
 
 
 class ResponseMessage(BaseModel):
@@ -93,29 +95,72 @@ class Prompt(BaseModel):
     prompt: str
 
 
+class CustomPromptModel(BaseModel):
+    prompt_name: str
+    prompt: str
+
+
+class AgentSettings(BaseModel):
+    agent_name: str
+    settings: Dict[str, Any]
+
+
+# Get list of providers
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 
+# Get available provider settings
+# These should be used to set new agents settings.
+@app.get("/api/provider/{provider_name}", tags=["Provider"])
+async def get_provider_settings(provider_name: str):
+    settings = get_provider_options(provider_name)
+    return {"settings": settings}
+
+
 @app.post("/api/agent", tags=["Agent"])
-async def add_agent(agent_name: AgentName) -> Dict[str, str]:
-    agent_info = CFG.add_agent(agent_name.agent_name)
+async def add_agent(agent: AgentSettings) -> Dict[str, str]:
+    agent_info = Agent(agent.agent_name).add_agent(agent.agent_name, agent.settings)
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
 
 
-@app.put("/api/agent/{agent_name}", tags=["Agent"])
+# For adding new agents, expecting a payload like this:
+# {
+#    "agent_name": "test",
+#    "settings": {
+#        "provider": "openai",
+#        "OPENAI_API_KEY": "sk-...",
+#        "AI_MODEL": "gpt-3.5-turbo",
+#        "AI_TEMPERATURE": 0.7,
+#        "MAX_TOKENS": 4096,
+#    }
+# }
+# Take what you get from "/api/provider/{provider_name}" endpoint to set the settings.
+# Get user input for each of those settings up the new agent.
+
+
+@app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    CFG.rename_agent(agent_name, new_name.new_name)
+    Agent(agent_name).rename_agent(agent_name, new_name.new_name)
     return ResponseMessage(
         message=f"Agent {agent_name} renamed to {new_name.new_name}."
     )
 
 
+# Update agent
+@app.put("/api/agent/{agent_name}", tags=["Agent"])
+async def update_agent_settings(
+    agent_name: str, settings: AgentSettings
+) -> ResponseMessage:
+    update_config = Agent(agent_name).update_agent_config(settings.settings)
+    return ResponseMessage(message=update_config)
+
+
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
 async def delete_agent(agent_name: str) -> ResponseMessage:
-    result, status_code = CFG.delete_agent(agent_name)
+    result, status_code = Agent(agent_name).delete_agent(agent_name)
     if status_code == 200:
         return ResponseMessage(message=result["message"])
     else:
@@ -130,19 +175,19 @@ async def get_agents():
 
 @app.get("/api/agent/{agent_name}", tags=["Agent"])
 async def get_agent_config(agent_name: str):
-    agent_config = CFG.get_agent_config(agent_name)
+    agent_config = Agent(agent_name).get_agent_config()
     return {"agent": agent_config}
 
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = CFG.get_chat_history(agent_name)
+    chat_history = Agent(agent_name).get_chat_history()
     return {"chat_history": chat_history}
 
 
 @app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    CFG.wipe_agent_memories(agent_name)
+    Agent(agent_name).wipe_agent_memories(agent_name)
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
@@ -199,6 +244,7 @@ async def toggle_command(
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
 async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
     # If it's running stop it.
+    CFG = Agent(agent_name)
     if (
         agent_name in CFG.agent_instances
         and CFG.agent_instances[agent_name].get_status()
@@ -224,6 +270,7 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
+    CFG = Agent(agent_name)
     if agent_name not in CFG.agent_instances:
         return TaskOutput(output="", message="")
     return TaskOutput(
@@ -236,6 +283,7 @@ async def get_task_output(agent_name: str) -> TaskOutput:
 
 @app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
 async def get_task_status(agent_name: str):
+    CFG = Agent(agent_name)
     if agent_name not in CFG.agent_instances:
         return {"status": False}
     status = CFG.agent_instances[agent_name].get_status()
@@ -244,25 +292,31 @@ async def get_task_status(agent_name: str):
 
 @app.get("/api/chain", tags=["Chain"])
 async def get_chains():
-    chains = CFG.get_chains()
+    chains = Chain().get_chains()
     return chains
 
 
 @app.get("/api/chain/{chain_name}", tags=["Chain"])
 async def get_chain(chain_name: str):
-    chain_data = CFG.get_chain(chain_name)
-    return chain_data
+    chain_data = Chain().get_chain(chain_name)
+    return {"chain": chain_data}
+
+
+@app.post("/api/chain/{chain_name}/run", tags=["Chain"])
+async def run_chain(chain_name: str) -> ResponseMessage:
+    Chain().run_chain(chain_name)
+    return {"message": f"Chain '{chain_name}' started."}
 
 
 @app.post("/api/chain", tags=["Chain"])
 async def add_chain(chain_name: ChainName) -> ResponseMessage:
-    CFG.add_chain(chain_name.chain_name)
+    Chain().add_chain(chain_name.chain_name)
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
 @app.put("/api/chain/{chain_name}", tags=["Chain"])
 async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessage:
-    CFG.rename_chain(chain_name, new_name.new_name)
+    Chain().rename_chain(chain_name, new_name.new_name)
     return ResponseMessage(
         message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'."
     )
@@ -270,26 +324,32 @@ async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessa
 
 @app.delete("/api/chain/{chain_name}", tags=["Chain"])
 async def delete_chain(chain_name: str) -> ResponseMessage:
-    CFG.delete_chain(chain_name)
+    Chain().delete_chain(chain_name)
     return ResponseMessage(message=f"Chain '{chain_name}' deleted.")
 
 
 @app.post("/api/chain/{chain_name}/step", tags=["Chain"])
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
-    CFG.add_step(
-        chain_name, step_info.step_number, step_info.prompt_type, step_info.prompt
+    Chain().add_step(
+        chain_name,
+        step_info.step_number,
+        step_info.prompt_type,
+        step_info.prompt,
+        step_info.agent_name,
     )
     return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
 
-@app.put("/api/chain/{chain_name}/step", tags=["Chain"])
-async def update_step(chain_name: str, chain_step: ChainStep) -> ResponseMessage:
-    CFG.update_step(
+@app.put("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
+async def update_step(
+    chain_name: str, step_number: int, chain_step: ChainStep
+) -> ResponseMessage:
+    Chain().update_step(
         chain_name,
         chain_step.step_number,
-        chain_step.agent_name,
         chain_step.prompt_type,
         chain_step.prompt,
+        chain_step.agent_name,
     )
     return {
         "message": f"Step {chain_step.step_number} updated for chain '{chain_name}'."
@@ -300,11 +360,10 @@ async def update_step(chain_name: str, chain_step: ChainStep) -> ResponseMessage
 async def move_step(
     chain_name: str, chain_step_new_info: ChainStepNewInfo
 ) -> ResponseMessage:
-    CFG.move_step(
+    Chain().move_step(
         chain_name,
         chain_step_new_info.old_step_number,
         chain_step_new_info.new_step_number,
-        chain_step_new_info.prompt_type,
     )
     return {
         "message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."
@@ -313,48 +372,48 @@ async def move_step(
 
 @app.delete("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
 async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
-    CFG.delete_step(chain_name, step_number)
+    Chain().delete_step(chain_name, step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}
 
 
 @app.post("/api/prompt", tags=["Prompt"])
-async def add_prompt(prompt_name: PromptName, prompt: Prompt) -> ResponseMessage:
+async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        CFG.add_prompt(prompt_name.prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name.prompt_name}' added.")
+        CustomPrompt().add_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=Prompt)
+@app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=CustomPromptModel)
 async def get_prompt(prompt_name: str):
     try:
-        prompt_content = CFG.get_prompt(prompt_name)
-        return {"prompt": prompt_content}
+        prompt_content = CustomPrompt().get_prompt(prompt_name)
+        return {"prompt_name": prompt_name, "prompt": prompt_content}
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
 async def get_prompts():
-    prompts = CFG.get_prompts()
+    prompts = CustomPrompt().get_prompts()
     return {"prompts": prompts}
 
 
 @app.delete("/api/prompt/{prompt_name}", tags=["Prompt"])
 async def delete_prompt(prompt_name: str) -> ResponseMessage:
     try:
-        CFG.delete_prompt(prompt_name)
+        CustomPrompt().delete_prompt(prompt_name)
         return ResponseMessage(message=f"Prompt '{prompt_name}' deleted.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.put("/api/prompt/{prompt_name}", tags=["Prompt"])
-async def update_prompt(prompt_name: str, prompt: Prompt) -> ResponseMessage:
+async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        CFG.update_prompt(prompt_name, prompt.prompt)
-        return ResponseMessage(message=f"Prompt '{prompt_name}' updated.")
+        CustomPrompt().update_prompt(prompt.prompt_name, prompt.prompt)
+        return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 

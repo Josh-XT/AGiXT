@@ -1,4 +1,3 @@
-import importlib
 import secrets
 import string
 import argparse
@@ -8,7 +7,7 @@ from collections import deque
 from typing import List, Dict
 import chromadb
 from chromadb.utils import embedding_functions
-from Config import Config
+from Config.Agent import Agent
 from commands.web_requests import web_requests
 from Commands import Commands
 import json
@@ -25,18 +24,16 @@ except:
 
 
 class AgentLLM:
-    def __init__(self, agent_name: str = "default", primary_objective=None):
-        self.CFG = Config(agent_name)
-        self.primary_objective = (
-            self.CFG.OBJECTIVE if primary_objective == None else primary_objective
-        )
+    def __init__(self, agent_name: str = "AgentLLM", primary_objective=None):
+        self.CFG = Agent(agent_name)
+        self.primary_objective = primary_objective
         self.initialize_task_list()
         self.commands = Commands(agent_name)
-        self.available_commands = self.get_agent_commands()
+        self.available_commands = self.commands.get_available_commands()
         self.web_requests = web_requests()
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=self.CFG.OPENAI_API_KEY
+                api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
             )
         else:
             self.embedding_function = (
@@ -59,18 +56,14 @@ class AgentLLM:
             metadata={"hnsw:space": "cosine"},
             embedding_function=self.embedding_function,
         )
-        ai_module = importlib.import_module(f"provider.{self.CFG.AI_PROVIDER}")
-        self.ai_instance = ai_module.AIProvider()
-        self.instruct = self.ai_instance.instruct
         self.agent_name = agent_name
+        self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
         self.stop_running_event = None
+        self.instruct = self.CFG.instruct
 
     def get_output_list(self):
         return self.output_list
-
-    def get_agent_commands(self) -> List[str]:
-        return self.commands.get_available_commands()
 
     def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
         trimmed_context = []
@@ -108,10 +101,16 @@ class AgentLLM:
             if prompt == task:
                 prompt = f"{instruction_prompt}\n\nTask: {task}"
             prompt = f"{instruction_prompt}\n\n{prompt}"
+
+            enabled_commands = filter(
+                lambda command: command.get("enabled", True), self.available_commands
+            )
+
             friendly_names = map(
                 lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-                self.available_commands,
+                enabled_commands,
             )
+
             if len(self.available_commands) == 0:
                 prompt = prompt.replace("{COMMANDS}", "No commands.")
             else:
@@ -344,17 +343,38 @@ class AgentLLM:
             self.prioritization_agent()
         self.update_output_list("All tasks completed or stopped.")
 
-    def run_chain_step(self, agent_name, step_data):
-        for prompt_type, prompt in step_data.items():
-            if prompt_type == "instruction":
-                self.run(prompt)
-            elif prompt_type == "task":
-                self.run_task(prompt)
+    def run_chain_step(self, step_data_list):
+        for step_data in step_data_list:
+            for prompt_type, prompt in step_data.items():
+                if prompt_type == "instruction":
+                    self.run(prompt)
+                elif prompt_type == "task":
+                    self.run_task(prompt)
+                elif prompt_type == "command":
+                    command = prompt.strip()
+                    command_name, command_args = None, {}
+                    # Extract command name and arguments using regex
+                    command_regex = re.search(r"(\w+)\((.*)\)", command)
+                    if command_regex:
+                        command_name, args_str = command_regex.groups()
+                        if args_str:
+                            # Parse arguments string into a dictionary
+                            args_str = args_str.replace("'", '"')
+                            args_str = args_str.replace("None", "null")
+                            try:
+                                command_args = json.loads(args_str)
+                            except JSONDecodeError as e:
+                                # error parsing args, send command_name to None so trying to execute command won't crash
+                                command_name = None
+                                print(f"Error: {e}")
 
-    def run_chain(self, agent_name, chain_name):
-        chain_data = self.CFG.get_steps(chain_name)
-        for step_number, step_data in chain_data.items():
-            self.run_chain_step(agent_name, step_data)
+                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                    if command_name is not None:
+                        for available_command in self.available_commands:
+                            if available_command["friendly_name"] == command_name:
+                                command_name = available_command["name"]
+                                break
+                        self.commands.execute_command(command_name, command_args)
 
 
 if __name__ == "__main__":

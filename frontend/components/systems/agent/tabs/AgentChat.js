@@ -45,7 +45,6 @@ export default function AgentChat() {
         color="primary"
         onClick={handleSendMessage}
         fullWidth
-        disabled
       >
         Message Agent
       </Button>

@@ -1,18 +1,18 @@
 import importlib
 import os
 from inspect import signature, Parameter
-from Config import Config
+from Config.Agent import Agent
 
 
 class Commands:
-    def __init__(self, agent_name: str = "default", load_commands_flag: bool = True):
+    def __init__(self, agent_name: str = "Agent-LLM", load_commands_flag: bool = True):
         if agent_name == "undefined":
-            self.agent_name = "default"
+            self.agent_name = "Agent-LLM"
         else:
             self.agent_name = agent_name
-        self.CFG = Config(self.agent_name)
+        self.CFG = Agent(self.agent_name)
         self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
-        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        # self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         if load_commands_flag:
             self.commands = self.load_commands()

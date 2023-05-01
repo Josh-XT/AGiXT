@@ -11,6 +11,8 @@ import {
   RunCircle, 
   StopCircle, 
   AddCircle,
+  InsertComment,
+  AddComment,
   Home
 } from "@mui/icons-material";
 import {useRouter} from 'next/router';
@@ -26,9 +28,9 @@ export default function MenuPromptList({ data }) {
             <ListItemText primary="Prompt Homepage" />
           </Link>
         </ListItemButton>
-        <ListItemButton disabled selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="prompt"}>
+        <ListItemButton selected={  router.pathname.split("/")[1]=="new" && router.pathname.split("/")[2]=="prompt"}>
           <ListItemIcon>
-            <AddCircle />
+            <AddComment />
           </ListItemIcon>
           <Link href={`/new/prompt`}>
             <ListItemText primary="Add A New Prompt" />
@@ -36,9 +38,9 @@ export default function MenuPromptList({ data }) {
         </ListItemButton>
       <Divider />
       {data.map((prompt) => (
-          <ListItemButton key={prompt} disabled>
+          <ListItemButton key={prompt}>
             <ListItemIcon>
-              {prompt.status ? <RunCircle /> : <StopCircle />}
+              <InsertComment />
             </ListItemIcon>
             <Link href={`/prompt/${prompt}`}>
               <ListItemText primary={prompt} />
