@@ -41,16 +41,19 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     const [expanded, setExpanded] = useState(false);
     const [stepType, setStepType] = useState(-1);
     const router = useRouter();
-    const [modified, setModified] = useState(true);
-    const step_types = [
-        { name: "prompt", component: <StepTypePrompt agent_name={agentName} set_agent_name={setAgentName} prompt_name={promptName} set_prompt_name={setPromptName} prompt={promptText} set_prompt={setPromptText} /> },
-        { name: "command", component: <StepTypeCommand prompt={promptText} set_prompt={setPromptText} /> },
-        { name: "task", component: <StepTypeTask agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
-        { name: "instruction", component: <StepTypeInstruction agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
-        { name: "chain", component: <StepTypeChain prompt={promptText} set_prompt={setPromptText} /> }
-    ]
+    const [modified, setModified] = useState(false);
+    const step_types =useMemo(() => 
+     [
+        { name: "prompt", component: <StepTypePrompt update={setModified} agent_name={agentName} set_agent_name={setAgentName} prompt_name={promptName} set_prompt_name={setPromptName} prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "command", component: <StepTypeCommand update={setModified} prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "task", component: <StepTypeTask update={setModified} agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "instruction", component: <StepTypeInstruction update={setModified} agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "chain", component: <StepTypeChain update={setModified} prompt={promptText} set_prompt={setPromptText} /> }
+     ], [agentName, promptName, promptText]);
     useEffect(() => {
         setStepType(step_types.findIndex((step_type) => step_type.name == prompt_type));
+        // TODO: Fix this.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [prompt_type])
     const handleChange = () => {
         setExpanded(old => !old);
@@ -104,7 +107,7 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
                                 <IconButton onClick={handleDecrement} size="large" disabled={step_number == 1}><ArrowCircleUp sx={{ fontSize: "2rem" }} /></IconButton>
                                 <Avatar sx={{ fontWeight: "bolder" }}>{step_number}</Avatar>
                                 <IconButton onClick={handleIncrement} size="large" disabled={last_step}><ArrowCircleDown sx={{ fontSize: "2rem" }} /></IconButton>
-                                <Select label="Type" sx={{ mx: "0.5rem" }} value={stepType} onChange={(e) => setStepType(e.target.value)}>
+                                <Select label="Type" sx={{ mx: "0.5rem" }} value={stepType} onChange={(e) => {setStepType(e.target.value); setModified(true);}}>
                                     <MenuItem value={-1}>Select a Type...</MenuItem>
                                     {step_types.map((type, index) => {
                                         return <MenuItem key={index} value={index}>{type.name.replace(/\b\w/g, s => s.toUpperCase())}</MenuItem>;

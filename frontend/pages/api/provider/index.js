@@ -18,7 +18,6 @@ export default async function handler(req, res) {
                 mapped[provider] = provider in providerMap ? providerMap[provider] : provider;
             });
         });
-        console.log(mapped);
         res.status(200).json(mapped);
     } else {
         res.status(405).json({ message: 'Method not allowed. Allows: GET.' });

@@ -5,7 +5,7 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import { mutate } from "swr";
 import useSWR from "swr";
-export default function StepTypePrompt({agent_name, set_agent_name, prompt_name, set_prompt_name, prompt, set_prompt}) {
+export default function StepTypePrompt({agent_name, set_agent_name, prompt_name, set_prompt_name, prompt, set_prompt, update}) {
     const [agent, setAgent] = useState(-1);
     const [promptNameVal, setPromptNameVal] = useState(-1);
     const [promptText, setPromptText] = useState("");
@@ -22,14 +22,14 @@ export default function StepTypePrompt({agent_name, set_agent_name, prompt_name,
     }, [agents.data, agent_name]);
     console.log(prompts.data);
     return <>
-        <Select label="Type" sx={{ mx: "0.5rem" }} value={agent} onChange={(e) => {setAgent(e.target.value); if (e.target.value != -1) set_agent_name(agents.data[e.target.value].name);}}>
+        <Select label="Type" sx={{ mx: "0.5rem" }} value={agent} onChange={(e) => {setAgent(e.target.value); if (e.target.value != -1) set_agent_name(agents.data[e.target.value].name);update(true);}}>
             <MenuItem value={-1}>Select an Agent...</MenuItem>
             {agents?.data?.map((agent, index) => {
                 return <MenuItem key={index} value={index}>{agent.name}</MenuItem>;
             })}
         </Select>
 
-        <Select label="Prompt" sx={{ mx: "0.5rem" }} value={promptNameVal} onChange={(e) => {setPromptNameVal(e.target.value); if (e.target.value != -1 && e.target.value != -2) set_prompt_name(prompts.data[e.target.value].name);}}>
+        <Select label="Prompt" sx={{ mx: "0.5rem" }} value={promptNameVal} onChange={(e) => {setPromptNameVal(e.target.value); if (e.target.value != -1 && e.target.value != -2) set_prompt_name(prompts.data[e.target.value].name);update(true);}}>
             <MenuItem value={-1}>Select a Prompt...</MenuItem>
             <MenuItem value={-2}>[New Prompt]</MenuItem>
             {prompts?.data?.map((prompt, index) => {
@@ -37,6 +37,6 @@ export default function StepTypePrompt({agent_name, set_agent_name, prompt_name,
             })}
         </Select>
 
-        {promptNameVal===-2?<TextField label="New Prompt" value={promptText} onChange={(e) => {setPromptText(e.target.value); set_prompt(e.target.value);}} multiline lines={20} sx={{ mx: "0.5rem", flex: 1 }} />:null}
+        {promptNameVal===-2?<TextField label="New Prompt" value={promptText} onChange={(e) => {setPromptText(e.target.value); set_prompt(e.target.value);update(true);}} multiline lines={20} sx={{ mx: "0.5rem", flex: 1 }} />:null}
     </>;
 }
