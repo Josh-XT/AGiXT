@@ -14,7 +14,7 @@ import {
   Select,
   Typography
 } from "@mui/material";
-export default function AgentAdmin({ friendly_name, name, args, enabled }) {
+export default function AgentAdmin() {
   const agentName = useRouter().query.agent;
   const [provider, setProvider] = useState("initial");
   const [fields, setFields] = useState([]);
@@ -59,8 +59,6 @@ export default function AgentAdmin({ friendly_name, name, args, enabled }) {
     }
     if (provider != "initial") getAndSetFields();
   }, [provider]);
-  console.log(agentConfig);
-  console.log(fields);
   return (
     //TODO: Lay these out nicer.
     <Container>

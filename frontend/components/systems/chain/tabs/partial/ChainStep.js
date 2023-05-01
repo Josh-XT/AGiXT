@@ -42,18 +42,16 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
     const [stepType, setStepType] = useState(-1);
     const router = useRouter();
     const [modified, setModified] = useState(true);
-    const step_types = useMemo(() => {
-        return [
-            { name: "prompt", component: <StepTypePrompt agent_name={agentName} set_agent_name={setAgentName} prompt_name={promptName} set_prompt_name={setPromptName} prompt={promptText} set_prompt={setPromptText} /> },
-            { name: "command", component: <StepTypeCommand prompt={promptText} set_prompt={setPromptText} /> },
-            { name: "task", component: <StepTypeTask agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
-            { name: "instruction", component: <StepTypeInstruction agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
-            { name: "chain", component: <StepTypeChain prompt={promptText}  set_prompt={setPromptText} /> }
-        ]
-    }, [agentName, promptName, promptText]);
+    const step_types = [
+        { name: "prompt", component: <StepTypePrompt agent_name={agentName} set_agent_name={setAgentName} prompt_name={promptName} set_prompt_name={setPromptName} prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "command", component: <StepTypeCommand prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "task", component: <StepTypeTask agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "instruction", component: <StepTypeInstruction agent_name={agentName} set_agent_name={setAgentName}  prompt={promptText} set_prompt={setPromptText} /> },
+        { name: "chain", component: <StepTypeChain prompt={promptText} set_prompt={setPromptText} /> }
+    ]
     useEffect(() => {
         setStepType(step_types.findIndex((step_type) => step_type.name == prompt_type));
-    }, [prompt_type, step_types])
+    }, [prompt_type])
     const handleChange = () => {
         setExpanded(old => !old);
     };

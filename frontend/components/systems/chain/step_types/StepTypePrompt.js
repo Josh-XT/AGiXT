@@ -20,6 +20,7 @@ export default function StepTypePrompt({agent_name, set_agent_name, prompt_name,
     useEffect(() => {
         setAgent(agents.data&&agent_name?agents.data.findIndex((agent) => agent.name == agent_name):-1);
     }, [agents.data, agent_name]);
+    console.log(prompts.data);
     return <>
         <Select label="Type" sx={{ mx: "0.5rem" }} value={agent} onChange={(e) => {setAgent(e.target.value); if (e.target.value != -1) set_agent_name(agents.data[e.target.value].name);}}>
             <MenuItem value={-1}>Select an Agent...</MenuItem>
