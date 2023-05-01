@@ -25,8 +25,8 @@ class Agent(Config):
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
         if "provider" in self.PROVIDER_SETTINGS:
             self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-        self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-        self.instruct = self.PROVIDER.instruct
+            self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+            self.instruct = self.PROVIDER.instruct
         self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
         if "AI_MODEL" in self.PROVIDER_SETTINGS:
             self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -132,6 +132,7 @@ class Agent(Config):
             ) as agent_config:
                 try:
                     agent_config_data = json.load(agent_config)
+                    return agent_config_data
                 except json.JSONDecodeError:
                     agent_config_data = {}
                     # Populate the agent_config with all commands enabled
@@ -150,6 +151,7 @@ class Agent(Config):
                         os.path.join("agents", agent_name, "config.json"), "w"
                     ) as agent_config_file:
                         json.dump(agent_config_data, agent_config_file)
+                    return agent_config_data
         except:
             # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "false"}
             agent_config_file = os.path.join("agents", agent_name, "config.json")
