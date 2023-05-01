@@ -8,27 +8,16 @@ import {
     Typography,
     Paper,
     TextField,
-    Box,
     Button,
 } from "@mui/material";
-import {
-    ArrowCircleUp,
-    ArrowCircleDown,
-    AddCircleOutline,
-    HighlightOff,
-    InsertLink,
-    LowPriority
-} from '@mui/icons-material';
-import ChainStep from "./ChainStep";
-export default function AgentObjective() {
-    /*
+export default function AgentTask() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
     const taskStatus = useSWR(`agent/${agentName}/task`, async () => (running ? (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task`)).data.output.split("\n") : null), { refreshInterval: running?3000:0, revalidateOnFocus: false });
     const queryRunning = useCallback(async () => {
         setRunning((await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/task/status`)).data.status, {objective: objective});
-    }, [agentName]);
+    }, [agentName, objective]);
     useEffect(() => {
         queryRunning();
     }, [queryRunning])
@@ -44,20 +33,42 @@ export default function AgentObjective() {
         mutate("agents");
     };
     console.log(taskStatus.data);
-    */
     return (
         <>
-            <ChainStep stepNum={1} updateCallback={() => { return null; }} />
-            <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <InsertLink sx={{ fontSize: "2rem" }} />
-                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Concurrently With</Typography>
-            </Box>
-            <ChainStep stepNum={2} updateCallback={() => { return null; }} />
-            <Box sx={{ display: "flex", justifyContent: "left", alignItems: "center" }}>
-                <LowPriority sx={{ fontSize: "2rem" }} />
-                <Typography variant="h5" sx={{ fontWeight: "bolder", mx: "1rem" }}>Runs Sequentially Before</Typography>
-            </Box>
-            <ChainStep stepNum={3} updateCallback={() => { return null; }} />
+            <TextField
+                label="Enter Task for Agent"
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+                sx={{ mb: 2 }}
+                fullWidth
+            />
+            <Button
+                variant="contained"
+                color="primary"
+                onClick={toggleRunning}
+                fullWidth
+            >
+                {running ? "Stop" : "Start"} Pursuing Task
+            </Button>
+            {
+                taskStatus.data ?
+                    <>
+                        <Typography sx={{ mt: "1rem" }} variant="h6" gutterBottom>
+                            Objective Work Log
+                        </Typography>
+                        <Paper
+                            elevation={5}
+                            sx={{ padding: "0.5rem", overflowY: "auto", height: "60vh" }}
+                        >
+                            {taskStatus.data.map((message, index) => (
+                                <pre key={index} style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                                    {message}
+                                </pre>
+                            ))}
+                        </Paper>
+                    </>
+                    : null
+            }
         </>
     );
 };

@@ -14,7 +14,7 @@ import {
     InsertLink,
     LowPriority
 } from '@mui/icons-material';
-import ChainStep from "./ChainStep";
+import ChainStep from "./partial/ChainStep";
 export default function ChainSteps() {
     /*
     const [running, setRunning] = useState(false);

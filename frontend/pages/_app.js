@@ -1,4 +1,5 @@
 import '@/styles/globals.css'
+import axios from 'axios';
 import { useState, useCallback } from 'react';
 import { setCookie, getCookie } from 'cookies-next';
 import Link from 'next/link';
@@ -127,6 +128,8 @@ export default function App({ Component, pageProps, dark }) {
         return newVal;
       });
   }, []);
+
+  console.log(axios.get("/api/provider"));
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex' }}>

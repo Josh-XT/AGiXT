@@ -3,7 +3,7 @@ import {
   Tab,
   Tabs
 } from "@mui/material";
-import PromptAdmin from "../prompt/PromptAdmin";
+import PromptAdmin from "./tabs/PromptAdmin";
 import { useTheme } from "@mui/material/styles";
 export default function PromptPanel() {
   const [tab, setTab] = useState(0);

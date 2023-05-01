@@ -29,11 +29,11 @@ import {
     SaveRounded,
     LowPriority
 } from '@mui/icons-material';
-import StepTypePrompt from "./step_types/StepTypePrompt";
-import StepTypeCommand from "./step_types/StepTypeCommand";
-import StepTypeChain from "./step_types/StepTypeChain";
-import StepTypeTask from "./step_types/StepTypeTask";
-import StepTypeInstruction from "./step_types/StepTypeInstruction";
+import StepTypePrompt from "../../step_types/StepTypePrompt";
+import StepTypeCommand from "../../step_types/StepTypeCommand";
+import StepTypeChain from "../../step_types/StepTypeChain";
+import StepTypeTask from "../../step_types/StepTypeTask";
+import StepTypeInstruction from "../../step_types/StepTypeInstruction";
 export default function ChainStep({ step_number, last_step, agent_name, prompt_name, prompt_type, prompt }) {
     const [agentName, setAgentName] = useState(agent_name);
     const [promptName, setPromptName] = useState(prompt_name);

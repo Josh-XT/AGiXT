@@ -3,8 +3,8 @@ import {
   Tab,
   Tabs
 } from "@mui/material";
-import ChainSteps from "./ChainSteps";
-import ChainAdmin from "./ChainAdmin";
+import ChainSteps from "./tabs/ChainSteps";
+import ChainAdmin from "./tabs/ChainAdmin";
 import { useTheme } from "@mui/material/styles";
 export default function ChainPanel() {
   const [tab, setTab] = useState(0);
