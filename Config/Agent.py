@@ -21,9 +21,8 @@ class Agent(Config):
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
-        if self.AGENT_CONFIG is not None:
-            if "settings" in self.AGENT_CONFIG:
-                self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+        if "settings" in self.AGENT_CONFIG:
+            self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
         else:
             self.PROVIDER_SETTINGS = {
                 "provider": "huggingchat",
