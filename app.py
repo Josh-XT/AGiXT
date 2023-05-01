@@ -10,7 +10,7 @@ from Chain import Chain
 from CustomPrompt import CustomPrompt
 import threading
 from typing import Optional, Dict, List, Any
-from provider import get_all_provider_options, get_provider_options
+from provider import get_provider_options
 
 CFG = Config()
 app = FastAPI()
@@ -117,13 +117,6 @@ async def get_providers():
 @app.get("/api/provider/{provider_name}", tags=["Provider"])
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name)
-    return {"settings": settings}
-
-
-# Get all available provider settings
-@app.get("/api/provider/settings", tags=["Provider"])
-async def get_all_provider_settings():
-    settings = get_all_provider_options()
     return {"settings": settings}
 
 
