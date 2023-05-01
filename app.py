@@ -149,6 +149,15 @@ async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessa
     )
 
 
+# Update agent
+@app.put("/api/agent/{agent_name}", tags=["Agent"])
+async def update_agent_settings(
+    agent_name: str, settings: AgentSettings
+) -> ResponseMessage:
+    update_config = Agent(agent_name).update_agent_config(settings.settings)
+    return ResponseMessage(message=update_config)
+
+
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
 async def delete_agent(agent_name: str) -> ResponseMessage:
     result, status_code = Agent(agent_name).delete_agent(agent_name)
