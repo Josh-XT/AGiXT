@@ -12,7 +12,7 @@ class Commands:
             self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
         self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
-        self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
+        # self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         if load_commands_flag:
             self.commands = self.load_commands()
