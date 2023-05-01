@@ -139,7 +139,12 @@ class Agent(Config):
                         command_name: "false"
                         for command_name, _, _ in self.load_commands(agent_name)
                     }
-                    agent_config_data["provider"] = "huggingchat"
+                    agent_config_data["settings"] = {
+                        "provider": "huggingchat",
+                        "AI_MODEL": "openassistant",
+                        "AI_TEMPERATURE": 0.4,
+                        "MAX_TOKENS": 2000,
+                    }
                     # Save the updated agent_config to the file
                     with open(
                         os.path.join("agents", agent_name, "config.json"), "w"
@@ -156,7 +161,12 @@ class Agent(Config):
                                 command_name: "false"
                                 for command_name, _, _ in self.load_commands()
                             },
-                            "provider": "huggingchat",
+                            "settings": {
+                                "provider": "huggingchat",
+                                "AI_MODEL": "openassistant",
+                                "AI_TEMPERATURE": 0.4,
+                                "MAX_TOKENS": 2000,
+                            },
                         }
                     )
                 )
