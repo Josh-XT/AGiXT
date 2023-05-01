@@ -3,7 +3,6 @@ __pycache__/
 *$py.class
 
 .env
-.env.*
 env/
 .venv
 *venv/
@@ -19,3 +18,5 @@ WORKSPACE/*
 *.util.py
 agents/*
 src/*
+
+*.code-workspace

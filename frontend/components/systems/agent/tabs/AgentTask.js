@@ -10,7 +10,7 @@ import {
     TextField,
     Button,
 } from "@mui/material";
-export default function AgentObjective() {
+export default function AgentTask() {
     const [running, setRunning] = useState(false);
     const [objective, setObjective] = useState("");
     const agentName = useRouter().query.agent;
@@ -36,7 +36,7 @@ export default function AgentObjective() {
     return (
         <>
             <TextField
-                label="Enter Objective for Agent"
+                label="Enter Task for Agent"
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
                 sx={{ mb: 2 }}
@@ -48,7 +48,7 @@ export default function AgentObjective() {
                 onClick={toggleRunning}
                 fullWidth
             >
-                {running ? "Stop" : "Start"} Pursuing Objective
+                {running ? "Stop" : "Start"} Pursuing Task
             </Button>
             {
                 taskStatus.data ?

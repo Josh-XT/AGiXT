@@ -3,10 +3,11 @@ import {
   Tab,
   Tabs
 } from "@mui/material";
-import AgentChat from "./AgentChat";
-import AgentObjective from "./AgentObjective";
-import AgentInstruct from "./AgentInstruct";
-import AgentAdmin from "./AgentAdmin";
+import AgentChat from "./tabs/AgentChat";
+import AgentInstruct from "./tabs/AgentInstruct";
+import AgentAdmin from "./tabs/AgentAdmin";
+import AgentTask from "./tabs/AgentTask";
+import AgentConfigure from "./tabs/AgentConfigure";
 import { useTheme } from "@mui/material/styles";
 export default function AgentPanel() {
   const [tab, setTab] = useState(0);
@@ -18,7 +19,8 @@ export default function AgentPanel() {
   const tabs = [
     <AgentChat key="chat" />,
     <AgentInstruct key="instruct" />,
-    <AgentObjective key="objective" />,
+    <AgentTask key="task" />,
+    <AgentConfigure key="admin" />,
     <AgentAdmin key="admin" />
   ];
   return (
@@ -26,7 +28,8 @@ export default function AgentPanel() {
       <Tabs value={tab} onChange={handleTabChange} TabIndicatorProps={{ style: { background: theme.palette.mode == "dark"?"#FFF":"#000" } }} sx={{ mb: "0.5rem" }} textColor={theme.palette.mode == "dark"?"white":"black"}>
         <Tab label="Chat With Agent" />
         <Tab label="Instruct Agent" />
-        <Tab label="Set Agent Objective" />
+        <Tab label="Task Agent" />
+        <Tab label="Configure Agent" />
         <Tab label="Administrate Agent" />
       </Tabs>
       {tabs[tab]}
