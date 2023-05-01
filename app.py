@@ -141,7 +141,7 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
 # Get user input for each of those settings up the new agent.
 
 
-@app.put("/api/agent/{agent_name}", tags=["Agent"])
+@app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
     Agent(agent_name).rename_agent(agent_name, new_name.new_name)
     return ResponseMessage(
