@@ -56,7 +56,7 @@ export default function ChainSteps() {
     return <>
         {steps?.data?.map((step, index) => {
             return <>
-                <ChainStep {...step} last_step={steps.data.length===index+1} updateCallback={() => { return null; }} />
+                <ChainStep key={index} {...step} last_step={steps.data.length===index+1} updateCallback={() => { return null; }} />
                 {
                     index === steps.data.length - 1
                         ?

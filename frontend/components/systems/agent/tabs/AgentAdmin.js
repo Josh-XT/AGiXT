@@ -9,15 +9,19 @@ import {
   Container
 } from "@mui/material";
 export default function AgentAdmin({ friendly_name, name, args, enabled }) {
-  const agentName = useRouter().query.agent;
+  const router = useRouter();
+  const agentName = router.query.agent;
   const [newName, setNewName] = useState("");
   const handleDelete = async () => {
     await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`)
     mutate(`agent`);
+    router.push(`/agent`);
   };
   const handleRename = async () => {
-    await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`, { new_name: newName })
+    // TODO: Get agentName out of URI as it makes a 404 upon success.
+    await axios.patch(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`, { old_name: agentName, new_name: newName })
     mutate(`agent`);
+    router.push(`/agent/${newName}`);
   };
   return (
     <Container>

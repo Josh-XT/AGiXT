@@ -10,7 +10,8 @@ import {
   Container
 } from "@mui/material";
 export default function PromptAdmin({ friendly_name, name, args, enabled }) {
-  const promptName = useRouter().query.prompt;
+  const router = useRouter();
+  const promptName = router.query.prompt;
   const prompt = useSWR('prompt/'+promptName, async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt/${promptName}`)).data);
   const [newName, setNewName] = useState(prompt.data.prompt_name);
   const [newBody, setNewBody] = useState(prompt.data.prompt);
@@ -18,10 +19,12 @@ export default function PromptAdmin({ friendly_name, name, args, enabled }) {
   const handleDelete = async () => {
     await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt/${promptName}`)
     mutate(`prompt`);
+    router.push(`/prompt`);
   };
   const handleSave = async () => {
     await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/prompt/${promptName}`, { prompt_name: newName, prompt: newBody })
     mutate(`prompt`);
+    router.push(`/prompt/${newName}`);
   };
   return (
     <Container>

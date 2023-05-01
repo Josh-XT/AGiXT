@@ -9,15 +9,18 @@ import {
   Container
 } from "@mui/material";
 export default function ChainAdmin({ friendly_name, name, args, enabled }) {
-  const chainName = useRouter().query.chain;
+  const router = useRouter();
+  const chainName = router.query.chain;
   const [newName, setNewName] = useState("");
   const handleDelete = async () => {
     await axios.delete(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`)
     mutate(`chain`);
+    router.push(`/chain`);
   };
   const handleRename = async () => {
     await axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`, { new_name: newName })
     mutate(`chain`);
+    router.push(`/chain/${newName}`);
   };
   const handleRun = async () => {
     await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${chainName}`)
