@@ -32,7 +32,6 @@ class OpenaiProvider:
         else:
             # Use chat completion API
             messages = [{"role": "system", "content": prompt}]
-            print(messages)
             response = openai.ChatCompletion.create(
                 model=self.AI_MODEL,
                 messages=messages,
