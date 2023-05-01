@@ -1,6 +1,7 @@
 import os
 import glob
 import shutil
+from AgentLLM import AgentLLM
 
 
 class Chain:
@@ -184,4 +185,8 @@ class Chain:
     def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name)
         for step_number, step_data in chain_data.items():
-            self.run_chain_step(step_data)
+            if "agent_name" in step_data:
+                agent_name = step_data["agent_name"]
+            else:
+                agent_name = "Agent-LLM"
+            AgentLLM(agent_name).run_chain_step(step_data)
