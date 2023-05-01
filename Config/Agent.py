@@ -17,7 +17,7 @@ load_dotenv()
 class Agent(Config):
     def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = agent_name if agent_name is not None else "default"
+        self.AGENT_NAME = agent_name if agent_name is not None else "Agent-LLM"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
@@ -227,11 +227,24 @@ class Agent(Config):
                 self.add_agent(self.AGENT_NAME, {})
         return agent_config
 
-    def update_agent_config(self, agent_name, config):
-        with open(
-            os.path.join("agents", agent_name, "config.json"), "w"
-        ) as agent_config:
-            json.dump(config, agent_config)
+    def update_agent_config(self, new_config):
+        agent_name = self.AGENT_NAME
+        agent_config_file = os.path.join("agents", agent_name, "config.json")
+        if os.path.exists(agent_config_file):
+            with open(agent_config_file, "r") as f:
+                current_config = json.load(f)
+
+            # Update the configuration with the new_config
+            for key, value in new_config.items():
+                current_config[key] = value
+
+            # Save the updated configuration back to the file
+            with open(agent_config_file, "w") as f:
+                json.dump(current_config, f)
+
+            return f"Agent {agent_name} configuration updated."
+        else:
+            return f"Agent {agent_name} configuration not found."
 
     def get_chat_history(self, agent_name):
         if not os.path.exists(os.path.join("agents", f"{agent_name}.yaml")):
