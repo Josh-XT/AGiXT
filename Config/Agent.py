@@ -37,7 +37,10 @@ class Agent(Config):
             self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
             self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-        self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+        if "AI_MODEL" in self.PROVIDER_SETTINGS:
+            self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+        else:
+            self.AI_MODEL = "openassistant"
         if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
             self.AI_MODEL = "default"
         with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
@@ -56,8 +59,7 @@ class Agent(Config):
         ).lower()
 
         # Yaml Memory
-        self.memory_folder = "agents"
-        self.memory_file = f"{self.memory_folder}/{self.AGENT_NAME}.yaml"
+        self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
         self.agent_instances = {}
@@ -103,7 +105,7 @@ class Agent(Config):
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
-            command_class = getattr(module, module_name)()
+            command_class = getattr(module, module_name.lower())()
             if hasattr(command_class, "commands"):
                 for command_name, command_function in command_class.commands.items():
                     params = self.get_command_params(command_function)
@@ -114,25 +116,24 @@ class Agent(Config):
         command_files = glob.glob("commands/*.py")
         return command_files
 
-    def create_agent_config_file(self, agent_name, provider_settings):
-        agent_config_dir = os.path.join("agents", agent_name)
-        agent_config_file = os.path.join(agent_config_dir, "config.json")
+    def create_agent_config_file(self, agent_name, provider_settings, commands):
+        agent_dir = os.path.join("agents", agent_name)
+        agent_config_file = os.path.join(agent_dir, "config.json")
+        settings = json.dumps(
+            {
+                "commands": commands,
+                "settings": provider_settings,
+            }
+        )
 
-        if not os.path.exists(agent_config_dir):
-            os.makedirs(agent_config_dir)
+        # Check and create agent directory if it doesn't exist
+        if not os.path.exists(agent_dir):
+            os.makedirs(agent_dir)
 
-        if not os.path.exists(agent_config_file):
-            with open(agent_config_file, "w") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "commands": {
-                                command_name: "false" for command_name in self.commands
-                            },
-                            "settings": provider_settings,
-                        }
-                    )
-                )
+        # Write the settings to the agent config file
+        with open(agent_config_file, "w") as f:
+            f.write(settings)
+
         return agent_config_file
 
     def load_agent_config(self, agent_name):
@@ -164,7 +165,7 @@ class Agent(Config):
                         {
                             "commands": {
                                 command_name: "false"
-                                for command_name, _, _ in self.commands
+                                for command_name, _, _ in self.load_commands()
                             },
                             "provider": "huggingchat",
                         }
@@ -172,34 +173,23 @@ class Agent(Config):
                 )
         return agent_config_data
 
-    def create_agent_yaml_file(self, agent_name):
-        memories_dir = "agents"
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        i = 0
-        agent_file = f"{agent_name}.yaml"
-        while os.path.exists(os.path.join(memories_dir, agent_file)):
-            i += 1
-            agent_file = f"{agent_name}_{i}.yaml"
-        with open(os.path.join(memories_dir, agent_file), "w") as f:
-            f.write("")
-        return agent_file
-
     def write_agent_config(self, agent_config, config_data):
         with open(agent_config, "w") as f:
             json.dump(config_data, f)
 
     def add_agent(self, agent_name, provider_settings):
-        agent_file = self.create_agent_yaml_file(agent_name)
         agent_folder = self.create_agent_folder(agent_name)
-        agent_config = self.create_agent_config_file(agent_name, provider_settings)
+
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
             friendly_name, command_name, command_args = command
-            command_dict[friendly_name] = True
-        self.write_agent_config(agent_config, {"commands": command_dict})
-        return {"agent_file": agent_file}
+            command_dict[friendly_name] = False
+        agent_config = self.create_agent_config_file(
+            agent_name, provider_settings, command_dict
+        )
+        # self.write_agent_config(agent_config, {"commands": command_dict})
+        return {"agent_file": f"{agent_name}.yaml"}
 
     def rename_agent(self, agent_name, new_name):
         agent_file = f"agents/{agent_name}.yaml"
@@ -262,12 +252,12 @@ class Agent(Config):
             shutil.rmtree(memories_folder)
 
     def load_memory(self):
-        if os.path.isfile(self.memory_file):
+        if os.path.exists(self.memory_file):
             with open(self.memory_file, "r") as file:
                 memory = yaml.safe_load(file)
-                if memory is None:
-                    memory = {"interactions": []}
         else:
+            with open(self.memory_file, "w") as file:
+                yaml.safe_dump({"interactions": []}, file)
             memory = {"interactions": []}
         return memory
 
