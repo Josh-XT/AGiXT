@@ -24,20 +24,20 @@ class Agent(Config):
         if self.AGENT_CONFIG is not None:
             if "settings" in self.AGENT_CONFIG:
                 self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
-            else:
-                self.PROVIDER_SETTINGS = {
-                    "provider": "huggingchat",
-                    "AI_MODEL": "openassistant",
-                    "AI_TEMPERATURE": 0.9,
-                    "MAX_TOKENS": 2096,
-                }
-            if "provider" in self.PROVIDER_SETTINGS:
-                self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-            else:
-                self.AI_PROVIDER = "huggingchat"
-            self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-            self.instruct = self.PROVIDER.instruct
-            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
+        else:
+            self.PROVIDER_SETTINGS = {
+                "provider": "huggingchat",
+                "AI_MODEL": "openassistant",
+                "AI_TEMPERATURE": 0.9,
+                "MAX_TOKENS": 2096,
+            }
+        if "provider" in self.PROVIDER_SETTINGS:
+            self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
+        else:
+            self.AI_PROVIDER = "huggingchat"
+        self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+        self.instruct = self.PROVIDER.instruct
+        self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
         if "AI_MODEL" in self.PROVIDER_SETTINGS:
             self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
         else:
