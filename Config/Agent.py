@@ -48,8 +48,6 @@ class Agent(Config):
         with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
             self.PRIORITY_PROMPT = f.read()
 
-        self.COMMANDS_ENABLED = os.getenv("COMMANDS_ENABLED", "true").lower()
-
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv(
