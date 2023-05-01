@@ -31,7 +31,10 @@ class Agent(Config):
                     "AI_TEMPERATURE": 0.9,
                     "MAX_TOKENS": 2096,
                 }
-            self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
+            if "provider" in self.PROVIDER_SETTINGS:
+                self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
+            else:
+                self.AI_PROVIDER = "huggingchat"
             self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
             self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
