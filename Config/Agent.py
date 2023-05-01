@@ -22,18 +22,16 @@ class Agent(Config):
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
         if self.AGENT_CONFIG is not None:
-            if "provider" in self.AGENT_CONFIG:
-                self.AI_PROVIDER = self.AGENT_CONFIG["provider"]
-            else:
-                self.AI_PROVIDER = "huggingchat"
             if "settings" in self.AGENT_CONFIG:
                 self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             else:
                 self.PROVIDER_SETTINGS = {
+                    "provider": "huggingchat",
                     "AI_MODEL": "openassistant",
                     "AI_TEMPERATURE": 0.9,
                     "MAX_TOKENS": 2096,
                 }
+            self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
             self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
             self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])

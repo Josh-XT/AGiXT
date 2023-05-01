@@ -6,7 +6,7 @@ import undetected_chromedriver as uc
 
 
 class ChatgptProvider:
-    def __init__(self, CHATGPT_USERNAME: str = "", CHATGPT_PASSWORD: str = ""):
+    def __init__(self, CHATGPT_USERNAME: str = "", CHATGPT_PASSWORD: str = "", **kwargs):
         self.requirements = ["undetected-chromedriver", "selenium", "webdriver-manager"]
         self.head_count = 2
         self.head_responses = [[] for _ in range(self.head_count)]

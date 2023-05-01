@@ -7,6 +7,7 @@ class KoboldProvider:
         AI_PROVIDER_URI: str = "",
         MAX_TOKENS: int = 2000,
         AI_TEMPERATURE: float = 0.7,
+        **kwargs,
     ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
@@ -15,7 +16,7 @@ class KoboldProvider:
 
     def instruct(self, prompt):
         try:
-            max_tokens = int(self.MAX_TOKENS)
+            max_tokens = int(self.MAX_TOKENS - len(prompt))
         except:
             max_tokens = 2000
         response = requests.post(

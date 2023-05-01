@@ -6,7 +6,11 @@ except:
 
 class LlamacppProvider:
     def __init__(
-        self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, AI_TEMPERATURE: float = 0.7
+        self,
+        MODEL_PATH: str = "",
+        MAX_TOKENS: int = 2000,
+        AI_TEMPERATURE: float = 0.7,
+        **kwargs
     ):
         self.requirements = ["pyllamacpp"]
         self.AI_TEMPERATURE = AI_TEMPERATURE

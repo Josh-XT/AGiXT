@@ -5,7 +5,7 @@ CFG = Config()
 
 
 class BardProvider:
-    def __init__(self, BARD_TOKEN: str = ""):
+    def __init__(self, BARD_TOKEN: str = "", **kwargs):
         self.requirements = ["GoogleBard"]
         if CFG.AI_PROVIDER.lower() == "bard":
             self.chatbot = Chatbot(BARD_TOKEN)

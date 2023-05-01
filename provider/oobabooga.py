@@ -9,6 +9,7 @@ class OobaboogaProvider:
         AI_PROVIDER_URI: str = "",
         MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
+        **kwargs,
     ):
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
         self.MAX_TOKENS = MAX_TOKENS

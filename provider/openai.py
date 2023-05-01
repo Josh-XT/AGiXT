@@ -8,6 +8,7 @@ class OpenaiProvider:
         AI_MODEL: str = "gpt-3.5-turbo",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4096,
+        **kwargs
     ):
         self.requirements = ["openai"]
         self.AI_MODEL = AI_MODEL
@@ -22,7 +23,7 @@ class OpenaiProvider:
                 engine=self.AI_MODEL,
                 prompt=prompt,
                 temperature=self.AI_TEMPERATURE,
-                max_tokens=int(self.MAX_TOKENS),
+                max_tokens=int(self.MAX_TOKENS - len(prompt)),
                 top_p=1,
                 frequency_penalty=0,
                 presence_penalty=0,
@@ -31,11 +32,12 @@ class OpenaiProvider:
         else:
             # Use chat completion API
             messages = [{"role": "system", "content": prompt}]
+            print(messages)
             response = openai.ChatCompletion.create(
                 model=self.AI_MODEL,
                 messages=messages,
                 temperature=self.AI_TEMPERATURE,
-                max_tokens=int(self.MAX_TOKENS),
+                max_tokens=int(self.MAX_TOKENS - len(prompt)),
                 n=1,
                 stop=None,
             )

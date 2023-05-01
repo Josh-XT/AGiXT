@@ -34,7 +34,7 @@ class AgentLLM:
         self.web_requests = web_requests()
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=self.CFG.OPENAI_API_KEY
+                api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
             )
         else:
             self.embedding_function = (
@@ -102,10 +102,16 @@ class AgentLLM:
             if prompt == task:
                 prompt = f"{instruction_prompt}\n\nTask: {task}"
             prompt = f"{instruction_prompt}\n\n{prompt}"
+
+            enabled_commands = filter(
+                lambda command: command.get("enabled", True), self.available_commands
+            )
+
             friendly_names = map(
                 lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-                self.available_commands,
+                enabled_commands,
             )
+
             if len(self.available_commands) == 0:
                 prompt = prompt.replace("{COMMANDS}", "No commands.")
             else:
