@@ -304,7 +304,7 @@ async def get_chain(chain_name: str):
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str) -> ResponseMessage:
-    CFG.run_chain(chain_name)
+    Chain(chain_name).run_chain(chain_name)
     return {"message": f"Chain '{chain_name}' started."}
 
 
