@@ -77,13 +77,15 @@ export default function ChainStep({ step_number, last_step, agent_name, prompt_n
         setPromptText(prompt);
     }, [prompt]);
     const handleSave = () => {
-        axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, {
+        const args = {
             step_number: step_number,
             prompt_name: promptName,
             prompt_type: step_types[stepType].name,
             prompt: promptText,
             agent_name: agentName
-        }).then(() => {
+        };
+        console.log(args);
+        axios.put(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/chain/${router.query.chain}/step/${step_number}`, args).then(() => {
             mutate('chain/' + router.query.chain);
         });
     };

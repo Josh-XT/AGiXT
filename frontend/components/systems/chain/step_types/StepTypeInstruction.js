@@ -16,7 +16,7 @@ export default function StepTypeTask({agent_name, set_agent_name, prompt, set_pr
         setAgent(agents.data&&agent_name?agents.data.findIndex((agent) => agent.name == agent_name):-1);
     }, [agents.data, agent_name]);
     return <>
-        <Select label="Agent" sx={{ mx: "0.5rem" }} value={agent} onChange={(e) => {setAgent(e.target.value); if (e.target.value !== -1) set_agent_name(agents[e.target.value]);}}>
+        <Select label="Agent" sx={{ mx: "0.5rem" }} value={agent} onChange={(e) => {setAgent(e.target.value); if (e.target.value != -1) set_agent_name(agents.data[e.target.value].name);}}>
             <MenuItem value={-1}>Select an Agent...</MenuItem>
             {agents?.data?.map((agent, index) => {
                 return <MenuItem key={index} value={index}>{agent.name}</MenuItem>;
