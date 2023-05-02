@@ -96,11 +96,9 @@ class AgentLLM:
             prompt = self.get_prompt_with_context(task=task, context=context)
         if instruction:
             # Command and prompt injection for instruction mode
-            with open("prompts/Instruction.txt", "r") as f:
-                instruction_prompt = f.read()
-            if prompt == task:
-                prompt = f"{instruction_prompt}\n\nTask: {task}"
-            prompt = f"{instruction_prompt}\n\n{prompt}"
+            instruction_prompt = self.INSTRUCT_PROMPT
+            prompt = instruction_prompt.replace("{task}", task)
+            prompt = prompt.replace("{AGENT_NAME}", self.agent_name)
 
             enabled_commands = filter(
                 lambda command: command.get("enabled", True), self.available_commands
