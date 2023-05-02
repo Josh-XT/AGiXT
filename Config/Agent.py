@@ -40,6 +40,8 @@ class Agent(Config):
             self.TASK_PROMPT = f.read()
         with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
             self.PRIORITY_PROMPT = f.read()
+        with open(f"model-prompts/{self.AI_MODEL}/instruct.txt", "r") as f:
+            self.INSTRUCT_PROMPT = f.read()
 
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
