@@ -10,8 +10,6 @@ FORMAT RESPONSES IN THE FOLLOWING FORMAT:
 
 PLAN: Your plan for achieving the task.
 
-PLAN: Step by step plan for achieving the task in a numbered list.
-
 COMMANDS: If you choose to use any commands, list them and their inputs like command_name(args), or say None.
 
 Your task: {task}
