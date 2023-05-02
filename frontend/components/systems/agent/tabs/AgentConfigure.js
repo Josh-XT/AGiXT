@@ -20,7 +20,7 @@ export default function AgentAdmin() {
   const [fields, setFields] = useState([]);
   const [fieldValues, setFieldValues] = useState({});
   const agentConfig = useSWR(`agent/${agentName}`, async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}`)).data);
-  const providers = useSWR('provider', async () => (await axios.get(`/api/provider`)).data);
+  const providers = useSWR('provider', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/provider`)).data);
   const fieldComponents = {
     "MODEL_PATH": <TextField key={"MODEL_PATH"} label="Model Path" sx={{my: "1rem", mx: "0.5rem" }} value={fieldValues.MODEL_PATH} onChange={(e) => setFieldValues({...fieldValues, MODEL_PATH: e.target.value})} />,
     "AI_PROVIDER_URI": <TextField key={"AI_PROVIDER_URI"} label="AI Provider URI" sx={{my: "1rem", mx: "0.5rem" }} value={fieldValues.AI_PROVIDER_URI} onChange={(e) => setFieldValues({...fieldValues, AI_PROVIDER_URI: e.target.value})} />,
