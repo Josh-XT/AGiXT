@@ -129,7 +129,7 @@ export default function App({ Component, pageProps, dark }) {
       });
   }, []);
 
-  console.log(axios.get("${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/provider"));
+  console.log(axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/provider`));
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex' }}>
