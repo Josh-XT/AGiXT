@@ -12,6 +12,6 @@ PLAN: Your plan for achieving the task.
 
 PLAN: Step by step plan for achieving the task in a numbered list.
 
-COMMANDS: If you choose to use any commands, list them and their inputs where necessary like command_name(args), or say None. DO NOT EXPLAIN THE COMMANDS PURPOSES, THIS IS NOT A CONVERSATION, THESE ARE INSTRUCTIONS.
+COMMANDS: If you choose to use any commands, list them and their inputs like command_name(args), or say None.
 
 Your task: {task}
