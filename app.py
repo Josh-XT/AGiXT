@@ -218,23 +218,25 @@ async def get_commands(agent_name: str):
 async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
+    agent = Agent(agent_name)
     try:
         if payload.command_name == "*":
             commands = Commands(agent_name)
             for each_command_name in commands.agent_config["commands"]:
                 commands.agent_config["commands"][each_command_name] = payload.enable
-            CFG.update_agent_config(agent_name, commands.agent_config)
+            agent.update_agent_config(commands.agent_config)
             return ResponseMessage(
                 message=f"All commands enabled for agent '{agent_name}'."
             )
         else:
             commands = Commands(agent_name)
             commands.agent_config["commands"][payload.command_name] = payload.enable
-            CFG.update_agent_config(agent_name, commands.agent_config)
+            agent.update_agent_config(commands.agent_config)
             return ResponseMessage(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
             )
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
