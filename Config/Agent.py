@@ -234,19 +234,20 @@ class Agent(Config):
                 self.add_agent(self.AGENT_NAME, {})
         return agent_config
 
-    def update_agent_config(self, new_config):
+    def update_agent_config(self, new_config, config_key):
         agent_name = self.AGENT_NAME
         agent_config_file = os.path.join("agents", agent_name, "config.json")
         if os.path.exists(agent_config_file):
             with open(agent_config_file, "r") as f:
                 current_config = json.load(f)
 
-            # Ensure the "settings" key is present in the current configuration
-            if "settings" not in current_config:
-                current_config["settings"] = {}
+            # Ensure the config_key is present in the current configuration
+            if config_key not in current_config:
+                current_config[config_key] = {}
 
-            # Update the "settings" key with new_config
-            current_config["settings"].update(new_config)
+            # Update the specified key with new_config while preserving other keys and values
+            for key, value in new_config.items():
+                current_config[config_key][key] = value
 
             # Save the updated configuration back to the file
             with open(agent_config_file, "w") as f:

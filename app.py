@@ -154,7 +154,7 @@ async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessa
 async def update_agent_settings(
     agent_name: str, settings: AgentSettings
 ) -> ResponseMessage:
-    update_config = Agent(agent_name).update_agent_config(settings.settings)
+    update_config = Agent(agent_name).update_agent_config(settings.settings, "settings")
     return ResponseMessage(message=update_config)
 
 
@@ -224,14 +224,14 @@ async def toggle_command(
             commands = Commands(agent_name)
             for each_command_name in commands.agent_config["commands"]:
                 commands.agent_config["commands"][each_command_name] = payload.enable
-            agent.update_agent_config(commands.agent_config)
+            agent.update_agent_config(commands.agent_config["commands"], "commands")
             return ResponseMessage(
                 message=f"All commands enabled for agent '{agent_name}'."
             )
         else:
             commands = Commands(agent_name)
             commands.agent_config["commands"][payload.command_name] = payload.enable
-            agent.update_agent_config(commands.agent_config)
+            agent.update_agent_config(commands.agent_config["commands"], "commands")
             return ResponseMessage(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
             )
