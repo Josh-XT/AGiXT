@@ -1,0 +1,20 @@
+###Human:
+Create a Python script for {NEW_FUNCTION_DESCRIPTION} following this example:
+
+# pip install AgentLLM
+from typing import List
+from Commands import Commands
+from AgentLLM import AgentLLM
+from Config import Config
+CFG = Config()
+class agent_interactions(Commands):
+    def __init__(self):
+        if CFG.AGENT_API_KEY:
+            self.commands = {
+                "Ask AgentLLM": self.ask_the_agent
+            }
+    def ask_the_agent(self, prompt: str) -> List[str]:       
+        return AgentLLM().run(prompt, commands_enabled=False)
+
+Keep command summaries concise, mention product names if targeted. Use relevant Python modules. Include usage examples in code comments in a single code block.
+###Assistant:
