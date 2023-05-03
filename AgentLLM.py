@@ -96,7 +96,7 @@ class AgentLLM:
             prompt = self.get_prompt_with_context(task=task, context=context)
         if instruction:
             # Command and prompt injection for instruction mode
-            instruction_prompt = self.INSTRUCT_PROMPT
+            instruction_prompt = self.CFG.INSTRUCT_PROMPT
             prompt = instruction_prompt.replace("{task}", task)
             prompt = prompt.replace("{AGENT_NAME}", self.agent_name)
 
