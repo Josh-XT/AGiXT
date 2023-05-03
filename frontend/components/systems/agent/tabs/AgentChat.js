@@ -24,7 +24,7 @@ export default function AgentChat() {
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      handleSendInstruction();
+      handleSendMessage();
     }
   };
   const handleSendMessage = async () => {

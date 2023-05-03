@@ -23,7 +23,7 @@ export default function AgentInstruct() {
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      handleSendInstruction();
+      handleInstruct();
     }
   };
   const handleInstruct = async () => {
