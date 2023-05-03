@@ -38,7 +38,7 @@ class AgentLLM:
         else:
             self.embedding_function = (
                 embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="all-MiniLM-L6-v2"
+                    model_name="distilbert-base-uncased"
                 )
             )
         self.chroma_persist_dir = f"agents/{agent_name}/memories"
