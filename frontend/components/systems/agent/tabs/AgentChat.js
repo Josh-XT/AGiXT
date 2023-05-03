@@ -1,24 +1,26 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
-import {
-  Typography,
-  Paper,
-  TextField,
-  Button,
-} from "@mui/material";
+import { Typography, Paper, TextField, Button } from "@mui/material";
 export default function AgentChat() {
   const [chatHistory, setChatHistory] = useState([]);
   const [message, setMessage] = useState("");
   const agentName = useRouter().query.agent;
   const MessageAgent = async (message) => {
-    const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent/${agentName}/chat`, { prompt: message }).data.response;
+    const response = await axios.post(
+      `${
+        process.env.NEXT_PUBLIC_API_URI ?? "http://localhost:7437"
+      }/api/agent/${agentName}/chat`,
+      { prompt: message }
+    );
+    const responseData = response.data.response;
     setChatHistory((old) => [
       ...old,
       `You: ${message}`,
-      `Agent: ${response}`,
+      `Agent: ${responseData}`,
     ]);
   };
+
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -63,4 +65,4 @@ export default function AgentChat() {
       </Paper>
     </>
   );
-};
+}
