@@ -107,5 +107,8 @@ class Commands:
         for name, value in command_args.items():
             if name in params:
                 params[name] = value
-        output = command_function(module, **params)
+        try:
+            output = command_function(module, **params)
+        except Exception as e:
+            output = f"Error: {str(e)}"
         return output
