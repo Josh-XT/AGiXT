@@ -12,15 +12,9 @@ export default function AgentChat() {
         process.env.NEXT_PUBLIC_API_URI ?? "http://localhost:7437"
       }/api/agent/${agentName}/chat`,
       { prompt: message }
-    );
-    const responseData = response.data.response;
-    setChatHistory((old) => [
-      ...old,
-      `You: ${message}`,
-      `Agent: ${responseData}`,
-    ]);
+    ).data.response;
+    setChatHistory((old) => [...old, `You: ${message}`, `Agent: ${response}`]);
   };
-
   const handleKeyPress = async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
