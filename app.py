@@ -13,7 +13,11 @@ from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 
 CFG = Config()
-app = FastAPI()
+app = FastAPI(
+    title="Agent-LLM",
+    description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents.",
+    version="1.1.4-alpha",
+)
 agent_threads = {}
 agent_stop_events = {}
 
