@@ -242,11 +242,11 @@ class Agent(Config):
                 current_config = json.load(f)
 
             if "settings" not in current_config:
-                current_config["settings"] = {}
+                current_config = {}
 
             # Update the configuration inside the "settings" key with the new_config
             for key, value in new_config.items():
-                current_config["settings"][key] = value
+                current_config[key] = value
 
             # Save the updated configuration back to the file
             with open(agent_config_file, "w") as f:
