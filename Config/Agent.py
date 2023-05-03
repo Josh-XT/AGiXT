@@ -23,25 +23,25 @@ class Agent(Config):
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
-        if "provider" in self.PROVIDER_SETTINGS:
-            self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-            self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-            self.instruct = self.PROVIDER.instruct
-        self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-        if "AI_MODEL" in self.PROVIDER_SETTINGS:
-            self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
-        else:
-            self.AI_MODEL = "openassistant"
-        if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
-            self.AI_MODEL = "default"
-        with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
-            self.EXECUTION_PROMPT = f.read()
-        with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
-            self.TASK_PROMPT = f.read()
-        with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
-            self.PRIORITY_PROMPT = f.read()
-        with open(f"model-prompts/{self.AI_MODEL}/instruct.txt", "r") as f:
-            self.INSTRUCT_PROMPT = f.read()
+            if "provider" in self.PROVIDER_SETTINGS:
+                self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
+                self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+                self.instruct = self.PROVIDER.instruct
+            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
+            if "AI_MODEL" in self.PROVIDER_SETTINGS:
+                self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+            else:
+                self.AI_MODEL = "openassistant"
+            if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+                self.AI_MODEL = "default"
+            with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
+                self.EXECUTION_PROMPT = f.read()
+            with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
+                self.TASK_PROMPT = f.read()
+            with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
+                self.PRIORITY_PROMPT = f.read()
+            with open(f"model-prompts/{self.AI_MODEL}/instruct.txt", "r") as f:
+                self.INSTRUCT_PROMPT = f.read()
 
         # Memory Settings
         self.NO_MEMORY = os.getenv("NO_MEMORY", "false").lower()
@@ -241,12 +241,12 @@ class Agent(Config):
             with open(agent_config_file, "r") as f:
                 current_config = json.load(f)
 
+            # Ensure the "settings" key is present in the current configuration
             if "settings" not in current_config:
-                current_config = {}
+                current_config["settings"] = {}
 
-            # Update the configuration inside the "settings" key with the new_config
-            for key, value in new_config.items():
-                current_config[key] = value
+            # Update the "settings" key with new_config
+            current_config["settings"].update(new_config)
 
             # Save the updated configuration back to the file
             with open(agent_config_file, "w") as f:
