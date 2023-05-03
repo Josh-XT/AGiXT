@@ -1,3 +1,4 @@
+import time
 from requests.sessions import Session
 
 
@@ -41,9 +42,19 @@ class HuggingchatProvider:
         )
         try:
             data = res.json()
+            data = data[0] if data else {}
         except ValueError:
             print("Invalid JSON response")
             data = {}
+        except:
+            if data.get("error_type", None) == "overloaded":
+                print("Provider says that it is overloaded, waiting 3 seconds and trying again")
+                # @Note: if this is kept in the repo, the delay should be configurable
+                time.sleep(3) 
+                return self.instruct(prompt)
+            else:
+                print("Unknown error")
+                print(res.text)
+                data = {}
 
-        data = data[0] if data else {}
         return data.get("generated_text", "")
