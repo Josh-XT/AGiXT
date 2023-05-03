@@ -48,9 +48,11 @@ class HuggingchatProvider:
             data = {}
         except:
             if data.get("error_type", None) == "overloaded":
-                print("Provider says that it is overloaded, waiting 3 seconds and trying again")
+                print(
+                    "Provider says that it is overloaded, waiting 3 seconds and trying again"
+                )
                 # @Note: if this is kept in the repo, the delay should be configurable
-                time.sleep(3) 
+                time.sleep(3)
                 return self.instruct(prompt)
             else:
                 print("Unknown error")

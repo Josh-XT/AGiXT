@@ -302,10 +302,16 @@ class AgentLLM:
         # Prompt Engineering - Context
         prompt = prompt.replace("{context}", "\n".join(context))
         # Prompt Engineering - Commands
+
+        enabled_commands = filter(
+            lambda command: command.get("enabled", True), self.available_commands
+        )
+
         friendly_names = map(
             lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-            self.available_commands,
+            enabled_commands,
         )
+
         if task_id == 0 or len(self.available_commands) == 0:
             prompt = prompt.replace("{COMMANDS}", "No commands.")
         else:
