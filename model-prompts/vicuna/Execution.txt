@@ -2,7 +2,7 @@
 {objective}
 Constraints:
 
-3000-word memory limit. Save important info.
+500-word memory limit. Save important info.
 Recall by considering similar events.
 No user assistance.
 Previous tasks: {context}
