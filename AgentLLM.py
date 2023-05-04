@@ -267,7 +267,8 @@ class AgentLLM:
         # Prompt Engineering - Task List
         prompt = prompt.replace("{tasks}", ", ".join(task_list))
         response = self.run(prompt, commands_enabled=False)
-        new_tasks = response.split("\n") if "\n" in response else [response]
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [re.sub(r'^.*?(\d)', r'\1', line) for line in lines if line.strip() and re.search(r'\d', line[:10])] or [response]
         return [{"task_name": task_name} for task_name in new_tasks]
 
     def prioritization_agent(self):
@@ -281,7 +282,8 @@ class AgentLLM:
         # Prompt Engineering - Task Names
         prompt = prompt.replace("{task_names}", ", ".join(task_names))
         response = self.run(prompt, commands_enabled=False)
-        new_tasks = response.split("\n") if "\n" in response else [response]
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [re.sub(r'^.*?(\d)', r'\1', line) for line in lines if line.strip() and re.search(r'\d', line[:10])] or [response]
         self.task_list = deque()
         for task_string in new_tasks:
             task_parts = task_string.strip().split(".", 1)
