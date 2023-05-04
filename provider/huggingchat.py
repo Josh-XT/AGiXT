@@ -14,7 +14,7 @@ class HuggingchatProvider:
         res = session.post(
             url="https://huggingface.co/chat/conversation",
             json={"model": "OpenAssistant/oasst-sft-6-llama-30b-xor"},
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
         assert res.status_code == 200, "Failed to create new conversation"
         conversation_id = res.json()["conversationId"]
