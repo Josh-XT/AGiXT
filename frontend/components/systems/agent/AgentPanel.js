@@ -3,6 +3,7 @@ import {
   Tab,
   Tabs
 } from "@mui/material";
+import { useRouter } from "next/router";
 import AgentChat from "./tabs/AgentChat";
 import AgentInstruct from "./tabs/AgentInstruct";
 import AgentAdmin from "./tabs/AgentAdmin";
@@ -10,8 +11,9 @@ import AgentTask from "./tabs/AgentTask";
 import AgentConfigure from "./tabs/AgentConfigure";
 import { useTheme } from "@mui/material/styles";
 export default function AgentPanel() {
-  const [tab, setTab] = useState(0);
-
+  const router = useRouter();
+  console.log(router.query.config);
+  const [tab, setTab] = useState(router.query.config=="true"?3:0);
   const handleTabChange = (event, newTab) => {
     setTab(newTab);
   };
