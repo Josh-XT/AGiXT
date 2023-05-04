@@ -121,4 +121,3 @@ class Commands:
             output = f"Error: {str(e)}"
 
         return output
-
