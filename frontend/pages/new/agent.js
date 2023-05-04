@@ -1,16 +1,19 @@
 
 import axios from 'axios';
 import { useState } from 'react';
+import { useRouter } from 'next/router';
 import { Container, TextField, Button, Typography } from '@mui/material';
 import { mutate } from "swr"
 import useSWR from 'swr';
 import PopoutDrawerWrapper from '../../components/menu/PopoutDrawerWrapper';
 import AgentList from '../../components/systems/agent/AgentList';
 export default function Home() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const handleCreate = async () => {
     await axios.post(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`, { agent_name: name, settings: { provider: "huggingchat" } });
     mutate("agent");
+    router.push(`/agent/${name}?config=true`);
   }
   const agents = useSWR('agent', async () => (await axios.get(`${process.env.NEXT_PUBLIC_API_URI ?? 'http://localhost:7437'}/api/agent`)).data.agents);
   return <PopoutDrawerWrapper title={"Add a New Agent"} leftHeading={"Agents"} leftSWR={agents} leftMenu={AgentList} rightHeading={null} rightSWR={null} rightMenu={null} ><Container>
