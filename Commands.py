@@ -100,15 +100,25 @@ class Commands:
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
 
-    def execute_command(self, command_name: str, command_args: dict):
+    def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name)
         if command_function is None:
             return False
+
+        if command_args is None:
+            command_args = {}
+
+        if not isinstance(command_args, dict):
+            return f"Error: command_args should be a dictionary, but got {type(command_args).__name__}"
+
         for name, value in command_args.items():
             if name in params:
                 params[name] = value
+
         try:
             output = command_function(module, **params)
         except Exception as e:
             output = f"Error: {str(e)}"
+
         return output
+
