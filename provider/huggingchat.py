@@ -11,6 +11,13 @@ class HuggingchatProvider:
     def instruct(self, prompt: str) -> str:
         session = Session()
         session.get(url="https://huggingface.co/chat/")
+        
+        res = session.post(
+            url="https://huggingface.co/chat/settings",
+            data={"ethicsModalAccepted": True},
+        )
+        assert res.status_code == 200, "Failed to accept ethics modal"
+
         res = session.post(
             url="https://huggingface.co/chat/conversation",
             json={"model": "OpenAssistant/oasst-sft-6-llama-30b-xor"},
