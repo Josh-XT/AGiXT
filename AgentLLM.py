@@ -65,17 +65,19 @@ class AgentLLM:
     def get_output_list(self):
         return self.output_list
 
-    def trim_context(self, context: List[str], max_tokens: int) -> List[str]:
-        trimmed_context = []
-        total_tokens = 0
-        for item in context:
-            item_tokens = len(nlp(item))
-            if total_tokens + item_tokens <= max_tokens:
-                trimmed_context.append(item)
-                total_tokens += item_tokens
-            else:
-                break
-        return trimmed_context
+    def get_commands_string(self):
+        if len(self.available_commands) == 0:
+            return "No commands."
+
+        enabled_commands = filter(
+            lambda command: command.get("enabled", True), self.available_commands
+        )
+
+        friendly_names = map(
+            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
+            enabled_commands,
+        )
+        return "\n".join(friendly_names)
 
     def run(
         self,
@@ -83,37 +85,33 @@ class AgentLLM:
         max_context_tokens: int = 500,
         long_term_access: bool = False,
         commands_enabled: bool = True,
-        instruction: bool = False,
+        prompt: str = "",
+        **kwargs,
     ):
-        if self.CFG.NO_MEMORY:
+        if prompt == "":
             prompt = task
-        else:
-            self.CFG.log_interaction("USER", task)
-            context = self.context_agent(
-                query=task, top_results_num=3, long_term_access=long_term_access
-            )
-            context = self.trim_context(context, max_context_tokens)
-            prompt = self.get_prompt_with_context(task=task, context=context)
-        if instruction:
-            # Command and prompt injection for instruction mode
-            instruction_prompt = self.CFG.INSTRUCT_PROMPT
-            prompt = instruction_prompt.replace("{task}", task)
-            prompt = prompt.replace("{AGENT_NAME}", self.agent_name)
+        elif prompt == "instruct":
+            prompt = self.CFG.INSTRUCTION_PROMPT
+        elif prompt == "task":
+            prompt = self.CFG.TASK_PROMPT
+        elif prompt == "priority":
+            prompt = self.CFG.PRIORITY_PROMPT
 
-            enabled_commands = filter(
-                lambda command: command.get("enabled", True), self.available_commands
-            )
-
-            friendly_names = map(
-                lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-                enabled_commands,
-            )
-
-            if len(self.available_commands) == 0:
-                prompt = prompt.replace("{COMMANDS}", "No commands.")
-            else:
-                prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
-        self.response = self.instruct(prompt)
+        context = self.context_agent(
+            query=task,
+            top_results_num=3,
+            long_term_access=long_term_access,
+            max_tokens=max_context_tokens,
+        )
+        formatted_prompt = prompt.format(
+            task=task,
+            agent_name=self.agent_name,
+            commands=self.get_commands_string(),
+            context=context,
+            **kwargs,
+        )
+        self.CFG.log_interaction("USER", task)
+        self.response = self.instruct(formatted_prompt)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
@@ -190,7 +188,11 @@ class AgentLLM:
                 )
 
     def context_agent(
-        self, query: str, top_results_num: int, long_term_access: bool = False
+        self,
+        query: str,
+        top_results_num: int,
+        long_term_access: bool = False,
+        max_tokens: int = 500,
     ) -> List[str]:
         if long_term_access:
             interactions = self.CFG.memory["interactions"]
@@ -209,12 +211,16 @@ class AgentLLM:
                 include=["metadatas"],
             )
             context = [item["result"] for item in results["metadatas"][0]]
-        return context
-
-    def get_prompt_with_context(self, task: str, context: List[str]) -> str:
-        context_str = "\n\n".join(context)
-        prompt = f"Task: {task}\n\nContext: {context_str}\n\nResponse:"
-        return prompt
+        trimmed_context = []
+        total_tokens = 0
+        for item in context:
+            item_tokens = len(nlp(item))
+            if total_tokens + item_tokens <= max_tokens:
+                trimmed_context.append(item)
+                total_tokens += item_tokens
+            else:
+                break
+        return "\n".join(trimmed_context)
 
     def chunk_content(self, content: str, max_length: int = 500) -> List[str]:
         content_chunks = []
@@ -257,16 +263,16 @@ class AgentLLM:
     def task_creation_agent(
         self, result: Dict, task_description: str, task_list: List[str]
     ) -> List[Dict]:
-        prompt = self.CFG.TASK_PROMPT
-        # Prompt Engineering - Objective
-        prompt = prompt.replace("{objective}", self.primary_objective)
-        # Prompt Engineering - Result
-        prompt = prompt.replace("{result}", str(result))
-        # Prompt Engineering - Task Description
-        prompt = prompt.replace("{task_description}", task_description)
-        # Prompt Engineering - Task List
-        prompt = prompt.replace("{tasks}", ", ".join(task_list))
-        response = self.run(prompt, commands_enabled=False)
+        response = self.run(
+            task=self.primary_objective,
+            commands_enabled=False,
+            prompt="task",
+            objective=self.primary_objective,
+            result=result,
+            task_description=task_description,
+            tasks=", ".join(task_list),
+        )
+
         lines = response.split("\n") if "\n" in response else [response]
         new_tasks = [
             re.sub(r"^.*?(\d)", r"\1", line)
@@ -278,14 +284,16 @@ class AgentLLM:
     def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
         next_task_id = len(self.task_list) + 1
-        prompt = self.CFG.PRIORITY_PROMPT
-        # Prompt Engineering - Objective
-        prompt = prompt.replace("{objective}", self.primary_objective)
-        # Prompt Engineering - Task ID
-        prompt = prompt.replace("{next_task_id}", str(next_task_id))
-        # Prompt Engineering - Task Names
-        prompt = prompt.replace("{task_names}", ", ".join(task_names))
-        response = self.run(prompt, commands_enabled=False)
+
+        response = self.run(
+            task=self.primary_objective,
+            commands_enabled=False,
+            prompt="priority",
+            objective=self.primary_objective,
+            tasks=", ".join(task_names),
+            next_task_id=next_task_id,
+        )
+
         lines = response.split("\n") if "\n" in response else [response]
         new_tasks = [
             re.sub(r"^.*?(\d)", r"\1", line)
@@ -300,33 +308,8 @@ class AgentLLM:
                 task_name = task_parts[1].strip()
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
 
-    def execution_agent(self, task: str, task_id: int) -> str:
-        context = self.context_agent(
-            query=f"{self.primary_objective} {task}", top_results_num=5
-        )
-        prompt = self.CFG.EXECUTION_PROMPT
-        # Prompt Engineering - Objective
-        prompt = prompt.replace("{objective}", self.primary_objective)
-        # Prompt Engineering - Task
-        prompt = prompt.replace("{task}", task)
-        # Prompt Engineering - Context
-        prompt = prompt.replace("{context}", "\n".join(context))
-        # Prompt Engineering - Commands
-
-        enabled_commands = filter(
-            lambda command: command.get("enabled", True), self.available_commands
-        )
-
-        friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-            enabled_commands,
-        )
-
-        if task_id == 0 or len(self.available_commands) == 0:
-            prompt = prompt.replace("{COMMANDS}", "No commands.")
-        else:
-            prompt = prompt.replace("{COMMANDS}", "\n".join(friendly_names))
-        return self.run(prompt)
+    def parse_prompt(self, prompt: str, **kwargs):
+        return prompt.format(**kwargs)
 
     def run_task(self, stop_event):
         self.update_output_list(
@@ -343,7 +326,7 @@ class AgentLLM:
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-            result = self.execution_agent(task["task_name"], task["task_id"])
+            result = self.run(task=task["task_name"], prompt="execution")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             new_tasks = self.task_creation_agent(
                 {"data": result},
