@@ -60,7 +60,6 @@ class AgentLLM:
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
         self.stop_running_event = None
-        self.instruct = self.CFG.instruct
 
     def get_output_list(self):
         return self.output_list
@@ -111,7 +110,7 @@ class AgentLLM:
             **kwargs,
         )
         self.CFG.log_interaction("USER", task)
-        self.response = self.instruct(formatted_prompt)
+        self.response = self.CFG.instruct(formatted_prompt)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
