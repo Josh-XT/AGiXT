@@ -27,7 +27,7 @@ class AgentLLM:
     def __init__(self, agent_name: str = "AgentLLM", primary_objective=None):
         self.CFG = Agent(agent_name)
         self.primary_objective = primary_objective
-        self.initialize_task_list()
+        self.task_list = deque([])
         self.commands = Commands(agent_name)
         self.available_commands = self.commands.get_available_commands()
         self.web_requests = web_requests()
@@ -239,26 +239,16 @@ class AgentLLM:
             content_chunks.append(" ".join(chunk))
         return content_chunks
 
-    def set_agent_name(self, agent_name):
-        self.agent_name = agent_name
-
     def get_status(self):
         try:
             return not self.stop_running_event.is_set()
         except:
             return False
 
-    def initialize_task_list(self):
-        self.task_list = deque([])
-
     def update_output_list(self, output):
         print(
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
-        # self.output_list.append(output)
-
-    def set_objective(self, new_objective):
-        self.primary_objective = new_objective
 
     def task_creation_agent(
         self, result: Dict, task_description: str, task_list: List[str]
@@ -308,10 +298,8 @@ class AgentLLM:
                 task_name = task_parts[1].strip()
                 self.task_list.append({"task_id": task_id, "task_name": task_name})
 
-    def parse_prompt(self, prompt: str, **kwargs):
-        return prompt.format(**kwargs)
-
-    def run_task(self, stop_event):
+    def run_task(self, stop_event, objective):
+        self.primary_objective = objective
         self.update_output_list(
             f"Starting task with objective: {self.primary_objective}.\n\n"
         )

@@ -263,11 +263,11 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
     # If it doesn't exist, create it.
     if agent_name not in CFG.agent_instances:
         CFG.agent_instances[agent_name] = AgentLLM(agent_name)
-    CFG.agent_instances[agent_name].set_objective(objective.objective)
     stop_event = threading.Event()
     agent_stop_events[agent_name] = stop_event
     agent_thread = threading.Thread(
-        target=CFG.agent_instances[agent_name].run_task, args=(stop_event,)
+        target=CFG.agent_instances[agent_name].run_task,
+        args=(stop_event, objective.objective),
     )
     agent_threads[agent_name] = agent_thread
     agent_thread.start()
