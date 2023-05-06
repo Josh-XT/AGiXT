@@ -14,6 +14,7 @@ import json
 from json.decoder import JSONDecodeError
 import spacy
 from spacy.cli import download
+from CustomPrompt import CustomPrompt
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -87,14 +88,13 @@ class AgentLLM:
         prompt: str = "",
         **kwargs,
     ):
+        cp = CustomPrompt()
         if prompt == "":
             prompt = task
-        elif prompt == "instruct":
-            prompt = self.CFG.INSTRUCTION_PROMPT
-        elif prompt == "task":
-            prompt = self.CFG.TASK_PROMPT
-        elif prompt == "priority":
-            prompt = self.CFG.PRIORITY_PROMPT
+        elif prompt == "execute" or prompt == "task" or prompt == "priority":
+            prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
+        else:
+            prompt = CustomPrompt().get_prompt(prompt)
 
         context = self.context_agent(
             query=task,
