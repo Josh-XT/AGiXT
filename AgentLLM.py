@@ -105,7 +105,7 @@ class AgentLLM:
         formatted_prompt = prompt.format(
             task=task,
             agent_name=self.agent_name,
-            commands=self.get_commands_string(),
+            COMMANDS=self.get_commands_string(),
             context=context,
             objective=self.primary_objective,
             **kwargs,
