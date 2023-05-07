@@ -32,3 +32,7 @@ class CustomPrompt:
     def update_prompt(self, prompt_name, prompt):
         with open(os.path.join("prompts", f"{prompt_name}.txt"), "w") as f:
             f.write(prompt)
+
+    def get_model_prompt(self, prompt_name, model="default"):
+        with open(f"model-prompts/{model}/{prompt_name}.txt", "r") as f:
+            return f.read()

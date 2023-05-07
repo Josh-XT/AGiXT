@@ -10,7 +10,6 @@ LOG_FILE = "file_logger.txt"
 LOG_FILE_PATH = os.path.join(WORKING_DIRECTORY, LOG_FILE)
 WORKING_DIRECTORY = str(WORKING_DIRECTORY)
 
-
 class file_operations(Commands):
     def __init__(self):
         self.commands = {
