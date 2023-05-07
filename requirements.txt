@@ -35,3 +35,7 @@ webdriver_manager
 pyllamacpp==1.0.7
 spacy
 discord
+gpt4free
+transformers
+accelerate
+torch
