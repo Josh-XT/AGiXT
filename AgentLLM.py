@@ -121,6 +121,7 @@ class AgentLLM:
         long_term_access: bool = False,
         commands_enabled: bool = True,
         prompt: str = "",
+        context_results: int = 3,
         **kwargs,
     ):
         cp = CustomPrompt()
@@ -130,10 +131,9 @@ class AgentLLM:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
-        top_results = 3
         formatted_prompt = self.format_prompt(
             task=task,
-            top_results=top_results,
+            top_results=context_results,
             long_term_access=long_term_access,
             max_context_tokens=max_context_tokens,
             prompt=prompt,
@@ -145,13 +145,13 @@ class AgentLLM:
             while not valid_json:
                 print("Invalid JSON response. Trying again.")
                 # Begin context decay
-                if top_results != 0:
-                    top_results = top_results - 1
+                if context_results != 0:
+                    context_results = context_results - 1
                 else:
-                    top_results = 0
+                    context_results = 0
                 formatted_prompt = self.format_prompt(
                     task=task,
-                    top_results=top_results,
+                    top_results=context_results,
                     long_term_access=long_term_access,
                     max_context_tokens=max_context_tokens,
                     prompt=prompt,
