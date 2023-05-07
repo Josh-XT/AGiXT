@@ -9,6 +9,7 @@ class Config:
     def __init__(self):
         self.WORKING_DIRECTORY = os.getenv("WORKING_DIRECTORY", "WORKSPACE")
         self._create_directory_if_not_exists(self.WORKING_DIRECTORY)
+        self.WORKING_DIRECTORY_RESTRICTED = os.getenv("WORKING_DIRECTORY_RESTRICTED", True)
         # Extensions Configuration
 
         # OpenAI
