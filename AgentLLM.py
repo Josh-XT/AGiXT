@@ -313,7 +313,7 @@ class AgentLLM:
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-            result = self.run(task=task["task_name"], prompt="execution")
+            result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             new_tasks = self.task_creation_agent(
                 {"data": result},
