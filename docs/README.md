@@ -44,9 +44,9 @@ This project is under active development and may still have issues. We appreciat
     - [Video](#video)
   - [Key Features 🗝️](#key-features-️)
   - [Web Application Features](#web-application-features)
-  - [Quick Start](#quick-start)
+  - [Quick Start with Docker](#quick-start-with-docker)
     - [Running a Mac?](#running-a-mac)
-    - [Not using OpenAI? No problem!](#not-using-openai-no-problem)
+  - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -66,41 +66,23 @@ This project is under active development and may still have issues. We appreciat
 
 ## Key Features 🗝️
 
-- Adaptive long-term and short-term memory management
-
-- Versatile plugin system with extensible commands for various AI models
-
-- Wide compatibility with multiple AI providers, including:
-
-  - OpenAI GPT-3.5, GPT-4
-
-  - [Hugging Face Huggingchat](https://huggingface.co/chat/)
-
-  - Oobabooga Text Generation Web UI
-
-  - Kobold
-
-  - llama.cpp
-
-  - FastChat
-
-  - Google Bard
-
-  - And More!
-
-- Web browsing and command execution capabilities
-
-- Code evaluation support
-
-- Seamless Docker deployment
-
-- Integration with Hugging Face for audio-to-text conversion
-
-- Interoperability with platforms like Twitter, GitHub, Google, DALL-E, and more
-
-- Text-to-speech options featuring Brian TTS, Mac OS TTS, and ElevenLabs
-
-- Continuously expanding support for new AI providers and services
+- **Adaptive Memory Management**: Efficient long-term and short-term memory handling for improved AI performance.
+- **Versatile Plugin System**: Extensible command support for various AI models, ensuring flexibility and adaptability.
+- **Multi-Provider Compatibility**: Seamless integration with leading AI providers, including OpenAI GPT series, Hugging Face Huggingchat, Oobabooga Text Generation Web UI, Kobold, llama.cpp, FastChat, Google Bard, and more.
+- **Web Browsing & Command Execution**: Advanced capabilities to browse the web and execute commands for a more interactive AI experience.
+- **Code Evaluation**: Robust support for code evaluation, providing assistance in programming tasks.
+- **Docker Deployment**: Effortless deployment using Docker, simplifying setup and maintenance.
+- **Audio-to-Text Conversion**: Integration with Hugging Face for seamless audio-to-text transcription.
+- **Platform Interoperability**: Easy interaction with popular platforms like Twitter, GitHub, Google, DALL-E, and more.
+- **Text-to-Speech Options**: Multiple TTS choices, featuring Brian TTS, Mac OS TTS, and ElevenLabs.
+- **Expanding AI Support**: Continuously updated to include new AI providers and services.
+- **AI Agent Management**: Streamlined creation, renaming, deletion, and updating of AI agent settings.
+- **Flexible Chat Interface**: User-friendly chat interface for conversational and instruction-based tasks.
+- **Task Execution**: Efficient starting, stopping, and monitoring of AI agent tasks with asynchronous execution.
+- **Chain Management**: Sophisticated management of multi-agent task chains for complex workflows and collaboration.
+- **Custom Prompts**: Easy creation, editing, and deletion of custom prompts to standardize user inputs.
+- **Command Control**: Granular control over agent abilities through enabling or disabling specific commands.
+- **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 
 ## Web Application Features
 
@@ -115,62 +97,50 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 - Built using NextJS and Material-UI
 - Communicates with the backend through API endpoints
 
-## Quick Start
+## Quick Start with Docker
 
-1. Obtain an OpenAI API key from [OpenAI](https://platform.openai.com) and add it to your `.env` file.
-2. Set the `OPENAI_API_KEY` in your `.env` file using the provided [.env.example](https://github.com/Josh-XT/Agent-LLM/blob/main/.env.example) as a template.
-
-```
-wget https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/docker-compose.yml
-wget https://raw.githubusercontent.com/Josh-XT/Agent-LLM/main/.env.example
-mv .env.example .env
-```
-
-3. Run the following Docker command in the folder with your `.env` file:
+1. Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
 
 ```
-docker compose up -d
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
+git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend frontend --recurse-submodules 
+docker-compose up -d
 ```
 
-4. Access the web interface at http://localhost
+1. Access the web interface at http://localhost:3000
 
 ### Running a Mac?
 
-You'll need to run `docker compose` to build if the command above does not work.
+If you're getting errors, you may need to run the command below to run the containers set up for Mac.
 
 ```
 docker compose -f docker-compose-mac.yml up -d
 ```
 
-### Not using OpenAI? No problem!
-We are constantly trying to expand our AI provider support.  Take a look at our Quick starts for these:
+## Alternative: Quick Start for Local or Virtual Machine
 
-**Reminder:** [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
+As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
-1. [OpenAI](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/OPENAI.md)
-2. [Huggingchat](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/HUGGINGCHAT.md)
-3. [llamacpp](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/LLAMACPP.md)
-4. [Oobabooga Text Generation Web UI](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/OOBABOOGA.md)
-5. [ChatGPT](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/CHATGPT.md)
-6. [Google Bard](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/BARD.md)
-7. [FastChat](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/FASTCHAT.md)
-8. [Kobold](https://github.com/Josh-XT/Agent-LLM/blob/main/docs/providers/KOBOLD.md)
-
-For more detailed setup and configuration instructions, refer to the sections below.
+1. Open two separate terminals, the front end and back end will need to run separately.
+2. In the first terminal, clone the repositories for the Agent-LLM front and back ends and start the back end.
+```
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
+git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend frontend --recurse-submodules 
+python app.py
+```
+3. In the second terminal in the `Agent-LLM` folder, finish installing the front end and start it.
+```
+cd frontend
+yarn install
+yarn dev
+```
 
 ## Configuration
 
 Agent-LLM utilizes a `.env` configuration file to store AI language model settings, API keys, and other options. Use the supplied `.env.example` as a template to create your personalized `.env` file. Configuration settings include:
 
-- **INSTANCE CONFIG**: Set the agent name, objective, and initial task.
-- **AI_PROVIDER**: Choose between OpenAI, llama.cpp, or Oobabooga for your AI provider.
-- **AI_PROVIDER_URI**: Set the URI for custom AI providers such as Oobabooga Text Generation Web UI (default is http://127.0.0.1:7860).
-- **MODEL_PATH**: Set the path to the AI model if using llama.cpp or other custom providers.
-- **COMMANDS_ENABLED**: Enable or disable command extensions.
-- **MEMORY SETTINGS**: Configure short-term and long-term memory settings.
-- **AI_MODEL**: Specify the AI model to be used (e.g., gpt-3.5-turbo, gpt-4, text-davinci-003, Vicuna, etc.).
-- **AI_TEMPERATURE**: Set the AI temperature (leave default if unsure).
-- **MAX_TOKENS**: Set the maximum number of tokens for AI responses (default is 2000).
 - **WORKING_DIRECTORY**: Set the agent's working directory.
 - **EXTENSIONS_SETTINGS**: Configure settings for OpenAI, Hugging Face, Selenium, Twitter, and GitHub.
 - **VOICE_OPTIONS**: Choose between Brian TTS, Mac OS TTS, or ElevenLabs for text-to-speech.
@@ -195,9 +165,7 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 
 ### AI Providers
 
-To switch AI providers, adjust the `AI_PROVIDER` setting in the `.env` file. The application is compatible with OpenAI, Oobabooga Text Generation Web UI, and llama.cpp. To support additional providers, create a new Python file in the `provider` folder and implement the required functionality.
-
-**Coming Soon: Any providers defined in the `.env` file will be usable on different agents in the application and will not need to be manually switched.**
+Each agent will have its own AI provider and provider settings such as model, temperature, and max tokens, depending on the provider.  You can use this to make certain agents better at certain tasks by giving them more advanced models to complete certain steps in chains.
 
 ## Contributing
 
