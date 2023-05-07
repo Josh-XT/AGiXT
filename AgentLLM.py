@@ -160,7 +160,7 @@ class AgentLLM:
                 self.response = self.CFG.instruct(formatted_prompt)
                 valid_json = self.validate_json(self.response)
             response_parts = []
-            for command_name, command_args in self.response["commands"].items():
+            for command_name, command_args in valid_json["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.available_commands:
