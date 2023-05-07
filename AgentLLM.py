@@ -81,7 +81,12 @@ class AgentLLM:
 
     def validate_json(self, json_string: str):
         try:
-            return json.loads(json_string)
+            clean_response = re.findall(
+                r"```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```", json_string
+            )
+            clean_response = clean_response[0] if clean_response else json_string
+            response = json.loads(clean_response)
+            return response
         except JSONDecodeError as e:
             return False
 
@@ -143,12 +148,7 @@ class AgentLLM:
         # Check if any commands are in the response and execute them with their arguments if so
         if commands_enabled:
             response_parts = []
-            clean_response = re.findall(
-                r"```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```", self.response
-            )
-            clean_response = clean_response[0] if clean_response else self.response
-            response = json.loads(clean_response)
-            for command_name, command_args in response["commands"].items():
+            for command_name, command_args in self.response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.available_commands:
