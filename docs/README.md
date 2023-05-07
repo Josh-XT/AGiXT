@@ -108,7 +108,7 @@ git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend frontend --recurs
 docker-compose up -d
 ```
 
-1. Access the web interface at http://localhost:3000
+2. Access the web interface at http://localhost:3000
 
 ### Running a Mac?
 
