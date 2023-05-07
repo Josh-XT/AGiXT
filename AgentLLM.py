@@ -127,7 +127,7 @@ class AgentLLM:
                     task=task,
                     agent_name=self.agent_name,
                     COMMANDS=self.get_commands_string(),
-                    context="",
+                    context="None.",
                     objective=self.primary_objective,
                     **kwargs,
                 )
