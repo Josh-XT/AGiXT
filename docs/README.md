@@ -127,6 +127,7 @@ As a reminder, this can be dangerous to run locally depending on what commands y
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
+pip install -r requirements.txt
 python app.py
 ```
 3. In the second terminal, clone, install dependencies, then start the front end.
