@@ -79,6 +79,12 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
+    def validate_json(self, json_string: str):
+        try:
+            return json.loads(json_string)
+        except JSONDecodeError as e:
+            return False
+
     def run(
         self,
         task: str,
@@ -112,6 +118,11 @@ class AgentLLM:
         )
         self.CFG.log_interaction("USER", task)
         self.response = self.CFG.instruct(formatted_prompt)
+        valid_json = self.validate_json(self.response)
+        while not valid_json:
+            print("Invalid JSON response. Trying again.")
+            self.response = self.CFG.instruct(formatted_prompt)
+            valid_json = self.validate_json(self.response)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
