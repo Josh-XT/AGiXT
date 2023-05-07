@@ -10,7 +10,7 @@ You have the following resources:
 3. GPT-3.5 powered Agents for delegation of simple tasks.
 4. File output.
 
-You have the following commands available to complete this task given.
+You have the following commands available to complete this task given:
 {COMMANDS}
 
 OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.

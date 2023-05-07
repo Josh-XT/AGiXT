@@ -3,7 +3,7 @@ You have the following constraints:
 If you are unsure how you previously did something or want to recall past events, thinking about similar events will help you remember.
 No user assistance.
 
-You have the following commands available to complete this task given.
+You have the following commands available to complete this task given:
 {COMMANDS}
 
 OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
