@@ -104,7 +104,7 @@ class AgentLLM:
 
         context = self.context_agent(
             query=task,
-            top_results_num=3,
+            top_results_num=2,
             long_term_access=long_term_access,
             max_tokens=max_context_tokens,
         )
@@ -119,7 +119,19 @@ class AgentLLM:
         self.CFG.log_interaction("USER", task)
         self.response = self.CFG.instruct(formatted_prompt)
         valid_json = self.validate_json(self.response)
+        i = 0
         while not valid_json:
+            i = i + 1
+            if i == 5:
+                # If it fails 5 times, remove the context, it is probably too much.
+                formatted_prompt = prompt.format(
+                    task=task,
+                    agent_name=self.agent_name,
+                    COMMANDS=self.get_commands_string(),
+                    context="",
+                    objective=self.primary_objective,
+                    **kwargs,
+                )
             print("Invalid JSON response. Trying again.")
             self.response = self.CFG.instruct(formatted_prompt)
             valid_json = self.validate_json(self.response)
