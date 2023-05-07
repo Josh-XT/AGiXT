@@ -47,6 +47,8 @@ This project is under active development and may still have issues. We appreciat
   - [Quick Start with Docker](#quick-start-with-docker)
     - [Running a Mac?](#running-a-mac)
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
+    - [Linux or MacOS:](#linux-or-macos)
+    - [Windows:](#windows)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -130,12 +132,16 @@ cd Agent-LLM
 pip install -r requirements.txt
 python app.py
 ```
-3. In the second terminal, clone, install dependencies, then start the front end.
+3. In the second terminal, run the front end.
+
+### Linux or MacOS:
 ```
-git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend --recurse-submodules 
-cd Agent-LLM-Frontend
-yarn install
-yarn dev
+docker run -it --pull always -p 80:3000 -e NEXT_PUBLIC_API_URI=http://$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')':7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
+```
+
+### Windows:
+```
+docker run -it --pull always -p 80:3000 -e NEXT_PUBLIC_API_URI=http://$(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -ne "Loopback Pseudo-Interface 1" -and $_.AddressFamily -eq "IPv4" } | Select-Object -ExpandProperty IPAddress)`:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
 ```
 
 ## Configuration
