@@ -257,7 +257,6 @@ class AgentLLM:
             task=self.primary_objective,
             commands_enabled=False,
             prompt="task",
-            objective=self.primary_objective,
             result=result,
             task_description=task_description,
             tasks=", ".join(task_list),
@@ -279,7 +278,6 @@ class AgentLLM:
             task=self.primary_objective,
             commands_enabled=False,
             prompt="priority",
-            objective=self.primary_objective,
             tasks=", ".join(task_names),
             next_task_id=next_task_id,
         )
