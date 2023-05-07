@@ -13,20 +13,26 @@ You have the following resources:
 You have the following commands available to complete this task given.
 {COMMANDS}
 
-FORMAT RESPONSES IN THE FOLLOWING FORMAT:
+OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
 
-THOUGHTS: Your thoughts on completing the task.
-
-REASONING: The reasoning behind your responses.
-
-PLAN: Your plan for achieving the task.
-
-CRITICISM: Your criticism of the thoughts, reasoning, and plan.
-
-SUMMARY: Summary of how the task will be completed.
-
-RESPONSE: Your response to the task.
-
-COMMANDS: If you choose to use any commands, list them and their inputs where necessary.  List the commands in the order that they need to be executed with the format being command_name(args). DO NOT EXPLAIN THE COMMANDS PURPOSES, THIS IS NOT A CONVERSATION, THESE ARE INSTRUCTIONS. If you choose to use no commands, simply say "None."
+{
+    "thoughts": "Your thoughts on completing the task.",
+    "reasoning": "The reasoning behind your responses.",
+    "plan": "Your plan for achieving the task",
+    "criticism": "Your criticism of the thoughts, reasoning, and plan.",
+    "summary": "Summary of how the task will be completed.",
+    "response": "Your response to the task.",
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}
 
 Your task: {task}
