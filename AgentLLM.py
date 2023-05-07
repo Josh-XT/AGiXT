@@ -119,7 +119,6 @@ class AgentLLM:
         task: str,
         max_context_tokens: int = 500,
         long_term_access: bool = False,
-        commands_enabled: bool = True,
         prompt: str = "",
         context_results: int = 3,
         **kwargs,
@@ -140,7 +139,8 @@ class AgentLLM:
             **kwargs,
         )
         self.response = self.CFG.instruct(formatted_prompt)
-        if prompt in ["execute", "instruct", "Execution", "Instruction"]:
+        # Handle commands if in response
+        if "{COMMANDS}" in prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
                 print("Invalid JSON response. Trying again.")
@@ -159,12 +159,6 @@ class AgentLLM:
                 )
                 self.response = self.CFG.instruct(formatted_prompt)
                 valid_json = self.validate_json(self.response)
-        if not self.CFG.NO_MEMORY:
-            self.store_result(task, self.response)
-            self.CFG.log_interaction("USER", task)
-            self.CFG.log_interaction(self.agent_name, self.response)
-        # Check if any commands are in the response and execute them with their arguments if so
-        if commands_enabled:
             response_parts = []
             for command_name, command_args in self.response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
@@ -187,6 +181,11 @@ class AgentLLM:
                             f"\n\nCommand not recognized: {command_name}"
                         )
                 self.response = self.response.replace(prompt, "".join(response_parts))
+
+        if not self.CFG.NO_MEMORY:
+            self.store_result(task, self.response)
+            self.CFG.log_interaction("USER", task)
+            self.CFG.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")
         return self.response
 
@@ -277,7 +276,6 @@ class AgentLLM:
     ) -> List[Dict]:
         response = self.run(
             task=self.primary_objective,
-            commands_enabled=False,
             prompt="task",
             result=result,
             task_description=task_description,
@@ -300,7 +298,6 @@ class AgentLLM:
 
         response = self.run(
             task=self.primary_objective,
-            commands_enabled=False,
             prompt="priority",
             tasks=", ".join(task_names),
             next_task_id=next_task_id,
