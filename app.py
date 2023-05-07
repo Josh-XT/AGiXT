@@ -199,7 +199,10 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.run(
-        prompt.prompt, max_context_tokens=500, long_term_access=False, instruction=True
+        task=prompt.prompt,
+        max_context_tokens=500,
+        long_term_access=False,
+        prompt="Instruction",
     )
     return {"response": str(response)}
 
