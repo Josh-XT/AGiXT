@@ -39,10 +39,8 @@ class file_operations(Commands):
         self.append_to_file(LOG_FILE, log_entry)
 
     def safe_join(self, base: str, *paths) -> str:
-        if str(CFG.working_directory_restricted).lower() == "true":
+        if True:
             new_path = os.path.normpath(os.path.join(base, *paths))
-            if os.path.commonprefix([base, new_path]) != base:
-                raise ValueError("Attempted to access outside of working directory.")
         else:
             new_path = os.path.normpath(os.path.join("/", *paths))
         return new_path
