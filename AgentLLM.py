@@ -159,8 +159,10 @@ class AgentLLM:
                 )
                 self.response = self.CFG.instruct(formatted_prompt)
                 valid_json = self.validate_json(self.response)
+            if valid_json:
+                self.response = valid_json
             response_parts = []
-            for command_name, command_args in valid_json["commands"].items():
+            for command_name, command_args in self.response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.available_commands:
@@ -181,7 +183,7 @@ class AgentLLM:
                             f"\n\nCommand not recognized: {command_name}"
                         )
                 self.response = self.response.replace(prompt, "".join(response_parts))
-
+        # Handle context if in response
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
