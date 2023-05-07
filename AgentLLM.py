@@ -159,9 +159,7 @@ class AgentLLM:
                         if command == "None.":
                             response_parts.append(f"\n\nNo commands were executed.")
                         else:
-                            response_parts.append(
-                                f"\n\nCommand not recognized: {command}"
-                            )
+                            response_parts.append(f"\n\n{command}")
                 self.response = self.response.replace(
                     commands[0], "".join(response_parts)
                 )
