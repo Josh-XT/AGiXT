@@ -202,7 +202,7 @@ async def instruct(agent_name: str, prompt: Prompt):
         task=prompt.prompt,
         max_context_tokens=500,
         long_term_access=False,
-        prompt="Instruction",
+        prompt="instruct",
     )
     return {"response": str(response)}
 
