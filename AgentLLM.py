@@ -116,7 +116,6 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-        self.CFG.log_interaction("USER", task)
         self.response = self.CFG.instruct(formatted_prompt)
         valid_json = self.validate_json(self.response)
         i = 0
@@ -137,6 +136,7 @@ class AgentLLM:
             valid_json = self.validate_json(self.response)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
+            self.CFG.log_interaction("USER", task)
             self.CFG.log_interaction(self.agent_name, self.response)
         # Check if any commands are in the response and execute them with their arguments if so
         if commands_enabled:
