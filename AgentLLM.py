@@ -358,7 +358,7 @@ class AgentLLM:
         for step_data in step_data_list:
             for prompt_type, prompt in step_data.items():
                 if prompt_type == "instruction":
-                    self.run(prompt)
+                    self.run(prompt, prompt="instruct")
                 elif prompt_type == "task":
                     self.run_task(prompt)
                 elif prompt_type == "command":
