@@ -117,52 +117,33 @@ class AgentLLM:
             self.CFG.log_interaction(self.agent_name, self.response)
         # Check if any commands are in the response and execute them with their arguments if so
         if commands_enabled:
-            # Parse out everything after Commands: in self.response, each new line is a command
-            commands = re.findall(
-                r"(?i)Commands:[\n]*(.*)", f"{self.response}", re.DOTALL
+            response_parts = []
+            clean_response = re.findall(
+                r"```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```", self.response
             )
-            if len(commands) > 0:
-                response_parts = []
-                for command in commands[0].split("\n"):
-                    command = command.strip()
-                    # Check if the command starts with a number and strip out everything until the first letter
-                    if command and command[0].isdigit():
-                        first_letter = re.search(r"[a-zA-Z]", command)
-                        if first_letter:
-                            command = command[first_letter.start() :]
-                    command_name, command_args = None, {}
-                    # Extract command name and arguments using regex
-                    command_regex = re.search(r"(\w+)\((.*)\)", command)
-                    if command_regex:
-                        command_name, args_str = command_regex.groups()
-                        if args_str:
-                            # Parse arguments string into a dictionary
-                            args_str = args_str.replace("'", '"')
-                            args_str = args_str.replace("None", "null")
-                            try:
-                                command_args = json.loads(args_str)
-                            except JSONDecodeError as e:
-                                # error parsing args, send command_name to None so trying to execute command won't crash
-                                command_name = None
-                                print(f"Error: {e}")
-
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if available_command["friendly_name"] == command_name:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                        )
+            clean_response = clean_response[0] if clean_response else self.response
+            response = json.loads(clean_response)
+            for command_name, command_args in response["commands"].items():
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.available_commands:
+                        if command_name in [
+                            available_command["friendly_name"],
+                            available_command["name"],
+                        ]:
+                            command_name = available_command["name"]
+                            break
+                    response_parts.append(
+                        f"\n\n{self.commands.execute_command(command_name, command_args)}"
+                    )
+                else:
+                    if command_name == "None.":
+                        response_parts.append(f"\n\nNo commands were executed.")
                     else:
-                        if command == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(f"\n\n{command}")
-                self.response = self.response.replace(
-                    commands[0], "".join(response_parts)
-                )
+                        response_parts.append(
+                            f"\n\nCommand not recognized: {command_name}"
+                        )
+                self.response = self.response.replace(prompt, "".join(response_parts))
         print(f"Response: {self.response}")
         return self.response
 
