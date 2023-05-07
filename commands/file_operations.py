@@ -84,7 +84,9 @@ class file_operations(Commands):
             content_length = len(content)
 
             chunks = list(
-                file_operations.split_file(content, max_length=max_length, overlap=overlap)
+                file_operations.split_file(
+                    content, max_length=max_length, overlap=overlap
+                )
             )
 
             num_chunks = len(chunks)
