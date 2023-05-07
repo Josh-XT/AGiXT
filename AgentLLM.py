@@ -102,6 +102,10 @@ class AgentLLM:
             long_term_access=long_term_access,
             max_tokens=max_context_tokens,
         )
+        print("PROMPT#######################################################")
+        print(prompt)
+        print("TASK#######################################################")
+        print(task)
         formatted_prompt = prompt.format(
             task=task,
             agent_name=self.agent_name,
@@ -111,57 +115,46 @@ class AgentLLM:
             **kwargs,
         )
         self.CFG.log_interaction("USER", task)
+        print("FORMATTED PROMPT#######################################################")
+        print(formatted_prompt)
         self.response = self.CFG.instruct(formatted_prompt)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction(self.agent_name, self.response)
         # Check if any commands are in the response and execute them with their arguments if so
         if commands_enabled:
-            # Parse out everything after Commands: in self.response, each new line is a command
-            commands = re.findall(
-                r"(?i)Commands:[\n]*(.*)", f"{self.response}", re.DOTALL
-            )
-            if len(commands) > 0:
-                response_parts = []
-                for command in commands[0].split("\n"):
-                    command = command.strip()
-                    # Check if the command starts with a number and strip out everything until the first letter
-                    if command and command[0].isdigit():
-                        first_letter = re.search(r"[a-zA-Z]", command)
-                        if first_letter:
-                            command = command[first_letter.start() :]
-                    command_name, command_args = None, {}
-                    # Extract command name and arguments using regex
-                    command_regex = re.search(r"(\w+)\((.*)\)", command)
-                    if command_regex:
-                        command_name, args_str = command_regex.groups()
-                        if args_str:
-                            # Parse arguments string into a dictionary
-                            args_str = args_str.replace("'", '"')
-                            args_str = args_str.replace("None", "null")
-                            try:
-                                command_args = json.loads(args_str)
-                            except JSONDecodeError as e:
-                                # error parsing args, send command_name to None so trying to execute command won't crash
-                                command_name = None
-                                print(f"Error: {e}")
-
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if available_command["friendly_name"] == command_name:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                        )
+            print("RESPONSE#######################################################")
+            print(self.response)
+            response_parts = []
+            clean_response = re.findall(r'```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```', self.response)
+            print("CLEAN RESPONSE1#######################################################")
+            print(clean_response)
+            clean_response = clean_response[0] if clean_response else self.response
+            #clean_response = self.response.replace("```json", "").replace("```css", "").replace("```vbnet", "").replace("```javascript", "").replace("```", "")
+            print("CLEAN RESPONSE2#######################################################")
+            print(clean_response)
+            response = json.loads(clean_response)
+            for command_name, command_args in response["commands"].items():
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.available_commands:
+                        if command_name in [available_command["friendly_name"], available_command["name"]]:
+                            command_name = available_command["name"]
+                            break
+                    print("COMMAND_NAME AND COMMAND_ARG#######################################################")
+                    print(command_name, command_args)
+                    response_parts.append(
+                        f"\n\n{self.commands.execute_command(command_name, command_args)}"
+                    )
+                else:
+                    if command_name == "None.":
+                        response_parts.append(f"\n\nNo commands were executed.")
                     else:
-                        if command == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(f"\n\n{command}")
+                        response_parts.append(
+                            f"\n\nCommand not recognized: {command_name}"
+                        )
                 self.response = self.response.replace(
-                    commands[0], "".join(response_parts)
+                    prompt, "".join(response_parts)
                 )
         print(f"Response: {self.response}")
         return self.response
@@ -255,6 +248,7 @@ class AgentLLM:
             task=self.primary_objective,
             commands_enabled=False,
             prompt="task",
+            objective=self.primary_objective,
             result=result,
             task_description=task_description,
             tasks=", ".join(task_list),
@@ -278,6 +272,7 @@ class AgentLLM:
             task=self.primary_objective,
             commands_enabled=False,
             prompt="priority",
+            objective=self.primary_objective,
             tasks=", ".join(task_names),
             next_task_id=next_task_id,
         )
@@ -365,15 +360,20 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
     parser.add_argument("--max_context_tokens", type=str, default="500")
     parser.add_argument("--long_term_access", type=bool, default=False)
+    parser.add_argument("--instruction", type=bool, default=True)
+    parser.add_argument("--agent_name", type=str)
     args = parser.parse_args()
     prompt = args.prompt
     max_context_tokens = int(args.max_context_tokens)
     long_term_access = args.long_term_access
+    instruction = args.instruction
+    agent_name = args.agent_name
 
     # Run AgentLLM
-    agent = AgentLLM()
+    agent = AgentLLM(agent_name=agent_name)
     agent.run(
         task=prompt,
         max_context_tokens=max_context_tokens,
         long_term_access=long_term_access,
+        instruction=instruction,
     )
