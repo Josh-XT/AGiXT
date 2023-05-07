@@ -18,5 +18,5 @@ WORKSPACE/*
 *.util.py
 agents/*
 src/*
-
+frontend/
 *.code-workspace
