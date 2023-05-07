@@ -270,6 +270,8 @@ class AgentLLM:
 
     def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
+        if not task_names:
+            return
         next_task_id = len(self.task_list) + 1
 
         response = self.run(
