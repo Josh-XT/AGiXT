@@ -93,8 +93,21 @@ class AgentLLM:
             return False
 
     def format_prompt(
-        self, task, top_results, long_term_access, max_context_tokens, prompt, **kwargs
+        self,
+        task: str,
+        top_results: int = 3,
+        long_term_access: bool = False,
+        max_context_tokens: int = 500,
+        prompt="",
+        **kwargs,
     ):
+        cp = CustomPrompt()
+        if prompt == "":
+            prompt = task
+        elif prompt in ["execute", "task", "priority", "instruct"]:
+            prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
+        else:
+            prompt = CustomPrompt().get_prompt(prompt)
         if top_results == 0:
             context = "None"
         else:
@@ -112,7 +125,7 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-        return formatted_prompt
+        return formatted_prompt, prompt
 
     def run(
         self,
@@ -123,14 +136,7 @@ class AgentLLM:
         context_results: int = 3,
         **kwargs,
     ):
-        cp = CustomPrompt()
-        if prompt == "":
-            prompt = task
-        elif prompt in ["execute", "task", "priority", "instruct"]:
-            prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
-        else:
-            prompt = CustomPrompt().get_prompt(prompt)
-        formatted_prompt = self.format_prompt(
+        formatted_prompt, prompt = self.format_prompt(
             task=task,
             top_results=context_results,
             long_term_access=long_term_access,
@@ -149,7 +155,7 @@ class AgentLLM:
                     context_results = context_results - 1
                 else:
                     context_results = 0
-                formatted_prompt = self.format_prompt(
+                formatted_prompt, prompt = self.format_prompt(
                     task=task,
                     top_results=context_results,
                     long_term_access=long_term_access,
@@ -183,7 +189,6 @@ class AgentLLM:
                             f"\n\nCommand not recognized: {command_name}"
                         )
                 self.response = self.response.replace(prompt, "".join(response_parts))
-        # Handle context if in response
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
