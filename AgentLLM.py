@@ -92,6 +92,28 @@ class AgentLLM:
         except JSONDecodeError as e:
             return False
 
+    def format_prompt(
+        self, task, top_results, long_term_access, max_context_tokens, prompt, **kwargs
+    ):
+        if top_results == 0:
+            context = "None"
+        else:
+            context = self.context_agent(
+                query=task,
+                top_results_num=top_results,
+                long_term_access=long_term_access,
+                max_tokens=max_context_tokens,
+            )
+        formatted_prompt = prompt.format(
+            task=task,
+            agent_name=self.agent_name,
+            COMMANDS=self.get_commands_string(),
+            context=context,
+            objective=self.primary_objective,
+            **kwargs,
+        )
+        return formatted_prompt
+
     def run(
         self,
         task: str,
@@ -108,39 +130,33 @@ class AgentLLM:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
-
-        context = self.context_agent(
-            query=task,
-            top_results_num=2,
-            long_term_access=long_term_access,
-            max_tokens=max_context_tokens,
-        )
-        formatted_prompt = prompt.format(
+        top_results = 5
+        formatted_prompt = self.format_prompt(
             task=task,
-            agent_name=self.agent_name,
-            COMMANDS=self.get_commands_string(),
-            context=context,
-            objective=self.primary_objective,
+            top_results=top_results,
+            long_term_access=long_term_access,
+            max_context_tokens=max_context_tokens,
+            prompt=prompt,
             **kwargs,
         )
         self.response = self.CFG.instruct(formatted_prompt)
         if prompt in ["execute", "instruct", "Execution", "Instruction"]:
             valid_json = self.validate_json(self.response)
-            i = 0
             while not valid_json:
-                i = i + 1
-                if i == 5:
-                    # If it fails 5 times, remove the context, it is probably too much.
-                    formatted_prompt = prompt.format(
-                        task=task,
-                        agent_name=self.agent_name,
-                        COMMANDS=self.get_commands_string(),
-                        context="None.",
-                        objective=self.primary_objective,
-                        **kwargs,
-                    )
-                    i = 0
                 print("Invalid JSON response. Trying again.")
+                # Begin context decay
+                if top_results != 0:
+                    top_results = top_results - 1
+                else:
+                    top_results = 0
+                formatted_prompt = self.format_prompt(
+                    task=task,
+                    top_results=top_results,
+                    long_term_access=long_term_access,
+                    max_context_tokens=max_context_tokens,
+                    prompt=prompt,
+                    **kwargs,
+                )
                 self.response = self.CFG.instruct(formatted_prompt)
                 valid_json = self.validate_json(self.response)
         if not self.CFG.NO_MEMORY:
