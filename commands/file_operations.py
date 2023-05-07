@@ -10,6 +10,7 @@ LOG_FILE = "file_logger.txt"
 LOG_FILE_PATH = os.path.join(WORKING_DIRECTORY, LOG_FILE)
 WORKING_DIRECTORY = str(WORKING_DIRECTORY)
 
+
 class file_operations(Commands):
     def __init__(self):
         self.commands = {
@@ -23,23 +24,26 @@ class file_operations(Commands):
             "Search Files": self.search_files,
         }
 
-    def check_duplicate_operation(self, operation: str, filename: str) -> bool:
-        log_content = self.read_file(LOG_FILE)
+    @staticmethod
+    def check_duplicate_operation(operation: str, filename: str) -> bool:
+        log_content = file_operations.read_file(LOG_FILE)
         log_entry = f"{operation}: {filename}\n"
         return log_entry in log_content
 
-    def log_operation(self, operation: str, filename: str) -> None:
+    @staticmethod
+    def log_operation(operation: str, filename: str) -> None:
         log_entry = f"{operation}: {filename}\n"
 
         if not os.path.exists(LOG_FILE_PATH):
             with open(LOG_FILE_PATH, "w", encoding="utf-8") as f:
                 f.write("File Operation Logger ")
 
-        self.append_to_file(LOG_FILE, log_entry)
+        file_operations.append_to_file(LOG_FILE, log_entry)
 
-    def safe_join(self, base: str, *paths) -> str:
-        if str(CFG.working_directory_restricted).lower() == "true":
-            new_path = os.path.normpath(os.path.join(base, *paths))
+    @staticmethod
+    def safe_join(base: str, paths) -> str:
+        if str(CFG.WORKING_DIRECTORY_RESTRICTED).lower() == "true":
+            new_path = os.path.normpath(os.path.join(base, *paths.split("/")))
             if os.path.commonprefix([base, new_path]) != base:
                 raise ValueError("Attempted to access outside of working directory.")
         else:
@@ -61,24 +65,26 @@ class file_operations(Commands):
             yield chunk
             start += max_length - overlap
 
-    def read_file(self, filename: str) -> str:
+    @staticmethod
+    def read_file(filename: str) -> str:
         try:
-            filepath = self.safe_join(WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
         except Exception as e:
             return f"Error: {str(e)}"
 
+    @staticmethod
     def ingest_file(
-        self, filename: str, memory, max_length: int = 4000, overlap: int = 200
+        filename: str, memory, max_length: int = 4000, overlap: int = 200
     ) -> None:
         try:
-            content = self.read_file(filename)
+            content = file_operations.read_file(filename)
             content_length = len(content)
 
             chunks = list(
-                self.split_file(content, max_length=max_length, overlap=overlap)
+                file_operations.split_file(content, max_length=max_length, overlap=overlap)
             )
 
             num_chunks = len(chunks)
@@ -92,49 +98,53 @@ class file_operations(Commands):
         except Exception as e:
             print(f"Error while ingesting file '{filename}': {str(e)}")
 
-    def write_to_file(self, filename: str, text: str) -> str:
-        if self.check_duplicate_operation("write", filename):
+    @staticmethod
+    def write_to_file(filename: str, text: str) -> str:
+        if file_operations.check_duplicate_operation("write", filename):
             return "Error: File has already been updated."
         try:
-            filepath = self.safe_join(WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             directory = os.path.dirname(filepath)
             if not os.path.exists(directory):
                 os.makedirs(directory)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(text)
-            self.log_operation("write", filename)
+            file_operations.log_operation("write", filename)
             return "File written to successfully."
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def append_to_file(self, filename: str, text: str) -> str:
+    @staticmethod
+    def append_to_file(filename: str, text: str) -> str:
         try:
-            filepath = self.safe_join(WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             with open(filepath, "a") as f:
                 f.write(text)
-            self.log_operation("append", filename)
+            file_operations.log_operation("append", filename)
             return "Text appended successfully."
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def delete_file(self, filename: str) -> str:
-        if self.check_duplicate_operation("delete", filename):
+    @staticmethod
+    def delete_file(filename: str) -> str:
+        if file_operations.check_duplicate_operation("delete", filename):
             return "Error: File has already been deleted."
         try:
-            filepath = self.safe_join(WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             os.remove(filepath)
-            self.log_operation("delete", filename)
+            file_operations.log_operation("delete", filename)
             return "File deleted successfully."
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def search_files(self, directory: str) -> List[str]:
+    @staticmethod
+    def search_files(directory: str) -> List[str]:
         found_files = []
 
         if directory in {"", "/"}:
             search_directory = WORKING_DIRECTORY
         else:
-            search_directory = self.safe_join(WORKING_DIRECTORY, directory)
+            search_directory = file_operations.safe_join(WORKING_DIRECTORY, directory)
 
         for root, _, files in os.walk(search_directory):
             for file in files:
