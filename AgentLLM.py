@@ -107,6 +107,7 @@ class AgentLLM:
             agent_name=self.agent_name,
             commands=self.get_commands_string(),
             context=context,
+            objective=self.primary_objective,
             **kwargs,
         )
         self.CFG.log_interaction("USER", task)
