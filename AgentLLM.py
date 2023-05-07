@@ -136,7 +136,7 @@ class AgentLLM:
         context_results: int = 3,
         **kwargs,
     ):
-        formatted_prompt, prompt = self.format_prompt(
+        formatted_prompt, unformatted_prompt = self.format_prompt(
             task=task,
             top_results=context_results,
             long_term_access=long_term_access,
@@ -146,7 +146,7 @@ class AgentLLM:
         )
         self.response = self.CFG.instruct(formatted_prompt)
         # Handle commands if in response
-        if "{COMMANDS}" in prompt:
+        if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
                 print("Invalid JSON response. Trying again.")
@@ -155,7 +155,7 @@ class AgentLLM:
                     context_results = context_results - 1
                 else:
                     context_results = 0
-                formatted_prompt, prompt = self.format_prompt(
+                formatted_prompt, unformatted_prompt = self.format_prompt(
                     task=task,
                     top_results=context_results,
                     long_term_access=long_term_access,
