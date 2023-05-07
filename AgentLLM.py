@@ -131,6 +131,7 @@ class AgentLLM:
                     objective=self.primary_objective,
                     **kwargs,
                 )
+                i = 0
             print("Invalid JSON response. Trying again.")
             self.response = self.CFG.instruct(formatted_prompt)
             valid_json = self.validate_json(self.response)
