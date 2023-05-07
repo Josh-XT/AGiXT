@@ -91,7 +91,7 @@ class AgentLLM:
         cp = CustomPrompt()
         if prompt == "":
             prompt = task
-        elif prompt in ["execute", "task", "priority"]:
+        elif prompt in ["execute", "task", "priority", "instruct"]:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
