@@ -95,10 +95,6 @@ class ToggleCommandPayload(BaseModel):
     enable: bool
 
 
-class Prompt(BaseModel):
-    prompt: str
-
-
 class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
