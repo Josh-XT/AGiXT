@@ -123,16 +123,16 @@ docker compose -f docker-compose-mac.yml up -d
 As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
 1. Open two separate terminals, the front end and back end will need to run separately.
-2. In the first terminal, clone the repositories for the Agent-LLM front and back ends and start the back end.
+2. In the first terminal, clone the repositories for the Agent-LLM back end and start it.
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend frontend --recurse-submodules 
 python app.py
 ```
-3. In the second terminal in the `Agent-LLM` folder, finish installing the front end and start it.
+3. In the second terminal, clone, install dependencies, then start the front end.
 ```
-cd frontend
+git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend --recurse-submodules 
+cd Agent-LLM-Frontend
 yarn install
 yarn dev
 ```
