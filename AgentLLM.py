@@ -130,7 +130,7 @@ class AgentLLM:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
-        top_results = 5
+        top_results = 3
         formatted_prompt = self.format_prompt(
             task=task,
             top_results=top_results,
