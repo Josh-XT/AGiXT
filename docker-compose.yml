@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     environment:
-      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://localhost:7437}
+      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     ports:
       - "3000:3000"
     depends_on:
