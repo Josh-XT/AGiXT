@@ -6,52 +6,11 @@
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 
 ## Quick Start Guide
+_Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._
 
-1. Clone the [Agent-LLM](https://github.com/Josh-XT/Agent-LLM) GitHub repository.
-
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd "Agent-LLM"
-pip install -r "requirements.txt"
-```
-
-2. Create your `.env` below. Modify if necessary.  It may be necessary to choose a different model than default if the default prompts are not working well with the model you choose.
-
-
-
-```
-AI_PROVIDER=oobabooga
-AI_MODEL=default
-AI_PROVIDER_URI=http://localhost:5000
-AI_TEMPERATURE=0.2
-MAX_TOKENS=2096
-
-```
-
-4. Start the back end application for Agent-LLM.
-
-
-
-```
-python app.py
-```
-
-3. Navigate to the `frontend` folder to install dependencies and start the `NextJS` front end for Agent-LLM.
-
-
-
-```
-cd frontend
-npm install
-npm run dev
-```
-
-## Accessing Agent-LLM
-
-Web Interface: http://localhost
-
-Redoc: http://localhost:7437/redoc
-
-Swagger: http://localhost:7437/docs
-
+### Update your agent settings
+1. Set `AI_PROVIDER` to `oobabooga`.
+2. Set `AI_MODEL` to `default` or the name of the model from the `model-prompts` folder.
+3. Set `AI_PROVIDER_URI` to `http://localhost:5000`, or the URI of your Oobabooga server.
+4. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
+5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.
