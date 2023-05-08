@@ -14,6 +14,7 @@ OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
 
 {
     "plan": "Your plan for achieving the task",
+    "response": "Your response to the task",
     "commands": {
         "command_name": {
             "arg1": "val1",
