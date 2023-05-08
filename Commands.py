@@ -116,7 +116,7 @@ class Commands:
                 params[name] = value
 
         try:
-            if module.__name__ == 'file_operations':
+            if module.__name__ == "file_operations":
                 output = command_function(**params)
             else:
                 output = command_function(module, **params)
