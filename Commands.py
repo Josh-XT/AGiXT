@@ -102,8 +102,6 @@ class Commands:
 
     def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name)
-        print("EXECUTE COMMAND1#######################################################")
-        print(command_function, module, params)
         if command_function is None:
             return False
 
@@ -114,13 +112,14 @@ class Commands:
             return f"Error: command_args should be a dictionary, but got {type(command_args).__name__}"
 
         for name, value in command_args.items():
-            print("EXECUTE COMMAND3#######################################################")
-            print(name, value)
-            print(params)
             if name in params:
                 params[name] = value
+
         try:
-            output = command_function(**params)
+            if module.__name__ == 'file_operations':
+                output = command_function(**params)
+            else:
+                output = command_function(module, **params)
         except Exception as e:
             output = f"Error: {str(e)}"
 
