@@ -92,6 +92,14 @@ class AgentLLM:
         except JSONDecodeError as e:
             return False
 
+    def custom_format(self, string, **kwargs):
+        def replace(match):
+            key = match.group(1)
+            return kwargs.get(key, match.group(0))
+
+        pattern = r"(?<!{){([^{}\n]+)}(?!})"
+        return re.sub(pattern, replace, string)
+
     def format_prompt(
         self,
         task: str,
@@ -117,7 +125,8 @@ class AgentLLM:
                 long_term_access=long_term_access,
                 max_tokens=max_context_tokens,
             )
-        formatted_prompt = prompt.format(
+        formatted_prompt = self.custom_format(
+            prompt,
             task=task,
             agent_name=self.agent_name,
             COMMANDS=self.get_commands_string(),
@@ -125,6 +134,7 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
+
         return formatted_prompt, prompt
 
     def run(
