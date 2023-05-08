@@ -93,25 +93,16 @@ class AgentLLM:
             return False
 
     def custom_format(self, string, **kwargs):
-        def flatten_and_convert(item):
-            if isinstance(item, list):
-                return "".join(flatten_and_convert(x) for x in item)
-            else:
-                return str(item)
-
         if isinstance(string, list):
-            try:
-                string = flatten_and_convert(string)
-            except TypeError as e:
-                print(f"Error: {e}")
-                return ""  # or any default value to return in case of an error
+            string = "".join(str(x) for x in string)
 
         def replace(match):
             key = match.group(1)
             return kwargs.get(key, match.group(0))
 
         pattern = r"(?<!{){([^{}\n]+)}(?!})"
-        return re.sub(pattern, replace, string)
+        result = re.sub(pattern, replace, string)
+        return result
 
     def format_prompt(
         self,
