@@ -7,13 +7,24 @@ Recall by considering similar events.
 No user assistance.
 Previous tasks: {context}
 Task: {task}
-Commands: {COMMANDS}
+You have the following commands available to complete this task given:
+{COMMANDS}
 
-Format:
-THOUGHTS: Thoughts on task.
-REASONING: Reasoning behind responses.
-PLAN: Plan for task.
-CRITICISM: Criticism of thoughts, reasoning, and plan.
-COMMANDS: List commands in order: command_name(args).
+OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
+
+{
+    "plan": "Your plan for achieving the task",
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}
 
 ###Assistant:

@@ -116,7 +116,7 @@ class Commands:
                 params[name] = value
 
         try:
-            output = command_function(module, **params)
+            output = command_function(**params)
         except Exception as e:
             output = f"Error: {str(e)}"
 

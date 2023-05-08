@@ -95,10 +95,6 @@ class ToggleCommandPayload(BaseModel):
     enable: bool
 
 
-class Prompt(BaseModel):
-    prompt: str
-
-
 class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
@@ -210,7 +206,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=500, commands_enabled=False)
+    response = agent.run(prompt.prompt, max_context_tokens=500)
     return {"response": str(response)}
 
 

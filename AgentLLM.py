@@ -72,6 +72,8 @@ class AgentLLM:
         enabled_commands = filter(
             lambda command: command.get("enabled", True), self.available_commands
         )
+        if len(enabled_commands) == 0:
+            return "No commands."
 
         friendly_names = map(
             lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
@@ -79,13 +81,24 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
-    def run(
+    def validate_json(self, json_string: str):
+        try:
+            clean_response = re.findall(
+                r"```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```", json_string
+            )
+            clean_response = clean_response[0] if clean_response else json_string
+            response = json.loads(clean_response)
+            return response
+        except JSONDecodeError as e:
+            return False
+
+    def format_prompt(
         self,
         task: str,
-        max_context_tokens: int = 500,
+        top_results: int = 3,
         long_term_access: bool = False,
-        commands_enabled: bool = True,
-        prompt: str = "",
+        max_context_tokens: int = 500,
+        prompt="",
         **kwargs,
     ):
         cp = CustomPrompt()
@@ -95,13 +108,15 @@ class AgentLLM:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
-
-        context = self.context_agent(
-            query=task,
-            top_results_num=3,
-            long_term_access=long_term_access,
-            max_tokens=max_context_tokens,
-        )
+        if top_results == 0:
+            context = "None"
+        else:
+            context = self.context_agent(
+                query=task,
+                top_results_num=top_results,
+                long_term_access=long_term_access,
+                max_tokens=max_context_tokens,
+            )
         formatted_prompt = prompt.format(
             task=task,
             agent_name=self.agent_name,
@@ -110,59 +125,74 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-        self.CFG.log_interaction("USER", task)
+        return formatted_prompt, prompt
+
+    def run(
+        self,
+        task: str,
+        max_context_tokens: int = 500,
+        long_term_access: bool = False,
+        prompt: str = "",
+        context_results: int = 3,
+        **kwargs,
+    ):
+        formatted_prompt, unformatted_prompt = self.format_prompt(
+            task=task,
+            top_results=context_results,
+            long_term_access=long_term_access,
+            max_context_tokens=max_context_tokens,
+            prompt=prompt,
+            **kwargs,
+        )
         self.response = self.CFG.instruct(formatted_prompt)
+        # Handle commands if in response
+        if "{COMMANDS}" in unformatted_prompt:
+            valid_json = self.validate_json(self.response)
+            while not valid_json:
+                print("Invalid JSON response. Trying again.")
+                # Begin context decay
+                if context_results != 0:
+                    context_results = context_results - 1
+                else:
+                    context_results = 0
+                formatted_prompt, unformatted_prompt = self.format_prompt(
+                    task=task,
+                    top_results=context_results,
+                    long_term_access=long_term_access,
+                    max_context_tokens=max_context_tokens,
+                    prompt=prompt,
+                    **kwargs,
+                )
+                self.response = self.CFG.instruct(formatted_prompt)
+                valid_json = self.validate_json(self.response)
+            if valid_json:
+                self.response = valid_json
+            response_parts = []
+            for command_name, command_args in self.response["commands"].items():
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.available_commands:
+                        if command_name in [
+                            available_command["friendly_name"],
+                            available_command["name"],
+                        ]:
+                            command_name = available_command["name"]
+                            break
+                    response_parts.append(
+                        f"\n\n{self.commands.execute_command(command_name, command_args)}"
+                    )
+                else:
+                    if command_name == "None.":
+                        response_parts.append(f"\n\nNo commands were executed.")
+                    else:
+                        response_parts.append(
+                            f"\n\nCommand not recognized: {command_name}"
+                        )
+                self.response = self.response.replace(prompt, "".join(response_parts))
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
+            self.CFG.log_interaction("USER", task)
             self.CFG.log_interaction(self.agent_name, self.response)
-        # Check if any commands are in the response and execute them with their arguments if so
-        if commands_enabled:
-            # Parse out everything after Commands: in self.response, each new line is a command
-            commands = re.findall(
-                r"(?i)Commands:[\n]*(.*)", f"{self.response}", re.DOTALL
-            )
-            if len(commands) > 0:
-                response_parts = []
-                for command in commands[0].split("\n"):
-                    command = command.strip()
-                    # Check if the command starts with a number and strip out everything until the first letter
-                    if command and command[0].isdigit():
-                        first_letter = re.search(r"[a-zA-Z]", command)
-                        if first_letter:
-                            command = command[first_letter.start() :]
-                    command_name, command_args = None, {}
-                    # Extract command name and arguments using regex
-                    command_regex = re.search(r"(\w+)\((.*)\)", command)
-                    if command_regex:
-                        command_name, args_str = command_regex.groups()
-                        if args_str:
-                            # Parse arguments string into a dictionary
-                            args_str = args_str.replace("'", '"')
-                            args_str = args_str.replace("None", "null")
-                            try:
-                                command_args = json.loads(args_str)
-                            except JSONDecodeError as e:
-                                # error parsing args, send command_name to None so trying to execute command won't crash
-                                command_name = None
-                                print(f"Error: {e}")
-
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if available_command["friendly_name"] == command_name:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                        )
-                    else:
-                        if command == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(f"\n\n{command}")
-                self.response = self.response.replace(
-                    commands[0], "".join(response_parts)
-                )
         print(f"Response: {self.response}")
         return self.response
 
@@ -253,7 +283,6 @@ class AgentLLM:
     ) -> List[Dict]:
         response = self.run(
             task=self.primary_objective,
-            commands_enabled=False,
             prompt="task",
             result=result,
             task_description=task_description,
@@ -276,7 +305,6 @@ class AgentLLM:
 
         response = self.run(
             task=self.primary_objective,
-            commands_enabled=False,
             prompt="priority",
             tasks=", ".join(task_names),
             next_task_id=next_task_id,
@@ -330,7 +358,7 @@ class AgentLLM:
         for step_data in step_data_list:
             for prompt_type, prompt in step_data.items():
                 if prompt_type == "instruction":
-                    self.run(prompt)
+                    self.run(prompt, prompt="instruct")
                 elif prompt_type == "task":
                     self.run_task(prompt)
                 elif prompt_type == "command":

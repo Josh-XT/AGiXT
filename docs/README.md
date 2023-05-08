@@ -45,10 +45,13 @@ This project is under active development and may still have issues. We appreciat
   - [Key Features 🗝️](#key-features-️)
   - [Web Application Features](#web-application-features)
   - [Quick Start with Docker](#quick-start-with-docker)
-    - [Running a Mac?](#running-a-mac)
+    - [Linux or Windows](#linux-or-windows)
+    - [MacOS](#macos)
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
-    - [Linux or MacOS:](#linux-or-macos)
-    - [Windows:](#windows)
+    - [Back End](#back-end)
+    - [Front End](#front-end)
+      - [Linux or MacOS](#linux-or-macos)
+      - [Windows](#windows)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -101,48 +104,53 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 
 ## Quick Start with Docker
 
-1. Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
+Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
+
+### Linux or Windows
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend frontend --recurse-submodules 
 docker-compose up -d
 ```
 
-2. Access the web interface at http://localhost:3000
-
-### Running a Mac?
-
-If you're getting errors, you may need to run the command below to run the containers set up for Mac.
+### MacOS
 
 ```
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
 docker compose -f docker-compose-mac.yml up -d
 ```
+
+Access the web interface at http://localhost:3000
 
 ## Alternative: Quick Start for Local or Virtual Machine
 
 As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
-1. Open two separate terminals, the front end and back end will need to run separately.
-2. In the first terminal, clone the repositories for the Agent-LLM back end and start it.
+### Back End
+
+Clone the repositories for the Agent-LLM back end and start it.
+
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 pip install -r requirements.txt
 python app.py
 ```
-3. In the second terminal, run the front end.
 
-### Linux or MacOS:
+### Front End
+#### Linux or MacOS
 ```
-docker run -it --pull always -p 80:3000 -e NEXT_PUBLIC_API_URI=http://$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')':7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
+docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')':7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
 ```
 
-### Windows:
+#### Windows
 ```
-docker run -it --pull always -p 80:3000 -e NEXT_PUBLIC_API_URI=http://$(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -ne "Loopback Pseudo-Interface 1" -and $_.AddressFamily -eq "IPv4" } | Select-Object -ExpandProperty IPAddress)`:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
+docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://$(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -ne "Loopback Pseudo-Interface 1" -and $_.AddressFamily -eq "IPv4" } | Select-Object -ExpandProperty IPAddress)`:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
 ```
+
+Access the web interface at http://localhost:3000
 
 ## Configuration
 
