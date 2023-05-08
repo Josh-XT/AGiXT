@@ -3,7 +3,6 @@ services:
   frontend:
     image: ghcr.io/jamesonrgrieve/agent-llm-frontend:latest
     init: true
-    network_mode: host
     env_file:
       - .env
     environment:
@@ -18,7 +17,6 @@ services:
       context: .
       dockerfile: Dockerfile
     init: true
-    network_mode: host
     env_file:
       - .env
     ports:
