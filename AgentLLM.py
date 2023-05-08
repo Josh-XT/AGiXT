@@ -93,8 +93,18 @@ class AgentLLM:
             return False
 
     def custom_format(self, string, **kwargs):
+        def flatten_and_convert(item):
+            if isinstance(item, list):
+                return "".join(flatten_and_convert(x) for x in item)
+            else:
+                return str(item)
+
         if isinstance(string, list):
-            string = "".join(str(x) for x in string)
+            try:
+                string = flatten_and_convert(string)
+            except TypeError as e:
+                print(f"Error: {e}")
+                return ""  # or any default value to return in case of an error
 
         def replace(match):
             key = match.group(1)
