@@ -113,7 +113,7 @@ class AgentLLM:
         task: str,
         top_results: int = 3,
         long_term_access: bool = False,
-        max_context_tokens: int = 500,
+        max_context_tokens: int = 100,
         prompt="",
         **kwargs,
     ):
@@ -148,7 +148,7 @@ class AgentLLM:
     def run(
         self,
         task: str,
-        max_context_tokens: int = 500,
+        max_context_tokens: int = 100,
         long_term_access: bool = False,
         prompt: str = "",
         context_results: int = 3,
@@ -422,16 +422,17 @@ class AgentLLM:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=str, default="500")
+    parser.add_argument("--max_context_tokens", type=str, default="100")
     parser.add_argument("--long_term_access", type=bool, default=False)
+    parser.add_argument("--agent_name", type=str, default="Agent-LLM")
     args = parser.parse_args()
     prompt = args.prompt
     max_context_tokens = int(args.max_context_tokens)
     long_term_access = args.long_term_access
+    agent_name = args.agent_name
 
     # Run AgentLLM
-    agent = AgentLLM()
-    agent.run(
+    AgentLLM(agent_name).run(
         task=prompt,
         max_context_tokens=max_context_tokens,
         long_term_access=long_term_access,
