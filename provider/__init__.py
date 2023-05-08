@@ -56,9 +56,9 @@ def max_tokens_ceiling(ai_model: str):
 
     # https://huggingface.co/OpenAssistant/oasst-sft-6-llama-30b-xor
     if ai_model == "openassistant":
-        return 2048
+        return 1904
     # https://huggingface.co/bigcode/starcoderbase
     elif ai_model == "starcoderbase":
         return 8192
     else:
-        return NotImplementedError(f"Ceiling not implemented for model {ai_model}!")
+        return 999999999
