@@ -98,7 +98,7 @@ class AgentLLM:
             return kwargs.get(key, match.group(0))
 
         pattern = r"(?<!{){([^{}\n]+)}(?!})"
-        return re.sub(pattern, replace, "\n".join(string))
+        return re.sub(pattern, replace, "".join(string))
 
     def format_prompt(
         self,
