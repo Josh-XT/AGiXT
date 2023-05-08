@@ -116,7 +116,10 @@ class Commands:
                 params[name] = value
 
         try:
-            output = command_function(**params)
+            if module.__name__ == 'file_operations':
+                output = command_function(**params)
+            else:
+                output = command_function(module, **params)
         except Exception as e:
             output = f"Error: {str(e)}"
 
