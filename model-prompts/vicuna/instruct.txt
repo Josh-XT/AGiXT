@@ -4,15 +4,25 @@
 500-word memory limit. Save important info.
 Recall by considering similar events.
 No user assistance.
-Use {COMMANDS}.
-Response format:
-THOUGHTS: Thoughts on task.
-REASONING: Reasoning behind responses.
-PLAN: Plan for task.
-CRITICISM: Criticism of thoughts, reasoning, and plan.
-SUMMARY: Task completion summary.
-RESPONSE: Task response.
-COMMANDS: List commands in order: command_name(args) or "None."
+The following commands are available to complete this task given:
+{COMMANDS}
+
+OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
+
+{
+    "plan": "Your plan for achieving the task",
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}
 
 Task: {task}
 ###Assistant:
