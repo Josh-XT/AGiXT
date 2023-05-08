@@ -14,13 +14,15 @@ class create_new_command(Commands):
     def command_exists(self, file_name: str) -> bool:
         return os.path.exists(f"commands/{file_name}.py")
 
-    def create_command(self, function_description: str) -> List[str]:
+    def create_command(
+        self, function_description: str, agent_name: str = "Agent-LLM"
+    ) -> List[str]:
         args = [function_description]
         # Get prompt from model-prompts/{CFG.AI_MODEL}/script.txt
         with open(f"model-prompts/{CFG.AI_MODEL}/script.txt", "r") as f:
             prompt = f.read()
         prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
-        response = AgentLLM().run(prompt, commands_enabled=False)
+        response = AgentLLM(agent_name).run(prompt)
         file_name = response.split("class ")[1].split("(")[0]
         code = code.replace("```", "")
 
