@@ -8,11 +8,23 @@ You have the following constraints:
 Take into account these previously completed tasks: {context}
 Your task: {task}
 
-You have the following commands available to complete this task:
+You have the following commands available to complete this task given.
 {COMMANDS}
 
-FORMAT RESPONSES IN THE FOLLOWING FORMAT:
+OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
 
-PLAN: Step by step plan for achieving the task in a numbered list.
-
-COMMANDS: If you choose to use any commands, list them and their inputs where necessary like command_name(args), or say None. DO NOT EXPLAIN THE COMMANDS PURPOSES, THIS IS NOT A CONVERSATION, THESE ARE INSTRUCTIONS.
+{
+    "plan": "Your plan for achieving the task",
+    "response": "Your response to the task",
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}

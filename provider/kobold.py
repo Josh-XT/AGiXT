@@ -7,12 +7,14 @@ class KoboldProvider:
         AI_PROVIDER_URI: str = "",
         MAX_TOKENS: int = 2000,
         AI_TEMPERATURE: float = 0.7,
+        AI_MODEL: str = "default",
         **kwargs,
     ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt):
         try:

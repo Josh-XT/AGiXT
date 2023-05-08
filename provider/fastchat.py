@@ -3,14 +3,21 @@ import json
 
 
 class FastchatProvider:
-    def __init__(self, AI_PROVIDER_URI: str = "", AI_MODEL: str = "", **kwargs):
+    def __init__(
+        self,
+        AI_PROVIDER_URI: str = "",
+        AI_MODEL: str = "vicuna",
+        MODEL_PATH: str = "",
+        **kwargs,
+    ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
         self.AI_MODEL = AI_MODEL
+        self.MODEL_PATH = MODEL_PATH
 
     def instruct(self, prompt):
         messages = [{"role": "system", "content": prompt}]
-        params = {"model": self.AI_MODEL, "messages": messages}
+        params = {"model": self.MODEL_PATH, "messages": messages}
         response = requests.post(
             f"{self.AI_PROVIDER_URI}/v1/chat/completions",
             json={"data": [json.dumps([prompt, params])]},

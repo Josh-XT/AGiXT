@@ -9,7 +9,6 @@ class chain_commands(Commands):
         if self.chains != None:
             for chain in self.chains:
                 if "name" in chain:
-                    name = f"Run Chain: {chain['name']}"
                     self.commands.update(
                         {f"Run Chain: {chain['name']}": self.run_chain}
                     )

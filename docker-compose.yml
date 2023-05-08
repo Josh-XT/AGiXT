@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   frontend:
-    build: ./frontend
+    image: ghcr.io/jamesonrgrieve/agent-llm-frontend:latest
     init: true
     env_file:
       - .env

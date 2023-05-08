@@ -5,9 +5,10 @@ CFG = Config()
 
 
 class BardProvider:
-    def __init__(self, BARD_TOKEN: str = "", **kwargs):
+    def __init__(self, BARD_TOKEN: str = "", AI_MODEL: str = "bard", **kwargs):
         self.requirements = ["GoogleBard"]
         self.BARD_TOKEN = BARD_TOKEN
+        self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt):
         try:

@@ -120,11 +120,7 @@ class Commands:
             if name in params:
                 params[name] = value
         try:
-            print("EXECUTE COMMAND#######################################################")
-            print(command_function, module, params)
             output = command_function(**params)
-            #output = command_function(module, **params)
-            print(output)
         except Exception as e:
             output = f"Error: {str(e)}"
 

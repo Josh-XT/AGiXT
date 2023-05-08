@@ -16,7 +16,7 @@ CFG = Config()
 app = FastAPI(
     title="Agent-LLM",
     description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents.",
-    version="1.1.5-alpha",
+    version="v1.1.10-alpha",
 )
 agent_threads = {}
 agent_stop_events = {}
@@ -206,7 +206,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=500, commands_enabled=False)
+    response = agent.run(prompt.prompt, max_context_tokens=500)
     return {"response": str(response)}
 
 

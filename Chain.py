@@ -2,6 +2,7 @@ import os
 import glob
 import shutil
 from AgentLLM import AgentLLM
+import argparse
 
 
 class Chain:
@@ -191,3 +192,11 @@ class Chain:
             else:
                 agent_name = "AgentLLM"
             AgentLLM(agent_name).run_chain_step(step_data)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--chain", type=str, default="")
+    args = parser.parse_args()
+    chain_name = args.chain
+    Chain().run_chain(chain_name)
