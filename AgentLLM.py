@@ -163,6 +163,8 @@ class AgentLLM:
         if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
+                print("INVALID JSON RESPONSE")
+                print(self.response)
                 print("Invalid JSON response. Trying again.")
                 # Begin context decay
                 if context_results != 0:
