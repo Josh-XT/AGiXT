@@ -178,6 +178,17 @@ class AgentLLM:
             if valid_json:
                 self.response = valid_json
             response_parts = []
+            if "thoughts" in self.response:
+                response_parts.append(f"\n\nTHOUGHTS:\n\n{self.response['thoughts']}")
+            if "plan" in self.response:
+                response_parts.append(f"\n\nPLAN:\n\n{self.response['plan']}")
+            if "summary" in self.response:
+                response_parts.append(f"\n\nSUMMARY:\n\n{self.response['summary']}")
+            if "commands" in self.response:
+                response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
+            if "response" in self.response:
+                response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
+
             for command_name, command_args in self.response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
@@ -198,8 +209,7 @@ class AgentLLM:
                         response_parts.append(
                             f"\n\nCommand not recognized: {command_name}"
                         )
-                if len(response_parts) > 0:
-                    self.response = f"{self.response}\n{''.join(response_parts)}"
+            self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
