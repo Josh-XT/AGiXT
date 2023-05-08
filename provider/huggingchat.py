@@ -1,18 +1,24 @@
 import time
 from requests.sessions import Session
+from provider import max_tokens_ceiling
 
 
 class HuggingchatProvider:
     def __init__(
         self,
         AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 2000,
+        MAX_TOKENS: int = 2048,
         AI_MODEL: str = "openassistant",
         **kwargs,
     ):
         self.requirements = []
         self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
+        self.MAX_TOKENS_CEILING = max_tokens_ceiling(AI_MODEL)
+        self.MAX_TOKENS = (
+            MAX_TOKENS
+            if MAX_TOKENS <= self.MAX_TOKENS_CEILING
+            else self.MAX_TOKENS_CEILING
+        )
         self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt: str) -> str:
@@ -26,7 +32,7 @@ class HuggingchatProvider:
 
         res = session.post(
             url="https://huggingface.co/chat/conversation",
-            json={"model": "OpenAssistant/oasst-sft-6-llama-30b-xor"},
+            json={"model": self._get_model_name(self.AI_MODEL)},
             headers={"Content-Type": "application/json"},
         )
         assert res.status_code == 200, "Failed to create new conversation"
@@ -34,9 +40,6 @@ class HuggingchatProvider:
         conversation_id = res.json()["conversationId"]
         url = f"https://huggingface.co/chat/conversation/{conversation_id}"
         max_tokens = int(self.MAX_TOKENS) - len(prompt)
-
-        if max_tokens > 1904:
-            max_tokens = 1904
 
         res = session.post(
             url=url,
@@ -78,3 +81,12 @@ class HuggingchatProvider:
                 data = {}
 
         return data.get("generated_text", "")
+
+    def _get_model_name(self, ai_model: str):
+        """Returns a model name based on the AI_MODEL"""
+
+        if ai_model == "openassistant":
+            model_name = "OpenAssistant/oasst-sft-6-llama-30b-xor"
+        elif ai_model == "starcoderbase":
+            model_name = "bigcode/starcoderbase"
+        return model_name

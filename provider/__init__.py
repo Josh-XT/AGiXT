@@ -49,3 +49,16 @@ class Provider:
 
 def __getattr__(name):
     return Provider(name)
+
+
+def max_tokens_ceiling(ai_model: str):
+    """Generates the max token limit for a given model"""
+
+    # https://huggingface.co/OpenAssistant/oasst-sft-6-llama-30b-xor
+    if ai_model == "openassistant":
+        return 2048
+    # https://huggingface.co/bigcode/starcoderbase
+    elif ai_model == "starcoderbase":
+        return 8192
+    else:
+        return NotImplementedError(f"Ceiling not implemented for model {ai_model}!")
