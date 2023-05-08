@@ -98,7 +98,11 @@ class AgentLLM:
 
         def replace(match):
             key = match.group(1)
-            return kwargs.get(key, match.group(0))
+            value = kwargs.get(key, match.group(0))
+            if isinstance(value, list):
+                return "".join(str(x) for x in value)
+            else:
+                return str(value)
 
         pattern = r"(?<!{){([^{}\n]+)}(?!})"
         result = re.sub(pattern, replace, string)
