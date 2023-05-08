@@ -94,11 +94,9 @@ class AgentLLM:
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
-            string = "".join([str(x) for x in string])
+            string = "".join(str(x) for x in string)
 
         def replace(match):
-            if isinstance(match, list):
-                match = "".join(match)
             key = match.group(1)
             return kwargs.get(key, match.group(0))
 
