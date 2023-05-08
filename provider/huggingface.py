@@ -12,19 +12,21 @@ from transformers import (
 class HuggingfaceProvider:
     def __init__(
         self,
-        AI_MODEL: str = "gpt2",
+        MODEL_PATH: str = "gpt2",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 1024,
+        AI_MODEL: str = "default",
         **kwargs,
     ):
         self.requirements = ["transformers", "torch", "accelerate"]
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
+        self.MODEL_PATH = MODEL_PATH
 
     def instruct(self, prompt):
         try:
-            model_path = self.AI_MODEL
+            model_path = self.MODEL_PATH
             if "chatglm" in model_path:
                 tokenizer = AutoTokenizer.from_pretrained(
                     model_path, trust_remote_code=True

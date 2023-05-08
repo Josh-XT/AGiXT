@@ -10,11 +10,13 @@ class LlamacppProvider:
         MODEL_PATH: str = "",
         MAX_TOKENS: int = 2000,
         AI_TEMPERATURE: float = 0.7,
+        AI_MODEL: str = "default",
         **kwargs
     ):
         self.requirements = ["pyllamacpp"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL
         if MODEL_PATH:
             try:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)

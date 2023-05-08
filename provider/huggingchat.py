@@ -3,10 +3,17 @@ from requests.sessions import Session
 
 
 class HuggingchatProvider:
-    def __init__(self, AI_TEMPERATURE: float = 0.7, MAX_TOKENS: int = 2000, **kwargs):
+    def __init__(
+        self,
+        AI_TEMPERATURE: float = 0.7,
+        MAX_TOKENS: int = 2000,
+        AI_MODEL: str = "openassistant",
+        **kwargs,
+    ):
         self.requirements = []
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt: str) -> str:
         session = Session()

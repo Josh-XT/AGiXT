@@ -9,11 +9,13 @@ class OobaboogaProvider:
         AI_PROVIDER_URI: str = "",
         MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
+        AI_MODEL: str = "default",
         **kwargs,
     ):
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_MODEL = AI_MODEL
         self.requirements = []
 
     def instruct(self, prompt, seed=None):
