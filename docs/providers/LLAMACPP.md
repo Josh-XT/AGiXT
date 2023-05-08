@@ -6,55 +6,10 @@
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 
 ## Quick Start Guide
-
-1. Find a compatible model with llama.cpp on Huggingface then download it to a models folder.
-2. Clone the [Agent-LLM](https://github.com/Josh-XT/Agent-LLM) GitHub repository.
-
-
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd "Agent-LLM"
-pip install -r "requirements.txt"
-```
-
-3. Create your `.env` below. Replace your `MODEL_PATH` with the path to your model.
-
 _Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._
-
-
-
-```
-AI_PROVIDER=llamacpp
-MODEL_PATH=PATH/TO/YOUR/LLAMACPP/MODEL
-AI_MODEL=default
-AI_TEMPERATURE=0.2
-MAX_TOKENS=2000
-```
-
-4. Start the back end application for Agent-LLM.
-
-
-
-```
-python app.py
-```
-
-5. Navigate to the `frontend` folder to install dependencies and start the `NextJS` front end for Agent-LLM.
-
-
-
-```
-cd frontend
-npm install
-npm run dev
-```
-
-## Accessing Agent-LLM
-
-Web Interface: http://localhost
-
-Redoc: http://localhost:7437/redoc
-
-Swagger: http://localhost:7437/docs
-
+### Update your agent settings
+1. Set `AI_PROVIDER` to `llamacpp`.
+2. Set `MODEL_PATH` to the path of your llama.cpp model.
+3. Set `AI_MODEL` to `default` or the name of the model from the `model-prompts` folder.
+4. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
+5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.
