@@ -15,10 +15,10 @@ class work_with_ai(Commands):
                         {f"Ask{name}": self.ask, f"Instruct{name}": self.instruct}
                     )
 
-    def ask(self, prompt: str) -> str:
-        response = AgentLLM().run(prompt)
+    def ask(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
+        response = AgentLLM(agent_name).run(prompt)
         return response
 
-    def instruct(self, prompt: str) -> str:
-        response = AgentLLM().run(task=prompt, prompt="instruct")
+    def instruct(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
+        response = AgentLLM(agent_name).run(task=prompt, prompt="instruct")
         return response
