@@ -39,7 +39,11 @@ class HuggingchatProvider:
 
         conversation_id = res.json()["conversationId"]
         url = f"https://huggingface.co/chat/conversation/{conversation_id}"
-        max_tokens = int(self.MAX_TOKENS) - tokens
+        max_new_tokens = int(self.MAX_TOKENS) - tokens
+
+        # Huggingchat max limit is 1904, discovered via trial and error.
+        if max_new_tokens > 1904:
+            max_new_tokens = 1904
 
         res = session.post(
             url=url,
@@ -52,7 +56,7 @@ class HuggingchatProvider:
                     "top_k": 50,
                     "truncate": 1024,
                     "watermark": False,
-                    "max_new_tokens": max_tokens,
+                    "max_new_tokens": max_new_tokens,
                     "stop": ["<|endoftext|>"],
                     "return_full_text": False,
                 },
