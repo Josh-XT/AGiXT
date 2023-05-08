@@ -194,12 +194,10 @@ class AgentLLM:
                 response_parts.append(f"\n\nPLAN:\n\n{self.response['plan']}")
             if "summary" in self.response:
                 response_parts.append(f"\n\nSUMMARY:\n\n{self.response['summary']}")
-            if "commands" in self.response:
-                response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
             if "response" in self.response:
                 response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
-
             if "commands" in self.response:
+                response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
                 for command_name, command_args in self.response["commands"].items():
                     # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                     if command_name is not None:
