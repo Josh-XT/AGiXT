@@ -21,5 +21,6 @@ class Gpt4freeProvider:
             model=self.AI_MODEL,
             temperature=self.AI_TEMPERATURE,
             max_tokens=self.MAX_TOKENS,
+            systemMessage="",
         )
         return response["text"]
