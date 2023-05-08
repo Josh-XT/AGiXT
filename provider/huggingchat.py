@@ -21,7 +21,7 @@ class HuggingchatProvider:
         )
         self.AI_MODEL = AI_MODEL
 
-    def instruct(self, prompt: str) -> str:
+    def instruct(self, prompt: str, tokens: int = 0) -> str:
         session = Session()
         session.get(url="https://huggingface.co/chat/")
         res = session.post(
@@ -39,7 +39,7 @@ class HuggingchatProvider:
 
         conversation_id = res.json()["conversationId"]
         url = f"https://huggingface.co/chat/conversation/{conversation_id}"
-        max_tokens = int(self.MAX_TOKENS) - len(prompt)
+        max_tokens = int(self.MAX_TOKENS) - tokens
 
         res = session.post(
             url=url,

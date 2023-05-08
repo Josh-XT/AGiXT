@@ -142,8 +142,8 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-
-        return formatted_prompt, prompt
+        tokens = len(nlp(formatted_prompt))
+        return formatted_prompt, prompt, tokens
 
     def run(
         self,
@@ -154,7 +154,7 @@ class AgentLLM:
         context_results: int = 3,
         **kwargs,
     ):
-        formatted_prompt, unformatted_prompt = self.format_prompt(
+        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
             long_term_access=long_term_access,
@@ -162,7 +162,7 @@ class AgentLLM:
             prompt=prompt,
             **kwargs,
         )
-        self.response = self.CFG.instruct(formatted_prompt)
+        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
@@ -175,7 +175,7 @@ class AgentLLM:
                     context_results = context_results - 1
                 else:
                     context_results = 0
-                formatted_prompt, unformatted_prompt = self.format_prompt(
+                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
                     task=task,
                     top_results=context_results,
                     long_term_access=long_term_access,
@@ -183,7 +183,7 @@ class AgentLLM:
                     prompt=prompt,
                     **kwargs,
                 )
-                self.response = self.CFG.instruct(formatted_prompt)
+                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
                 valid_json = self.validate_json(self.response)
             if valid_json:
                 self.response = valid_json

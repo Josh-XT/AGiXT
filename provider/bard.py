@@ -10,7 +10,7 @@ class BardProvider:
         self.BARD_TOKEN = BARD_TOKEN
         self.AI_MODEL = AI_MODEL
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         try:
             chatbot = Chatbot(self.BARD_TOKEN)
             response = chatbot.ask(prompt)

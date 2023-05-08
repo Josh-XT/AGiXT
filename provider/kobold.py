@@ -16,9 +16,9 @@ class KoboldProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.AI_MODEL = AI_MODEL
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         try:
-            max_tokens = int(self.MAX_TOKENS - len(prompt))
+            max_tokens = int(self.MAX_TOKENS - tokens)
         except:
             max_tokens = 2000
         response = requests.post(
