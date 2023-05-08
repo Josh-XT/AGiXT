@@ -50,8 +50,9 @@ class file_operations(Commands):
             new_path = os.path.normpath(os.path.join("/", *paths))
         return new_path
 
+    @staticmethod
     def split_file(
-        self, content: str, max_length: int = 4000, overlap: int = 0
+        content: str, max_length: int = 4000, overlap: int = 0
     ) -> Generator[str, None, None]:
         start = 0
         content_length = len(content)
