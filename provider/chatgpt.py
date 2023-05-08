@@ -7,9 +7,14 @@ import undetected_chromedriver as uc
 
 class ChatgptProvider:
     def __init__(
-        self, CHATGPT_USERNAME: str = "", CHATGPT_PASSWORD: str = "", **kwargs
+        self,
+        CHATGPT_USERNAME: str = "",
+        CHATGPT_PASSWORD: str = "",
+        AI_MODEL: str = "gpt-3.5-turbo",
+        **kwargs,
     ):
         self.requirements = ["undetected-chromedriver", "selenium", "webdriver-manager"]
+        self.AI_MODEL = AI_MODEL
         self.head_count = 2
         self.head_responses = [[] for _ in range(self.head_count)]
         self.login_xq = '//button[//div[text()="Log in"]]'
