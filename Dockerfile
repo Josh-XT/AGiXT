@@ -1,24 +1,23 @@
-FROM python:3.10-slim-buster
-
-RUN apt-get update --fix-missing && \
-    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 && \
-    apt-get autoremove -y && \
+# Install FastAPI app dependencies
+FROM python:3.10-slim-buster AS base
+WORKDIR /app
+COPY requirements.txt ./
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git build-essential && \
+    apt-get install g++ -y && \
     pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --force-reinstall --no-cache-dir hnswlib && \
+    apt-get remove -y git build-essential && \
+    apt-get install libgomp1 -y && \
+    apt-get install git -y && \
+    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g 1000 flaskgroup 
-RUN adduser --uid 1000 --gid 1000 --home /app flaskuser --disabled-login
-
-USER flaskuser
-
+#Run FastAPI app with Uvicorn
+FROM scratch AS uvicorn
+COPY --from=base / /
 WORKDIR /app
-
-VOLUME /app/.cache
-
-COPY --chown=flaskuser:flaskgroup . .
-
-RUN pip install -r requirements.txt && \
-    pip install hnswlib fastapi uvicorn
-
+COPY . .
 EXPOSE 7437
-ENTRYPOINT ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
