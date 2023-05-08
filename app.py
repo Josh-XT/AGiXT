@@ -126,21 +126,6 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
 
 
-# For adding new agents, expecting a payload like this:
-# {
-#    "agent_name": "test",
-#    "settings": {
-#        "provider": "openai",
-#        "OPENAI_API_KEY": "sk-...",
-#        "AI_MODEL": "gpt-3.5-turbo",
-#        "AI_TEMPERATURE": 0.7,
-#        "MAX_TOKENS": 4096,
-#    }
-# }
-# Take what you get from "/api/provider/{provider_name}" endpoint to set the settings.
-# Get user input for each of those settings up the new agent.
-
-
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
     Agent(agent_name).rename_agent(agent_name, new_name.new_name)
@@ -149,7 +134,6 @@ async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessa
     )
 
 
-# Update agent
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
 async def update_agent_settings(
     agent_name: str, settings: AgentSettings
@@ -196,7 +180,7 @@ async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.run(
         task=prompt.prompt,
-        max_context_tokens=500,
+        max_context_tokens=100,
         long_term_access=False,
         prompt="instruct",
     )
@@ -206,7 +190,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=500)
+    response = agent.run(prompt.prompt, max_context_tokens=100)
     return {"response": str(response)}
 
 
