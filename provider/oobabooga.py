@@ -18,13 +18,11 @@ class OobaboogaProvider:
         self.AI_MODEL = AI_MODEL
         self.requirements = []
 
-    def instruct(self, prompt, seed=None):
-        if seed is None:
-            seed = random.randint(1, 1000000000)
-
+    def instruct(self, prompt, tokens: int = 0):
+        new_tokens = self.MAX_TOKENS - tokens
         params = {
             "prompt": prompt,
-            "max_new_tokens": int(self.MAX_TOKENS),
+            "max_new_tokens": new_tokens,
             "do_sample": True,
             "temperature": float(self.AI_TEMPERATURE),
             "top_p": 0.73,
@@ -37,7 +35,7 @@ class OobaboogaProvider:
             "penalty_alpha": 0,
             "length_penalty": 1,
             "early_stopping": False,
-            "seed": seed,
+            "seed": random.randint(1, 1000000000),
             "add_bos_token": True,
             "truncation_length": 4096,
             "ban_eos_token": False,

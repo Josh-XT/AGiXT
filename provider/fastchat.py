@@ -15,7 +15,7 @@ class FastchatProvider:
         self.AI_MODEL = AI_MODEL
         self.MODEL_PATH = MODEL_PATH
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         messages = [{"role": "system", "content": prompt}]
         params = {"model": self.MODEL_PATH, "messages": messages}
         response = requests.post(

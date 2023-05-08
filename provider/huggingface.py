@@ -24,7 +24,7 @@ class HuggingfaceProvider:
         self.MAX_TOKENS = MAX_TOKENS
         self.MODEL_PATH = MODEL_PATH
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         try:
             model_path = self.MODEL_PATH
             if "chatglm" in model_path:

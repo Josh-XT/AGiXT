@@ -14,7 +14,7 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         response = gpt4free.Completion.create(
             gpt4free.Provider.UseLess,
             prompt=prompt,
