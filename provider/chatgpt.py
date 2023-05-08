@@ -151,7 +151,7 @@ class ChatgptProvider:
             time.sleep(sleep_duration)
         return
 
-    def instruct(self, prompt: str):
+    def instruct(self, prompt: str, tokens: int = 0):
         text_area = self.browser.find_element(By.TAG_NAME, "textarea")
         for each_line in prompt.split("\n"):
             text_area.send_keys(each_line)

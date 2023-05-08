@@ -24,7 +24,7 @@ class LlamacppProvider:
                 self.MAX_TOKENS = 2000
             self.model = Model(ggml_model=MODEL_PATH, n_ctx=self.MAX_TOKENS)
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         return self.model.generate(
             prompt, n_predict=55, n_threads=8, temp=float(self.AI_TEMPERATURE)
         )
