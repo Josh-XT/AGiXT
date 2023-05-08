@@ -199,27 +199,28 @@ class AgentLLM:
             if "response" in self.response:
                 response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
 
-            for command_name, command_args in self.response["commands"].items():
-                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                if command_name is not None:
-                    for available_command in self.available_commands:
-                        if command_name in [
-                            available_command["friendly_name"],
-                            available_command["name"],
-                        ]:
-                            command_name = available_command["name"]
-                            break
-                    response_parts.append(
-                        f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                    )
-                else:
-                    if command_name == "None.":
-                        response_parts.append(f"\n\nNo commands were executed.")
-                    else:
+            if "commands" in self.response:
+                for command_name, command_args in self.response["commands"].items():
+                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                    if command_name is not None:
+                        for available_command in self.available_commands:
+                            if command_name in [
+                                available_command["friendly_name"],
+                                available_command["name"],
+                            ]:
+                                command_name = available_command["name"]
+                                break
                         response_parts.append(
-                            f"\n\nCommand not recognized: {command_name}"
+                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
                         )
-            self.response = "".join(response_parts)
+                    else:
+                        if command_name == "None.":
+                            response_parts.append(f"\n\nNo commands were executed.")
+                        else:
+                            response_parts.append(
+                                f"\n\nCommand not recognized: {command_name}"
+                            )
+                self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
