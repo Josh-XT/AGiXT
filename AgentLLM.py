@@ -93,12 +93,17 @@ class AgentLLM:
             return False
 
     def custom_format(self, string, **kwargs):
+        if isinstance(string, list):
+            string = "".join(string)
+
         def replace(match):
+            if isinstance(match, list):
+                match = "".join(match)
             key = match.group(1)
             return kwargs.get(key, match.group(0))
 
         pattern = r"(?<!{){([^{}\n]+)}(?!})"
-        return re.sub(pattern, replace, "".join(string))
+        return re.sub(pattern, replace, string)
 
     def format_prompt(
         self,
