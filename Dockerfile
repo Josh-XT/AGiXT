@@ -18,7 +18,7 @@ VOLUME /app/.cache
 COPY --chown=flaskuser:flaskgroup . .
 
 RUN pip install -r requirements.txt && \
-    pip install hnswlib
+    pip install hnswlib fastapi uvicorn
 
 EXPOSE 7437
-ENTRYPOINT ["python", "/app/app.py"]
+ENTRYPOINT ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
