@@ -16,6 +16,10 @@ class Gpt4freeProvider:
 
     def instruct(self, prompt):
         response = gpt4free.Completion.create(
-            gpt4free.Provider.UseLess, prompt=prompt, model=self.AI_MODEL
+            gpt4free.Provider.UseLess,
+            prompt=prompt,
+            model=self.AI_MODEL,
+            temperature=self.AI_TEMPERATURE,
+            max_tokens=self.MAX_TOKENS,
         )
         return response["text"]
