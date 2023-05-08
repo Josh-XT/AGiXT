@@ -220,7 +220,7 @@ class AgentLLM:
                             response_parts.append(
                                 f"\n\nCommand not recognized: {command_name}"
                             )
-                self.response = "".join(response_parts)
+            self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
             self.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
