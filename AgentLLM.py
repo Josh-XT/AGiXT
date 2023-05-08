@@ -72,7 +72,7 @@ class AgentLLM:
         enabled_commands = filter(
             lambda command: command.get("enabled", True), self.available_commands
         )
-        if len(enabled_commands) == 0:
+        if not enabled_commands:
             return "No commands."
 
         friendly_names = map(
