@@ -7,19 +7,17 @@ import spacy
 from spacy.cli import download
 from Config.Agent import Agent
 
-try:
-    nlp = spacy.load("en_core_web_sm")
-except:
-    print("Downloading spacy model...")
-    download("en_core_web_sm")
-    nlp = spacy.load("en_core_web_sm")
-
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "Agent-LLM", CFG=None):
+    def __init__(self, AGENT_NAME: str = "Agent-LLM"):
         self.AGENT_NAME = AGENT_NAME
         self.CFG = Agent(self.AGENT_NAME)
-        self.nlp = nlp
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except:
+            print("Downloading spacy model...")
+            download("en_core_web_sm")
+            self.nlp = spacy.load("en_core_web_sm")
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
