@@ -54,6 +54,7 @@ class ChatgptProvider:
         CHATGPT_USERNAME: str = "",
         CHATGPT_PASSWORD: str = "",
         AI_MODEL: str = "gpt-3.5-turbo",
+        **kwargs,
     ):
         """
         Initialize the ChatGPT object\n
