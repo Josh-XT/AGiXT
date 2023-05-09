@@ -50,8 +50,6 @@ This project is under active development and may still have issues. We appreciat
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
     - [Back End](#back-end)
     - [Front End](#front-end)
-      - [Windows](#windows)
-      - [Linux/MacOS](#linuxmacos)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -130,7 +128,7 @@ As a reminder, this can be dangerous to run locally depending on what commands y
 
 ### Back End
 
-Clone the repositories for the Agent-LLM back end and start it.
+Clone the repository for the Agent-LLM back end and start it.
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
@@ -141,15 +139,13 @@ python app.py
 
 ### Front End
 
-#### Windows
-```
-./frontend.ps1
-```
-
-#### Linux/MacOS
+Clone the repository for the Agent-LLM front end in a separate terminal and start it.
 
 ```
-./frontend.sh
+git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend --recurse-submodules 
+cd Agent-LLM-Frontend
+yarn install
+yarn dev
 ```
 
 Access the web interface at http://localhost:3000
