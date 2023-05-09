@@ -50,8 +50,6 @@ This project is under active development and may still have issues. We appreciat
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
     - [Back End](#back-end)
     - [Front End](#front-end)
-      - [Linux or MacOS](#linux-or-macos)
-      - [Windows](#windows)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -140,14 +138,11 @@ python app.py
 ```
 
 ### Front End
-#### Linux or MacOS
-```
-docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')':7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
-```
 
-#### Windows
+Replace `<YOUR-LOCAL-IP>` with your local IP address. You can find this by running `ipconfig` on Windows or `ifconfig` on Linux/MacOS.
+
 ```
-docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://$(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -ne "Loopback Pseudo-Interface 1" -and $_.AddressFamily -eq "IPv4" } | Select-Object -ExpandProperty IPAddress)`:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
+docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://<YOUR-LOCAL-IP>:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
 ```
 
 Access the web interface at http://localhost:3000
