@@ -35,3 +35,6 @@ webdriver_manager
 spacy
 discord
 EdgeGPT
+markdownify
+ffmpeg_downloader
+pyvirtualdisplay

@@ -3,7 +3,6 @@ import chromadb
 import secrets
 from typing import List, Dict
 from chromadb.utils import embedding_functions
-from Config.Agent import Agent
 import spacy
 from spacy.cli import download
 
@@ -16,9 +15,9 @@ except:
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "Agent-LLM"):
+    def __init__(self, AGENT_NAME: str = "Agent-LLM", CFG=None):
         self.AGENT_NAME = AGENT_NAME
-        self.CFG = Agent(self.AGENT_NAME)
+        self.CFG = CFG
         self.nlp = nlp
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
