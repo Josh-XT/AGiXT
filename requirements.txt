@@ -39,3 +39,6 @@ gpt4free
 accelerate
 torch
 EdgeGPT
+markdownify
+ffmpeg_downloader
+pyvirtualdisplay
