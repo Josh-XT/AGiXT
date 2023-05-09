@@ -51,14 +51,13 @@ class ChatgptProvider:
 
     def __init__(
         self,
-        CHATGPT_USERNAME: str = "",
-        CHATGPT_PASSWORD: str = "",
+        CHATGPT_TOKEN: str = (None,),
         AI_MODEL: str = "gpt-3.5-turbo",
         **kwargs,
     ):
         """
         Initialize the ChatGPT object\n
-        :param session_token: The session token to use for authentication
+        :param CHATGPT_TOKEN: The session token to use for authentication
         :param conversation_id: The conversation ID to use for the chat session
         :param auth_type: The authentication type to use (`google`, `microsoft`, `openai`)
         :param email: The email to use for authentication
@@ -71,7 +70,6 @@ class ChatgptProvider:
         :param moderation: Whether to enable message moderation
         :param verbose: Whether to enable verbose logging
         """
-        session_token: str = (None,)
         conversation_id: str = ("",)
         auth_type: str = (None,)
         login_cookies_path: str = ("",)
@@ -83,11 +81,11 @@ class ChatgptProvider:
         verbose: bool = (False,)
         self.__init_logger(verbose)
         self.AI_MODEL = AI_MODEL
-        self.__session_token = session_token
+        self.__session_token = CHATGPT_TOKEN
         self.__conversation_id = conversation_id
         self.__auth_type = auth_type
-        self.__email = CHATGPT_USERNAME
-        self.__password = CHATGPT_PASSWORD
+        self.__email = None
+        self.__password = None
         self.__login_cookies_path = login_cookies_path
         self.__captcha_solver = captcha_solver
         self.__solver_apikey = solver_apikey
