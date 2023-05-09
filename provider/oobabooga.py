@@ -7,7 +7,7 @@ class OobaboogaProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",
-        MAX_TOKENS: int = 4096,
+        MAX_TOKENS: int = 2048,
         AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
         **kwargs,
