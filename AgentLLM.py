@@ -1,12 +1,8 @@
-import secrets
-import string
 import argparse
 import re
 import spacy
 from collections import deque
 from typing import List, Dict
-import chromadb
-from chromadb.utils import embedding_functions
 from Config.Agent import Agent
 from commands.web_requests import web_requests
 from Commands import Commands
@@ -15,6 +11,7 @@ from json.decoder import JSONDecodeError
 import spacy
 from spacy.cli import download
 from CustomPrompt import CustomPrompt
+from Memories import Memories
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -26,38 +23,14 @@ except:
 
 class AgentLLM:
     def __init__(self, agent_name: str = "AgentLLM", primary_objective=None):
-        self.CFG = Agent(agent_name)
+        self.agent_name = agent_name
+        self.CFG = Agent(self.agent_name)
+        self.memories = Memories(self.agent_name, nlp=nlp)
         self.primary_objective = primary_objective
         self.task_list = deque([])
-        self.commands = Commands(agent_name)
+        self.commands = Commands(self.agent_name)
         self.available_commands = self.commands.get_available_commands()
         self.web_requests = web_requests()
-        if self.CFG.AI_PROVIDER == "openai":
-            self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
-            )
-        else:
-            self.embedding_function = (
-                embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="distilbert-base-uncased"
-                )
-            )
-        self.chroma_persist_dir = f"agents/{agent_name}/memories"
-        self.chroma_client = chromadb.Client(
-            settings=chromadb.config.Settings(
-                chroma_db_impl="duckdb+parquet",
-                persist_directory=self.chroma_persist_dir,
-            )
-        )
-        stripped_agent_name = "".join(
-            c for c in agent_name if c in string.ascii_letters
-        )
-        self.collection = self.chroma_client.get_or_create_collection(
-            name=str(stripped_agent_name).lower(),
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=self.embedding_function,
-        )
-        self.agent_name = agent_name
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
         self.stop_running_event = None
@@ -127,7 +100,7 @@ class AgentLLM:
         if top_results == 0:
             context = "None"
         else:
-            context = self.context_agent(
+            context = self.memories.context_agent(
                 query=task,
                 top_results_num=top_results,
                 long_term_access=long_term_access,
@@ -220,82 +193,11 @@ class AgentLLM:
                             )
             self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
-            self.store_result(task, self.response)
+            self.memories.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
             self.CFG.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")
         return self.response
-
-    def store_result(self, task_name: str, result: str):
-        if result:
-            result_id = "".join(
-                secrets.choice(string.ascii_lowercase + string.digits)
-                for _ in range(64)
-            )
-            if len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0:
-                self.collection.update(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
-                )
-            else:
-                self.collection.add(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
-                )
-
-    def context_agent(
-        self,
-        query: str,
-        top_results_num: int,
-        long_term_access: bool = False,
-        max_tokens: int = 180,
-    ) -> List[str]:
-        if long_term_access:
-            interactions = self.CFG.memory["interactions"]
-            context = [
-                interaction["message"]
-                for interaction in interactions[-top_results_num:]
-            ]
-            context = self.chunk_content("\n\n".join(context))[-top_results_num:]
-        else:
-            count = self.collection.count()
-            if count == 0:
-                return []
-            results = self.collection.query(
-                query_texts=query,
-                n_results=min(top_results_num, count),
-                include=["metadatas"],
-            )
-            context = [item["result"] for item in results["metadatas"][0]]
-        trimmed_context = []
-        total_tokens = 0
-        for item in context:
-            item_tokens = len(nlp(item))
-            if total_tokens + item_tokens <= max_tokens:
-                trimmed_context.append(item)
-                total_tokens += item_tokens
-            else:
-                break
-        return "\n".join(trimmed_context)
-
-    def chunk_content(self, content: str, max_length: int = 180) -> List[str]:
-        content_chunks = []
-        doc = nlp(content)
-        length = 0
-        chunk = []
-        for sent in doc.sents:
-            if length + len(sent) <= max_length:
-                chunk.append(sent.text)
-                length += len(sent)
-            else:
-                content_chunks.append(" ".join(chunk))
-                chunk = [sent.text]
-                length = len(sent)
-        if chunk:
-            content_chunks.append(" ".join(chunk))
-        return content_chunks
 
     def get_status(self):
         try:
