@@ -7,11 +7,11 @@
 
 ## Disclaimer
 
-We are not responsible if Google bans your account for doing this. This may not be consistent with their rules to use their services in this way. This was developed for experimental purposes and we assume no responsibility for how you use it.
+We are not responsible if Microsoft bans your account for doing this. This may not be consistent with their rules to use their services in this way. This was developed for experimental purposes and we assume no responsibility for how you use it.
 
 ## Quick Start Guide
 
-### Get your Google Bard Token
+### Get your Bing Cookies
 
 1. Install the cookie editor extension for Chrome or Firefox
 2. Go to bing.com
