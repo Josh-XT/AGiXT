@@ -49,13 +49,13 @@ class Agent(Config):
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv(
             "USE_LONG_TERM_MEMORY_ONLY", "false"
         ).lower()
-        self.memories = Memories(self.agent_name)
         # Yaml Memory
         self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
         self.agent_instances = {}
         self.commands = self.load_commands()
+        self.memories = Memories(self.AGENT_NAME, self)
 
     def _load_agent_config_keys(self, keys):
         for key in keys:
