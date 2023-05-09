@@ -38,3 +38,4 @@ discord
 gpt4free
 accelerate
 torch
+EdgeGPT
