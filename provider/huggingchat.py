@@ -13,12 +13,7 @@ class HuggingchatProvider:
     ):
         self.requirements = []
         self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS_CEILING = max_tokens_ceiling(AI_MODEL)
-        self.MAX_TOKENS = (
-            MAX_TOKENS
-            if MAX_TOKENS <= self.MAX_TOKENS_CEILING
-            else self.MAX_TOKENS_CEILING
-        )
+        self.MAX_TOKENS = int(MAX_TOKENS)
         self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt: str, tokens: int = 0) -> str:
