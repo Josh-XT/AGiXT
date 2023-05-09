@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from inspect import signature, Parameter
 from provider import Provider
 from Config import Config
-from Memories import Memories
 
 load_dotenv()
 
@@ -55,7 +54,6 @@ class Agent(Config):
         self.memory = self.load_memory()
         self.agent_instances = {}
         self.commands = self.load_commands()
-        self.memories = Memories(self.AGENT_NAME, self)
 
     def _load_agent_config_keys(self, keys):
         for key in keys:

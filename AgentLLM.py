@@ -8,6 +8,7 @@ from Commands import Commands
 import json
 from json.decoder import JSONDecodeError
 from CustomPrompt import CustomPrompt
+from Memories import Memories
 
 
 class AgentLLM:
@@ -21,6 +22,7 @@ class AgentLLM:
         self.web_requests = web_requests()
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
+        self.memories = Memories(self.agent_name, self)
         self.stop_running_event = None
 
     def get_output_list(self):
@@ -88,7 +90,7 @@ class AgentLLM:
         if top_results == 0:
             context = "None"
         else:
-            context = self.CFG.memories.context_agent(
+            context = self.memories.context_agent(
                 query=task,
                 top_results_num=top_results,
                 long_term_access=long_term_access,
@@ -103,7 +105,7 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-        tokens = len(self.CFG.memories.nlp(formatted_prompt))
+        tokens = len(self.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
     def run(
@@ -181,7 +183,7 @@ class AgentLLM:
                             )
             self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
-            self.CFG.memories.store_result(task, self.response)
+            self.memories.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
             self.CFG.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")

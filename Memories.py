@@ -5,6 +5,7 @@ from typing import List, Dict
 from chromadb.utils import embedding_functions
 import spacy
 from spacy.cli import download
+from Config.Agent import Agent
 
 try:
     nlp = spacy.load("en_core_web_sm")
@@ -17,7 +18,7 @@ except:
 class Memories:
     def __init__(self, AGENT_NAME: str = "Agent-LLM", CFG=None):
         self.AGENT_NAME = AGENT_NAME
-        self.CFG = CFG
+        self.CFG = Agent(self.AGENT_NAME)
         self.nlp = nlp
         if self.CFG.AI_PROVIDER == "openai":
             self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
