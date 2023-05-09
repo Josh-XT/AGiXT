@@ -180,7 +180,7 @@ async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.run(
         task=prompt.prompt,
-        max_context_tokens=100,
+        max_context_tokens=128,
         long_term_access=False,
         prompt="instruct",
     )
@@ -190,7 +190,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, max_context_tokens=100)
+    response = agent.run(prompt.prompt, max_context_tokens=128)
     return {"response": str(response)}
 
 

@@ -19,7 +19,7 @@ class OobaboogaProvider:
         self.requirements = []
 
     def instruct(self, prompt, tokens: int = 0):
-        new_tokens = self.MAX_TOKENS - tokens
+        new_tokens = int(self.MAX_TOKENS) - tokens
         params = {
             "prompt": prompt,
             "max_new_tokens": new_tokens,

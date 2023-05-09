@@ -1,6 +1,5 @@
 import argparse
 import re
-import spacy
 from collections import deque
 from typing import List, Dict
 from Config.Agent import Agent
@@ -8,24 +7,13 @@ from commands.web_requests import web_requests
 from Commands import Commands
 import json
 from json.decoder import JSONDecodeError
-import spacy
-from spacy.cli import download
 from CustomPrompt import CustomPrompt
-from Memories import Memories
-
-try:
-    nlp = spacy.load("en_core_web_sm")
-except:
-    print("Downloading spacy model...")
-    download("en_core_web_sm")
-    nlp = spacy.load("en_core_web_sm")
 
 
 class AgentLLM:
     def __init__(self, agent_name: str = "AgentLLM", primary_objective=None):
         self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
-        self.memories = Memories(self.agent_name, nlp=nlp)
         self.primary_objective = primary_objective
         self.task_list = deque([])
         self.commands = Commands(self.agent_name)
@@ -100,7 +88,7 @@ class AgentLLM:
         if top_results == 0:
             context = "None"
         else:
-            context = self.memories.context_agent(
+            context = self.CFG.memories.context_agent(
                 query=task,
                 top_results_num=top_results,
                 long_term_access=long_term_access,
@@ -115,7 +103,7 @@ class AgentLLM:
             objective=self.primary_objective,
             **kwargs,
         )
-        tokens = len(nlp(formatted_prompt))
+        tokens = len(self.CFG.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
     def run(
@@ -193,7 +181,7 @@ class AgentLLM:
                             )
             self.response = "".join(response_parts)
         if not self.CFG.NO_MEMORY:
-            self.memories.store_result(task, self.response)
+            self.CFG.memories.store_result(task, self.response)
             self.CFG.log_interaction("USER", task)
             self.CFG.log_interaction(self.agent_name, self.response)
         print(f"Response: {self.response}")
