@@ -50,6 +50,8 @@ This project is under active development and may still have issues. We appreciat
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
     - [Back End](#back-end)
     - [Front End](#front-end)
+      - [Windows](#windows)
+      - [Linux/MacOS](#linuxmacos)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -139,10 +141,15 @@ python app.py
 
 ### Front End
 
-Replace `<YOUR-LOCAL-IP>` with your local IP address. You can find this by running `ipconfig` on Windows or `ifconfig` on Linux/MacOS.
+#### Windows
+```
+./frontend.ps1
+```
+
+#### Linux/MacOS
 
 ```
-docker run -it --pull always -p 3000:3000 -e NEXT_PUBLIC_API_URI=http://<YOUR-LOCAL-IP>:7437 ghcr.io/jamesonrgrieve/agent-llm-frontend:main
+./frontend.sh
 ```
 
 Access the web interface at http://localhost:3000
