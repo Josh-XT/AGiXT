@@ -4,10 +4,19 @@ import secrets
 from typing import List, Dict
 from chromadb.utils import embedding_functions
 from Config.Agent import Agent
+import spacy
+from spacy.cli import download
+
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    print("Downloading spacy model...")
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "Agent-LLM", nlp=None):
+    def __init__(self, AGENT_NAME: str = "Agent-LLM"):
         self.AGENT_NAME = AGENT_NAME
         self.CFG = Agent(self.AGENT_NAME)
         self.nlp = nlp

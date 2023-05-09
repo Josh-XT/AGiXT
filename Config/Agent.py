@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from inspect import signature, Parameter
 from provider import Provider
 from Config import Config
+from Memories import Memories
 
 load_dotenv()
 
@@ -48,7 +49,7 @@ class Agent(Config):
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv(
             "USE_LONG_TERM_MEMORY_ONLY", "false"
         ).lower()
-
+        self.memories = Memories(self.agent_name)
         # Yaml Memory
         self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
         self._create_parent_directories(self.memory_file)
