@@ -7,7 +7,7 @@ class HuggingchatProvider:
     def __init__(
         self,
         AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 2048,
+        MAX_TOKENS: int = 2000,
         AI_MODEL: str = "openassistant",
         **kwargs,
     ):
