@@ -60,5 +60,7 @@ def max_tokens_ceiling(ai_model: str):
     # https://huggingface.co/bigcode/starcoderbase
     elif ai_model == "starcoderbase":
         return 8192
+    elif ai_model == "default":
+        return 2000
     else:
         return 999999999
