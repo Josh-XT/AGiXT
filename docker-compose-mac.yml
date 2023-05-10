@@ -16,7 +16,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile-mac-backend
+      dockerfile: Dockerfile
     platform: linux/amd64
     init: true
     env_file:
