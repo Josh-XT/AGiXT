@@ -213,7 +213,9 @@ class AgentLLM:
         if "response" in valid_json:
             self.response = f"RESPONSE:\n\n{valid_json['response']}"
         if "summary" in valid_json:
-            self.response += f"\n\nSUMMARY:\n\n{valid_json['summary']}"
+            self.response += (
+                f"\n\nSummary of the AI Actions:\n\n{valid_json['summary']}"
+            )
         self.memories.store_result(task, self.response)
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
