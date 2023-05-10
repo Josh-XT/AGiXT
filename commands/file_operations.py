@@ -42,6 +42,8 @@ class file_operations(Commands):
 
     @staticmethod
     def safe_join(base: str, paths) -> str:
+        if "/path/to/" in paths:
+            paths = paths.replace("/path/to/", "")
         if str(CFG.WORKING_DIRECTORY_RESTRICTED).lower() == "true":
             new_path = os.path.normpath(os.path.join(base, *paths.split("/")))
             if os.path.commonprefix([base, new_path]) != base:
