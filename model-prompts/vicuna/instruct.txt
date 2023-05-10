@@ -7,7 +7,7 @@ No user assistance.
 The following commands are available to complete this task given:
 {COMMANDS}
 
-OUTPUT RESULT IN THE FOLLOWING JSON SCHEMA FORMAT AND DONT SAY ANYTHING ELSE.
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! BREAKING THIS RULE IS PUNISHABLE BY DEATH!
 
 {
     "plan": "Your plan for achieving the task",

@@ -1,0 +1,23 @@
+Task: 
+```
+{task}
+```
+
+Task Response: 
+```
+{previous_response}
+```
+
+Context: 
+```
+{context}
+```
+
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! BREAKING THIS RULE IS PUNISHABLE BY DEATH!
+
+```
+{
+    "summary": "Summary of what was done in the task response.",
+    "response": "Your best answer to the task given the new context."
+}
+```
