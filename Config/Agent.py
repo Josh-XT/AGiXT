@@ -284,6 +284,8 @@ class Agent(Config):
             yaml.safe_dump(self.memory, file)
 
     def log_interaction(self, role: str, message: str):
+        if self.memory is None:
+            self.memory = {"interactions": []}
         self.memory["interactions"].append({"role": role, "message": message})
         self.save_memory()
 
