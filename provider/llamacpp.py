@@ -28,5 +28,8 @@ class LlamacppProvider:
 
     def instruct(self, prompt, tokens: int = 0):
         return self.model(
-            prompt, max_tokens=55, stop=["\n"], temperature=float(self.AI_TEMPERATURE)
+            prompt,
+            max_tokens=self.MAX_TOKENS,
+            stop=["\n"],
+            temperature=float(self.AI_TEMPERATURE),
         )["choices"][0]["text"]
