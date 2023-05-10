@@ -130,7 +130,10 @@ class AgentLLM:
         if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
-                print("Invalid JSON response. Trying again.")
+                print("INVALID JSON RESPONSE")
+                print(self.response)
+                print("... Trying again.")
+
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -179,6 +182,8 @@ class AgentLLM:
                                 f"\n\nCommand not recognized: {command_name}"
                             )
             self.response = "".join(response_parts)
+            if "{COMMANDS}" in unformatted_prompt:
+                print(f"Pre-Validation Response: {self.response}")
         self.memories.store_result(task, self.response)
         # Second shot to validate response
         context_results = 3
@@ -195,7 +200,9 @@ class AgentLLM:
         if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
-                print("Invalid JSON response. Trying again.")
+                print("INVALID JSON RESPONSE")
+                print(self.response)
+                print("... Trying again.")
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -217,10 +224,12 @@ class AgentLLM:
                 self.response += (
                     f"\n\nSummary of the Agent Actions:\n\n{valid_json['summary']}"
                 )
+            print(f"Post-Validation Response: {self.response}")
+        else:
+            print(f"Response: {self.response}")
         self.memories.store_result(task, self.response)
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
-        print(f"{self.response}")
         return self.response
 
     def get_status(self):
