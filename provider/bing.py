@@ -4,6 +4,7 @@ import asyncio
 
 class BingProvider:
     def __init__(self, AI_TEMPERATURE: float = 0.7, **kwargs):
+        self.AI_MODEL = "default"
         self.requirements = ["EdgeGPT"]
         if AI_TEMPERATURE >= 0.7:
             self.style = ConversationStyle.creative
