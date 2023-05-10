@@ -15,9 +15,8 @@ class BingProvider:
         try:
             bot = Chatbot(cookie_path="./cookies.json")
             response = bot.ask(
-                prompt,
-                self.style,
-                wss_link="wss://sydney.bing.com/sydney/ChatHub",
+                prompt=prompt,
+                conversation_style=self.style,
             )
             bot.close()
             return response
