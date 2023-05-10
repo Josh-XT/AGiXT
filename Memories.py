@@ -34,18 +34,17 @@ class Memories:
                 persist_directory=self.chroma_persist_dir,
             )
         )
-        collection_name = "memories"
         try:
             self.collection = self.chroma_client.get_collection(
-                name=collection_name, embedding_function=self.embedding_function
+                name="memories", embedding_function=self.embedding_function
             )
-            print(f"Collection {collection_name} found.")
+            print(f"Memories for {self.AGENT_NAME} found.")
         except ValueError:
-            print(f"Collection {collection_name} does not exist. Creating it...")
+            print(f"Memories for {self.AGENT_NAME} do not exist. Creating...")
             self.collection = self.chroma_client.create_collection(
-                name=collection_name, embedding_function=self.embedding_function
+                name="memories", embedding_function=self.embedding_function
             )
-            print(f"Collection {collection_name} created successfully.")
+            print(f"Memories for {self.AGENT_NAME} created successfully.")
 
     def store(self, textdata, metadata, ids):
         """
