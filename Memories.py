@@ -34,14 +34,55 @@ class Memories:
                 persist_directory=self.chroma_persist_dir,
             )
         )
-        stripped_agent_name = "".join(
-            c for c in self.AGENT_NAME if c in string.ascii_letters
-        )
-        self.collection = self.chroma_client.get_or_create_collection(
-            name=str(stripped_agent_name).lower(),
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=self.embedding_function,
-        )
+        collection_name = "memories"
+        try:
+            self.collection = self.chroma_client.get_collection(
+                name=collection_name, embedding_function=self.embedding_function
+            )
+            print(f"Collection {collection_name} found.")
+        except ValueError:
+            print(f"Collection {collection_name} does not exist. Creating it...")
+            self.collection = self.chroma_client.create_collection(
+                name=collection_name, embedding_function=self.embedding_function
+            )
+            print(f"Collection {collection_name} created successfully.")
+
+    def store(self, textdata, metadata, ids):
+        """
+        Stores new textdata, username, and ids in the ChromaDB collection.
+
+        Args:
+            textdata: list of strings, the text data to store.
+            username: list of strings, the usernames associated with the text data.
+            ids: list of strings or ints, the unique IDs associated with the text data.
+
+        Returns:
+            None.
+        """
+        # Store the new entry in the collection.
+        self.collection.add(documents=textdata, metadatas=metadata, ids=ids)
+        self.chroma_client.persist()
+
+    def retrieve(self, query_text, name, chunk_type):
+        metadata = {"name": name, "type": chunk_type}
+        try:
+            results = self.collection.query(
+                query_texts=[query_text],
+                n_results=3,
+                where=metadata,
+                include=["documents", "distances", "metadatas"],
+            )
+        except (
+            chromadb.errors.NoDatapointsException,
+            chromadb.errors.NotEnoughElementsException,
+        ) as e:
+            # Print the error message
+            print(f"Error: {e}")
+            # Return an empty list if no results are found or if there are not enough elements
+            results = []
+
+        # print(f"Generated results: {results}")
+        return results
 
     def store_result(self, task_name: str, result: str):
         if result:
