@@ -22,7 +22,7 @@ class AgentLLM:
         self.web_requests = web_requests()
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
-        self.memories = Memories(self.agent_name)
+        self.memories = Memories(self.agent_name, self.CFG)
         self.stop_running_event = None
 
     def get_output_list(self):

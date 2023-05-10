@@ -1,11 +1,9 @@
 from EdgeGPT import Chatbot, ConversationStyle
 import asyncio
-import nest_asyncio
 
 
 class BingProvider:
     def __init__(self, AI_TEMPERATURE: float = 0.7, **kwargs):
-        nest_asyncio.apply()
         self.requirements = ["EdgeGPT"]
         if AI_TEMPERATURE >= 0.7:
             self.style = ConversationStyle.creative
@@ -28,5 +26,5 @@ class BingProvider:
 
     def instruct(self, prompt, tokens: int = 0):
         loop = asyncio.get_event_loop()
-        response = loop.run_until_complete(self.ask(prompt, tokens))
-        return response
+        task = loop.create_task(self.ask(prompt, tokens))
+        return task.result()

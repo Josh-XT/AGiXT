@@ -5,13 +5,12 @@ from typing import List, Dict
 from chromadb.utils import embedding_functions
 import spacy
 from spacy.cli import download
-from Config.Agent import Agent
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "Agent-LLM"):
+    def __init__(self, AGENT_NAME: str = "Agent-LLM", AgentConfig=None):
         self.AGENT_NAME = AGENT_NAME
-        self.CFG = Agent(self.AGENT_NAME)
+        self.CFG = AgentConfig
         try:
             self.nlp = spacy.load("en_core_web_sm")
         except:
