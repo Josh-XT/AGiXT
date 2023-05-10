@@ -1,22 +1,22 @@
-from selenium import webdriver
-from requests.compat import urljoin
+from AgentLLM import AgentLLM
 from bs4 import BeautifulSoup
-from selenium.webdriver.remote.webdriver import WebDriver
+from captcha_solver import CaptchaSolver
+from Commands import Commands
+from Config import Config
+from pathlib import Path
+from requests.compat import urljoin
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.safari.options import Options as SafariOptions
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.wait import WebDriverWait
+from typing import List, Tuple
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
-from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.safari.options import Options as SafariOptions
 import logging
-from pathlib import Path
-from Config import Config
-from typing import List, Tuple, Union
-from AgentLLM import AgentLLM
-from Commands import Commands
-from captcha_solver import CaptchaSolver
 
 FILE_DIR = Path(__file__).parent.parent
 CFG = Config()
@@ -26,22 +26,24 @@ class web_selenium(Commands):
     def __init__(self):
         self.commands = {"Browse Website": self.browse_website}
 
-    def browse_website(self, url: str, question: str) -> Tuple[str, WebDriver]:
-        driver, text = self.scrape_text_with_selenium(url)
-        self.add_header(driver)
+    @staticmethod
+    def browse_website(url: str, question: str) -> Tuple[str, WebDriver]:
+        driver, text = web_selenium.scrape_text_with_selenium(url)
+        web_selenium.add_header(driver)
         prompt = f"{question} \n \n {text} \n \n"
         summary_text = AgentLLM().run(prompt)
-        links = self.scrape_links_with_selenium(driver, url)
+        links = web_selenium.scrape_links_with_selenium(driver, url)
 
         if len(links) > 5:
             links = links[:5]
-        self.close_browser(driver)
+        web_selenium.close_browser(driver)
         return (
             f"Answer gathered from website: {summary_text} \n \n Links: {links}",
             driver,
         )
 
-    def scrape_text_with_selenium(self, url: str) -> Tuple[WebDriver, str]:
+    @staticmethod
+    def scrape_text_with_selenium(url: str) -> Tuple[WebDriver, str]:
         logging.getLogger("selenium").setLevel(logging.CRITICAL)
 
         options_available = {
@@ -94,7 +96,8 @@ class web_selenium(Commands):
         text = "\n".join(chunk for chunk in chunks if chunk)
         return driver, text
 
-    def scrape_links_with_selenium(self, driver: WebDriver, url: str) -> List[str]:
+    @staticmethod
+    def scrape_links_with_selenium(driver: WebDriver, url: str) -> List[str]:
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, "html.parser")
 
@@ -108,8 +111,10 @@ class web_selenium(Commands):
 
         return [f"{link_text} ({link_url})" for link_text, link_url in hyperlinks]
 
-    def close_browser(self, driver: WebDriver) -> None:
+    @staticmethod
+    def close_browser(driver: WebDriver) -> None:
         driver.quit()
 
-    def add_header(self, driver: WebDriver) -> None:
+    @staticmethod
+    def add_header(driver: WebDriver) -> None:
         driver.execute_script(open(f"{FILE_DIR}/js/overlay.js", "r").read())
