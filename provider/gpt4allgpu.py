@@ -25,4 +25,7 @@ class Gpt4allgpuProvider:
         # TODO: Need to reseach to add temperature, no obvious flag.
 
     def instruct(self, prompt):
-        return self.model.generate(prompt, self.config)
+        try:
+            return self.model.generate(prompt, self.config)
+        except Exception as e:
+            return f"GPT4ALL Error: {e}"
