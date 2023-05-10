@@ -10,7 +10,7 @@ except ImportError:
 CFG = Config()
 
 
-class AIProvider:
+class Gpt4allProvider:
     def __init__(self):
         if not CFG.MODEL_PATH and not Path(CFG.MODEL_PATH).exists():
             raise Exception(
