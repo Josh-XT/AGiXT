@@ -6,6 +6,8 @@
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 
 ## Quick Start Guide
+**ARM MAC NOT SUPPORTED BY GPT4ALL**
+
 _Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._
 ### Update your agent settings
 1. Set `AI_PROVIDER` to `gpt4all` or `gpugpt4all` if wanting to run with GPU.
