@@ -10,16 +10,16 @@ class BingProvider:
             self.style = ConversationStyle.precise
         if AI_TEMPERATURE >= 0.4 and AI_TEMPERATURE <= 0.6:
             self.style = ConversationStyle.balanced
+        self.bot = Chatbot.create(cookie_path="./cookies.json")
 
     def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Chatbot.create(cookie_path="./cookies.json")
-            response = bot.ask(
+            response = self.bot.ask(
                 prompt,
                 self.style,
                 wss_link="wss://sydney.bing.com/sydney/ChatHub",
             )
-            bot.close()
+            self.bot.close()
             return response
         except Exception as e:
             return f"EdgeGPT Error: {e}"

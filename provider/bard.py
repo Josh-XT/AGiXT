@@ -9,11 +9,11 @@ class BardProvider:
         self.requirements = ["GoogleBard"]
         self.BARD_TOKEN = BARD_TOKEN
         self.AI_MODEL = AI_MODEL
+        self.bot = Chatbot(self.BARD_TOKEN)
 
     def instruct(self, prompt, tokens: int = 0):
         try:
-            chatbot = Chatbot(self.BARD_TOKEN)
-            response = chatbot.ask(prompt)
+            response = self.bot.ask(prompt)
             return response["content"].replace("\n", "\n")
         except Exception as e:
             return f"Bard Error: {e}"
