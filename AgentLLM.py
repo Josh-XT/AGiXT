@@ -252,13 +252,20 @@ class AgentLLM:
             f"Starting task with objective: {self.primary_objective}.\n\n"
         )
         if len(self.task_list) == 0:
-            self.task_list.append({"task_id": 1, "task_name": "Develop a task list."})
+            self.task_list.append(
+                {
+                    "task_id": 1,
+                    "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
+                }
+            )
         self.stop_running_event = stop_event
         while not stop_event.is_set():
             if self.task_list == []:
                 break
             if len(self.task_list) > 0:
                 task = self.task_list.popleft()
+            if task["task_name"] == "None" or task["task_name"] == "None.":
+                break
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
