@@ -5,11 +5,20 @@ except ImportError:
 
 
 class Gpugpt4allProvider:
-    def __init__(self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, **kwargs):
+    def __init__(
+        self,
+        MODEL_PATH: str = "",
+        MAX_TOKENS: int = 2000,
+        AI_MODEL: str = "default",
+        AI_TEMPERATURE: float = 0.7,
+        **kwargs,
+    ):
         try:
             self.max_tokens = int(MAX_TOKENS)
         except:
             self.max_tokens = 2000
+        self.AI_MODEL = AI_MODEL
+        self.AI_TEMPERATURE = AI_TEMPERATURE
         # GPT4All will just download the model, maybe save it in our workspace?
         self.model = GPT4All(llama_path=MODEL_PATH)
         self.config = {
