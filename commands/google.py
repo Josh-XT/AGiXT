@@ -14,7 +14,8 @@ class google(Commands):
             "Google Official Search": self.google_official_search,
         }
 
-    def google_search(self, query: str, num_results: int = 8) -> str:
+    @staticmethod
+    def google_search(query: str, num_results: int = 8) -> str:
         search_results = []
         if not query:
             return json.dumps(search_results)
@@ -25,8 +26,9 @@ class google(Commands):
             search_results.append(j)
         return json.dumps(search_results, ensure_ascii=False, indent=4)
 
+    @staticmethod
     def google_official_search(
-        self, query: str, num_results: int = 8
+        query: str, num_results: int = 8
     ) -> Union[str, List[str]]:
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
