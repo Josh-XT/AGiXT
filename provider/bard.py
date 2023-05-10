@@ -1,7 +1,4 @@
 from Bard import Chatbot
-from Config import Config
-
-CFG = Config()
 
 
 class BardProvider:

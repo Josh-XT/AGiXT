@@ -1,4 +1,5 @@
 from EdgeGPT import Chatbot, ConversationStyle
+import asyncio
 
 
 class BingProvider:
@@ -11,7 +12,7 @@ class BingProvider:
         if AI_TEMPERATURE >= 0.4 and AI_TEMPERATURE <= 0.6:
             self.style = ConversationStyle.balanced
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def ask(self, prompt, tokens: int = 0):
         try:
             bot = await Chatbot.create(cookie_path="./cookies.json")
             response = await bot.ask(
@@ -22,3 +23,6 @@ class BingProvider:
             return response
         except Exception as e:
             return f"EdgeGPT Error: {e}"
+
+    def instruct(self, prompt, tokens: int = 0):
+        return asyncio.run(self.ask(prompt, tokens))
