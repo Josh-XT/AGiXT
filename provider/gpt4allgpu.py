@@ -8,7 +8,7 @@ except ImportError:
 CFG = Config()
 
 
-class AIProvider:
+class Gpt4allgpuProvider:
     def __init__(self):
         try:
             self.max_tokens = int(CFG.MAX_TOKENS)
