@@ -12,9 +12,6 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 RUN pip install --force-reinstall --no-cache-dir hnswlib
 
-# Clone and install nomic
-RUN git clone https://github.com/nbdy/nomic ; cd nomic ; pip install .[GPT4All] ; pip install .
-
 # Run FastAPI app with Uvicorn
 COPY . .
 EXPOSE 7437
