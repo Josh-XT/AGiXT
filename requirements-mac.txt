@@ -35,3 +35,4 @@ spacy
 discord
 EdgeGPT
 nomic
+llama-cpp-python==0.1.48
