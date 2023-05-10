@@ -42,3 +42,4 @@ EdgeGPT
 markdownify
 ffmpeg_downloader
 pyvirtualdisplay
+nomic
