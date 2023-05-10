@@ -1,21 +1,17 @@
-from Config import Config
-
 try:
     from nomic.gpt4all import GPT4AllGPU as GPT4All
 except ImportError:
     print("Failed to import gpt4allgpu.")
 
-CFG = Config()
 
-
-class Gpt4allgpuProvider:
-    def __init__(self):
+class Gpugpt4allProvider:
+    def __init__(self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, **kwargs):
         try:
-            self.max_tokens = int(CFG.MAX_TOKENS)
+            self.max_tokens = int(MAX_TOKENS)
         except:
             self.max_tokens = 2000
         # GPT4All will just download the model, maybe save it in our workspace?
-        self.model = GPT4All(llama_path=CFG.AI_MODEL)
+        self.model = GPT4All(llama_path=MODEL_PATH)
         self.config = {
             "num_beams": 2,
             "min_new_tokens": 10,
