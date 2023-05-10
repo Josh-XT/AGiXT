@@ -30,6 +30,8 @@ class Agent(Config):
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+                if self.AI_MODEL == "":
+                    self.AI_MODEL = "default"
             else:
                 self.AI_MODEL = "openassistant"
             if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
