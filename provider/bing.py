@@ -25,4 +25,6 @@ class BingProvider:
             return f"EdgeGPT Error: {e}"
 
     def instruct(self, prompt, tokens: int = 0):
-        return asyncio.run(self.ask(prompt, tokens))
+        loop = asyncio.get_event_loop()
+        response = loop.run_until_complete(self.ask(prompt, tokens))
+        return response
