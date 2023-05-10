@@ -11,14 +11,14 @@ class BingProvider:
         if AI_TEMPERATURE >= 0.4 and AI_TEMPERATURE <= 0.6:
             self.style = ConversationStyle.balanced
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Chatbot(cookie_path="./cookies.json")
-            response = bot.ask(
+            bot = await Chatbot.create(cookie_path="./cookies.json")
+            response = await bot.ask(
                 prompt=prompt,
                 conversation_style=self.style,
             )
-            bot.close()
+            await bot.close()
             return response
         except Exception as e:
             return f"EdgeGPT Error: {e}"
