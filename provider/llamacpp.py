@@ -1,7 +1,7 @@
 try:
-    from pyllamacpp.model import Model
+    from llama_cpp import Llama
 except:
-    print("Failed to import pyllamacpp.")
+    print("Failed to import llama-cpp-python.")
 
 
 class LlamacppProvider:
@@ -13,18 +13,20 @@ class LlamacppProvider:
         AI_MODEL: str = "default",
         **kwargs
     ):
-        self.requirements = ["pyllamacpp"]
+        self.requirements = ["llama-cpp-python"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_MODEL = AI_MODEL
+
         if MODEL_PATH:
             try:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
-            self.model = Model(ggml_model=MODEL_PATH, n_ctx=self.MAX_TOKENS)
+
+            self.model = Llama(model_path=MODEL_PATH)
 
     def instruct(self, prompt, tokens: int = 0):
-        return self.model.generate(
-            prompt, n_predict=55, n_threads=8, temp=float(self.AI_TEMPERATURE)
-        )
+        return self.model(
+            prompt, max_tokens=55, stop=["\n"], temperature=float(self.AI_TEMPERATURE)
+        )["choices"][0]["text"]
