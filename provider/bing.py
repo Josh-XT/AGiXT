@@ -26,5 +26,11 @@ class BingProvider:
 
     def instruct(self, prompt, tokens: int = 0):
         loop = asyncio.get_event_loop()
-        task = loop.create_task(self.ask(prompt, tokens))
-        return task.result()
+        future = loop.create_future()
+
+        async def _ask_and_set_result():
+            result = await self.ask(prompt, tokens)
+            future.set_result(result)
+
+        loop.create_task(_ask_and_set_result())
+        return future.result()
