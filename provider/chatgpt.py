@@ -4,7 +4,7 @@ from revChatGPT.V1 import Chatbot
 class ChatgptProvider:
     def __init__(
         self,
-        CHATGPT_TOKEN: str = (None,),
+        CHATGPT_TOKEN: str = "",
         AI_MODEL: str = "gpt-3.5-turbo",
         **kwargs,
     ):
