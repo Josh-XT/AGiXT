@@ -47,8 +47,8 @@ class AgentLLM:
 
     def validate_json(self, json_string: str):
         try:
-            pattern = regex.compile(r'\{(?:[^{}]|(?R))*\}')
-            cleaned_json  = pattern.findall(json_string)
+            pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
+            cleaned_json = pattern.findall(json_string)
             response = cleaned_json[0] if cleaned_json else json_string
             response = json.loads(response)
             return response
