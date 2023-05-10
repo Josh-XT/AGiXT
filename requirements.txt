@@ -39,3 +39,4 @@ accelerate
 torch
 EdgeGPT
 nomic
+google-generativeai
