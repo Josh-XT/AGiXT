@@ -251,7 +251,7 @@ class AgentLLM:
             prompt="task",
             result=result,
             task_description=task_description,
-            tasks=", ".join(task_list),
+            task_names=", ".join(task_list),
         )
 
         lines = response.split("\n") if "\n" in response else [response]
