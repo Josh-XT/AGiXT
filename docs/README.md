@@ -71,7 +71,7 @@ This project is under active development and may still have issues. We appreciat
 
 - **Adaptive Memory Management**: Efficient long-term and short-term memory handling for improved AI performance.
 - **Versatile Plugin System**: Extensible command support for various AI models, ensuring flexibility and adaptability.
-- **Multi-Provider Compatibility**: Seamless integration with leading AI providers, including OpenAI GPT series, Hugging Face Huggingchat, Oobabooga Text Generation Web UI, Kobold, llama.cpp, FastChat, Google Bard, Bing, ChatGPT, and more. Run any model with Agent-LLM!
+- **Multi-Provider Compatibility**: Seamless integration with leading AI providers, including OpenAI GPT series, Hugging Face Huggingchat, GPT4All, GPT4Free, Oobabooga Text Generation Web UI, Kobold, llama.cpp, FastChat, Google Bard, Bing, and more. Run any model with Agent-LLM!
 - **Web Browsing & Command Execution**: Advanced capabilities to browse the web and execute commands for a more interactive AI experience.
 - **Code Evaluation**: Robust support for code evaluation, providing assistance in programming tasks.
 - **Docker Deployment**: Effortless deployment using Docker, simplifying setup and maintenance.
