@@ -44,9 +44,7 @@ class Agent(Config):
                 self.INSTRUCT_PROMPT = f.read()
 
         # Memory Settings
-        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv(
-            "USE_LONG_TERM_MEMORY_ONLY", False
-        ).lower()
+        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)
         # Yaml Memory
         self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
         self._create_parent_directories(self.memory_file)
