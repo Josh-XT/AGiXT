@@ -2,6 +2,7 @@ version: "3.8"
 services:
   frontend:
     image: ghcr.io/jamesonrgrieve/agent-llm-frontend:latest
+    platform: linux/amd64
     init: true
     env_file:
       - .env
@@ -16,6 +17,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile-mac-backend
+    platform: linux/amd64
     init: true
     env_file:
       - .env
