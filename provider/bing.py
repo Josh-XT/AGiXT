@@ -7,7 +7,7 @@ class BingProvider:
 
     def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Chatbot.create(cookies_path="./cookies.json")
+            bot = Chatbot.create(cookie_path="./cookies.json")
             response = bot.ask(
                 prompt,
                 ConversationStyle.creative,
