@@ -1,0 +1,16 @@
+Task: 
+```
+{task}
+```
+
+Task Response: 
+```
+{previous_response}
+```
+
+Context: 
+```
+{context}
+```
+
+Validate the response, respond with the best answer you have given the context and a summary of what was done in the response. THIS IS AN INSTRUCTION, NOT A CONVERSATION.

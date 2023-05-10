@@ -83,7 +83,7 @@ class AgentLLM:
         cp = CustomPrompt()
         if prompt == "":
             prompt = task
-        elif prompt in ["execute", "task", "priority", "instruct"]:
+        elif prompt in ["execute", "task", "priority", "instruct", "validate"]:
             prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
             prompt = CustomPrompt().get_prompt(prompt)
@@ -182,6 +182,18 @@ class AgentLLM:
                                 f"\n\nCommand not recognized: {command_name}"
                             )
             self.response = "".join(response_parts)
+        self.memories.store_result(task, self.response)
+        # Second shot to validate response
+        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+            task=task,
+            top_results=context_results,
+            long_term_access=long_term_access,
+            max_context_tokens=max_context_tokens,
+            prompt="validate",
+            previous_response=self.response,
+            **kwargs,
+        )
+        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         self.memories.store_result(task, self.response)
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
