@@ -130,10 +130,7 @@ class AgentLLM:
         if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
-                print("INVALID JSON RESPONSE")
-                print(self.response)
                 print("Invalid JSON response. Trying again.")
-                # Begin context decay
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -184,6 +181,7 @@ class AgentLLM:
             self.response = "".join(response_parts)
         self.memories.store_result(task, self.response)
         # Second shot to validate response
+        context_results = 3
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
@@ -194,10 +192,32 @@ class AgentLLM:
             **kwargs,
         )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+        valid_json = self.validate_json(self.response)
+        while not valid_json:
+            print("Invalid JSON response. Trying again.")
+            if context_results != 0:
+                context_results = context_results - 1
+            else:
+                context_results = 0
+            formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+                task=task,
+                top_results=context_results,
+                long_term_access=long_term_access,
+                max_context_tokens=max_context_tokens,
+                prompt="validate",
+                previous_response=self.response,
+                **kwargs,
+            )
+            self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+            valid_json = self.validate_json(self.response)
+        if "response" in valid_json:
+            self.response = f"RESPONSE:\n\n{valid_json['response']}"
+        if "summary" in valid_json:
+            self.response += f"\n\nSUMMARY:\n\n{valid_json['summary']}"
         self.memories.store_result(task, self.response)
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
-        print(f"Response: {self.response}")
+        print(f"{self.response}")
         return self.response
 
     def get_status(self):
