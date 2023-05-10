@@ -25,7 +25,7 @@ class Memories:
         else:
             self.embedding_function = (
                 embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="all-MiniLM-L6-v2"
+                    model_name="all-mpnet-base-v2"
                 )
             )
         self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
@@ -68,7 +68,7 @@ class Memories:
         query: str,
         top_results_num: int,
         long_term_access: bool = False,
-        max_tokens: int = 128,
+        max_tokens: int = 180,
     ) -> List[str]:
         if long_term_access:
             interactions = self.CFG.memory["interactions"]
@@ -98,7 +98,7 @@ class Memories:
                 break
         return "\n".join(trimmed_context)
 
-    def chunk_content(self, content: str, max_length: int = 128) -> List[str]:
+    def chunk_content(self, content: str, max_length: int = 180) -> List[str]:
         content_chunks = []
         doc = self.nlp(content)
         length = 0
