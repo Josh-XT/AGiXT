@@ -46,11 +46,10 @@ class AgentLLM:
 
     def validate_json(self, json_string: str):
         try:
-            clean_response = re.findall(
-                r"```(?:json|css|vbnet|javascript)\n([\s\S]*?)\n```", json_string
-            )
-            clean_response = clean_response[0] if clean_response else json_string
-            response = json.loads(clean_response)
+            pattern = regex.compile(r'\{(?:[^{}]|(?R))*\}')
+            cleaned_json  = pattern.findall(json_string)
+            response = cleaned_json[0] if cleaned_json else json_string
+            response = json.loads(response)
             return response
         except JSONDecodeError as e:
             return False
