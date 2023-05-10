@@ -15,7 +15,6 @@ class file_operations(Commands):
     def __init__(self):
         self.commands = {
             "Check Duplicate Operation": self.check_duplicate_operation,
-            "Log Operation": self.log_operation,
             "Read File": self.read_file,
             "Ingest File": self.ingest_file,
             "Write to File": self.write_to_file,
@@ -29,16 +28,6 @@ class file_operations(Commands):
         log_content = file_operations.read_file(LOG_FILE)
         log_entry = f"{operation}: {filename}\n"
         return log_entry in log_content
-
-    @staticmethod
-    def log_operation(operation: str, filename: str) -> None:
-        log_entry = f"{operation}: {filename}\n"
-
-        if not os.path.exists(LOG_FILE_PATH):
-            with open(LOG_FILE_PATH, "w", encoding="utf-8") as f:
-                f.write("File Operation Logger ")
-
-        file_operations.append_to_file(LOG_FILE, log_entry)
 
     @staticmethod
     def safe_join(base: str, paths) -> str:
@@ -114,7 +103,6 @@ class file_operations(Commands):
                 os.makedirs(directory)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(text)
-            file_operations.log_operation("write", filename)
             return "File written to successfully."
         except Exception as e:
             return f"Error: {str(e)}"
@@ -125,7 +113,6 @@ class file_operations(Commands):
             filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             with open(filepath, "a") as f:
                 f.write(text)
-            file_operations.log_operation("append", filename)
             return "Text appended successfully."
         except Exception as e:
             return f"Error: {str(e)}"
@@ -137,7 +124,6 @@ class file_operations(Commands):
         try:
             filepath = file_operations.safe_join(WORKING_DIRECTORY, filename)
             os.remove(filepath)
-            file_operations.log_operation("delete", filename)
             return "File deleted successfully."
         except Exception as e:
             return f"Error: {str(e)}"
