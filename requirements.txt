@@ -30,7 +30,6 @@ sendgrid
 sentence-transformers
 tiktoken
 tweepy
-undetected-chromedriver==3.1.7
 webdriver_manager
 pyllamacpp==1.0.7
 spacy
@@ -39,7 +38,4 @@ gpt4free
 accelerate
 torch
 EdgeGPT
-markdownify
-ffmpeg_downloader
-pyvirtualdisplay
 nomic
