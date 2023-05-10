@@ -7,7 +7,14 @@ except ImportError:
 
 
 class Gpt4allProvider:
-    def __init__(self, MODEL_PATH: str = "", MAX_TOKENS: int = 2000, **kwargs):
+    def __init__(
+        self,
+        MODEL_PATH: str = "",
+        MAX_TOKENS: int = 2000,
+        AI_MODEL: str = "default",
+        AI_TEMPERATURE: float = 0.7,
+        **kwargs,
+    ):
         if not MODEL_PATH and not Path(MODEL_PATH).exists():
             raise Exception(
                 "No MODEL_PATH specified. Download the Model on your machine and mount the directory.\n"
@@ -17,6 +24,8 @@ class Gpt4allProvider:
         self.model = GPT4All(model_path=self.model_path)
         self.model.open()
         self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL
+        self.AI_TEMPERATURE = AI_TEMPERATURE
         # TODO: Need to research to add temperature, no obvious flag.
 
     def instruct(self, prompt):
