@@ -13,7 +13,10 @@ class ChatgptProvider:
         self.AI_MODEL = AI_MODEL
 
     def instruct(self, prompt, tokens: int = 0):
-        response = ""
-        for data in self.bot.ask(prompt):
-            response = data["message"]
-        return response
+        try:
+            response = ""
+            for data in self.bot.ask(prompt):
+                response = data["message"]
+            return response
+        except Exception as e:
+            return f"revChatGPT Error: {e}"

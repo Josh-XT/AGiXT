@@ -23,4 +23,7 @@ class Gpt4allProvider:
         # TODO: Need to research to add temperature, no obvious flag.
 
     def instruct(self, prompt):
-        return self.model.prompt(prompt)
+        try:
+            return self.model.prompt(prompt)
+        except Exception as e:
+            return f"GPT4ALL Error: {e}"
