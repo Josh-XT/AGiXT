@@ -17,13 +17,14 @@ class OpenaiProvider:
         openai.api_key = OPENAI_API_KEY
 
     def instruct(self, prompt, tokens: int = 0):
+        max_new_tokens = int(self.MAX_TOKENS) - tokens
         if not self.AI_MODEL.startswith("gpt-"):
             # Use completion API
             response = openai.Completion.create(
                 engine=self.AI_MODEL,
                 prompt=prompt,
                 temperature=self.AI_TEMPERATURE,
-                max_tokens=int(self.MAX_TOKENS),
+                max_tokens=max_new_tokens,
                 top_p=1,
                 frequency_penalty=0,
                 presence_penalty=0,
@@ -36,7 +37,7 @@ class OpenaiProvider:
                 model=self.AI_MODEL,
                 messages=messages,
                 temperature=self.AI_TEMPERATURE,
-                max_tokens=int(self.MAX_TOKENS),
+                max_tokens=max_new_tokens,
                 n=1,
                 stop=None,
             )
