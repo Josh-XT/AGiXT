@@ -192,7 +192,7 @@ class AgentLLM:
             **kwargs,
         )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-        if prompt in ["execute", "instruct"]:
+        if "{COMMANDS}" in unformatted_prompt:
             valid_json = self.validate_json(self.response)
             while not valid_json:
                 print("Invalid JSON response. Trying again.")
