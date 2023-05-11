@@ -49,8 +49,11 @@ class AgentLLM:
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
-            response = cleaned_json[0] if cleaned_json else json_string
-            response = json.loads(response)
+            if len(cleaned_json) == 0:
+                return False
+            if isinstance(cleaned_json, list):
+                cleaned_json = cleaned_json[0]
+            response = json.loads(cleaned_json)
             return response
         except JSONDecodeError as e:
             return False
