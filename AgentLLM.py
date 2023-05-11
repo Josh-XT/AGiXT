@@ -185,8 +185,7 @@ class AgentLLM:
                                 f"\n\nCommand not recognized: {command_name}"
                             )
             self.response = "".join(response_parts)
-            if "{COMMANDS}" in unformatted_prompt:
-                print(f"Pre-Validation Response: {self.response}")
+            print(f"Pre-Validation Response: {self.response}")
         self.memories.store_result(task, self.response)
         # Second shot to validate response
         context_results = 3
