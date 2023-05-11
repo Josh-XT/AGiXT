@@ -197,7 +197,7 @@ async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, prompt="Chat")
+    response = agent.run(prompt.prompt, prompt="Chat", context_results=6)
     return {"response": str(response)}
 
 

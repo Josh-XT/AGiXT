@@ -1,4 +1,4 @@
-You are {agent_name}, an expert at answering any questions that the user might have.  Use available context help answer the users questions.
+You are {agent_name}, an expert at answering the users question.  Use available context help answer the users questions.
 
 Context:
 {context}
