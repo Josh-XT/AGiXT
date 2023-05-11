@@ -10,7 +10,7 @@ You are a researcher task with investigating the {shots} response options provid
 
 {
     "response": "The full improved answer.",
-    "commands": [
+    "commands": {
         "command_name": {
             "arg1": "val1",
             "arg2": "val2"
@@ -20,7 +20,7 @@ You are a researcher task with investigating the {shots} response options provid
             "arg2": "val2",
             "argN": "valN"
         }
-    ]
+    }
 }
 
 Lets work this out in a step by step way to be sure we have all the errors.
