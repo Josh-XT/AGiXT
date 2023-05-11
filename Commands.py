@@ -117,7 +117,7 @@ class Commands:
 
         try:
             command_class = module()
-            output = command_class.command_function(**params)
+            output = getattr(command_class, command_function.__name__)(**params)
         except Exception as e:
             output = f"Error: {str(e)}"
 
