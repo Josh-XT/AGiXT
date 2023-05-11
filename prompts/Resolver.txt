@@ -12,7 +12,7 @@ You are a resolver tasked with:
 
 {
     "response": "The full improved answer.",
-    "commands": [
+    "commands": {
         "command_name": {
             "arg1": "val1",
             "arg2": "val2"
@@ -22,7 +22,7 @@ You are a resolver tasked with:
             "arg2": "val2",
             "argN": "valN"
         }
-    ]
+    }
 }
 
 Let's work this out in a step by step way to be sure we have the right answer:
