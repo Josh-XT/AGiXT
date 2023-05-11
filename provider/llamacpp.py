@@ -3,6 +3,7 @@ try:
 except:
     print("Failed to import llama-cpp-python.")
 
+import os
 
 class LlamacppProvider:
     def __init__(
@@ -23,8 +24,11 @@ class LlamacppProvider:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
-
-            self.model = Llama(model_path=MODEL_PATH)
+                
+        if os.path.isfile(MODEL_PATH):
+            self.model = Llama(model_path=MODEL_PATH, n_ctx=MAX_TOKENS*2)
+        else:
+            print("Failed to import model - not a file")
 
     def instruct(self, prompt, tokens: int = 0):
         return self.model(
