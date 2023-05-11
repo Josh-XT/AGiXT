@@ -99,13 +99,15 @@ class AgentLLM:
                 long_term_access=long_term_access,
                 max_tokens=max_context_tokens,
             )
+        command_list = self.get_commands_string()
         formatted_prompt = self.custom_format(
             prompt,
             task=task,
             agent_name=self.agent_name,
-            COMMANDS=self.get_commands_string(),
+            COMMANDS=command_list,
             context=context,
             objective=self.primary_objective,
+            command_list=command_list,
             **kwargs,
         )
         tokens = len(self.memories.nlp(formatted_prompt))
@@ -233,6 +235,22 @@ class AgentLLM:
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
         return self.response
+
+    def smart_instruct(
+        self,
+        task: str = "Write a tweet about AI.",
+        shots: int = 3,
+    ):
+        answers = []
+        # Do multi shots of prompt to get N different answers to be validated
+        for i in range(shots):
+            answers.append(self.run(task=task, prompt="StepByStep"))
+        answer_str = ""
+        for i, answer in enumerate(answers):
+            answer_str += f"Answer {i + 1}:\n{answer}\n\n"
+        researcher = self.run(task=answer_str, prompt="Researcher")
+        resolver = self.run(task=researcher, prompt="Resolver")
+        return resolver
 
     def get_status(self):
         try:
