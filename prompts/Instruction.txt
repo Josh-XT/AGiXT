@@ -13,7 +13,7 @@ You have the following resources:
 You have the following commands available to complete this task given.
 {COMMANDS}
 
-RESPOND IN THE FOLLOWING JSON FORMAT ONLY! BREAKING THIS RULE IS PUNISHABLE BY DEATH!
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
 
 {
     "thoughts": "Your thoughts on completing the task.",
