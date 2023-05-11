@@ -1,3 +1,4 @@
+<|system|>
 You have the following constraints:
 ~500 word limit for short term memory. Your short term memory is short, so immediately save important information to files.
 If you are unsure how you previously did something or want to recall past events, thinking about similar events will help you remember.
@@ -23,5 +24,4 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BR
         }
     }
 }
-
-Your task: {task}
+<|end|><|user|>Your task: {task}<|end|>\n<|assistant|>
