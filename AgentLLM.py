@@ -49,7 +49,7 @@ class AgentLLM:
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
-            if cleaned_json is None:
+            if len(cleaned_json) == 0:
                 return False
             if isinstance(cleaned_json, list):
                 cleaned_json = cleaned_json[0]
