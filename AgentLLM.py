@@ -244,12 +244,12 @@ class AgentLLM:
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
         for i in range(shots):
-            answers.append(self.run(task=task, prompt="StepByStep"))
+            answers.append(self.run(task=task, prompt="SmartInstruct-StepByStep"))
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
-        researcher = self.run(task=answer_str, prompt="Researcher")
-        resolver = self.run(task=researcher, prompt="Resolver")
+        researcher = self.run(task=answer_str, prompt="SmartInstruct-Researcher")
+        resolver = self.run(task=researcher, prompt="SmartInstruct-Resolver")
         return resolver
 
     def smart_chat(
