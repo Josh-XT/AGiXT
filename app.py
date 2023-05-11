@@ -201,10 +201,10 @@ async def chat(agent_name: str, prompt: Prompt):
     return {"response": str(response)}
 
 
-@app.post("/api/agent/{agent_name}/smartchat", tags=["Agent"])
-async def chat(agent_name: str, prompt: Prompt):
+@app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
+async def chat(agent_name: str, shots: int, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.run(prompt.prompt, prompt="SmartChat", context_results=6)
+    response = agent.smart_chat(prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
