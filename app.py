@@ -187,10 +187,10 @@ async def instruct(agent_name: str, prompt: Prompt):
     return {"response": str(response)}
 
 
-@app.post("/api/agent/{agent_name}/smartinstruct", tags=["Agent"])
-async def smartinstruct(agent_name: str, prompt: Prompt):
+@app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
+async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
     agent = AgentLLM(agent_name)
-    response = agent.smart_instruct(task=prompt.prompt, shots=3)
+    response = agent.smart_instruct(task=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
