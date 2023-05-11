@@ -116,10 +116,8 @@ class Commands:
                 params[name] = value
 
         try:
-            if module.__name__ in ["file_operations", "google_search", "web_selenium"]:
-                output = command_function(**params)
-            else:
-                output = command_function(module, **params)
+            command_class = module()
+            output = command_class.command_function(**params)
         except Exception as e:
             output = f"Error: {str(e)}"
 
