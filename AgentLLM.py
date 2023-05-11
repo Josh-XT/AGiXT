@@ -293,7 +293,7 @@ class AgentLLM:
             prompt="task",
             result=result,
             task_description=task_description,
-            task_names=", ".join(task_list),
+            tasks=", ".join(task_list),
         )
 
         lines = response.split("\n") if "\n" in response else [response]
@@ -313,7 +313,7 @@ class AgentLLM:
         response = self.run(
             task=self.primary_objective,
             prompt="priority",
-            tasks=", ".join(task_names),
+            task_names=", ".join(task_names),
             next_task_id=next_task_id,
         )
 
