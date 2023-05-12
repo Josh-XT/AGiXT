@@ -57,6 +57,14 @@ class GoogleVertexEmbeddingFunction(EmbeddingFunction):
 
 
 class Embedding:
+    def __init__(self, embedder: str = "default"):
+        # We need to take the embedder string and then return the correct embedder
+        # We also need to return the correct chunk size
+        try:
+            self.embed, self.chunk_size = self.__getattribute__(embedder)()
+        except:
+            self.embed, self.chunk_size = self.default()
+
     def default(self):
         chunk_size = 128
         embed = embedding_functions.SentenceTransformerEmbeddingFunction(

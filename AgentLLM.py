@@ -81,7 +81,6 @@ class AgentLLM:
         task: str,
         top_results: int = 3,
         long_term_access: bool = False,
-        max_context_tokens: int = 180,
         prompt="",
         **kwargs,
     ):
@@ -99,7 +98,6 @@ class AgentLLM:
                 query=task,
                 top_results_num=top_results,
                 long_term_access=long_term_access,
-                max_tokens=max_context_tokens,
             )
         command_list = self.get_commands_string()
         formatted_prompt = self.custom_format(
@@ -118,7 +116,6 @@ class AgentLLM:
     def run(
         self,
         task: str,
-        max_context_tokens: int = 180,
         long_term_access: bool = False,
         prompt: str = "",
         context_results: int = 3,
@@ -128,7 +125,6 @@ class AgentLLM:
             task=task,
             top_results=context_results,
             long_term_access=long_term_access,
-            max_context_tokens=max_context_tokens,
             prompt=prompt,
             **kwargs,
         )
@@ -149,7 +145,6 @@ class AgentLLM:
                     task=task,
                     top_results=context_results,
                     long_term_access=long_term_access,
-                    max_context_tokens=max_context_tokens,
                     prompt=prompt,
                     **kwargs,
                 )
@@ -197,7 +192,6 @@ class AgentLLM:
             task=task,
             top_results=context_results,
             long_term_access=long_term_access,
-            max_context_tokens=max_context_tokens,
             prompt="validate",
             previous_response=self.response,
             **kwargs,
@@ -217,7 +211,6 @@ class AgentLLM:
                     task=task,
                     top_results=context_results,
                     long_term_access=long_term_access,
-                    max_context_tokens=max_context_tokens,
                     prompt="validate",
                     previous_response=self.response,
                     **kwargs,
@@ -426,19 +419,11 @@ class AgentLLM:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=int, default=180)
-    parser.add_argument("--long_term_access", type=bool, default=False)
+    parser.add_argument("--task", type=str, default="Write a tweet about AI.")
     parser.add_argument("--agent_name", type=str, default="Agent-LLM")
     args = parser.parse_args()
     prompt = args.prompt
-    max_context_tokens = int(args.max_context_tokens)
-    long_term_access = args.long_term_access
     agent_name = args.agent_name
 
     # Run AgentLLM
-    AgentLLM(agent_name).run(
-        task=prompt,
-        max_context_tokens=max_context_tokens,
-        long_term_access=long_term_access,
-    )
+    AgentLLM(agent_name).run(task=prompt, prompt="instruct")
