@@ -17,9 +17,7 @@ class Memories:
             print("Downloading spacy model...")
             download("en_core_web_sm")
             self.nlp = spacy.load("en_core_web_sm")
-        self.embedding_function, self.chunk_size = Embedding(
-            embedder=self.CFG.AI_PROVIDER
-        )
+        self.embedding_function, self.chunk_size = Embedding(embedder=self.CFG.EMBEDDER)
         self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
         self.chroma_client = chromadb.Client(
             settings=chromadb.config.Settings(
