@@ -345,6 +345,12 @@ class AgentLLM:
             for prompt_type, prompt in step_data.items():
                 if prompt_type == "instruction":
                     self.run(prompt, prompt="instruct")
+                elif prompt_type == "chat":
+                    self.run(prompt, prompt="chat")
+                elif prompt_type == "smart_instruct":
+                    self.smart_instruct(task=prompt, shots=3)
+                elif prompt_type == "smart_chat":
+                    self.smart_chat(task=prompt, shots=3)
                 elif prompt_type == "task":
                     self.run_task(prompt)
                 elif prompt_type == "command":
