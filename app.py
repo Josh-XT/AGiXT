@@ -11,6 +11,7 @@ from CustomPrompt import CustomPrompt
 import threading
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
+from Embedding import get_embedding_providers
 
 CFG = Config()
 app = FastAPI(
@@ -105,19 +106,22 @@ class AgentSettings(BaseModel):
     settings: Dict[str, Any]
 
 
-# Get list of providers
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 
-# Get available provider settings
-# These should be used to set new agents settings.
 @app.get("/api/provider/{provider_name}", tags=["Provider"])
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name)
     return {"settings": settings}
+
+
+@app.get("/api/embedding_providers", tags=["Provider"])
+async def get_embed_providers():
+    providers = get_embedding_providers()
+    return {"providers": providers}
 
 
 @app.post("/api/agent", tags=["Agent"])
@@ -180,8 +184,6 @@ async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.run(
         task=prompt.prompt,
-        max_context_tokens=128,
-        long_term_access=False,
         prompt="instruct",
     )
     return {"response": str(response)}
@@ -205,13 +207,6 @@ async def chat(agent_name: str, prompt: Prompt):
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.smart_chat(prompt.prompt, shots=shots)
-    return {"response": str(response)}
-
-
-@app.post("/api/agent/{agent_name}/smarterchat/{shots}", tags=["Agent"])
-async def smarterchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = AgentLLM(agent_name)
-    response = agent.smarter_chat(prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
