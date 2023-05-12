@@ -27,11 +27,40 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 ## ⚠️ Run this in Docker or a Virtual Machine!
 You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
 
+See also [SECURITY.md](SECURITY.MD)
+
 ## ⚠️ Monitor Your Usage!
 Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
 
 ## ⚠️ Under Development!
 This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
+
+## ⚠️ Necessities For Use
+Agent-LLM brings you great power, but you will need to make sure you have the necessary knowledge and hardware to use it. You cannot simply dive in face first and expect to find any success, research and understanding of the technologies involved is required.
+
+### Knowledge Required
+You will need at minimum intermediate level knowledge in the following areas:
+- Docker
+- Python
+- Large Language Models
+
+We unfortunately cannot support Docker issues or issues running any local models. There is a bit of a learning curve to get into this stuff and we're focused on development, not support.  
+
+**We cannot teach you how to use Docker or Python, you will need to refer to the documentation or ask an AI to help you.**  Please do not open issues for a lack of knowledge in these areas, they will be closed asking you to refer to the documentation.
+
+### Hardware Required
+Good luck getting a straight answer! Due to the nature of Agent-LLM, you can run it from a mobile phone or from an enterprise grade AI server. If you're running your agents with OpenAI as the provider, you can run it on just about anything with an API key, enough storage, and an internet connection.
+
+The hardware you need will depend on the AI models you want to run and the number of agents you want to run at the same time.  We recommend starting with a single agent and a single AI model and then scaling up from there.
+
+Please do not open issues for lack of hardware, this means errors related to hitting token limits on local models, running out of memory, and issues directly related to ANY local providers such as Oobaboooga, llama.cpp, etc.  We know that the providers work as they've been tested and confirmed working, if they're not working on your hardware, it's a problem with your hardware most likely.
+
+### Operating Systems
+The development environment used when building Agent-LLM is Ubuntu 22.04.  As far as we're aware, it should run on any Linux-based OS, MacOS, and Windows as long as hardware requirements are met. 
+
+We cannot support Windows related issues.  Windows has firewalls and things working against developers actively which is why we do not use it for development (or any other thing.) There are people in [our Discord server](https://discord.gg/d3TkHRZcjD) that are actively using Agent-LLM on Windows, MacOS, and Linux.  
+
+If you have issues with Windows, please ask in Discord, but please do not tag the developers to ask, we don't use it.
 
 ## Table of Contents 📖
 
@@ -39,6 +68,10 @@ This project is under active development and may still have issues. We appreciat
   - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
   - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
   - [⚠️ Under Development!](#️-under-development)
+  - [⚠️ Necessities For Use](#️-necessities-for-use)
+    - [Knowledge Required](#knowledge-required)
+    - [Hardware Required](#hardware-required)
+    - [Operating Systems](#operating-systems)
   - [Table of Contents 📖](#table-of-contents-)
   - [Media Coverage ⏯️](#media-coverage-️)
     - [Video](#video)
@@ -55,6 +88,7 @@ This project is under active development and may still have issues. We appreciat
   - [Extending Functionality](#extending-functionality)
     - [Commands](#commands)
     - [AI Providers](#ai-providers)
+  - [Documentation](#documentation)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Our Team 🧑‍💻](#our-team-)
@@ -110,6 +144,13 @@ Clone the repositories for the Agent-LLM front/back ends then start the services
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 docker-compose up -d
+```
+### Linux Arm64
+
+```
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
+docker compose -f docker-compose-linux-arm64.yml
 ```
 
 ### MacOS
@@ -179,6 +220,10 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 Each agent will have its own AI provider and provider settings such as model, temperature, and max tokens, depending on the provider.  You can use this to make certain agents better at certain tasks by giving them more advanced models to complete certain steps in chains.
+
+## Documentation
+
+In `docs/` folder. Can be used to generate static html output. See `deploy-docs` section in [Publish Workflow](/.github/workflows/python-publish.yml) howto build with honkit.
 
 ## Contributing
 

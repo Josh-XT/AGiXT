@@ -1,4 +1,3 @@
-from AgentLLM import AgentLLM
 from bs4 import BeautifulSoup
 from captcha_solver import CaptchaSolver
 from Commands import Commands
@@ -24,23 +23,7 @@ CFG = Config()
 
 class web_selenium(Commands):
     def __init__(self):
-        self.commands = {"Browse Website": self.browse_website}
-
-    @staticmethod
-    def browse_website(url: str, question: str) -> Tuple[str, WebDriver]:
-        driver, text = web_selenium.scrape_text_with_selenium(url)
-        web_selenium.add_header(driver)
-        prompt = f"{question} \n \n {text} \n \n"
-        summary_text = AgentLLM().run(prompt)
-        links = web_selenium.scrape_links_with_selenium(driver, url)
-
-        if len(links) > 5:
-            links = links[:5]
-        web_selenium.close_browser(driver)
-        return (
-            f"Answer gathered from website: {summary_text} \n \n Links: {links}",
-            driver,
-        )
+        self.commands = {"Browse Website": self.scrape_text_with_selenium}
 
     @staticmethod
     def scrape_text_with_selenium(url: str) -> Tuple[WebDriver, str]:
@@ -94,7 +77,7 @@ class web_selenium(Commands):
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         text = "\n".join(chunk for chunk in chunks if chunk)
-        return driver, text
+        return text
 
     @staticmethod
     def scrape_links_with_selenium(driver: WebDriver, url: str) -> List[str]:

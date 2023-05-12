@@ -5,6 +5,8 @@ from collections import deque
 from typing import List, Dict
 from Config.Agent import Agent
 from commands.web_requests import web_requests
+from commands.web_selenium import web_selenium
+from duckduckgo_search import ddg
 from Commands import Commands
 import json
 from json.decoder import JSONDecodeError
@@ -45,8 +47,9 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
-    def validate_json(self, json_string: str):
+    def validation_agent(self, json_string: str):
         try:
+            json_string = self.run(task=json_string, prompt="jsonformatter")
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
             if len(cleaned_json) == 0:
@@ -78,34 +81,29 @@ class AgentLLM:
         self,
         task: str,
         top_results: int = 3,
-        long_term_access: bool = False,
-        max_context_tokens: int = 180,
         prompt="",
         **kwargs,
     ):
         cp = CustomPrompt()
         if prompt == "":
             prompt = task
-        elif prompt in ["execute", "task", "priority", "instruct", "validate"]:
-            prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
-            prompt = CustomPrompt().get_prompt(prompt)
+            prompt = cp.get_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         if top_results == 0:
             context = "None"
         else:
             context = self.memories.context_agent(
-                query=task,
-                top_results_num=top_results,
-                long_term_access=long_term_access,
-                max_tokens=max_context_tokens,
+                query=task, top_results_num=top_results
             )
+        command_list = self.get_commands_string()
         formatted_prompt = self.custom_format(
             prompt,
             task=task,
             agent_name=self.agent_name,
-            COMMANDS=self.get_commands_string(),
+            COMMANDS=command_list,
             context=context,
             objective=self.primary_objective,
+            command_list=command_list,
             **kwargs,
         )
         tokens = len(self.memories.nlp(formatted_prompt))
@@ -114,29 +112,28 @@ class AgentLLM:
     def run(
         self,
         task: str,
-        max_context_tokens: int = 180,
-        long_term_access: bool = False,
         prompt: str = "",
         context_results: int = 3,
+        websearch: bool = False,
+        websearch_depth: int = 8,
         **kwargs,
     ):
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
-            long_term_access=long_term_access,
-            max_context_tokens=max_context_tokens,
             prompt=prompt,
             **kwargs,
         )
+        if websearch:
+            self.websearch_to_memory(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
                 print("... Trying again.")
-
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -144,13 +141,11 @@ class AgentLLM:
                 formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
                     task=task,
                     top_results=context_results,
-                    long_term_access=long_term_access,
-                    max_context_tokens=max_context_tokens,
                     prompt=prompt,
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if valid_json:
                 self.response = valid_json
             response_parts = []
@@ -192,15 +187,13 @@ class AgentLLM:
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
-            long_term_access=long_term_access,
-            max_context_tokens=max_context_tokens,
             prompt="validate",
             previous_response=self.response,
             **kwargs,
         )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
@@ -212,14 +205,12 @@ class AgentLLM:
                 formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
                     task=task,
                     top_results=context_results,
-                    long_term_access=long_term_access,
-                    max_context_tokens=max_context_tokens,
                     prompt="validate",
                     previous_response=self.response,
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if "response" in valid_json:
                 self.response = f"Agent Response:\n\n{valid_json['response']}"
             if "summary" in valid_json:
@@ -233,6 +224,78 @@ class AgentLLM:
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
         return self.response
+
+    def smart_instruct(
+        self,
+        task: str = "Write a tweet about AI.",
+        shots: int = 3,
+    ):
+        answers = []
+        # Do multi shots of prompt to get N different answers to be validated
+        for i in range(shots):
+            answers.append(
+                self.run(
+                    task=task,
+                    prompt="SmartInstruct-StepByStep",
+                    context_results=6,
+                    websearch=True,
+                    websearch_depth=8,
+                )
+            )
+        answer_str = ""
+        for i, answer in enumerate(answers):
+            answer_str += f"Answer {i + 1}:\n{answer}\n\n"
+        researcher = self.run(task=answer_str, prompt="SmartInstruct-Researcher")
+        resolver = self.run(task=researcher, prompt="SmartInstruct-Resolver")
+        return resolver
+
+    def smart_chat(
+        self,
+        task: str = "Write a tweet about AI.",
+        shots: int = 3,
+    ):
+        answers = []
+        # Do multi shots of prompt to get N different answers to be validated
+        for i in range(shots):
+            answers.append(
+                self.run(
+                    task=task,
+                    prompt="SmartChat-StepByStep",
+                    context_results=6,
+                    websearch=True,
+                    websearch_depth=8,
+                )
+            )
+        answer_str = ""
+        for i, answer in enumerate(answers):
+            answer_str += f"Answer {i + 1}:\n{answer}\n\n"
+        researcher = self.run(
+            task=answer_str, prompt="SmartChat-Researcher", context_results=6
+        )
+        resolver = self.run(
+            task=researcher, prompt="SmartChat-Resolver", context_results=6
+        )
+        return resolver
+
+    def websearch_to_memory(
+        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 8
+    ):
+        results = self.run(task=task, prompt="WebSearch")
+        results = results[results.find("[") : results.rfind("]") + 1]
+        while results is None or results == "":
+            # Don't take no for an answer. Keep asking until you get a response.
+            results = self.run(task=task, prompt="WebSearch")
+            results = results[results.find("[") : results.rfind("]") + 1]
+        results = results.replace("[", "").replace("]", "")
+        results = results.split(",")
+        results = [result.replace('"', "") for result in results]
+        for result in results:
+            links = ddg(result, max_results=depth)
+            if links is not None:
+                for link in links:
+                    collected_data = web_selenium.scrape_text_with_selenium(link)
+                    if collected_data is not None:
+                        self.memories.store_result(task, collected_data)
 
     def get_status(self):
         try:
@@ -253,7 +316,7 @@ class AgentLLM:
             prompt="task",
             result=result,
             task_description=task_description,
-            task_names=", ".join(task_list),
+            tasks=", ".join(task_list),
         )
 
         lines = response.split("\n") if "\n" in response else [response]
@@ -273,7 +336,7 @@ class AgentLLM:
         response = self.run(
             task=self.primary_objective,
             prompt="priority",
-            tasks=", ".join(task_names),
+            task_names=", ".join(task_names),
             next_task_id=next_task_id,
         )
 
@@ -364,19 +427,24 @@ class AgentLLM:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prompt", type=str, default="What is the weather like today?")
-    parser.add_argument("--max_context_tokens", type=int, default=180)
-    parser.add_argument("--long_term_access", type=bool, default=False)
+    parser.add_argument("--task", type=str, default="Write a tweet about AI.")
     parser.add_argument("--agent_name", type=str, default="Agent-LLM")
+    parser.add_argument("--option", type=str, default="")
+    parser.add_argument("--shots", type=int, default=3)
     args = parser.parse_args()
     prompt = args.prompt
-    max_context_tokens = int(args.max_context_tokens)
-    long_term_access = args.long_term_access
     agent_name = args.agent_name
-
-    # Run AgentLLM
-    AgentLLM(agent_name).run(
-        task=prompt,
-        max_context_tokens=max_context_tokens,
-        long_term_access=long_term_access,
-    )
+    option = args.option
+    # Options are instruct, smartinstruct, smartchat, and chat.
+    shots = args.shots
+    agent = AgentLLM(agent_name)
+    if option == "instruct":
+        agent.run(prompt, prompt="instruct", websearch=True, websearch_depth=4)
+    elif option == "smartinstruct":
+        agent.smart_instruct(prompt, shots)
+    elif option == "smartchat":
+        agent.smart_chat(prompt, shots)
+    else:
+        agent.run(
+            prompt, prompt="chat", context_results=5, websearch=True, websearch_depth=4
+        )

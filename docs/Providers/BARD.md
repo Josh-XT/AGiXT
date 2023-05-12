@@ -1,4 +1,4 @@
-# Agent-LLM
+# BARD
 
 ## AI Provider: Google Bard
 

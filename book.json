@@ -1,0 +1,32 @@
+{
+  "gitbook": ">=3.0.0",
+  "title": "Agent-LLM",
+  "description": "Agent-LLM is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers.",
+  "root": "./docs/",
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  },
+  "plugins": [
+    "page-toc-button",
+    "github-issue-feedback",
+    "summary"
+  ],
+  "pluginsConfig": {
+    "page-toc-button": {
+      "maxTocDepth": 2,
+      "minTocSize": 2
+    },
+    "github-issue-feedback": {
+      "repo": "john-x/agent-llm",
+      "label": "File an issue"
+    },
+    "edit-link": {
+      "base": "https://github.com/john-x/agent-llm/edit/master/docs/",
+      "label": "Edit"
+    }
+  },
+  "pdf": {
+    "fontFamily": "IPAexMincho"
+  }
+}

@@ -1,0 +1,9 @@
+Commands Available To Complete Task:
+{command_list}
+
+Context:
+{context}
+
+Task: {task}
+
+Answer: Let's work this out in a step by step way to be sure we are doing what is asked.
