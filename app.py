@@ -210,13 +210,6 @@ async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     return {"response": str(response)}
 
 
-@app.post("/api/agent/{agent_name}/smarterchat/{shots}", tags=["Agent"])
-async def smarterchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = AgentLLM(agent_name)
-    response = agent.smarter_chat(prompt.prompt, shots=shots)
-    return {"response": str(response)}
-
-
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
 async def get_commands(agent_name: str):
     commands = Commands(agent_name)
