@@ -191,12 +191,12 @@ class AgentLLM:
             previous_response=self.response,
             **kwargs,
         )
-        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+        response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validation_agent(self.response)
+            valid_json = self.validation_agent(response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
-                print(self.response)
+                print(response)
                 print("... Trying again.")
                 if context_results != 0:
                     context_results = context_results - 1
@@ -209,10 +209,10 @@ class AgentLLM:
                     previous_response=self.response,
                     **kwargs,
                 )
-                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validation_agent(self.response)
+                response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+                valid_json = self.validation_agent(response)
             if "response" in valid_json:
-                self.response = f"Agent Response:\n\n{valid_json['response']}"
+                self.response = f"Agent Response:\n\n{response}"
             if "summary" in valid_json:
                 self.response += (
                     f"\n\nSummary of the Agent Actions:\n\n{valid_json['summary']}"
