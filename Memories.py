@@ -99,25 +99,16 @@ class Memories:
         self,
         query: str,
         top_results_num: int,
-        long_term_access: bool = False,
     ) -> List[str]:
-        if long_term_access:
-            interactions = self.CFG.memory["interactions"]
-            context = [
-                interaction["message"]
-                for interaction in interactions[-top_results_num:]
-            ]
-            context = self.chunk_content("\n\n".join(context))[-top_results_num:]
-        else:
-            count = self.collection.count()
-            if count == 0:
-                return []
-            results = self.collection.query(
-                query_texts=query,
-                n_results=min(top_results_num, count),
-                include=["metadatas"],
-            )
-            context = [item["result"] for item in results["metadatas"][0]]
+        count = self.collection.count()
+        if count == 0:
+            return []
+        results = self.collection.query(
+            query_texts=query,
+            n_results=min(top_results_num, count),
+            include=["metadatas"],
+        )
+        context = [item["result"] for item in results["metadatas"][0]]
         trimmed_context = []
         total_tokens = 0
         for item in context:
