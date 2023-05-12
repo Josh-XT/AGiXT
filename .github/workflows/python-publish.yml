@@ -50,7 +50,7 @@ jobs:
       with:
         fetch-depth: 1
     - name: install honkit
-      run: npm install -g honkit gitbook-plugin-github-issue-feedback gitbook-plugin-page-toc-button
+      run: npm install -g honkit gitbook-plugin-github-issue-feedback gitbook-plugin-page-toc-button gitbook-plugin-summary
     - name: build doc
       run: honkit build
       #TODO publish in a way whatever you want
