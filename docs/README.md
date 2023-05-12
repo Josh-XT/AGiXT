@@ -146,7 +146,7 @@ cd Agent-LLM
 docker-compose up -d
 ```
 
-### MacOS
+### MacOS or Linux (Arm64)
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
