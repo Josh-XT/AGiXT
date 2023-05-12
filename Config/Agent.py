@@ -34,6 +34,10 @@ class Agent(Config):
                     self.AI_MODEL = "default"
             else:
                 self.AI_MODEL = "openassistant"
+            if "embedder" in self.PROVIDER_SETTINGS:
+                self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
+            else:
+                self.EMBEDDER = "default"
             if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
                 self.AI_MODEL = "default"
             with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:

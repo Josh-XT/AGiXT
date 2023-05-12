@@ -40,3 +40,4 @@ torch
 EdgeGPT
 nomic
 google-generativeai
+google-cloud-aiplatform
