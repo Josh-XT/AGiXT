@@ -290,7 +290,7 @@ class AgentLLM:
         for result in results:
             links = ddg(result, max_results=8)
             for link in links:
-                collected_data = web_selenium.browse_website(link, task)
+                collected_data = web_selenium.scrape_text_with_selenium(link)
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
         results = self.smart_chat(task=task, shots=shots)
