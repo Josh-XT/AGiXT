@@ -1,39 +1,6 @@
-from Config.Agent import Agent
 from chromadb.utils import embedding_functions
 import requests
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-
-
-class Embedding(Agent):
-    def default(self):
-        self.MAX_EMBEDDING_TOKENS = 384
-        self.EMBEDDING_AGENT = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-mpnet-base-v2"
-        )
-
-    def roberta(self):
-        self.MAX_EMBEDDING_TOKENS = 512
-        self.EMBEDDING_AGENT = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="roberta-base"
-        )
-
-    def openai(self):
-        self.MAX_EMBEDDING_TOKENS = 2048
-        self.EMBEDDING_AGENT = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
-        )
-
-    def google_palm(self):
-        self.MAX_EMBEDDING_TOKENS = 3072
-        self.EMBEDDING_AGENT = GooglePalmEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
-        )
-
-    def google_vertex(self):
-        self.MAX_EMBEDDING_TOKENS = 3072
-        self.EMBEDDING_AGENT = GoogleVertexEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
-        )
 
 
 class GooglePalmEmbeddingFunction(EmbeddingFunction):
@@ -87,3 +54,48 @@ class GoogleVertexEmbeddingFunction(EmbeddingFunction):
             if len(predictions) > 0 and "embedding" in predictions[0]:
                 embedding = predictions[0]["embedding"]
                 return embedding
+
+
+class Embedding:
+    def default(self):
+        chunk_size = 128
+        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-mpnet-base-v2"
+        )
+        return embed, chunk_size
+
+    def large_local(self):
+        chunk_size = 512
+        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="gtr-t5-large"
+        )
+        return embed, chunk_size
+
+    def openai(self):
+        chunk_size = 2048
+        embed = embedding_functions.OpenAIEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
+        )
+        return embed, chunk_size
+
+    def google_palm(self):
+        chunk_size = 3072
+        embed = GooglePalmEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
+        )
+        return embed, chunk_size
+
+    def google_vertex(self):
+        chunk_size = 3072
+        embed = GoogleVertexEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
+            project_id=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_PROJECT_ID"],
+        )
+        return embed, chunk_size
+
+    def cohere(self):
+        chunk_size = 512
+        embed = embedding_functions.CohereEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
+        )
+        return embed, chunk_size
