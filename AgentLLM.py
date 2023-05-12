@@ -282,15 +282,20 @@ class AgentLLM:
     ):
         results = self.run(task=task, prompt="WebSearch")
         results = results[results.find("[") : results.rfind("]") + 1]
+        while results is None or results == "":
+            # Don't take no for an answer. Keep asking until you get a response.
+            results = self.run(task=task, prompt="WebSearch")
+            results = results[results.find("[") : results.rfind("]") + 1]
         results = results.replace("[", "").replace("]", "")
         results = results.split(",")
         results = [result.replace('"', "") for result in results]
         for result in results:
             links = ddg(result, max_results=depth)
-            for link in links:
-                collected_data = web_selenium.scrape_text_with_selenium(link)
-                if collected_data is not None:
-                    self.memories.store_result(task, collected_data)
+            if links is not None:
+                for link in links:
+                    collected_data = web_selenium.scrape_text_with_selenium(link)
+                    if collected_data is not None:
+                        self.memories.store_result(task, collected_data)
 
     def get_status(self):
         try:
