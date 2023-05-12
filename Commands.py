@@ -22,34 +22,23 @@ class Commands:
 
     def get_available_commands(self):
         available_commands = []
-        for command in self.commands:
-            friendly_name, command_module, command_name, command_args = command
+        for description, _, _, name, params in self.commands:
             if (
                 "commands" in self.agent_config
-                and friendly_name in self.agent_config["commands"]
+                and description in self.agent_config["commands"]
             ):
+                enabled = False
                 if (
-                    self.agent_config["commands"][friendly_name] == "true"
-                    or self.agent_config["commands"][friendly_name] == True
+                    self.agent_config["commands"][description] == "true"
+                    or self.agent_config["commands"][description] == True
                 ):
-                    # Add command to list of commands to return
-                    available_commands.append(
-                        {
-                            "friendly_name": friendly_name,
-                            "name": command_name,
-                            "args": command_args,
-                            "enabled": True,
-                        }
-                    )
-                else:
-                    available_commands.append(
-                        {
-                            "friendly_name": friendly_name,
-                            "name": command_name,
-                            "args": command_args,
-                            "enabled": False,
-                        }
-                    )
+                    enabled = True
+                available_commands.append({
+                    "friendly_name": description,
+                    "name": name,
+                    "args": params,
+                    "enabled": enabled,
+                })
         return available_commands
 
     def load_commands(self):
@@ -57,25 +46,22 @@ class Commands:
         command_files = self.CFG.load_command_files()
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"commands.{module_name}")
-            if issubclass(getattr(module, module_name), Commands):
-                command_class = getattr(module, module_name)()
-                if hasattr(command_class, "commands"):
+            module_class = importlib.import_module(f"commands.{module_name}")
+            if issubclass(getattr(module_class, module_name), Commands):
+                module = getattr(module_class, module_name)()
+                if hasattr(module, "commands"):
                     for (
-                        command_name,
-                        command_function,
-                    ) in command_class.commands.items():
-                        params = self.get_command_params(command_function)
-                        # Store the module along with the function name
-                        commands.append(
-                            (
-                                command_name,
-                                getattr(module, module_name),
-                                command_function.__name__,
-                                params,
-                            )
-                        )
-        # Return the commands list
+                        description,
+                        command,
+                    ) in module.commands.items():
+                        params = self.get_command_params(command)
+                        commands.append((
+                            description,
+                            command,
+                            module,
+                            command.__name__,
+                            params,
+                        ))
         return commands
 
     def get_command_params(self, func):
@@ -89,21 +75,20 @@ class Commands:
         return params
 
     def find_command(self, command_name: str):
-        for name, module, function_name, params in self.commands:
-            if function_name == command_name:
-                command_function = getattr(module, function_name)
-                return command_function, module, params  # Updated return statement
-        return None, None, None  # Updated return statement
+        for description, command, module, name, params in self.commands:
+            if name == command_name or description == command_name:
+                return command, module, params
+        return None, None, None
 
     def get_commands_list(self):
         self.commands = self.load_commands(agent_name=self.agent_name)
-        commands_list = [command_name for command_name, _, _ in self.commands]
+        commands_list = [description for description, _, _, _, _, in self.commands]
         return commands_list
 
     def execute_command(self, command_name: str, command_args: dict = None):
-        command_function, module, params = self.find_command(command_name)
-        if command_function is None:
-            return False
+        command, _, params = self.find_command(command_name)
+        if command is None:
+            return "Command not recognized"
 
         if command_args is None:
             command_args = {}
@@ -116,9 +101,8 @@ class Commands:
                 params[name] = value
 
         try:
-            command_class = module()
-            output = getattr(command_class, command_function.__name__)(**params)
+            output = command(**params)
         except Exception as e:
-            output = f"Error: {str(e)}"
+            output = f"Error: {e}"
 
         return output

@@ -8,23 +8,27 @@ You have the following constraints:
 Take into account these previously completed tasks: {context}
 Your task: {task}
 
-You have the following commands available to complete this task given.
+You can use the following commands to complete this task.
 {COMMANDS}
 
 RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
-
+```
 {
     "plan": "Your plan for achieving the task",
     "response": "Your response to the task",
     "commands": {
-        "command_name": {
+        "_command_name": {
             "arg1": "val1",
             "arg2": "val2"
         },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
+        "_write_to_file": {
+            "filename": "example.txt",
+            "text": {
+                "_scrape_text": {
+                    "url": "http://example.com"
+                }
+            }
         }
     }
 }
+```

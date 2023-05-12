@@ -5,6 +5,7 @@ import uuid
 import shutil
 import importlib
 import yaml
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from inspect import signature, Parameter
@@ -26,7 +27,6 @@ class Agent(Config):
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-                self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -38,7 +38,8 @@ class Agent(Config):
                 self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
             else:
                 self.EMBEDDER = "default"
-            if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
+
+            if not self.AI_MODEL or not os.path.exists(f"model-prompts/{self.AI_MODEL}/"):
                 self.AI_MODEL = "default"
             with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
                 self.EXECUTION_PROMPT = f.read()
@@ -57,6 +58,27 @@ class Agent(Config):
         self.memory = self.load_memory()
         self.agent_instances = {}
         self.commands = self.load_commands()
+        self.LOG_AGENT_REQUESTS = os.getenv("LOG_AGENT_REQUESTS") and os.getenv("LOG_AGENT_REQUESTS", "false").lower() != "false"
+        if self.LOG_AGENT_REQUESTS:
+            Path(os.path.join(
+                "agents", self.AGENT_NAME, "requests",
+            )).mkdir(parents=True, exist_ok=True)
+
+    def instruct(self, prompt):
+        if (not prompt):
+            return ""
+        answer = self.PROVIDER.instruct(prompt)
+        if self.LOG_AGENT_REQUESTS:
+            log_file = os.path.join(
+                "agents", self.AGENT_NAME, "requests", f"{time.time()}.txt"
+            )
+            with open(
+                log_file,
+                "a" if os.path.exists(log_file) else "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(f"{prompt}\n{answer}")
+        return answer
 
     def _load_agent_config_keys(self, keys):
         for key in keys:
@@ -183,12 +205,12 @@ class Agent(Config):
             json.dump(config_data, f)
 
     def add_agent(self, agent_name, provider_settings):
-        agent_folder = self.create_agent_folder(agent_name)
+        self.create_agent_folder(agent_name)
 
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
-            friendly_name, command_name, command_args = command
+            friendly_name, _, _ = command
             command_dict[friendly_name] = False
         agent_config = self.create_agent_config_file(
             agent_name, provider_settings, command_dict

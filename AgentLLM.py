@@ -2,7 +2,7 @@ import argparse
 import re
 import regex
 from collections import deque
-from typing import List, Dict
+from typing import List
 from Config.Agent import Agent
 from commands.web_requests import web_requests
 from commands.web_selenium import web_selenium
@@ -40,12 +40,20 @@ class AgentLLM:
         )
         if not enabled_commands:
             return "No commands."
+        
+        commands = {}
+        for command in enabled_commands:
+            command_name = f"_{command['name']}"
+            commands[command_name] = {"_": command["friendly_name"]}
+            for arg in command["args"]:
+                if arg == "url":
+                    commands[command_name][arg] = "http://example.com"
+                elif arg == "filename":
+                    commands[command_name][arg] = "example.txt"
+                else:
+                    commands[command_name][arg] = command["args"][arg]
+        return json.dumps({"commands": commands}, indent=4)
 
-        friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-            enabled_commands,
-        )
-        return "\n".join(friendly_names)
 
     def validation_agent(self, json_string: str):
         try:
@@ -84,11 +92,12 @@ class AgentLLM:
         prompt="",
         **kwargs,
     ):
-        cp = CustomPrompt()
-        if prompt == "":
+        if prompt == "chat":
             prompt = task
+        elif prompt in ["execute", "task", "priority", "instruct"]:
+            prompt = CustomPrompt().get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
-            prompt = cp.get_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
+            prompt = CustomPrompt().get_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         if top_results == 0:
             context = "None"
         else:
@@ -96,7 +105,7 @@ class AgentLLM:
                 query=task, top_results_num=top_results
             )
         command_list = self.get_commands_string()
-        formatted_prompt = self.custom_format(
+        return self.custom_format(
             prompt,
             task=task,
             agent_name=self.agent_name,
@@ -106,8 +115,25 @@ class AgentLLM:
             command_list=command_list,
             **kwargs,
         )
-        tokens = len(self.memories.nlp(formatted_prompt))
-        return formatted_prompt, prompt, tokens
+    
+    def decode_json(response, silent = False):
+        match = re.findall(r"```(?:json|python|javascript|)\n(.+(?:\n.+)+)\n```", response)
+        if (match):
+            response = match[0]
+        try:
+            return json.loads(response.strip())
+        except ValueError as e:
+            if not silent:
+                return {"exception": e}
+
+    def decode_tasks(response):
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        return new_tasks
 
     def run(
         self,
@@ -118,112 +144,68 @@ class AgentLLM:
         websearch_depth: int = 8,
         **kwargs,
     ):
-        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+        formatted_prompt = self.format_prompt(
             task=task,
             top_results=context_results,
             prompt=prompt,
             **kwargs,
         )
-        if websearch:
-            self.websearch_to_memory(task=task, depth=websearch_depth)
-        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-        # Handle commands if in response
-        if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validation_agent(self.response)
-            while not valid_json:
-                print("INVALID JSON RESPONSE")
-                print(self.response)
-                print("... Trying again.")
-                if context_results != 0:
-                    context_results = context_results - 1
-                else:
-                    context_results = 0
-                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                    task=task,
-                    top_results=context_results,
-                    prompt=prompt,
-                    **kwargs,
+        #if websearch:
+        #    self.websearch_to_memory(task=task, depth=websearch_depth)
+        response = self.CFG.instruct(formatted_prompt)
+        if prompt == "task":
+            return AgentLLM.decode_json(response, True) or AgentLLM.decode_tasks(response)
+        if prompt == "priority":
+            return AgentLLM.decode_tasks(response)
+        if prompt != "chat":
+            response = AgentLLM.decode_json(response)
+    
+        result_parts = []
+        if "plan" in response:
+            result_parts.append(f"\n\nPLAN:\n{response['plan']}")
+        if "response" in response:
+            result_parts.append(f"\n\nRESULT:\n{response['response']}")
+        if  "commands" in response:
+            result_parts.append(f"\n\nCOMMANDS:\n{json.dumps(response['commands'], indent=4)}\n")
+            result_parts.append(f"\n\nExecute commands:\n")
+            for line in self.execute_commands(response['commands']):
+                result_parts.append(line)
+
+        messages = "".join(result_parts)
+        if (messages):
+            print(messages)
+            self.update_output_list(messages)
+            if not self.CFG.NO_MEMORY:
+                self.store_result(task, messages)
+                self.CFG.log_interaction("USER", task)
+                self.CFG.log_interaction(self.agent_name, messages)
+
+        return response
+    
+    def execute_commands(self, commands):
+        result_parts = []
+        for command_name, command_args in commands.items():
+            if command_name[0] == "_":
+                result = self.commands.execute_command(
+                    command_name[1:],
+                    self.execute_args(command_args)
                 )
-                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validation_agent(self.response)
-            if valid_json:
-                self.response = valid_json
-            response_parts = []
-            if "thoughts" in self.response:
-                response_parts.append(f"\n\nTHOUGHTS:\n\n{self.response['thoughts']}")
-            if "plan" in self.response:
-                response_parts.append(f"\n\nPLAN:\n\n{self.response['plan']}")
-            if "summary" in self.response:
-                response_parts.append(f"\n\nSUMMARY:\n\n{self.response['summary']}")
-            if "response" in self.response:
-                response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
-            if "commands" in self.response:
-                response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
-                for command_name, command_args in self.response["commands"].items():
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if command_name in [
-                                available_command["friendly_name"],
-                                available_command["name"],
-                            ]:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
+                result_parts.append(
+                    f"\n{command_name}: {result}"
+                )
+        return result_parts;
+
+    def execute_args(self, command_args):
+        for arg, value in command_args.items():
+            if type(value) == object and not type(value) == list:
+                for key, val in value.items():
+                    if key[0] == "_":
+                        command_args[arg] = self.commands.execute_command(
+                            key[1:],
+                            self.execute_args(val)
                         )
-                    else:
-                        if command_name == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(
-                                f"\n\nCommand not recognized: {command_name}"
-                            )
-            self.response = "".join(response_parts)
-            print(f"Pre-Validation Response: {self.response}")
-        self.memories.store_result(task, self.response)
-        # Second shot to validate response
-        context_results = 3
-        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-            task=task,
-            top_results=context_results,
-            prompt="validate",
-            previous_response=self.response,
-            **kwargs,
-        )
-        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-        if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validation_agent(self.response)
-            while not valid_json:
-                print("INVALID JSON RESPONSE")
-                print(self.response)
-                print("... Trying again.")
-                if context_results != 0:
-                    context_results = context_results - 1
-                else:
-                    context_results = 0
-                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                    task=task,
-                    top_results=context_results,
-                    prompt="validate",
-                    previous_response=self.response,
-                    **kwargs,
-                )
-                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validation_agent(self.response)
-            if "response" in valid_json:
-                self.response = f"Agent Response:\n\n{valid_json['response']}"
-            if "summary" in valid_json:
-                self.response += (
-                    f"\n\nSummary of the Agent Actions:\n\n{valid_json['summary']}"
-                )
-            print(f"Post-Validation Response: {self.response}")
-        else:
-            print(f"Response: {self.response}")
-        self.memories.store_result(task, self.response)
-        self.CFG.log_interaction("USER", task)
-        self.CFG.log_interaction(self.agent_name, self.response)
-        return self.response
+                        break
+        return command_args;
 
     def smart_instruct(
         self,
@@ -309,9 +291,9 @@ class AgentLLM:
         )
 
     def task_creation_agent(
-        self, result: Dict, task_description: str, task_list: List[str]
-    ) -> List[Dict]:
-        response = self.run(
+        self, result: str, task_description: str, task_list: List[str]
+    ):
+        return self.run(
             task=self.primary_objective,
             prompt="task",
             result=result,
@@ -319,33 +301,18 @@ class AgentLLM:
             tasks=", ".join(task_list),
         )
 
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        return [{"task_name": task_name} for task_name in new_tasks]
-
     def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
         if not task_names:
             return
         next_task_id = len(self.task_list) + 1
 
-        response = self.run(
+        new_tasks = self.run(
             task=self.primary_objective,
             prompt="priority",
             task_names=", ".join(task_names),
             next_task_id=next_task_id,
         )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
         self.task_list = deque()
         for task_string in new_tasks:
             task_parts = task_string.strip().split(".", 1)
@@ -378,17 +345,25 @@ class AgentLLM:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
             result = self.run(task=task["task_name"], prompt="execute")
-            self.update_output_list(f"\nTask Result:\n\n{result}\n")
+            try:
+                json_result = json.dumps(result, indent=4)
+                self.update_output_list(f"\nTask Result:\n{json_result}\n\n")
+            except:
+                self.update_output_list(f"\nTask Result (json error):\n{result}\n\n")
+            if "response" in result:
+                result = result["response"]
+            else:
+                result = ""
             new_tasks = self.task_creation_agent(
-                {"data": result},
+                result,
                 task["task_name"],
                 [t["task_name"] for t in self.task_list],
             )
-            self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
+            new_tasks_list = "\n".join(new_tasks)
+            self.update_output_list(f"\nNew Tasks:\n{new_tasks_list}\n")
             for new_task in new_tasks:
-                new_task.update({"task_id": len(self.task_list) + 1})
-                self.task_list.append(new_task)
-            self.prioritization_agent()
+                self.task_list.append({"task_id": len(self.task_list) + 1, "task_name": new_task})
+            #self.prioritization_agent()
         self.update_output_list("All tasks completed or stopped.")
 
     def run_chain_step(self, step_data_list):

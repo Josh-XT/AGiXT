@@ -7,7 +7,8 @@ CFG = Config()
 
 class twitter(Commands):
     def __init__(self):
-        self.commands = {"Send Tweet": self.send_tweet}
+        if (CFG.TW_CONSUMER_KEY and CFG.TW_ACCESS_TOKEN):
+            self.commands = {"Send Tweet": self.send_tweet}
 
     def send_tweet(tweet_text):
         # Authenticate to Twitter

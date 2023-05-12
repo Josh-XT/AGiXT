@@ -34,7 +34,8 @@ webdriver_manager
 llama-cpp-python==0.1.48
 spacy
 discord
-gpt4free
+git+https://github.com/xtekky/gpt4free
+pycrypto
 accelerate
 torch
 EdgeGPT
