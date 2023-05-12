@@ -1,6 +1,6 @@
 ## Building Prompts for Plugin System
 
-This README file provides the necessary information for building prompts for the Plugin System.
+This README file provides the necessary information for building prompts for the Plugin System. See also [Prompts](../Concepts/PROMPT.md)
 ### Plugin Overview
 
 The Plugin System uses prompts to provide instructions to different AI agents. Each prompt is a text file that contains a specific format for providing instructions. There are four types of prompts that the Plugin System uses. They are as follows:
