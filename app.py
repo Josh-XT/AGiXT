@@ -180,8 +180,6 @@ async def instruct(agent_name: str, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.run(
         task=prompt.prompt,
-        max_context_tokens=128,
-        long_term_access=False,
         prompt="instruct",
     )
     return {"response": str(response)}
