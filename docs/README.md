@@ -145,8 +145,15 @@ git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 docker-compose up -d
 ```
+### Linux Arm64
 
-### MacOS or Linux (Arm64)
+```
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
+docker compose -f docker-compose-linux-arm64.yml
+```
+
+### MacOS
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
