@@ -202,9 +202,16 @@ async def chat(agent_name: str, prompt: Prompt):
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
-async def chat(agent_name: str, shots: int, prompt: Prompt):
+async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AgentLLM(agent_name)
     response = agent.smart_chat(prompt.prompt, shots=shots)
+    return {"response": str(response)}
+
+
+@app.post("/api/agent/{agent_name}/smarterchat/{shots}", tags=["Agent"])
+async def smarterchat(agent_name: str, shots: int, prompt: Prompt):
+    agent = AgentLLM(agent_name)
+    response = agent.smarter_chat(prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
