@@ -13,10 +13,17 @@ class CustomPrompt:
         else:
             raise Exception("Prompt already exists")
 
-    def get_prompt(self, prompt_name):
-        with open(os.path.join("prompts", f"{prompt_name}.txt"), "r") as f:
-            prompt = f.read()
-        return prompt
+    def get_prompt(self, prompt_name, model="default"):
+        try:
+            with open(f"model-prompts/{model}/{prompt_name}.txt", "r") as f:
+                return f.read()
+        except:
+            try:
+                with open(os.path.join("prompts", f"{prompt_name}.txt"), "r") as f:
+                    prompt = f.read()
+                return prompt
+            except:
+                return ""
 
     def get_prompts(self):
         # Get all files in prompts folder that end in .txt and replace .txt with empty string

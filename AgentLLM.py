@@ -47,8 +47,9 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
-    def validate_json(self, json_string: str):
+    def validation_agent(self, json_string: str):
         try:
+            json_string = self.run(task=json_string, prompt="jsonformatter")
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
             if len(cleaned_json) == 0:
@@ -86,10 +87,8 @@ class AgentLLM:
         cp = CustomPrompt()
         if prompt == "":
             prompt = task
-        elif prompt in ["execute", "task", "priority", "instruct", "validate"]:
-            prompt = cp.get_model_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         else:
-            prompt = CustomPrompt().get_prompt(prompt)
+            prompt = cp.get_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
         if top_results == 0:
             context = "None"
         else:
@@ -115,6 +114,8 @@ class AgentLLM:
         task: str,
         prompt: str = "",
         context_results: int = 3,
+        websearch: bool = False,
+        websearch_depth: int = 8,
         **kwargs,
     ):
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
@@ -123,15 +124,16 @@ class AgentLLM:
             prompt=prompt,
             **kwargs,
         )
+        if websearch:
+            self.websearch_to_memory(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
                 print("... Trying again.")
-
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -143,7 +145,7 @@ class AgentLLM:
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if valid_json:
                 self.response = valid_json
             response_parts = []
@@ -191,7 +193,7 @@ class AgentLLM:
         )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
@@ -208,7 +210,7 @@ class AgentLLM:
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if "response" in valid_json:
                 self.response = f"Agent Response:\n\n{valid_json['response']}"
             if "summary" in valid_json:
@@ -231,7 +233,15 @@ class AgentLLM:
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
         for i in range(shots):
-            answers.append(self.run(task=task, prompt="SmartInstruct-StepByStep"))
+            answers.append(
+                self.run(
+                    task=task,
+                    prompt="SmartInstruct-StepByStep",
+                    context_results=6,
+                    websearch=True,
+                    websearch_depth=8,
+                )
+            )
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
@@ -248,7 +258,13 @@ class AgentLLM:
         # Do multi shots of prompt to get N different answers to be validated
         for i in range(shots):
             answers.append(
-                self.run(task=task, prompt="SmartChat-StepByStep", context_results=6)
+                self.run(
+                    task=task,
+                    prompt="SmartChat-StepByStep",
+                    context_results=6,
+                    websearch=True,
+                    websearch_depth=8,
+                )
             )
         answer_str = ""
         for i, answer in enumerate(answers):
@@ -261,25 +277,20 @@ class AgentLLM:
         )
         return resolver
 
-    def smarter_chat(
-        self,
-        task: str = "What are the latest breakthroughs and news in AI today?",
-        shots: int = 3,
+    def websearch_to_memory(
+        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 8
     ):
-        # Smarter Chat is a combination of Smart Chat and Web Search
         results = self.run(task=task, prompt="WebSearch")
         results = results[results.find("[") : results.rfind("]") + 1]
         results = results.replace("[", "").replace("]", "")
         results = results.split(",")
         results = [result.replace('"', "") for result in results]
         for result in results:
-            links = ddg(result, max_results=8)
+            links = ddg(result, max_results=depth)
             for link in links:
                 collected_data = web_selenium.scrape_text_with_selenium(link)
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
-        results = self.smart_chat(task=task, shots=shots)
-        return results
 
     def get_status(self):
         try:
