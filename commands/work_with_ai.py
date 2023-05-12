@@ -16,9 +16,13 @@ class work_with_ai(Commands):
                     )
 
     def ask(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
-        response = AgentLLM(agent_name).run(prompt)
+        response = AgentLLM(agent_name).run(
+            prompt, prompt="chat", websearch=True, websearch_depth=4
+        )
         return response
 
     def instruct(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
-        response = AgentLLM(agent_name).run(task=prompt, prompt="instruct")
+        response = AgentLLM(agent_name).run(
+            task=prompt, prompt="instruct", websearch=True, websearch_depth=8
+        )
         return response
