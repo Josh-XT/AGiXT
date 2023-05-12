@@ -8,9 +8,12 @@
 ## Quick Start Guide
 _Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._
 
-### Update your agent settings
+### Start provider locally
+1. Setup `text-generation-webui` from above
+1. Make sure `--api` and `--listen` (when running `Agent-LLM` in docker) are present
+1. `AI_PROVIDER_URI` is now `http://localhost:5000` or `http://172.x.x.x` (docker)
+
+### Create Agent 
+1. Create a new agent
 1. Set `AI_PROVIDER` to `oobabooga`.
-2. Set `AI_MODEL` to `default` or the name of the model from the `model-prompts` folder.
-3. Set `AI_PROVIDER_URI` to `http://localhost:5000`, or the URI of your Oobabooga server.
-4. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.
+1. Set `AI_PROVIDER_URI` to the URI of your Oobabooga server.

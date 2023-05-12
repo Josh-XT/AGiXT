@@ -27,6 +27,8 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 ## ⚠️ Run this in Docker or a Virtual Machine!
 You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
 
+See also [SECURITY.md](SECURITY.MD)
+
 ## ⚠️ Monitor Your Usage!
 Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
 
@@ -179,6 +181,10 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 ### AI Providers
 
 Each agent will have its own AI provider and provider settings such as model, temperature, and max tokens, depending on the provider.  You can use this to make certain agents better at certain tasks by giving them more advanced models to complete certain steps in chains.
+
+## Documentation
+
+In `docs/` folder. Can be used to generate static html output. See `deploy-docs` section in [Publish Workflow](/.github/workflows/python-publish.yml) howto build with honkit.
 
 ## Contributing
 
