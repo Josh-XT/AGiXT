@@ -1,4 +1,4 @@
-# Agent-LLM
+# GPUGPT4ALL
 
 ## AI Provider: GPT4All
 

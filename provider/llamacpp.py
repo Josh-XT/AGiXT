@@ -5,6 +5,7 @@ except:
 
 import os
 
+
 class LlamacppProvider:
     def __init__(
         self,
@@ -24,9 +25,9 @@ class LlamacppProvider:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
-                
+
         if os.path.isfile(MODEL_PATH):
-            self.model = Llama(model_path=MODEL_PATH, n_ctx=self.MAX_TOKENS*2)
+            self.model = Llama(model_path=MODEL_PATH, n_ctx=self.MAX_TOKENS * 2)
         else:
             print("Failed to import model - not a file")
 
