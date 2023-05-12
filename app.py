@@ -11,6 +11,7 @@ from CustomPrompt import CustomPrompt
 import threading
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
+from Embedding import get_embedding_providers
 
 CFG = Config()
 app = FastAPI(
@@ -105,19 +106,22 @@ class AgentSettings(BaseModel):
     settings: Dict[str, Any]
 
 
-# Get list of providers
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
     return {"providers": providers}
 
 
-# Get available provider settings
-# These should be used to set new agents settings.
 @app.get("/api/provider/{provider_name}", tags=["Provider"])
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name)
     return {"settings": settings}
+
+
+@app.get("/api/embedding_providers", tags=["Provider"])
+async def get_embed_providers():
+    providers = get_embedding_providers()
+    return {"providers": providers}
 
 
 @app.post("/api/agent", tags=["Agent"])

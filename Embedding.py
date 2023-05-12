@@ -1,5 +1,6 @@
-from chromadb.utils import embedding_functions
 import requests
+import inspect
+from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 
@@ -107,3 +108,11 @@ class Embedding:
             api_key=self.CFG.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
         )
         return embed, chunk_size
+
+
+def get_embedding_providers():
+    return [
+        func
+        for func, _ in inspect.getmembers(Embedding, predicate=inspect.isfunction)
+        if not func.startswith("__")
+    ]
