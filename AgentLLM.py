@@ -424,9 +424,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", type=str, default="Write a tweet about AI.")
     parser.add_argument("--agent_name", type=str, default="Agent-LLM")
+    parser.add_argument("--option", type=str, default="")
+    parser.add_argument("--shots", type=int, default=3)
     args = parser.parse_args()
     prompt = args.prompt
     agent_name = args.agent_name
-
-    # Run AgentLLM
-    AgentLLM(agent_name).run(task=prompt, prompt="instruct")
+    option = args.option
+    # Options are instruct, smartinstruct, smartchat, and chat.
+    shots = args.shots
+    agent = AgentLLM(agent_name)
+    if option == "instruct":
+        agent.run(prompt, prompt="instruct", websearch=True, websearch_depth=4)
+    elif option == "smartinstruct":
+        agent.smart_instruct(prompt, shots)
+    elif option == "smartchat":
+        agent.smart_chat(prompt, shots)
+    else:
+        agent.run(
+            prompt, prompt="chat", context_results=5, websearch=True, websearch_depth=4
+        )
