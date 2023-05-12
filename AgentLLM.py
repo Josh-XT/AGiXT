@@ -276,9 +276,12 @@ class AgentLLM:
         )
         return resolver
 
-    def smartsearch_agent(
-        self, task: str = "What are the latest breakthroughs and news in AI today?"
+    def smarter_chat(
+        self,
+        task: str = "What are the latest breakthroughs and news in AI today?",
+        shots: int = 3,
     ):
+        # Smarter Chat is a combination of Smart Chat and Web Search
         results = self.run(task=task, prompt="WebSearch")
         results = results[results.find("[") : results.rfind("]") + 1]
         results = results.replace("[", "").replace("]", "")
@@ -290,7 +293,7 @@ class AgentLLM:
                 collected_data = web_selenium.browse_website(link, task)
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
-        results = self.smart_chat(task=task, shots=3)
+        results = self.smart_chat(task=task, shots=shots)
         return results
 
     def get_status(self):
