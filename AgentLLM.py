@@ -80,7 +80,6 @@ class AgentLLM:
         self,
         task: str,
         top_results: int = 3,
-        long_term_access: bool = False,
         prompt="",
         **kwargs,
     ):
@@ -95,9 +94,7 @@ class AgentLLM:
             context = "None"
         else:
             context = self.memories.context_agent(
-                query=task,
-                top_results_num=top_results,
-                long_term_access=long_term_access,
+                query=task, top_results_num=top_results
             )
         command_list = self.get_commands_string()
         formatted_prompt = self.custom_format(
@@ -116,7 +113,6 @@ class AgentLLM:
     def run(
         self,
         task: str,
-        long_term_access: bool = False,
         prompt: str = "",
         context_results: int = 3,
         **kwargs,
@@ -124,7 +120,6 @@ class AgentLLM:
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
-            long_term_access=long_term_access,
             prompt=prompt,
             **kwargs,
         )
@@ -144,7 +139,6 @@ class AgentLLM:
                 formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
                     task=task,
                     top_results=context_results,
-                    long_term_access=long_term_access,
                     prompt=prompt,
                     **kwargs,
                 )
@@ -191,7 +185,6 @@ class AgentLLM:
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
-            long_term_access=long_term_access,
             prompt="validate",
             previous_response=self.response,
             **kwargs,
@@ -210,7 +203,6 @@ class AgentLLM:
                 formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
                     task=task,
                     top_results=context_results,
-                    long_term_access=long_term_access,
                     prompt="validate",
                     previous_response=self.response,
                     **kwargs,
