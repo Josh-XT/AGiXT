@@ -23,3 +23,9 @@ Agent-LLM-Frontend/
 *.code-workspace
 chains/*/*
 data/*
+
+# docs generation
+docs/SUMMARY.md
+_book/
+package.json
+package-lock.json

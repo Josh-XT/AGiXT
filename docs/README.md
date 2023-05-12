@@ -182,6 +182,10 @@ To introduce new commands, generate a new Python file in the `commands` folder a
 
 Each agent will have its own AI provider and provider settings such as model, temperature, and max tokens, depending on the provider.  You can use this to make certain agents better at certain tasks by giving them more advanced models to complete certain steps in chains.
 
+## Documentation
+
+In `docs/` folder. Can be used to generate static html output. See `deploy-docs` section in [Publish Workflow](/.github/workflows/python-publish.yml) howto build with honkit.
+
 ## Contributing
 
 [![Contribute](https://img.shields.io/github/issues/Josh-XT/Agent-LLM/help%20wanted?color=purple&label=Quick%20Contribute&logo=github&style=plastic)](https://github.com/Josh-XT/Agent-LLM/labels/help%20wanted) 
