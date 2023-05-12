@@ -47,8 +47,9 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
-    def validate_json(self, json_string: str):
+    def validation_agent(self, json_string: str):
         try:
+            json_string = self.run(task=json_string, prompt="jsonformatter")
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
             if len(cleaned_json) == 0:
@@ -126,12 +127,11 @@ class AgentLLM:
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
                 print("... Trying again.")
-
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
@@ -143,7 +143,7 @@ class AgentLLM:
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if valid_json:
                 self.response = valid_json
             response_parts = []
@@ -191,7 +191,7 @@ class AgentLLM:
         )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validate_json(self.response)
+            valid_json = self.validation_agent(self.response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
                 print(self.response)
@@ -208,7 +208,7 @@ class AgentLLM:
                     **kwargs,
                 )
                 self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validate_json(self.response)
+                valid_json = self.validation_agent(self.response)
             if "response" in valid_json:
                 self.response = f"Agent Response:\n\n{valid_json['response']}"
             if "summary" in valid_json:
