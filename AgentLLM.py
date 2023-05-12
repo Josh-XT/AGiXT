@@ -202,21 +202,13 @@ class AgentLLM:
                     context_results = context_results - 1
                 else:
                     context_results = 0
-                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                    task=task,
-                    top_results=context_results,
-                    prompt="validate",
-                    previous_response=response,
-                    **kwargs,
-                )
-                response = self.CFG.instruct(formatted_prompt, tokens=tokens)
                 valid_json = self.validation_agent(response)
             if "response" in valid_json:
-                self.response = f"Agent Response:\n\n{response}"
-            if "summary" in valid_json:
-                self.response += (
-                    f"\n\nSummary of the Agent Actions:\n\n{valid_json['summary']}"
-                )
+                self.response = valid_json["response"]
+            if "commands" in valid_json:
+                commands_used = valid_json["commands"]
+                if len(commands_used) > 0:
+                    self.response += f"\n\nCommands Used:\n\n{commands_used}"
             print(f"Post-Validation Response: {self.response}")
         else:
             print(f"Response: {self.response}")
