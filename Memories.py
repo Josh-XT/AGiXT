@@ -1,10 +1,10 @@
 import string
 import chromadb
 import secrets
-from typing import List, Dict
-from chromadb.utils import embedding_functions
+from typing import List
 import spacy
 from spacy.cli import download
+from Embedding import Embedding
 
 
 class Memories:
@@ -17,16 +17,9 @@ class Memories:
             print("Downloading spacy model...")
             download("en_core_web_sm")
             self.nlp = spacy.load("en_core_web_sm")
-        if self.CFG.AI_PROVIDER == "openai":
-            self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
-            )
-        else:
-            self.embedding_function = (
-                embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name="all-mpnet-base-v2"
-                )
-            )
+        embedder = Embedding(embedder=self.CFG.EMBEDDER)
+        self.embedding_function = embedder.embed
+        self.chunk_size = embedder.chunk_size
         self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
         self.chroma_client = chromadb.Client(
             settings=chromadb.config.Settings(
@@ -106,44 +99,34 @@ class Memories:
         self,
         query: str,
         top_results_num: int,
-        long_term_access: bool = False,
-        max_tokens: int = 180,
     ) -> List[str]:
-        if long_term_access:
-            interactions = self.CFG.memory["interactions"]
-            context = [
-                interaction["message"]
-                for interaction in interactions[-top_results_num:]
-            ]
-            context = self.chunk_content("\n\n".join(context))[-top_results_num:]
-        else:
-            count = self.collection.count()
-            if count == 0:
-                return []
-            results = self.collection.query(
-                query_texts=query,
-                n_results=min(top_results_num, count),
-                include=["metadatas"],
-            )
-            context = [item["result"] for item in results["metadatas"][0]]
+        count = self.collection.count()
+        if count == 0:
+            return []
+        results = self.collection.query(
+            query_texts=query,
+            n_results=min(top_results_num, count),
+            include=["metadatas"],
+        )
+        context = [item["result"] for item in results["metadatas"][0]]
         trimmed_context = []
         total_tokens = 0
         for item in context:
             item_tokens = len(self.nlp(item))
-            if total_tokens + item_tokens <= max_tokens:
+            if total_tokens + item_tokens <= self.chunk_size:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
             else:
                 break
         return "\n".join(trimmed_context)
 
-    def chunk_content(self, content: str, max_length: int = 180) -> List[str]:
+    def chunk_content(self, content: str) -> List[str]:
         content_chunks = []
         doc = self.nlp(content)
         length = 0
         chunk = []
         for sent in doc.sents:
-            if length + len(sent) <= max_length:
+            if length + len(sent) <= self.chunk_size:
                 chunk.append(sent.text)
                 length += len(sent)
             else:
