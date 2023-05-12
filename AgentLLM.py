@@ -206,7 +206,7 @@ class AgentLLM:
                     task=task,
                     top_results=context_results,
                     prompt="validate",
-                    previous_response=self.response,
+                    previous_response=response,
                     **kwargs,
                 )
                 response = self.CFG.instruct(formatted_prompt, tokens=tokens)
