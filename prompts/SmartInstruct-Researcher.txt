@@ -1,27 +1,12 @@
 Commands Available To Complete Task:
-{COMMANDS}
+{command_list}
 
 Context: {context}
 
 You are a researcher task with investigating the {shots} response options provided. 
 1. List the flaws and faulty logic of each answer option. 
-2. Choose the appropriate commands to complete the research task.
-3. Return the improved answer in full in the following JSON format:
-
-{
-    "response": "The full improved answer.",
-    "commands": {
-        "command_name": {
-            "arg1": "val1",
-            "arg2": "val2"
-        },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
-        }
-    }
-}
+2. Choose the appropriate commands to complete the task once logic is worked out.
+3. Return the improved answer in full including commands to complete the task.
 
 Lets work this out in a step by step way to be sure we have all the errors.
 
