@@ -2,14 +2,9 @@ from Config.Agent import Agent
 from chromadb.utils import embedding_functions
 import requests
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from typing import Optional
 
 
 class Embedding(Agent):
-    def __init__(self, AGENT_NAME: str = "Agent-LLM"):
-        super().__init__(AGENT_NAME)
-        self.default()
-
     def default(self):
         self.MAX_EMBEDDING_TOKENS = 384
         self.EMBEDDING_AGENT = embedding_functions.SentenceTransformerEmbeddingFunction(
@@ -28,8 +23,14 @@ class Embedding(Agent):
             api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
         )
 
+    def google_vertex(self):
+        self.MAX_EMBEDDING_TOKENS = 3072
+        self.EMBEDDING_AGENT = GoogleVertexEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
+        )
 
-class GoogleGeckoEmbeddingFunction(EmbeddingFunction):
+
+class GoogleVertexEmbeddingFunction(EmbeddingFunction):
     def __init__(
         self,
         api_key: str,
