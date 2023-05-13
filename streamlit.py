@@ -1,6 +1,8 @@
 import streamlit as st
 import threading
 import json
+import os
+import yaml
 from Config import Config
 from AgentLLM import AgentLLM
 from Config.Agent import Agent
@@ -192,54 +194,60 @@ elif main_selection == "Chat":
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
     if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
+        st.session_state["chat_history"] = {}
 
     chat_container = st.container()
 
-    if agent_name:
-        agent = AgentLLM(agent_name)
-
+    def render_chat_history(chat_container, chat_history):
+        chat_container.empty()
         with chat_container:
-            for chat in st.session_state["chat_history"]:
-                if chat["sender"] == "User":
-                    st.markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+            for chat in chat_history:
+                if "sender" in chat and "message" in chat:
+                    if chat["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    if agent_name:
+        chat_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
+
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                chat_history = agent_data.get("interactions", [])
+
+        st.session_state.chat_history[agent_name] = chat_history
+
+        render_chat_history(chat_container, st.session_state.chat_history[agent_name])
 
         chat_prompt = st.text_input("Enter your message", key="chat_prompt")
         send_button = st.button("Send Message")
 
         if send_button:
             if agent_name and chat_prompt:
-                st.session_state["chat_history"].append(
-                    {"sender": "User", "message": chat_prompt}
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_chat_toggle:
+                        response = agent.smart_chat(chat_prompt, shots=3)
+                    else:
+                        response = agent.run(
+                            chat_prompt, prompt="Chat", context_results=6
+                        )
+                chat_entry = [
+                    {"sender": "User", "message": chat_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.chat_history[agent_name].extend(chat_entry)
+                render_chat_history(
+                    chat_container, st.session_state.chat_history[agent_name]
                 )
-                if smart_chat_toggle:
-                    response = agent.smart_chat(chat_prompt, shots=3)
-                else:
-                    response = agent.run(chat_prompt, prompt="Chat", context_results=6)
-                st.session_state["chat_history"].append(
-                    {"sender": "Agent", "message": response}
-                )
-                chat_container.empty()
-                with chat_container:
-                    for chat in st.session_state["chat_history"]:
-                        if chat["sender"] == "User":
-                            st.markdown(
-                                f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.markdown(
-                                f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
-                                unsafe_allow_html=True,
-                            )
             else:
                 st.error("Agent name and message are required.")
     else:
