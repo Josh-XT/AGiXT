@@ -3,14 +3,17 @@
 {
     "response": "The response",
     "commands": {
-        "command_name": {
+        "_command_name": {
             "arg1": "val1",
             "arg2": "val2"
         },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
+        "_write_to_file": {
+            "filename": "example.txt",
+            "text": {
+                "_scrape_text": {
+                    "url": "http://example.com"
+                }
+            }
         }
     }
 }

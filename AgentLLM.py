@@ -42,11 +42,18 @@ class AgentLLM:
         if not enabled_commands:
             return "No commands."
 
-        friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-            enabled_commands,
-        )
-        return "\n".join(friendly_names)
+        commands = {}
+        for command in enabled_commands:
+            command_name = f"_{command['name']}"
+            commands[command_name] = {"_": command["friendly_name"]}
+            for arg in command["args"]:
+                if arg == "url":
+                    commands[command_name][arg] = "http://example.com"
+                elif arg == "filename":
+                    commands[command_name][arg] = "example.txt"
+                else:
+                    commands[command_name][arg] = command["args"][arg]
+        return json.dumps({"commands": commands}, indent=4)
 
     def validation_agent(self, json_string: str):
         try:
@@ -161,26 +168,8 @@ class AgentLLM:
                 response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
             if "commands" in self.response:
                 response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
-                for command_name, command_args in self.response["commands"].items():
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if command_name in [
-                                available_command["friendly_name"],
-                                available_command["name"],
-                            ]:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                        )
-                    else:
-                        if command_name == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(
-                                f"\n\nCommand not recognized: {command_name}"
-                            )
+                for line in self.execute_commands(response['commands']):
+                    response_parts.append(line)
             self.response = "".join(response_parts)
             print(f"Pre-Validation Response: {self.response}")
         self.memories.store_result(task, self.response)
@@ -218,6 +207,31 @@ class AgentLLM:
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)
         return self.response
+    
+    def execute_commands(self, commands):
+        result_parts = []
+        for command_name, command_args in commands.items():
+            if command_name[0] == "_":
+                result = self.commands.execute_command(
+                    command_name[1:],
+                    self.execute_args(command_args)
+                )
+                result_parts.append(
+                    f"\n{command_name}: {result}"
+                )
+        return result_parts;
+
+    def execute_args(self, command_args):
+        for arg, value in command_args.items():
+            if type(value) == dict:
+                for key, val in value.items():
+                    if key[0] == "_":
+                        command_args[arg] = self.commands.execute_command(
+                            key[1:],
+                            self.execute_args(val)
+                        )
+                        break
+        return command_args;
 
     def smart_instruct(
         self,

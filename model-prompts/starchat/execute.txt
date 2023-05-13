@@ -17,14 +17,17 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BR
     "plan": "Your plan for achieving the task",
     "response": "Your response to the task",
     "commands": {
-        "command_name": {
+        "_command_name": {
             "arg1": "val1",
             "arg2": "val2"
         },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
+        "_write_to_file": {
+            "filename": "example.txt",
+            "text": {
+                "_scrape_text": {
+                    "url": "http://example.com"
+                }
+            }
         }
     }
 }
