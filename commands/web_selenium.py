@@ -39,7 +39,7 @@ class web_selenium(Commands):
         options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5615.49 Safari/537.36"
         )
-
+        options.add_argument("--headless")
         if CFG.SELENIUM_WEB_BROWSER == "firefox":
             driver = webdriver.Firefox(
                 executable_path=GeckoDriverManager().install(), options=options
@@ -56,17 +56,26 @@ class web_selenium(Commands):
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
 
-        # Check for captcha and solve it
-        captcha_element = driver.find_element_by_css_selector('img[src^="/captcha/"]')
-        if captcha_element:
-            captcha_image = captcha_element.get_attribute("src")
-            solver = CaptchaSolver("browser")
-            captcha_solution = solver.solve_captcha(captcha_image)
-            captcha_input = driver.find_element_by_css_selector('input[name="captcha"]')
-            captcha_input.send_keys(captcha_solution)
-            submit_button = driver.find_element_by_css_selector('input[type="submit"]')
-            submit_button.click()
-
+        try:
+            # Check for captcha and solve it
+            driver.find_element(By.CSS_SELECTOR, 'img[src^="/captcha/"]')
+            captcha_element = driver.find_element(
+                By.CSS_SELECTOR, 'img[src^="/captcha/"]'
+            )
+            if captcha_element:
+                captcha_image = captcha_element.get_attribute("src")
+                solver = CaptchaSolver("browser")
+                captcha_solution = solver.solve_captcha(captcha_image)
+                captcha_input = driver.find_element(
+                    By.CSS_SELECTOR, 'input[name="captcha"]'
+                )
+                captcha_input.send_keys(captcha_solution)
+                submit_button = driver.find_element(
+                    By.CSS_SELECTOR, 'input[type="submit"]'
+                )
+                submit_button.click()
+        except:
+            print("No captcha found")
         page_source = driver.execute_script("return document.body.outerHTML;")
         soup = BeautifulSoup(page_source, "html.parser")
 
