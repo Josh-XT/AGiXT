@@ -107,6 +107,17 @@ class Agent(Config):
     def create_agent_config_file(self, agent_name, provider_settings, commands):
         agent_dir = os.path.join("agents", agent_name)
         agent_config_file = os.path.join(agent_dir, "config.json")
+        if (
+            provider_settings is None
+            or provider_settings == ""
+            or provider_settings == {}
+        ):
+            provider_settings = {
+                "provider": "huggingchat",
+                "AI_MODEL": "openassistant",
+                "AI_TEMPERATURE": 0.4,
+                "MAX_TOKENS": 2000,
+            }
         settings = json.dumps(
             {
                 "commands": commands,
