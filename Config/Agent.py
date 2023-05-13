@@ -37,17 +37,12 @@ class Agent(Config):
             if "embedder" in self.PROVIDER_SETTINGS:
                 self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
             else:
-                self.EMBEDDER = "default"
+                if self.AI_PROVIDER == "openai":
+                    self.EMBEDDER = "openai"
+                else:
+                    self.EMBEDDER = "default"
             if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
                 self.AI_MODEL = "default"
-            with open(f"model-prompts/{self.AI_MODEL}/execute.txt", "r") as f:
-                self.EXECUTION_PROMPT = f.read()
-            with open(f"model-prompts/{self.AI_MODEL}/task.txt", "r") as f:
-                self.TASK_PROMPT = f.read()
-            with open(f"model-prompts/{self.AI_MODEL}/priority.txt", "r") as f:
-                self.PRIORITY_PROMPT = f.read()
-            with open(f"model-prompts/{self.AI_MODEL}/instruct.txt", "r") as f:
-                self.INSTRUCT_PROMPT = f.read()
 
         # Memory Settings
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)

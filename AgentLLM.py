@@ -4,6 +4,7 @@ import regex
 from collections import deque
 from typing import List, Dict
 from Config.Agent import Agent
+from datetime import datetime
 from commands.web_requests import web_requests
 from commands.web_selenium import web_selenium
 from duckduckgo_search import ddg
@@ -104,6 +105,7 @@ class AgentLLM:
             context=context,
             objective=self.primary_objective,
             command_list=command_list,
+            date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
         tokens = len(self.memories.nlp(formatted_prompt))
@@ -191,32 +193,24 @@ class AgentLLM:
             previous_response=self.response,
             **kwargs,
         )
-        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+        response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validation_agent(self.response)
+            valid_json = self.validation_agent(response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
-                print(self.response)
+                print(response)
                 print("... Trying again.")
                 if context_results != 0:
                     context_results = context_results - 1
                 else:
                     context_results = 0
-                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                    task=task,
-                    top_results=context_results,
-                    prompt="validate",
-                    previous_response=self.response,
-                    **kwargs,
-                )
-                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validation_agent(self.response)
+                valid_json = self.validation_agent(response)
             if "response" in valid_json:
-                self.response = f"Agent Response:\n\n{valid_json['response']}"
-            if "summary" in valid_json:
-                self.response += (
-                    f"\n\nSummary of the Agent Actions:\n\n{valid_json['summary']}"
-                )
+                self.response = valid_json["response"]
+            if "commands" in valid_json:
+                commands_used = valid_json["commands"]
+                if len(commands_used) > 0:
+                    self.response += f"\n\nCommands Used:\n\n{commands_used}"
             print(f"Post-Validation Response: {self.response}")
         else:
             print(f"Response: {self.response}")
@@ -308,52 +302,6 @@ class AgentLLM:
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
 
-    def task_creation_agent(
-        self, result: Dict, task_description: str, task_list: List[str]
-    ) -> List[Dict]:
-        response = self.run(
-            task=self.primary_objective,
-            prompt="task",
-            result=result,
-            task_description=task_description,
-            tasks=", ".join(task_list),
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        return [{"task_name": task_name} for task_name in new_tasks]
-
-    def prioritization_agent(self):
-        task_names = [t["task_name"] for t in self.task_list]
-        if not task_names:
-            return
-        next_task_id = len(self.task_list) + 1
-
-        response = self.run(
-            task=self.primary_objective,
-            prompt="priority",
-            task_names=", ".join(task_names),
-            next_task_id=next_task_id,
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        self.task_list = deque()
-        for task_string in new_tasks:
-            task_parts = task_string.strip().split(".", 1)
-            if len(task_parts) == 2:
-                task_id = task_parts[0].strip()
-                task_name = task_parts[1].strip()
-                self.task_list.append({"task_id": task_id, "task_name": task_name})
-
     def run_task(self, stop_event, objective):
         self.primary_objective = objective
         self.update_output_list(
@@ -377,18 +325,21 @@ class AgentLLM:
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-            result = self.run(task=task["task_name"], prompt="execute")
+            result = self.smart_instruct(task=task["task_name"], shots=3)
+            # result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
-            new_tasks = self.task_creation_agent(
-                {"data": result},
-                task["task_name"],
-                [t["task_name"] for t in self.task_list],
+            task_list = [t["task_name"] for t in self.task_list]
+            new_tasks = self.run(
+                task=self.primary_objective,
+                prompt="task",
+                result=result,
+                task_description=task["task_name"],
+                tasks=", ".join(task_list),
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
             for new_task in new_tasks:
                 new_task.update({"task_id": len(self.task_list) + 1})
                 self.task_list.append(new_task)
-            self.prioritization_agent()
         self.update_output_list("All tasks completed or stopped.")
 
     def run_chain_step(self, step_data_list):
@@ -396,6 +347,12 @@ class AgentLLM:
             for prompt_type, prompt in step_data.items():
                 if prompt_type == "instruction":
                     self.run(prompt, prompt="instruct")
+                elif prompt_type == "chat":
+                    self.run(prompt, prompt="chat")
+                elif prompt_type == "smart_instruct":
+                    self.smart_instruct(task=prompt, shots=3)
+                elif prompt_type == "smart_chat":
+                    self.smart_chat(task=prompt, shots=3)
                 elif prompt_type == "task":
                     self.run_task(prompt)
                 elif prompt_type == "command":
