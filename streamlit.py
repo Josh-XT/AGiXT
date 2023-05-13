@@ -25,7 +25,7 @@ agent_stop_events = {}
 main_selection = st.sidebar.selectbox(
     "Select a feature",
     [
-        "Agents",
+        "Agent Settings",
         "Chat",
         "Instructions",
         "Tasks",
@@ -34,27 +34,27 @@ main_selection = st.sidebar.selectbox(
     ],
 )
 
-if main_selection == "Agents":
-    st.header("Agent Settings")
+if main_selection == "Agent Settings":
+    st.header("Manage Agent Settings")
 
-    agent_name = st.text_input("Agent Name")
+    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
     agent_settings = st.text_area("Custom Settings (JSON format)", height=300)
 
-    if st.button("Add Agent"):
+    if st.button("Update Agent Settings"):
         if agent_name and agent_settings:
             try:
                 settings = json.loads(agent_settings)
-                agent_info = Agent(agent_name).add_agent(agent_name, settings)
-                st.success(f"Agent '{agent_name}' added.")
+                Agent(agent_name).update_agent_config(settings, "settings")
+                st.success(f"Agent '{agent_name}' updated.")
             except Exception as e:
-                st.error(f"Error adding agent: {str(e)}")
+                st.error(f"Error updating agent: {str(e)}")
         else:
             st.error("Agent name and settings are required.")
 
 elif main_selection == "Chat":
     st.header("Chat with Agent")
 
-    agent_name = st.selectbox("Select Agent", CFG.get_agents())
+    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
     chat_prompt = st.text_area("Enter your chat prompt")
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
@@ -72,7 +72,7 @@ elif main_selection == "Chat":
 elif main_selection == "Instructions":
     st.header("Instruct Agent")
 
-    agent_name = st.selectbox("Select Agent", CFG.get_agents())
+    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
     instruct_prompt = st.text_area("Enter your instruction")
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
@@ -90,7 +90,7 @@ elif main_selection == "Instructions":
 elif main_selection == "Tasks":
     st.header("Manage Tasks")
 
-    agent_name = st.selectbox("Select Agent", CFG.get_agents())
+    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
     task_objective = st.text_area("Enter the task objective")
     agent_status = "Not Running"
 
