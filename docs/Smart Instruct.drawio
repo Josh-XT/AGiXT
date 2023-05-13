@@ -1,0 +1,115 @@
+<mxfile host="app.diagrams.net" modified="2023-05-13T12:31:47.992Z" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36" etag="rkHro6omaoVTESeIAipS" version="21.2.9" type="github">
+  <diagram name="Page-1" id="2YBvvXClWsGukQMizWep">
+    <mxGraphModel dx="1018" dy="739" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="aM9ryv3xv72pqoxQDRHE-5" value="Instruction from User" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=0;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};fontStyle=1;fontSize=20;" parent="1" vertex="1">
+          <mxGeometry x="267" y="40" width="303" height="940" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-1" value="&lt;b&gt;Instruction Agent&lt;/b&gt;&lt;br&gt;Uses information from memory to get 3 suggested actions to take to complete the task requested by the user. Everything learned in each attempt is passed along into the next through context injection from memory.&lt;br&gt;&lt;br&gt;&lt;br&gt;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="199.5" y="190" width="420" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-2" value="Suggested Actions #1" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="219.5" y="280" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-3" value="Suggested Actions #2" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="354.5" y="280" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-4" value="Suggested Actions #3" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="489.5" y="280" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-5" value="&lt;b&gt;Execution Agent&lt;/b&gt;&lt;br&gt;Enforces formatting, validates response, and executes commands upon success.&amp;nbsp; Runs in a loop until a valid response is received." style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="254.5" y="490" width="325.5" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-10" value="&lt;b&gt;Research Agent&lt;/b&gt;&lt;br&gt;Determines which results have flaws/issues and calls them out to be fixed by the Solution Agent." style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="249.5" y="331" width="330.5" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-15" value="&lt;b&gt;Solution Agent&lt;/b&gt;&lt;br&gt;Chooses the best solution from the Research Agent and improves on it based on context." style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="252" y="399" width="325" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-22" value="Final Output" style="rounded=0;whiteSpace=wrap;html=1;fontStyle=1;fontSize=40;" parent="1" vertex="1">
+          <mxGeometry x="260" y="610" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-24" value="&lt;b&gt;&lt;font style=&quot;font-size: 18px;&quot;&gt;Commands&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;br&gt;Web Browsing&lt;br&gt;&lt;br&gt;Terminal Access&lt;br&gt;&lt;br&gt;Python Scripting&lt;br&gt;&lt;br&gt;Database Access&lt;br&gt;&lt;br&gt;Software API&lt;br&gt;&lt;br&gt;Etc" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="10" y="10" width="104" height="670" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-25" value="&lt;b&gt;&lt;font style=&quot;font-size: 18px;&quot;&gt;Memories&lt;/font&gt;&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="734" y="10" width="106" height="670" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-27" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="134" y="60" as="sourcePoint" />
+            <mxPoint x="254" y="60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-28" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="123.5" y="244.41" as="sourcePoint" />
+            <mxPoint x="180" y="244.41" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-31" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="120.5" y="354.41" as="sourcePoint" />
+            <mxPoint x="240.5" y="354.41" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-33" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="240" y="544.41" as="sourcePoint" />
+            <mxPoint x="120" y="544.41" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-34" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="593.5" y="355" as="sourcePoint" />
+            <mxPoint x="713.5" y="355" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-36" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="643.5" y="254.29000000000002" as="sourcePoint" />
+            <mxPoint x="713.5" y="254.29000000000002" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-37" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="704" y="60" as="sourcePoint" />
+            <mxPoint x="584" y="60" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-41" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="593.5" y="433.90999999999997" as="sourcePoint" />
+            <mxPoint x="713.5" y="433.90999999999997" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-46" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="609.5" y="640" as="sourcePoint" />
+            <mxPoint x="703.5" y="639.41" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-47" value="&lt;b&gt;Web Search Agent&lt;/b&gt;&lt;br&gt;Searches the web for any relevant information to this task to add to memory." style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="256" y="110" width="325" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-48" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="120" y="440" as="sourcePoint" />
+            <mxPoint x="240" y="440" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_WkzvzqrcnxessMukqqC-49" value="" style="endArrow=classic;html=1;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="609.5" y="134.41" as="sourcePoint" />
+            <mxPoint x="709.5" y="134.41" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="659.5" y="134.41" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
