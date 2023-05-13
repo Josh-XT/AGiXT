@@ -275,19 +275,14 @@ class AgentLLM:
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 8
     ):
         results = self.run(task=task, prompt="WebSearch")
-        results = results[results.find("[") : results.rfind("]") + 1]
-        while results is None or results == "":
-            # Don't take no for an answer. Keep asking until you get a response.
-            results = self.run(task=task, prompt="WebSearch")
-            results = results[results.find("[") : results.rfind("]") + 1]
-        results = results.replace("[", "").replace("]", "")
-        results = results.split(",")
-        results = [result.replace('"', "") for result in results]
+        results = results.split("\n")
         for result in results:
             links = ddg(result, max_results=depth)
             if links is not None:
                 for link in links:
-                    collected_data = web_selenium.scrape_text_with_selenium(link)
+                    collected_data = web_selenium.scrape_text_with_selenium(
+                        link["href"]
+                    )
                     if collected_data is not None:
                         self.memories.store_result(task, collected_data)
 

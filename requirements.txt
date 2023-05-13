@@ -3,7 +3,7 @@ beautifulsoup4
 captcha-solver
 chromadb
 docker
-duckduckgo_search
+duckduckgo_search==2.8.5
 fastapi
 uvicorn
 git+https://github.com/huggingface/transformers
