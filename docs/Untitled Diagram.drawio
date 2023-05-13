@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net" modified="2023-05-12T22:26:16.859Z" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36" etag="XXPRdHRx9tcWZIVC0XKS" version="21.2.9" type="github">
+<mxfile host="app.diagrams.net" modified="2023-05-13T00:19:26.261Z" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36" etag="GycD6KRm9CNqg7AktRIP" version="21.2.9" type="github">
   <diagram name="Page-1" id="2YBvvXClWsGukQMizWep">
-    <mxGraphModel dx="1198" dy="916" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1198" dy="719" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -22,10 +22,10 @@
         <mxCell id="_WkzvzqrcnxessMukqqC-5" value="&lt;b&gt;Execution Agent&lt;/b&gt;&lt;br&gt;Enforces formatting, validates response, and executes commands upon success.&amp;nbsp; Runs in a loop until a valid response is received." style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="254.5" y="490" width="325.5" height="90" as="geometry" />
         </mxCell>
-        <mxCell id="_WkzvzqrcnxessMukqqC-10" value="&lt;b&gt;Research Agent&lt;/b&gt;&lt;br&gt;Determines which results have flaws/issues and calls them out to be fixed by the problem solving agent." style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxCell id="_WkzvzqrcnxessMukqqC-10" value="&lt;b&gt;Research Agent&lt;/b&gt;&lt;br&gt;Determines which results have flaws/issues and calls them out to be fixed by the Solution Agent." style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="249.5" y="331" width="330.5" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="_WkzvzqrcnxessMukqqC-15" value="&lt;b&gt;Solution Agent&lt;/b&gt;&lt;br&gt;Chooses the best solution from the problem solving agent and improves on it based on context." style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxCell id="_WkzvzqrcnxessMukqqC-15" value="&lt;b&gt;Solution Agent&lt;/b&gt;&lt;br&gt;Chooses the best solution from the Research Agent and improves on it based on context." style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="252" y="399" width="325" height="71" as="geometry" />
         </mxCell>
         <mxCell id="_WkzvzqrcnxessMukqqC-22" value="Final Output" style="rounded=0;whiteSpace=wrap;html=1;fontStyle=1;fontSize=40;" vertex="1" parent="1">
