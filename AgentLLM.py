@@ -4,6 +4,7 @@ import regex
 from collections import deque
 from typing import List, Dict
 from Config.Agent import Agent
+from datetime import datetime
 from commands.web_requests import web_requests
 from commands.web_selenium import web_selenium
 from duckduckgo_search import ddg
@@ -104,6 +105,7 @@ class AgentLLM:
             context=context,
             objective=self.primary_objective,
             command_list=command_list,
+            date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
         tokens = len(self.memories.nlp(formatted_prompt))
