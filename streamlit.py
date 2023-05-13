@@ -188,19 +188,58 @@ elif main_selection == "Chat":
         options=[""] + [agent["name"] for agent in CFG.get_agents()],
         index=0,
     )
-    chat_prompt = st.text_area("Enter your message")
+
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
-    if st.button("Send Message"):
-        if agent_name and chat_prompt:
-            agent = AgentLLM(agent_name)
-            if smart_chat_toggle:
-                response = agent.smart_chat(chat_prompt, shots=3)
+    chat_history = st.session_state.get("chat_history", [])
+
+    chat_container = st.container()
+
+    if agent_name:
+        agent = AgentLLM(agent_name)
+
+        with chat_container:
+            for chat in chat_history:
+                if chat["sender"] == "User":
+                    st.markdown(
+                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        chat_prompt = st.text_input("Enter your message")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and chat_prompt:
+                chat_history.append({"sender": "User", "message": chat_prompt})
+                if smart_chat_toggle:
+                    response = agent.smart_chat(chat_prompt, shots=3)
+                else:
+                    response = agent.run(chat_prompt, prompt="Chat", context_results=6)
+                chat_history.append({"sender": "Agent", "message": response})
+                st.session_state.chat_history = chat_history
+                chat_container.empty()
+                with chat_container:
+                    for chat in chat_history:
+                        if chat["sender"] == "User":
+                            st.markdown(
+                                f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.markdown(
+                                f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                                unsafe_allow_html=True,
+                            )
             else:
-                response = agent.run(chat_prompt, prompt="Chat", context_results=6)
-            st.markdown(f"**Response:** {response}")
-        else:
-            st.error("Agent name and message are required.")
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to start chatting.")
 
 elif main_selection == "Instructions":
     st.header("Instruct Agent")
@@ -213,7 +252,9 @@ elif main_selection == "Instructions":
 
     if st.button("Give Instruction"):
         if agent_name and instruct_prompt:
-            agent = AgentLLM(agent_name)
+            if agent_name not in st.session_state:
+                st.session_state[agent_name] = AgentLLM(agent_name)
+            agent = st.session_state[agent_name]
             if smart_instruct_toggle:
                 response = agent.smart_instruct(task=instruct_prompt, shots=3)
             else:
