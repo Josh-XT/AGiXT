@@ -250,7 +250,7 @@ elif main_selection == "Instructions":
     instruct_prompt = st.text_area("Enter your instruction")
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
-    if st.button("Give Instruction"):
+    if st.button("Instruct Agent"):
         if agent_name and instruct_prompt:
             if agent_name not in st.session_state:
                 st.session_state[agent_name] = AgentLLM(agent_name)
