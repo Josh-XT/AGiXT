@@ -277,9 +277,11 @@ class AgentLLM:
         results = self.run(task=task, prompt="WebSearch")
         results = results.split("\n")
         for result in results:
-            links = ddg(result, max_results=depth)
+            search_string = result.lstrip("0123456789. ")
+            links = ddg(search_string, max_results=depth)
             if links is not None:
                 for link in links:
+                    print(f"Scraping: {link['href']}")
                     collected_data = web_selenium.scrape_text_with_selenium(
                         link["href"]
                     )
