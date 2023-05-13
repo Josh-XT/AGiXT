@@ -11,8 +11,9 @@ class google(Commands):
     def __init__(self):
         self.commands = {
             "Google Search": self.google_search,
-            "Google Official Search": self.google_official_search,
         }
+        if hasattr(CFG, "GOOGLE_API_KEY") and CFG.GOOGLE_API_KEY:
+            self.commands["Google Official Search"] = self.google_official_search
 
     @staticmethod
     def google_search(query: str, num_results: int = 8) -> str:
@@ -35,7 +36,7 @@ class google(Commands):
 
         try:
             # Get the Google API key and Custom Search Engine ID from the config file
-            api_key = CFG.google_api_key
+            api_key = CFG.GOOGLE_API_KEY
             custom_search_engine_id = CFG.custom_search_engine_id
 
             # Initialize the Custom Search API service

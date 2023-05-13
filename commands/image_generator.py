@@ -13,14 +13,15 @@ CFG = Config()
 
 class image_generator(Commands):
     def __init__(self):
-        self.commands = {"Generate Image": self.generate_image}
+        if CFG.HUGGINGFACE_API_KEY or CFG.OPENAI_API_KEY:
+            self.commands = {"Generate Image": self.generate_image}
 
     def generate_image(self, prompt: str) -> str:
         filename = f"{str(uuid.uuid4())}.jpg"
 
-        if CFG.image_provider == "dalle":
+        if CFG.OPENAI_API_KEY:
             return self.generate_image_with_dalle(prompt, filename)
-        elif CFG.image_provider == "sd":
+        elif CFG.HUGGINGFACE_API_KEY:
             return self.generate_image_with_hf(prompt, filename)
         else:
             return "No Image Provider Set"
@@ -29,14 +30,10 @@ class image_generator(Commands):
         API_URL = (
             "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
         )
-        if CFG.HUGGINGFACE_API_TOKEN is None:
-            raise ValueError(
-                "You need to set your Hugging Face API token in the config file."
-            )
         headers = {"Authorization": f"Bearer {CFG.HUGGINGFACE_API_TOKEN}"}
 
         response = requests.post(
-            "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4",
+            API_URL,
             headers=headers,
             json={
                 "inputs": prompt,
