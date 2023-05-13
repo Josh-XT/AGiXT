@@ -66,6 +66,26 @@ if main_selection == "Agent Settings":
         else:
             st.error("Agent name and settings are required.")
 
+elif main_selection == "Chat":
+    st.header("Chat with Agent")
+
+    agent_name = st.selectbox(
+        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+    )
+    chat_prompt = st.text_area("Enter your message")
+    smart_chat_toggle = st.checkbox("Enable Smart Chat")
+
+    if st.button("Send Message"):
+        if agent_name and chat_prompt:
+            agent = AgentLLM(agent_name)
+            if smart_chat_toggle:
+                response = agent.smart_chat(chat_prompt, shots=3)
+            else:
+                response = agent.run(chat_prompt, prompt="Chat", context_results=6)
+            st.markdown(f"**Response:** {response}")
+        else:
+            st.error("Agent name and message are required.")
+
 elif main_selection == "Instructions":
     st.header("Instruct Agent")
 
