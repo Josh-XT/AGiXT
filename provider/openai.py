@@ -23,7 +23,7 @@ class OpenaiProvider:
             response = openai.Completion.create(
                 engine=self.AI_MODEL,
                 prompt=prompt,
-                temperature=self.AI_TEMPERATURE,
+                temperature=float(self.AI_TEMPERATURE),
                 max_tokens=max_new_tokens,
                 top_p=1,
                 frequency_penalty=0,
@@ -36,7 +36,7 @@ class OpenaiProvider:
             response = openai.ChatCompletion.create(
                 model=self.AI_MODEL,
                 messages=messages,
-                temperature=self.AI_TEMPERATURE,
+                temperature=float(self.AI_TEMPERATURE),
                 max_tokens=max_new_tokens,
                 n=1,
                 stop=None,
