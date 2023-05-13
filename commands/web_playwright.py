@@ -11,11 +11,11 @@ CFG = Config()
 class web_playwright(Commands):
     def __init__(self):
         self.commands = {
-            "Scrape Text with Playwright": self.scrape_text,
-            "Scrape Links with Playwright": self.scrape_links,
+            "Scrape Text with Playwright": self.scrape_text_with_playwright,
+            "Scrape Links with Playwright": self.scrape_links_with_playwright,
         }
 
-    def scrape_text(self, url: str) -> str:
+    def scrape_text_with_playwright(self, url: str) -> str:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
@@ -43,7 +43,7 @@ class web_playwright(Commands):
 
         return text
 
-    def scrape_links(self, url: str) -> Union[str, List[str]]:
+    def scrape_links_with_playwright(self, url: str) -> Union[str, List[str]]:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
