@@ -16,7 +16,6 @@ class web_requests(Commands):
             "Get Response": self.get_response,
             "Scrape Text": self.scrape_text,
             "Scrape Links": self.scrape_links,
-            "Create Message": self.create_message,
         }
 
     def is_valid_url(self, url: str) -> bool:
@@ -97,11 +96,3 @@ class web_requests(Commands):
         ]
 
         return [f"{link_text} ({link_url})" for link_text, link_url in hyperlinks]
-
-    def create_message(self, chunk, question):
-        return {
-            "role": "user",
-            "content": f'"""{chunk}""" Using the above text, answer the following'
-            f' question: "{question}" -- if the question cannot be answered using the'
-            " text, summarize the text.",
-        }
