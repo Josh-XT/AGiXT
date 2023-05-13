@@ -191,7 +191,8 @@ elif main_selection == "Chat":
 
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
-    st.session_state.setdefault("chat_history", [])
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = []
 
     chat_container = st.container()
 
@@ -199,7 +200,7 @@ elif main_selection == "Chat":
         agent = AgentLLM(agent_name)
 
         with chat_container:
-            for chat in st.session_state.chat_history:
+            for chat in st.session_state["chat_history"]:
                 if chat["sender"] == "User":
                     st.markdown(
                         f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
@@ -216,19 +217,19 @@ elif main_selection == "Chat":
 
         if send_button:
             if agent_name and chat_prompt:
-                st.session_state.chat_history.append(
+                st.session_state["chat_history"].append(
                     {"sender": "User", "message": chat_prompt}
                 )
                 if smart_chat_toggle:
                     response = agent.smart_chat(chat_prompt, shots=3)
                 else:
                     response = agent.run(chat_prompt, prompt="Chat", context_results=6)
-                st.session_state.chat_history.append(
+                st.session_state["chat_history"].append(
                     {"sender": "Agent", "message": response}
                 )
                 chat_container.empty()
                 with chat_container:
-                    for chat in st.session_state.chat_history:
+                    for chat in st.session_state["chat_history"]:
                         if chat["sender"] == "User":
                             st.markdown(
                                 f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
