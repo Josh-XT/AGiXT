@@ -37,8 +37,23 @@ main_selection = st.sidebar.selectbox(
 if main_selection == "Agent Settings":
     st.header("Manage Agent Settings")
 
-    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
-    agent_settings = st.text_area("Custom Settings (JSON format)", height=300)
+    agent_name = st.selectbox(
+        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+    )
+
+    # Retrieve and display the agent settings when an agent is selected.
+    agent_settings = ""
+    if agent_name:
+        try:
+            agent_config = Agent(agent_name).get_agent_config()
+            if "settings" in agent_config:
+                agent_settings = json.dumps(agent_config["settings"], indent=2)
+        except Exception as e:
+            st.error(f"Error loading agent configuration: {str(e)}")
+
+    agent_settings = st.text_area(
+        "Custom Settings (JSON format)", value=agent_settings, height=300
+    )
 
     if st.button("Update Agent Settings"):
         if agent_name and agent_settings:
@@ -51,28 +66,12 @@ if main_selection == "Agent Settings":
         else:
             st.error("Agent name and settings are required.")
 
-elif main_selection == "Chat":
-    st.header("Chat with Agent")
-
-    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
-    chat_prompt = st.text_area("Enter your chat prompt")
-    smart_chat_toggle = st.checkbox("Enable Smart Chat")
-
-    if st.button("Start Chat"):
-        if agent_name and chat_prompt:
-            agent = AgentLLM(agent_name)
-            if smart_chat_toggle:
-                response = agent.smart_chat(chat_prompt, shots=3)
-            else:
-                response = agent.run(chat_prompt, prompt="Chat", context_results=6)
-            st.markdown(f"**Response:** {response}")
-        else:
-            st.error("Agent name and chat prompt are required.")
-
 elif main_selection == "Instructions":
     st.header("Instruct Agent")
 
-    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
+    agent_name = st.selectbox(
+        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+    )
     instruct_prompt = st.text_area("Enter your instruction")
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
@@ -90,37 +89,39 @@ elif main_selection == "Instructions":
 elif main_selection == "Tasks":
     st.header("Manage Tasks")
 
-    agent_name = st.selectbox("Select Agent", [""] + CFG.get_agents())
+    agent_name = st.selectbox(
+        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+    )
     task_objective = st.text_area("Enter the task objective")
-    agent_status = "Not Running"
 
-    if agent_name in agent_stop_events:
-        agent_status = "Running"
-
-    st.markdown(f"**Status:** {agent_status}")
-
-    if st.button("Start Task"):
-        if agent_name and task_objective:
-            if agent_name not in CFG.agent_instances:
-                CFG.agent_instances[agent_name] = AgentLLM(agent_name)
-            stop_event = threading.Event()
-            agent_stop_events[agent_name] = stop_event
-            agent_thread = threading.Thread(
-                target=CFG.agent_instances[agent_name].run_task,
-                args=(stop_event, task_objective),
-            )
-            agent_thread.start()
-            st.success(f"Task started for agent '{agent_name}'.")
-        else:
-            st.error("Agent name and task objective are required.")
-
-    if st.button("Stop Task"):
+    if agent_name:
+        agent_status = "Not Running"
         if agent_name in agent_stop_events:
-            agent_stop_events[agent_name].set()
-            del agent_stop_events[agent_name]
-            st.success(f"Task stopped for agent '{agent_name}'.")
-        else:
-            st.error("No task is running for the selected agent.")
+            agent_status = "Running"
+        st.markdown(f"**Status:** {agent_status}")
+
+        if st.button("Start Task"):
+            if agent_name and task_objective:
+                if agent_name not in CFG.agent_instances:
+                    CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+                stop_event = threading.Event()
+                agent_stop_events[agent_name] = stop_event
+                agent_thread = threading.Thread(
+                    target=CFG.agent_instances[agent_name].run_task,
+                    args=(stop_event, task_objective),
+                )
+                agent_thread.start()
+                st.success(f"Task started for agent '{agent_name}'.")
+            else:
+                st.error("Agent name and task objective are required.")
+
+        if st.button("Stop Task"):
+            if agent_name in agent_stop_events:
+                agent_stop_events[agent_name].set()
+                del agent_stop_events[agent_name]
+                st.success(f"Task stopped for agent '{agent_name}'.")
+            else:
+                st.error("No task is running for the selected agent.")
 
 elif main_selection == "Chains":
     st.header("Manage Chains")
