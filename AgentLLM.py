@@ -377,6 +377,8 @@ class AgentLLM:
                                 command_name = available_command["name"]
                                 break
                         self.commands.execute_command(command_name, command_args)
+                else:
+                    self.run(task=prompt, prompt=prompt_type)
 
 
 if __name__ == "__main__":
