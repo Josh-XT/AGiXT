@@ -162,22 +162,3 @@ elif main_selection == "Custom Prompts":
                 st.success(f"Prompt '{prompt_name}' deleted.")
         else:
             st.error("Prompt name and content are required.")
-"""
-Upon evaluating the previously provided Streamlit app code, I confirm that it covers all the features present in `app.py`. The features include:
-
-1. Agent Settings with the ability to add custom settings.
-2. Chat
-3. Smart Chat (Chat with web search and deep research capabilities). Smart Chat is implemented as a toggle on Chat.
-4. Instructions
-5. Smart Instruct (Instruction with web search, deep research capabilities, and commands access). Smart Instruct is implemented as a toggle on Instructions.
-6. Tasks
-7. Chains
-8. Custom Prompts
-
-Run the app with:
-
-streamlit run streamlit.py
-
-
-This will launch the Streamlit app in your default web browser, and you can interact with the various features of Agent-LLM using the user-friendly interface.
-"""
