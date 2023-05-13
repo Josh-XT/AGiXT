@@ -170,7 +170,7 @@ async def get_agent_config(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name).get_chat_history()
+    chat_history = Agent(agent_name).get_chat_history(agent_name)
     return {"chat_history": chat_history}
 
 

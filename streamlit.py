@@ -1,6 +1,8 @@
 import streamlit as st
 import threading
 import json
+import os
+import yaml
 from Config import Config
 from AgentLLM import AgentLLM
 from Config.Agent import Agent
@@ -81,13 +83,6 @@ if main_selection == "Agent Settings":
                 if provider_name in CFG.get_providers()
                 else 0,
             )
-            st.write(f"Selected provider: {provider_name}")
-
-            if provider_name:
-                provider_settings = render_provider_settings(
-                    agent_settings, provider_name
-                )
-                agent_settings.update(provider_settings)
             embedder_name = agent_settings.get("embedder", "")
             embedding_provider_name = st.selectbox(
                 "Select Embedding Provider",
@@ -97,37 +92,65 @@ if main_selection == "Agent Settings":
                 else 0,
             )
             if embedding_provider_name:
-                agent_settings["embedder"] = {"name": embedding_provider_name}
+                agent_settings["embedder"] = embedding_provider_name
+            if provider_name:
+                provider_settings = render_provider_settings(
+                    agent_settings, provider_name
+                )
+                agent_settings.update(provider_settings)
 
             st.subheader("Custom Settings")
             custom_settings = agent_settings.get("custom_settings", [])
 
             custom_settings_list = st.session_state.get("custom_settings_list", None)
             if custom_settings_list is None:
+                if not custom_settings:
+                    custom_settings = [""]
                 st.session_state.custom_settings_list = custom_settings.copy()
 
-            for i, custom_setting in enumerate(st.session_state.custom_settings_list):
-                key, value = (
-                    custom_setting.split(":", 1)
-                    if ":" in custom_setting
-                    else (custom_setting, "")
-                )
-                new_key = st.text_input(
-                    f"Key {i + 1}", value=key, key=f"custom_key_{i}"
-                )
-                new_value = st.text_input(
-                    f"Value {i + 1}", value=value, key=f"custom_value_{i}"
-                )
-                st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
+            custom_settings_container = st.container()
+            with custom_settings_container:
+                for i, custom_setting in enumerate(
+                    st.session_state.custom_settings_list
+                ):
+                    key, value = (
+                        custom_setting.split(":", 1)
+                        if ":" in custom_setting
+                        else (custom_setting, "")
+                    )
+                    col1, col2 = st.columns(
+                        [0.5, 0.5]
+                    )  # Add columns for side by side input
+                    with col1:
+                        new_key = st.text_input(
+                            f"Custom Setting {i + 1} Key",
+                            value=key,
+                            key=f"custom_key_{i}",
+                        )
+                    with col2:
+                        new_value = st.text_input(
+                            f"Custom Setting {i + 1} Value",
+                            value=value,
+                            key=f"custom_value_{i}",
+                        )
+                    st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
 
-            if st.button("Add Custom Setting"):
-                st.session_state.custom_settings_list.append("")
+                    # Automatically add an empty key/value pair if the last one is filled
+                    if (
+                        i == len(st.session_state.custom_settings_list) - 1
+                        and new_key
+                        and new_value
+                    ):
+                        st.session_state.custom_settings_list.append("")
 
-            if st.button("Remove Custom Setting"):
-                if len(st.session_state.custom_settings_list) > 0:
-                    st.session_state.custom_settings_list.pop()
-
-            agent_settings["custom_settings"] = st.session_state.custom_settings_list
+            # Update the custom settings in the agent_settings directly
+            agent_settings.update(
+                {
+                    custom_setting.split(":", 1)[0]: custom_setting.split(":", 1)[1]
+                    for custom_setting in st.session_state.custom_settings_list
+                    if custom_setting and ":" in custom_setting
+                }
+            )
 
             st.subheader("Agent Commands")
             commands = Commands(agent_name)
@@ -167,19 +190,68 @@ elif main_selection == "Chat":
         options=[""] + [agent["name"] for agent in CFG.get_agents()],
         index=0,
     )
-    chat_prompt = st.text_area("Enter your message")
+
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
-    if st.button("Send Message"):
-        if agent_name and chat_prompt:
-            agent = AgentLLM(agent_name)
-            if smart_chat_toggle:
-                response = agent.smart_chat(chat_prompt, shots=3)
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = {}
+
+    chat_container = st.container()
+
+    def render_chat_history(chat_container, chat_history):
+        chat_container.empty()
+        with chat_container:
+            for chat in chat_history:
+                if "sender" in chat and "message" in chat:
+                    if chat["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    if agent_name:
+        chat_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
+
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                chat_history = agent_data.get("interactions", [])
+
+        st.session_state.chat_history[agent_name] = chat_history
+
+        render_chat_history(chat_container, st.session_state.chat_history[agent_name])
+
+        chat_prompt = st.text_input("Enter your message", key="chat_prompt")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and chat_prompt:
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_chat_toggle:
+                        response = agent.smart_chat(chat_prompt, shots=3)
+                    else:
+                        response = agent.run(
+                            chat_prompt, prompt="Chat", context_results=6
+                        )
+                chat_entry = [
+                    {"sender": "User", "message": chat_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.chat_history[agent_name].extend(chat_entry)
+                render_chat_history(
+                    chat_container, st.session_state.chat_history[agent_name]
+                )
             else:
-                response = agent.run(chat_prompt, prompt="Chat", context_results=6)
-            st.markdown(f"**Response:** {response}")
-        else:
-            st.error("Agent name and message are required.")
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to start chatting.")
 
 elif main_selection == "Instructions":
     st.header("Instruct Agent")
@@ -190,9 +262,11 @@ elif main_selection == "Instructions":
     instruct_prompt = st.text_area("Enter your instruction")
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
-    if st.button("Give Instruction"):
+    if st.button("Instruct Agent"):
         if agent_name and instruct_prompt:
-            agent = AgentLLM(agent_name)
+            if agent_name not in st.session_state:
+                st.session_state[agent_name] = AgentLLM(agent_name)
+            agent = st.session_state[agent_name]
             if smart_instruct_toggle:
                 response = agent.smart_instruct(task=instruct_prompt, shots=3)
             else:
