@@ -81,13 +81,6 @@ if main_selection == "Agent Settings":
                 if provider_name in CFG.get_providers()
                 else 0,
             )
-            st.write(f"Selected provider: {provider_name}")
-
-            if provider_name:
-                provider_settings = render_provider_settings(
-                    agent_settings, provider_name
-                )
-                agent_settings.update(provider_settings)
             embedder_name = agent_settings.get("embedder", "")
             embedding_provider_name = st.selectbox(
                 "Select Embedding Provider",
@@ -97,37 +90,65 @@ if main_selection == "Agent Settings":
                 else 0,
             )
             if embedding_provider_name:
-                agent_settings["embedder"] = {"name": embedding_provider_name}
+                agent_settings["embedder"] = embedding_provider_name
+            if provider_name:
+                provider_settings = render_provider_settings(
+                    agent_settings, provider_name
+                )
+                agent_settings.update(provider_settings)
 
             st.subheader("Custom Settings")
             custom_settings = agent_settings.get("custom_settings", [])
 
             custom_settings_list = st.session_state.get("custom_settings_list", None)
             if custom_settings_list is None:
+                if not custom_settings:
+                    custom_settings = [""]
                 st.session_state.custom_settings_list = custom_settings.copy()
 
-            for i, custom_setting in enumerate(st.session_state.custom_settings_list):
-                key, value = (
-                    custom_setting.split(":", 1)
-                    if ":" in custom_setting
-                    else (custom_setting, "")
-                )
-                new_key = st.text_input(
-                    f"Key {i + 1}", value=key, key=f"custom_key_{i}"
-                )
-                new_value = st.text_input(
-                    f"Value {i + 1}", value=value, key=f"custom_value_{i}"
-                )
-                st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
+            custom_settings_container = st.container()
+            with custom_settings_container:
+                for i, custom_setting in enumerate(
+                    st.session_state.custom_settings_list
+                ):
+                    key, value = (
+                        custom_setting.split(":", 1)
+                        if ":" in custom_setting
+                        else (custom_setting, "")
+                    )
+                    col1, col2 = st.columns(
+                        [0.5, 0.5]
+                    )  # Add columns for side by side input
+                    with col1:
+                        new_key = st.text_input(
+                            f"Custom Setting {i + 1} Key",
+                            value=key,
+                            key=f"custom_key_{i}",
+                        )
+                    with col2:
+                        new_value = st.text_input(
+                            f"Custom Setting {i + 1} Value",
+                            value=value,
+                            key=f"custom_value_{i}",
+                        )
+                    st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
 
-            if st.button("Add Custom Setting"):
-                st.session_state.custom_settings_list.append("")
+                    # Automatically add an empty key/value pair if the last one is filled
+                    if (
+                        i == len(st.session_state.custom_settings_list) - 1
+                        and new_key
+                        and new_value
+                    ):
+                        st.session_state.custom_settings_list.append("")
 
-            if st.button("Remove Custom Setting"):
-                if len(st.session_state.custom_settings_list) > 0:
-                    st.session_state.custom_settings_list.pop()
-
-            agent_settings["custom_settings"] = st.session_state.custom_settings_list
+            # Update the custom settings in the agent_settings directly
+            agent_settings.update(
+                {
+                    custom_setting.split(":", 1)[0]: custom_setting.split(":", 1)[1]
+                    for custom_setting in st.session_state.custom_settings_list
+                    if custom_setting and ":" in custom_setting
+                }
+            )
 
             st.subheader("Agent Commands")
             commands = Commands(agent_name)
