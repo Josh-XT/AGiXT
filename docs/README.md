@@ -79,6 +79,7 @@ If you have issues with Windows, please ask in Discord, but please do not tag th
   - [Web Application Features](#web-application-features)
   - [Quick Start with Docker](#quick-start-with-docker)
     - [Linux or Windows](#linux-or-windows)
+    - [Linux Arm64](#linux-arm64)
     - [MacOS](#macos)
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
     - [Back End](#back-end)
@@ -206,7 +207,7 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 Agent-LLM provides several API endpoints for managing agents, prompts and chains.
 
 To learn more about the API endpoints and their usage, visit the API documentation at 
-- [Swagger](http://localhost:7437/docs)
+- [Swagger](http://localhost:7437)
 - [Redoc](http://localhost:7437/redoc)
 
 This documentation is hosted locally and the frontend must be running for these links to work.
