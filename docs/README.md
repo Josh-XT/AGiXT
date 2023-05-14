@@ -174,15 +174,21 @@ docker compose -f docker-compose-mac-streamlit.yml up -d
 Access the web interface at http://localhost:3000
 
 ## Remote-only, NON-persistent Setup
-### AKA ~quick and dirty~
+### AKA *quick and dirty*
+
+#### Console
 
 ```
 docker pull josh-xt/agent-llm-streamlit:latest
 docker run -p 8501:8501 josh-xt/agent-llm-streamlit
 ```
 
+#### Windows Docker Desktop
+
 ![On Windows Docker Desktop](Docker-desktop-win-setting-streamlit.png)
 
+
+#### Enjoy
 
 - Browse to `http://localhost:8501`
 - Create an agent named `hugU` and enable huggingface provider
