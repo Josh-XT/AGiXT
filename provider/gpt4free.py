@@ -1,5 +1,5 @@
 import gpt4free
-from gpt4free import Provider, quora, you
+from gpt4free import Provider
 
 
 class Gpt4freeProvider:
@@ -12,7 +12,7 @@ class Gpt4freeProvider:
         self.requirements = ["gpt4free"]
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.providers = [Provider.UseLess, Provider.You, Provider.Theb]
+        self.providers = [Provider.UseLess, Provider.You]
 
     def instruct(self, prompt):
         for provider in self.providers:
@@ -28,14 +28,6 @@ class Gpt4freeProvider:
                         response = response["text"]
                     if "status" in response and response["status"] == "Fail":
                         response = None
-                elif provider == gpt4free.Provider.Poe:
-                    token = quora.Account.create(logging=False)
-                    response = gpt4free.Completion.create(
-                        provider,
-                        prompt=prompt,
-                        token=token,
-                        model=self.AI_MODEL,
-                    )
                 elif provider == gpt4free.Provider.You:
                     response = gpt4free.Completion.create(provider, prompt=prompt)
                     if response == "Unable to fetch the response, Please try again.":
