@@ -16,7 +16,7 @@ class Gpt4freeProvider:
         self.MAX_TOKENS = MAX_TOKENS
         self.providers = [Provider.UseLess, Provider.You]
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         for provider in self.providers:
             try:
                 if provider == gpt4free.Provider.UseLess:
