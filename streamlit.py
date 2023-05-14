@@ -1,6 +1,5 @@
 import streamlit as st
 import threading
-import json
 import os
 import yaml
 from Config import Config
@@ -9,7 +8,6 @@ from Config.Agent import Agent
 from Chain import Chain
 from CustomPrompt import CustomPrompt
 from provider import get_provider_options
-from Embedding import get_embedding_providers
 from Commands import Commands
 
 CFG = Config()
