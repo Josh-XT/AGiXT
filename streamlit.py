@@ -196,9 +196,18 @@ if main_selection == "Agent Settings":
             commands = Commands(agent_name)
             available_commands = commands.get_available_commands()
 
+            # Save the existing command state to prevent duplication
+            existing_command_states = {
+                command["friendly_name"]: command["enabled"]
+                for command in available_commands
+            }
             for command in available_commands:
                 command_friendly_name = command["friendly_name"]
-                command_status = command["enabled"]
+                command_status = (
+                    existing_command_states[command_friendly_name]
+                    if command_friendly_name in existing_command_states
+                    else command["enabled"]
+                )
                 toggle_status = st.checkbox(
                     command_friendly_name,
                     value=command_status,
