@@ -7,14 +7,16 @@ class Gpt4freeProvider:
         self,
         AI_MODEL: str = "gpt-4",
         AI_TEMPERATURE: float = 0.7,
+        MAX_TOKENS: int = 4000,
         **kwargs,
     ):
         self.requirements = ["gpt4free"]
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.MAX_TOKENS = MAX_TOKENS
         self.providers = [Provider.UseLess, Provider.You]
 
-    def instruct(self, prompt):
+    def instruct(self, prompt, tokens: int = 0):
         for provider in self.providers:
             try:
                 if provider == gpt4free.Provider.UseLess:
