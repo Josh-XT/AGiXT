@@ -10,21 +10,28 @@
 
 # Versions of plugins are pinned to their major version as long as they use a semVer in a good manner.
 
-name: Publish Streamlit Docker image
+name: Publish Docker images
 
+permissions:
+  packages: write
+  contents: read
+  
 on:
   release:
     types: [published]
   pull_request:
     branches: ["main"]
 
-permissions:
-  packages: write
-  contents: read
-  
 jobs:
 
   call-docker-build:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.repository }}
+      dockerfile: Dockerfile
+    secrets: inherit
+
+  call-docker-build-streamlit:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-streamlit
