@@ -7,13 +7,11 @@ class Gpt4freeProvider:
         self,
         AI_MODEL: str = "gpt-4",
         AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 4096,
         **kwargs,
     ):
         self.requirements = ["gpt4free"]
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
         self.providers = [Provider.UseLess, Provider.You, Provider.Theb]
 
     def instruct(self, prompt):
@@ -24,7 +22,6 @@ class Gpt4freeProvider:
                         provider,
                         prompt=prompt,
                         model=self.AI_MODEL,
-                        temperature=self.AI_TEMPERATURE,
                         systemMessage="",
                     )
                     if "text" in response:
@@ -38,12 +35,9 @@ class Gpt4freeProvider:
                         prompt=prompt,
                         token=token,
                         model=self.AI_MODEL,
-                        temperature=self.AI_TEMPERATURE,
                     )
                 elif provider == gpt4free.Provider.You:
-                    response = gpt4free.Completion.create(
-                        provider, prompt=prompt, temperature=self.AI_TEMPERATURE
-                    )
+                    response = gpt4free.Completion.create(provider, prompt=prompt)
                     if response == "Unable to fetch the response, Please try again.":
                         response = None
                 else:
@@ -51,7 +45,6 @@ class Gpt4freeProvider:
                         provider,
                         prompt=prompt,
                         model=self.AI_MODEL,
-                        temperature=self.AI_TEMPERATURE,
                     )
                 if not response:
                     raise Exception(f"No model result with: {provider}")
