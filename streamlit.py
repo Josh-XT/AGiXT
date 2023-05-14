@@ -90,6 +90,7 @@ if main_selection == "Agent Settings":
         st.session_state.new_agent_name = ""
 
     # Add an input field for the new agent's name
+    new_agent = False
     if not agent_name:
         new_agent_name = st.text_input("New Agent Name")
 
@@ -117,8 +118,9 @@ if main_selection == "Agent Settings":
                     st.error(f"Error adding agent: {str(e)}")
             else:
                 st.error("New agent name is required.")
+        new_agent = True
 
-    if agent_name:
+    if agent_name and not new_agent:
         try:
             agent_config = Agent(agent_name).get_agent_config()
             agent_settings = agent_config.get("settings", {})
@@ -212,28 +214,27 @@ if main_selection == "Agent Settings":
         except Exception as e:
             st.error(f"Error loading agent configuration: {str(e)}")
 
-    if st.button("Update Agent Settings"):
-        if agent_name:
-            try:
-                Agent(agent_name).update_agent_config(agent_settings, "settings")
-                st.success(f"Agent '{agent_name}' updated.")
-            except Exception as e:
-                st.error(f"Error updating agent: {str(e)}")
-        else:
-            st.error("Agent name is required.")
-    delete_agent_button = st.button("Delete Agent")
+    if not new_agent:
+        if st.button("Update Agent Settings"):
+            if agent_name:
+                try:
+                    Agent(agent_name).update_agent_config(agent_settings, "settings")
+                    st.success(f"Agent '{agent_name}' updated.")
+                except Exception as e:
+                    st.error(f"Error updating agent: {str(e)}")
+        delete_agent_button = st.button("Delete Agent")
 
-    # If the "Delete Agent" button is clicked, delete the agent config file
-    if delete_agent_button:
-        if agent_name:
-            try:
-                Agent(agent_name).delete_agent(agent_name)
-                st.success(f"Agent '{agent_name}' deleted.")
-                st.experimental_rerun()  # Rerun the app to update the agent list
-            except Exception as e:
-                st.error(f"Error deleting agent: {str(e)}")
-        else:
-            st.error("Agent name is required.")
+        # If the "Delete Agent" button is clicked, delete the agent config file
+        if delete_agent_button:
+            if agent_name:
+                try:
+                    Agent(agent_name).delete_agent(agent_name)
+                    st.success(f"Agent '{agent_name}' deleted.")
+                    st.experimental_rerun()  # Rerun the app to update the agent list
+                except Exception as e:
+                    st.error(f"Error deleting agent: {str(e)}")
+            else:
+                st.error("Agent name is required.")
 
 elif main_selection == "Chat":
     st.header("Chat with Agent")
