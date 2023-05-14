@@ -35,5 +35,5 @@ jobs:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-streamlit
-      dockerfile: Dockerfile-streamlit
+      dockerfile: Dockerfile.streamlit
     secrets: inherit

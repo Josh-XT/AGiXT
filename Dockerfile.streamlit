@@ -1,16 +1,12 @@
-
-# Use an official Python runtime as a parent image
 FROM python:3.10-slim-buster
 
-# Set the working directory to /app
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-ADD . /app
 
 RUN apt-get update && apt-get install -y git build-essential
 
-# Install any needed packages specified in requirements.txt
+
+
 RUN pip install streamlit
 
 RUN pip install --no-cache-dir -r requirements.txt
@@ -19,11 +15,9 @@ RUN pip uninstall protobuf -y
 
 RUN pip install protobuf==3.20.*
 
-
-EXPOSE 8501
-
+COPY --link . .
 
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run streamlit.py when the container launches
+EXPOSE 8501
 CMD streamlit run streamlit.py
