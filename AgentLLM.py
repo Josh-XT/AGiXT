@@ -301,6 +301,52 @@ class AgentLLM:
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
 
+    def task_creation_agent(
+        self, result: Dict, task_description: str, task_list: List[str]
+    ) -> List[Dict]:
+        response = self.run(
+            task=self.primary_objective,
+            prompt="task",
+            result=result,
+            task_description=task_description,
+            tasks=", ".join(task_list),
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        return [{"task_name": task_name} for task_name in new_tasks]
+
+    def prioritization_agent(self):
+        task_names = [t["task_name"] for t in self.task_list]
+        if not task_names:
+            return
+        next_task_id = len(self.task_list) + 1
+
+        response = self.run(
+            task=self.primary_objective,
+            prompt="priority",
+            task_names=", ".join(task_names),
+            next_task_id=next_task_id,
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        self.task_list = deque()
+        for task_string in new_tasks:
+            task_parts = task_string.strip().split(".", 1)
+            if len(task_parts) == 2:
+                task_id = task_parts[0].strip()
+                task_name = task_parts[1].strip()
+                self.task_list.append({"task_id": task_id, "task_name": task_name})
+
     def run_task(self, stop_event, objective):
         self.primary_objective = objective
         self.update_output_list(
@@ -328,17 +374,14 @@ class AgentLLM:
             # result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
-            new_tasks = self.run(
-                task=self.primary_objective,
-                prompt="task",
-                result=result,
-                task_description=task["task_name"],
-                tasks=", ".join(task_list),
+            new_tasks = self.task_creation_agent(
+                result=result, task_description=task["task_name"], task_list=task_list
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
             for new_task in new_tasks:
                 new_task.update({"task_id": len(self.task_list) + 1})
                 self.task_list.append(new_task)
+            self.prioritization_agent()
         self.update_output_list("All tasks completed or stopped.")
 
     def run_chain_step(self, step_data_list):
