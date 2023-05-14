@@ -36,8 +36,7 @@ jobs:
     with:
       image-name: ${{ github.repository }}-local
       dockerfile: Dockerfile.local
-      build-args:
-      	TAG: latest
+      build-args-tag: latest
     secrets: inherit
     needs: call-docker-build
     
@@ -54,8 +53,7 @@ jobs:
     with:
       image-name: ${{ github.repository }}-streamlit-local
       dockerfile: Dockerfile.local
-      build-args:
-      	TAG: latest
-      	VARIANT: -streamlit
+      build-args-tag: latest
+      build-arg-variant: -streamlit
     secrets: inherit
     needs: call-docker-build-streamlit
