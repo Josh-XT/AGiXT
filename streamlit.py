@@ -1,6 +1,5 @@
 import streamlit as st
 import threading
-import json
 import os
 import yaml
 from Config import Config
@@ -9,7 +8,6 @@ from Config.Agent import Agent
 from Chain import Chain
 from CustomPrompt import CustomPrompt
 from provider import get_provider_options
-from Embedding import get_embedding_providers
 from Commands import Commands
 
 CFG = Config()
@@ -106,6 +104,7 @@ if main_selection == "Agent Settings":
                     "AI_MODEL": "openassistant",
                     "AI_TEMPERATURE": 0.4,
                     "MAX_TOKENS": 2000,
+                    "embedder": "default",
                 }
                 commands = []  # You can define the default commands here
                 try:
@@ -196,9 +195,18 @@ if main_selection == "Agent Settings":
             commands = Commands(agent_name)
             available_commands = commands.get_available_commands()
 
+            # Save the existing command state to prevent duplication
+            existing_command_states = {
+                command["friendly_name"]: command["enabled"]
+                for command in available_commands
+            }
             for command in available_commands:
                 command_friendly_name = command["friendly_name"]
-                command_status = command["enabled"]
+                command_status = (
+                    existing_command_states[command_friendly_name]
+                    if command_friendly_name in existing_command_states
+                    else command["enabled"]
+                )
                 toggle_status = st.checkbox(
                     command_friendly_name,
                     value=command_status,

@@ -248,6 +248,7 @@ class AgentLLM:
                     context_results=6,
                     websearch=True,
                     websearch_depth=8,
+                    shots=shots,
                 )
             )
         answer_str = ""
@@ -272,6 +273,7 @@ class AgentLLM:
                     context_results=6,
                     websearch=True,
                     websearch_depth=8,
+                    shots=shots,
                 )
             )
         answer_str = ""
