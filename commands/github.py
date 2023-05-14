@@ -8,11 +8,9 @@ CFG = Config()
 
 class github(Commands):
     def __init__(self):
-        if CFG.GITHUB_USERNAME is None and CFG.GITHUB_API_KEY is None:
-            self.commands = {
-                "Clone Github Repository": self.clone_repo,
-                "Create Github Repository": self.create_repo,
-            }
+        self.commands = {"Clone Github Repository": self.clone_repo}
+        if CFG.GITHUB_USERNAME and CFG.GITHUB_API_KEY:
+            self.commands["Create Github Repository"] = self.create_repo
 
     def clone_repo(self, repo_url: str, clone_path: str) -> str:
         split_url = repo_url.split("//")
@@ -39,6 +37,6 @@ class github(Commands):
             f.write(readme)
         repo.git.add(A=True)
         repo.git.commit(m="Added README")
-        origin = repo.create_remote("origin", repo_url)
+        repo.create_remote("origin", repo_url)
         repo.git.push("origin", "HEAD:main")
         return repo_url

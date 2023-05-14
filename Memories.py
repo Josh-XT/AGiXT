@@ -39,43 +39,6 @@ class Memories:
             )
             print(f"Memories for {self.AGENT_NAME} created successfully.")
 
-    def store(self, textdata, metadata, ids):
-        """
-        Stores new textdata, username, and ids in the ChromaDB collection.
-
-        Args:
-            textdata: list of strings, the text data to store.
-            username: list of strings, the usernames associated with the text data.
-            ids: list of strings or ints, the unique IDs associated with the text data.
-
-        Returns:
-            None.
-        """
-        # Store the new entry in the collection.
-        self.collection.add(documents=textdata, metadatas=metadata, ids=ids)
-        self.chroma_client.persist()
-
-    def retrieve(self, query_text, name, chunk_type):
-        metadata = {"name": name, "type": chunk_type}
-        try:
-            results = self.collection.query(
-                query_texts=[query_text],
-                n_results=3,
-                where=metadata,
-                include=["documents", "distances", "metadatas"],
-            )
-        except (
-            chromadb.errors.NoDatapointsException,
-            chromadb.errors.NotEnoughElementsException,
-        ) as e:
-            # Print the error message
-            print(f"Error: {e}")
-            # Return an empty list if no results are found or if there are not enough elements
-            results = []
-
-        # print(f"Generated results: {results}")
-        return results
-
     def store_result(self, task_name: str, result: str):
         if result:
             result_id = "".join(

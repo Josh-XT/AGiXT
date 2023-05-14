@@ -4,6 +4,8 @@ Commands Available To Complete Task:
 Context:
 {context}
 
+Today's date is {date}. 
+
 You are a resolver tasked with:
 1. Finding which of the {shots} answer options the researcher thought was best 
 2. Improving that answer

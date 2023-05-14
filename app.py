@@ -17,7 +17,8 @@ CFG = Config()
 app = FastAPI(
     title="Agent-LLM",
     description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents.",
-    version="v1.1.24-beta",
+    version="v1.1.30-beta",
+    docs_url="/",
 )
 agent_threads = {}
 agent_stop_events = {}
@@ -169,7 +170,7 @@ async def get_agent_config(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name).get_chat_history()
+    chat_history = Agent(agent_name).get_chat_history(agent_name)
     return {"chat_history": chat_history}
 
 
