@@ -3,6 +3,10 @@ name: Publish Docker image
 on:
   push:
 
+permissions:
+  packages: write
+  contents: read
+
 jobs:
 
   call-docker-build:
