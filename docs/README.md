@@ -140,18 +140,19 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
 
 ### Linux or Windows
+Works for all platforms except for arm64 processors use streamlit version
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 docker-compose up -d
 ```
-### Linux Arm64
+Streamlit version
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-docker compose -f docker-compose-linux-arm64.yml
+docker compose -f docker-compose-streamlit.yml
 ```
 
 ### MacOS
@@ -160,6 +161,14 @@ docker compose -f docker-compose-linux-arm64.yml
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 docker compose -f docker-compose-mac.yml up -d
+```
+
+Streamlit version for Mac OS
+
+```
+git clone https://github.com/Josh-XT/Agent-LLM
+cd Agent-LLM
+docker compose -f docker-compose-mac-streamlit.yml up -d
 ```
 
 Access the web interface at http://localhost:3000
