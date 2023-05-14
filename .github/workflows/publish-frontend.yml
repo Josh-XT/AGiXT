@@ -23,7 +23,7 @@ env:
   
 jobs:
   push_to_registries:
-    name: Push Docker image to multiple registries
+    name: Push Streamlit Docker image to multiple registries
     
     runs-on: ubuntu-latest
     
