@@ -42,3 +42,4 @@ EdgeGPT
 nomic
 google-generativeai
 google-cloud-aiplatform
+streamlit
