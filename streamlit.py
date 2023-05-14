@@ -67,9 +67,56 @@ def render_provider_settings(agent_settings, provider_name: str):
 if main_selection == "Agent Settings":
     st.header("Manage Agent Settings")
 
+    if "new_agent_name" not in st.session_state:
+        st.session_state.new_agent_name = ""
+
     agent_name = st.selectbox(
-        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+        "Select Agent",
+        [""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0
+        if not st.session_state.new_agent_name
+        else [agent["name"] for agent in CFG.get_agents()].index(
+            st.session_state.new_agent_name
+        )
+        + 1,
+        key="agent_name_select",
     )
+
+    # Check if a new agent has been added and reset the session state variable
+    if (
+        st.session_state.new_agent_name
+        and st.session_state.new_agent_name != agent_name
+    ):
+        st.session_state.new_agent_name = ""
+
+    # Add an input field for the new agent's name
+    if not agent_name:
+        new_agent_name = st.text_input("New Agent Name")
+
+        # Add an "Add Agent" button
+        add_agent_button = st.button("Add Agent")
+
+        # If the "Add Agent" button is clicked, create a new agent config file
+        if add_agent_button:
+            if new_agent_name:
+                # You can customize provider_settings and commands as needed
+                provider_settings = {
+                    "provider": "huggingchat",
+                    "AI_MODEL": "openassistant",
+                    "AI_TEMPERATURE": 0.4,
+                    "MAX_TOKENS": 2000,
+                }
+                commands = []  # You can define the default commands here
+                try:
+                    Agent(new_agent_name).add_agent(new_agent_name, provider_settings)
+                    st.success(f"Agent '{new_agent_name}' added.")
+                    agent_name = new_agent_name
+                    st.session_state.new_agent_name = agent_name
+                    st.experimental_rerun()  # Rerun the app to update the agent list
+                except Exception as e:
+                    st.error(f"Error adding agent: {str(e)}")
+            else:
+                st.error("New agent name is required.")
 
     if agent_name:
         try:
@@ -83,16 +130,6 @@ if main_selection == "Agent Settings":
                 if provider_name in CFG.get_providers()
                 else 0,
             )
-            embedder_name = agent_settings.get("embedder", "")
-            embedding_provider_name = st.selectbox(
-                "Select Embedding Provider",
-                get_embedding_providers(),
-                index=get_embedding_providers().index(embedder_name)
-                if embedder_name in get_embedding_providers()
-                else 0,
-            )
-            if embedding_provider_name:
-                agent_settings["embedder"] = embedding_provider_name
             if provider_name:
                 provider_settings = render_provider_settings(
                     agent_settings, provider_name
@@ -153,17 +190,21 @@ if main_selection == "Agent Settings":
             )
 
             st.subheader("Agent Commands")
+            # Fetch the available commands using the `Commands` class
             commands = Commands(agent_name)
             available_commands = commands.get_available_commands()
 
             for command in available_commands:
-                command_name = command["name"]
+                command_friendly_name = command["friendly_name"]
                 command_status = command["enabled"]
                 toggle_status = st.checkbox(
-                    command_name, value=command_status, key=command_name
+                    command_friendly_name,
+                    value=command_status,
+                    key=command_friendly_name,
                 )
                 command["enabled"] = toggle_status
 
+            # Update the available commands back to the agent config
             Agent(agent_name).update_agent_config(
                 {"commands": available_commands}, "commands"
             )
@@ -180,7 +221,19 @@ if main_selection == "Agent Settings":
                 st.error(f"Error updating agent: {str(e)}")
         else:
             st.error("Agent name is required.")
+    delete_agent_button = st.button("Delete Agent")
 
+    # If the "Delete Agent" button is clicked, delete the agent config file
+    if delete_agent_button:
+        if agent_name:
+            try:
+                Agent(agent_name).delete_agent(agent_name)
+                st.success(f"Agent '{agent_name}' deleted.")
+                st.experimental_rerun()  # Rerun the app to update the agent list
+            except Exception as e:
+                st.error(f"Error deleting agent: {str(e)}")
+        else:
+            st.error("Agent name is required.")
 
 elif main_selection == "Chat":
     st.header("Chat with Agent")
