@@ -1,12 +1,10 @@
 argparse
 beautifulsoup4
 captcha-solver
-# chromadb
 docker
 duckduckgo_search==2.8.5
 fastapi
 uvicorn
-# git+https://github.com/huggingface/transformers
 gitpython
 google-api-python-client
 GoogleBard
@@ -27,19 +25,14 @@ python-git
 PyGithub
 selenium
 sendgrid
-# sentence-transformers
 tiktoken
 tweepy
 webdriver_manager
-# llama-cpp-python==0.1.48
 spacy
 discord
 git+https://github.com/xtekky/gpt4free
 pycrypto
-# accelerate
-# torch
 EdgeGPT
-# nomic
 google-generativeai
 google-cloud-aiplatform
 streamlit

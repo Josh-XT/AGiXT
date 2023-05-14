@@ -2,18 +2,8 @@ FROM python:3.10-slim-buster
 
 WORKDIR /app
 
-
 RUN apt-get update && apt-get install -y git build-essential
-
-
-
-RUN pip install streamlit
-
 RUN pip install --no-cache-dir -r requirements.txt
-
-RUN pip uninstall protobuf -y
-
-RUN pip install protobuf==3.20.*
 
 COPY --link . .
 

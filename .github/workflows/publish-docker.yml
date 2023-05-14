@@ -31,9 +31,31 @@ jobs:
       dockerfile: Dockerfile
     secrets: inherit
 
+  call-docker-build-streamlit-local:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.repository }}-local
+      dockerfile: Dockerfile.local
+      build-args:
+      	TAG: latest
+    secrets: inherit
+    needs: call-docker-build
+    
+
   call-docker-build-streamlit:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-streamlit
       dockerfile: Dockerfile.streamlit
     secrets: inherit
+
+  call-docker-build-streamlit-local:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.repository }}-streamlit-local
+      dockerfile: Dockerfile.local
+      build-args:
+      	TAG: latest
+      	VARIANT: -streamlit
+    secrets: inherit
+    needs: call-docker-build-streamlit

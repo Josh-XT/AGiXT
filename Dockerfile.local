@@ -1,0 +1,7 @@
+ARG TAG=latest
+ARG VARIANT=
+FROM localagi/agent-llm${VARIANT}:${TAG}
+
+
+WORKDIR /app
+RUN pip install --no-cache-dir -r requirements-local.txt

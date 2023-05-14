@@ -7,6 +7,7 @@ on:
       image-name:
         required: true
         type: string
+      build-args:
       dockerfile:
         required: true
         type: string
@@ -62,7 +63,8 @@ jobs:
         id: build-and-push
         uses: docker/build-push-action@v4
         with:
-          file: 
+          file: ${{ inputs.dockerfile }}
+          build-args: ${{ inputs.build-args }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
