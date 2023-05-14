@@ -147,12 +147,12 @@ git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
 docker-compose up -d
 ```
-Streamlit version
+### Streamlit version
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-docker compose -f docker-compose-streamlit.yml
+docker compose -f docker-compose-streamlit.yml up -d
 ```
 
 ### MacOS
@@ -163,7 +163,7 @@ cd Agent-LLM
 docker compose -f docker-compose-mac.yml up -d
 ```
 
-Streamlit version for Mac OS
+### Streamlit version for Mac OS
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
