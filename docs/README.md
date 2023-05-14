@@ -177,9 +177,12 @@ Access the web interface at http://localhost:3000
 ### AKA ~quick and dirty~
 
 ```
-docker pull ghcr.io/josh-xt/agent-llm-streamlit:latest
+docker pull josh-xt/agent-llm-streamlit:latest
 docker run -p 8501:8501 josh-xt/agent-llm-streamlit
 ```
+
+![On Windows Docker Desktop](Docker-desktop-win-setting-streamlit.png)
+
 
 - Browse to `http://localhost:8501`
 - Create an agent named `hugU` and enable huggingface provider
