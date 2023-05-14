@@ -117,7 +117,7 @@ class AgentLLM:
         prompt: str = "",
         context_results: int = 3,
         websearch: bool = False,
-        websearch_depth: int = 8,
+        websearch_depth: int = 3,
         **kwargs,
     ):
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
@@ -233,7 +233,7 @@ class AgentLLM:
                     prompt="SmartInstruct-StepByStep",
                     context_results=6,
                     websearch=True,
-                    websearch_depth=8,
+                    websearch_depth=3,
                     shots=shots,
                 )
             )
@@ -258,7 +258,7 @@ class AgentLLM:
                     prompt="SmartChat-StepByStep",
                     context_results=6,
                     websearch=True,
-                    websearch_depth=8,
+                    websearch_depth=3,
                     shots=shots,
                 )
             )
@@ -274,7 +274,7 @@ class AgentLLM:
         return resolver
 
     def websearch_to_memory(
-        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 8
+        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
         results = self.run(task=task, prompt="WebSearch")
         results = results.split("\n")
