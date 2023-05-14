@@ -104,6 +104,7 @@ if main_selection == "Agent Settings":
                     "AI_MODEL": "openassistant",
                     "AI_TEMPERATURE": 0.4,
                     "MAX_TOKENS": 2000,
+                    "embedder": "default",
                 }
                 commands = []  # You can define the default commands here
                 try:
