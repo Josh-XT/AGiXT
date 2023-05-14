@@ -1,0 +1,76 @@
+# This workflow will build and publish the docker image to 
+# - Github packages
+# - Docker hub
+# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-docker-images
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# Versions of plugins are pinned to their major version as long as they use a semVer in a good manner.
+
+name: Publish Streamlit Docker image
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    branches: ["main"]
+
+env:
+  IMAGE_NAME: ${{ github.repository }}-streamlit
+  
+jobs:
+  push_to_registries:
+    name: Push Docker image to multiple registries
+    
+    runs-on: ubuntu-latest
+    
+    permissions:
+      packages: write
+      contents: read
+    
+    steps:
+
+# Unused for now
+#      - name: Install cosign
+#        if: github.event_name != 'pull_request'
+#        uses: sigstore/cosign-installer@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} 
+      
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ghcr.io/${{ env.IMAGE_NAME }}
+            ${{ env.IMAGE_NAME }}
+      
+      # Needed for cache layers on github registry
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build and push Docker images
+        id: build-and-push
+        uses: docker/build-push-action@v4
+        with:
+          file: Dockerfile-streamlit
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
