@@ -10,7 +10,7 @@ on:
       build-args:
         type: string
       dockerfile:
-        required: true
+        default: Dockerfile
         type: string
       push:
         type: boolean
