@@ -326,7 +326,7 @@ class AgentLLM:
         try:
             links = links.split("\n")
         except:
-            pass
+            links = None
         if links is not None:
             for link in links:
                 print(f"Scraping: {link['href']}")
