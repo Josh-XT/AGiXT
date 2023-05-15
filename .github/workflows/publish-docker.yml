@@ -29,6 +29,7 @@ jobs:
     with:
       image-name: ${{ github.repository }}
       dockerfile: Dockerfile
+      push: ${{ github.event_name == 'release' }}
     secrets: inherit
 
   call-docker-build-localprovider:
@@ -38,6 +39,7 @@ jobs:
       dockerfile: Dockerfile.localprovider
       build-args: |
         FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
+      push: ${{ github.event_name == 'release' }}
     secrets: inherit
     needs: call-docker-build
    
@@ -48,6 +50,7 @@ jobs:
       dockerfile: Dockerfile.streamlit
       build-args: |
         FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
+      push: ${{ github.event_name == 'release' }}
     secrets: inherit
     needs: call-docker-build
     
@@ -59,5 +62,6 @@ jobs:
       build-args: |
         FROM_VARIANT=-localprovider
         FROM_DIGEST=${{needs.call-docker-build-localprovider.outputs.digest}}
+      push: ${{ github.event_name == 'release' }}
     secrets: inherit
     needs: call-docker-build-localprovider

@@ -12,6 +12,9 @@ on:
       dockerfile:
         required: true
         type: string
+      push:
+        type: boolean
+        default: true
     secrets:
       DOCKER_USERNAME:
         required: true
@@ -72,7 +75,7 @@ jobs:
         with:
           file: ${{ inputs.dockerfile }}
           build-args: ${{ inputs.build-args }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
