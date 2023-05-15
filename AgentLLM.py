@@ -57,7 +57,6 @@ class AgentLLM:
 
     def validation_agent(self, json_string: str):
         try:
-            json_string = self.run(task=json_string, prompt="jsonformatter")
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
             if len(cleaned_json) == 0:
@@ -66,7 +65,7 @@ class AgentLLM:
                 cleaned_json = cleaned_json[0]
             response = json.loads(cleaned_json)
             return response
-        except JSONDecodeError as e:
+        except:
             return False
 
     def custom_format(self, string, **kwargs):
