@@ -7,7 +7,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git build-essential && \
     apt-get install g++ -y && \
     pip install --upgrade pip && \
-    USE_CUDNN=0 USE_FBGEMM=0 USE_CUDA=0 pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install --force-reinstall --no-cache-dir hnswlib && \
     apt-get install libgomp1 -y && \
     apt-get install git -y && \
