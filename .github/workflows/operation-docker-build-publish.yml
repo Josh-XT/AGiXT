@@ -29,6 +29,9 @@ on:
       registry-github:
         type: boolean
         default: true
+      registry-readme:
+        type: string
+        default: README.md
     secrets:
       DOCKER_USERNAME:
         required: true
@@ -114,5 +117,5 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           repository: ${{ inputs.image-name }}
-          readme-filepath: ./docs/README.md
+          readme-filepath: ${{ inputs.registry-readme }}
 

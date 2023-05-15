@@ -14,6 +14,7 @@ jobs:
     with:
       image-name: ${{ github.repository }}
       dockerfile: docker/Dockerfile
+      registry-readme: ./docs/README.md
     secrets: inherit
    
   call-docker-build-streamlit:
@@ -23,6 +24,7 @@ jobs:
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
         FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
+      registry-readme: ./docs/README.md
     secrets: inherit
     needs: call-docker-build
 
@@ -31,6 +33,7 @@ jobs:
     with:
       image-name: ${{ github.repository }}-nvidia
       dockerfile: docker/Dockerfile.nvidia
+      registry-readme: ./docs/README.md
     secrets: inherit
     
   call-docker-build-nvidia-streamlit:
@@ -40,5 +43,6 @@ jobs:
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
         FROM_DIGEST=${{needs.call-docker-build-nvidia.outputs.digest}}
+      registry-readme: ./docs/README.md
     secrets: inherit
     needs: call-docker-build-nvidia
