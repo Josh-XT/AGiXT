@@ -281,10 +281,10 @@ class AgentLLM:
             execution_response = self.run(
                 task=task, context_results=context_results, **kwargs
             )
-            return self.validation_agent(execution_response)
+            return self.validation_agent(task, execution_response, **kwargs)
 
     def execution_agent(self, execution_response, task, **kwargs):
-        validated_response = self.validation_agent(execution_response)
+        validated_response = self.validation_agent(task, execution_response, **kwargs)
         for command_name, command_args in validated_response["commands"].items():
             # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
             if command_name is not None:
