@@ -33,6 +33,7 @@ jobs:
     secrets: inherit
 
   call-docker-build-streamlit:
+    if: github.event_name == 'release'
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-streamlit
@@ -44,6 +45,7 @@ jobs:
     needs: call-docker-build
 
   call-docker-build-nvidia:
+    if: github.event_name == 'release'
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-nvidia
@@ -52,6 +54,7 @@ jobs:
     secrets: inherit
     
   call-docker-build-nvidia-streamlit:
+    if: github.event_name == 'release'
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-nvidia-streamlit
