@@ -9,12 +9,6 @@ on:
       dockerfile:
         required: true
         type: string
-    secrets:
-      DOCKER_USERNAME:
-        required: true
-      DOCKER_PASSWORD:
-        required: true
-
 jobs:
   build_publish_docker:
     runs-on: ubuntu-latest
