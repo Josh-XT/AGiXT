@@ -6,13 +6,20 @@ from typing import List, Dict
 from Config.Agent import Agent
 from datetime import datetime
 from commands.web_requests import web_requests
-from commands.web_selenium import web_selenium
+from playwright.async_api import async_playwright
 from duckduckgo_search import ddg
 from Commands import Commands
 import json
 from json.decoder import JSONDecodeError
 from CustomPrompt import CustomPrompt
 from Memories import Memories
+import asyncio
+
+
+def run_asyncio_coroutine(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 
 class AgentLLM:
@@ -127,7 +134,10 @@ class AgentLLM:
             **kwargs,
         )
         if websearch:
-            self.websearch_to_memory(task=task, depth=websearch_depth)
+            run_asyncio_coroutine(
+                self.websearch_to_memory(task=task, depth=websearch_depth)
+            )
+            # self.websearch_to_memory(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
@@ -226,22 +236,35 @@ class AgentLLM:
     ):
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
-        for i in range(shots):
-            answers.append(
-                self.run(
-                    task=task,
-                    prompt="SmartInstruct-StepByStep",
-                    context_results=6,
-                    websearch=True,
-                    websearch_depth=3,
-                    shots=shots,
-                )
+        answers.append(
+            self.run(
+                task=task,
+                prompt="SmartInstruct-StepByStep",
+                context_results=6,
+                websearch=True,
+                websearch_depth=3,
+                shots=shots,
             )
+        )
+        if shots > 1:
+            for i in range(shots - 1):
+                answers.append(
+                    self.run(
+                        task=task,
+                        prompt="SmartInstruct-StepByStep",
+                        context_results=6,
+                        shots=shots,
+                    )
+                )
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
-        researcher = self.run(task=answer_str, prompt="SmartInstruct-Researcher")
-        resolver = self.run(task=researcher, prompt="SmartInstruct-Resolver")
+        researcher = self.run(
+            task=answer_str, prompt="SmartInstruct-Researcher", shots=shots
+        )
+        resolver = self.run(
+            task=researcher, prompt="SmartInstruct-Resolver", shots=shots
+        )
         return resolver
 
     def smart_chat(
@@ -250,30 +273,42 @@ class AgentLLM:
         shots: int = 3,
     ):
         answers = []
-        # Do multi shots of prompt to get N different answers to be validated
-        for i in range(shots):
-            answers.append(
-                self.run(
-                    task=task,
-                    prompt="SmartChat-StepByStep",
-                    context_results=6,
-                    websearch=True,
-                    websearch_depth=3,
-                    shots=shots,
-                )
+        answers.append(
+            self.run(
+                task=task,
+                prompt="SmartChat-StepByStep",
+                context_results=6,
+                websearch=True,
+                websearch_depth=3,
+                shots=shots,
             )
+        )
+        # Do multi shots of prompt to get N different answers to be validated
+        if shots > 1:
+            for i in range(shots - 1):
+                answers.append(
+                    self.run(
+                        task=task,
+                        prompt="SmartChat-StepByStep",
+                        context_results=6,
+                        shots=shots,
+                    )
+                )
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = self.run(
-            task=answer_str, prompt="SmartChat-Researcher", context_results=6
+            task=answer_str,
+            prompt="SmartChat-Researcher",
+            context_results=6,
+            shots=shots,
         )
         resolver = self.run(
-            task=researcher, prompt="SmartChat-Resolver", context_results=6
+            task=researcher, prompt="SmartChat-Resolver", context_results=6, shots=shots
         )
         return resolver
 
-    def websearch_to_memory(
+    async def websearch_to_memory(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
         results = self.run(task=task, prompt="WebSearch")
@@ -284,11 +319,21 @@ class AgentLLM:
             if links is not None:
                 for link in links:
                     print(f"Scraping: {link['href']}")
-                    collected_data = web_selenium.scrape_text_with_selenium(
+                    collected_data = await self.scrape_text_with_playwright(
                         link["href"]
                     )
                     if collected_data is not None:
                         self.memories.store_result(task, collected_data)
+
+    async def scrape_text_with_playwright(self, url):
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto(url)
+            content = await page.content()
+            await browser.close()
+            return content
 
     def get_status(self):
         try:
