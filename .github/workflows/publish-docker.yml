@@ -28,18 +28,45 @@ jobs:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
       push: ${{ github.event_name == 'release' }}
     secrets: inherit
-
    
   call-docker-build-streamlit:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
       image-name: ${{ github.repository }}-streamlit
-      dockerfile: Dockerfile.streamlit
+      dockerfile: docker/Dockerfile.streamlit
       build-args: |
         FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
       push: ${{ github.event_name == 'release' }}
     secrets: inherit
     needs: call-docker-build
+
+  call-docker-build-nvidia:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.repository }}-nvidia
+      dockerfile: docker/Dockerfile.nvidia
+      push: ${{ github.event_name == 'release' }}
+    secrets: inherit
+    
+  call-docker-build-nvidia-streamlit:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.repository }}-nvidia-streamlit
+      dockerfile: docker/Dockerfile.streamlit
+      build-args: |
+        FROM_DIGEST=${{needs.call-docker-build-nvidia.outputs.digest}}
+      push: ${{ github.event_name == 'release' }}
+    secrets: inherit
+    needs: call-docker-build-nvidia
+    
+  # Package 3rd party services
+  call-docker-build-fastchat:
+    uses: ./.github/workflows/operation-docker-build-publish.yml
+    with:
+      image-name: ${{ github.user }}/fastchat
+      dockerfile: docker/Dockerfile.fastchat
+      push: ${{ github.event_name == 'release' }}
+    secrets: inherit

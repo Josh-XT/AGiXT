@@ -1,7 +1,0 @@
-chromadb
-git+https://github.com/huggingface/transformers
-sentence-transformers
-llama-cpp-python==0.1.48
-accelerate
-torch
-nomic
