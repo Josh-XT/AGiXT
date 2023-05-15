@@ -418,7 +418,7 @@ elif main_selection == "Instructions":
             else:
                 st.error("Agent name and message are required.")
     else:
-        st.warning("Please select an agent to give instructs.")
+        st.warning("Please select an agent to give instructions.")
 
 elif main_selection == "Tasks":
     st.header("Manage Tasks")
