@@ -326,14 +326,17 @@ class AgentLLM:
                         self.memories.store_result(task, collected_data)
 
     async def scrape_text_with_playwright(self, url):
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(url)
-            content = await page.content()
-            await browser.close()
-            return content
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                context = await browser.new_context()
+                page = await context.new_page()
+                await page.goto(url)
+                content = await page.content()
+                await browser.close()
+                return content
+        except:
+            return None
 
     def get_status(self):
         try:
