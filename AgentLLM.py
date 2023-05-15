@@ -117,6 +117,65 @@ class AgentLLM:
         tokens = len(self.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
+    def run_commands(self, execution_response, task, **kwargs):
+        valid_json = self.validation_agent(execution_response)
+        while not valid_json:
+            print("INVALID JSON RESPONSE")
+            print(execution_response)
+            print("... Trying again.")
+            if context_results != 0:
+                context_results = context_results - 1
+            else:
+                context_results = 0
+            formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+                task=task,
+                top_results=context_results,
+                prompt=prompt,
+                **kwargs,
+            )
+            execution_response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+            valid_json = self.validation_agent(execution_response)
+        if valid_json:
+            execution_response = valid_json
+        for command_name, command_args in execution_response["commands"].items():
+            # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+            if command_name is not None:
+                for available_command in self.available_commands:
+                    if command_name in [
+                        available_command["friendly_name"],
+                        available_command["name"],
+                    ]:
+                        command_name = available_command["name"]
+                        break
+                command_output = self.commands.execute_command(
+                    command_name, command_args
+                )
+                validate_command = self.run(
+                    task=task,
+                    prompt="Validation",
+                    command_name=command_name,
+                    command_output=command_output,
+                    **kwargs,
+                )
+                if validate_command.startswith("N"):
+                    response = f"\nExecuted Command:\n{command_name} with output {command_output}\n"
+                    return response
+                else:
+                    print("Command did not execute as expected. Trying again..")
+                    revalidate = self.run(
+                        task=task,
+                        prompt="ValidationFailed",
+                        command_name=command_name,
+                        command_output=command_output,
+                        **kwargs,
+                    )
+                    return self.run_commands(revalidate, task, **kwargs)
+            else:
+                if command_name == "None.":
+                    return "\nNo commands were executed.\n"
+                else:
+                    return f"\n\nCommand not recognized: {command_name}"
+
     def run(
         self,
         task: str,
@@ -140,79 +199,10 @@ class AgentLLM:
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
-            valid_json = self.validation_agent(self.response)
-            while not valid_json:
-                print("INVALID JSON RESPONSE")
-                print(self.response)
-                print("... Trying again.")
-                if context_results != 0:
-                    context_results = context_results - 1
-                else:
-                    context_results = 0
-                formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                    task=task,
-                    top_results=context_results,
-                    prompt=prompt,
-                    **kwargs,
-                )
-                self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-                valid_json = self.validation_agent(self.response)
-            if valid_json:
-                self.response = valid_json
-            response_parts = []
-            if "thoughts" in self.response:
-                response_parts.append(f"\n\nTHOUGHTS:\n\n{self.response['thoughts']}")
-            if "plan" in self.response:
-                response_parts.append(f"\n\nPLAN:\n\n{self.response['plan']}")
-            if "summary" in self.response:
-                response_parts.append(f"\n\nSUMMARY:\n\n{self.response['summary']}")
-            if "response" in self.response:
-                response_parts.append(f"\n\nRESPONSE:\n\n{self.response['response']}")
-            if "commands" in self.response:
-                response_parts.append(f"\n\nCOMMANDS:\n\n{self.response['commands']}")
-                for command_name, command_args in self.response["commands"].items():
-                    # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                    if command_name is not None:
-                        for available_command in self.available_commands:
-                            if command_name in [
-                                available_command["friendly_name"],
-                                available_command["name"],
-                            ]:
-                                command_name = available_command["name"]
-                                break
-                        response_parts.append(
-                            f"\n\n{self.commands.execute_command(command_name, command_args)}"
-                        )
-                    else:
-                        if command_name == "None.":
-                            response_parts.append(f"\n\nNo commands were executed.")
-                        else:
-                            response_parts.append(
-                                f"\n\nCommand not recognized: {command_name}"
-                            )
-            self.response = "".join(response_parts)
-            print(f"Pre-Validation Response: {self.response}")
-            self.memories.store_result(task, self.response)
-            response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-            valid_json = self.validation_agent(response)
-            while not valid_json:
-                print("INVALID JSON RESPONSE")
-                print(response)
-                print("... Trying again.")
-                if context_results != 0:
-                    context_results = context_results - 1
-                else:
-                    context_results = 0
-                valid_json = self.validation_agent(response)
-            if "response" in valid_json:
-                self.response = valid_json["response"]
-            if "commands" in valid_json:
-                commands_used = valid_json["commands"]
-                if len(commands_used) > 0:
-                    self.response += f"\n\nCommands Used:\n\n{commands_used}"
-            print(f"Post-Validation Response: {self.response}")
-        else:
-            print(f"Response: {self.response}")
+            self.response = self.run_commands(
+                execution_response=self.response, task=task, **kwargs
+            )
+        print(f"Response: {self.response}")
         self.memories.store_result(task, self.response)
         self.CFG.log_interaction("USER", task)
         self.CFG.log_interaction(self.agent_name, self.response)

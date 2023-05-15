@@ -1,0 +1,8 @@
+We attempted to run the following command:
+{command_name}
+
+We received the following output:
+
+{command_output}
+
+Did the command execute as expected?  Simply reply "Yes" or "No" to question, no further explanation is required.
