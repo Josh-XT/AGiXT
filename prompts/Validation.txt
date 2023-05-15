@@ -1,5 +1,8 @@
-We attempted to run the following command:
+We attempted to run the following command with the Arguments:
 {command_name}
+
+Arguments:
+{command_args}
 
 We received the following output:
 

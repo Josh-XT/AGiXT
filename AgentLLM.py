@@ -150,22 +150,30 @@ class AgentLLM:
                 command_output = self.commands.execute_command(
                     command_name, command_args
                 )
+                print("Running Command Execution Validation...")
                 validate_command = self.run(
                     task=task,
                     prompt="Validation",
                     command_name=command_name,
+                    command_args=command_args,
                     command_output=command_output,
                     **kwargs,
                 )
                 if validate_command.startswith("N"):
+                    print(
+                        f"Command {command_name} executed successfully with args {command_args}."
+                    )
                     response = f"\nExecuted Command:\n{command_name} with output {command_output}\n"
                     return response
                 else:
-                    print("Command did not execute as expected. Trying again..")
+                    print(
+                        f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+                    )
                     revalidate = self.run(
                         task=task,
                         prompt="ValidationFailed",
                         command_name=command_name,
+                        command_args=command_args,
                         command_output=command_output,
                         **kwargs,
                     )
