@@ -101,10 +101,10 @@ if main_selection == "Agent Settings":
             if new_agent_name:
                 # You can customize provider_settings and commands as needed
                 provider_settings = {
-                    "provider": "huggingchat",
-                    "AI_MODEL": "openassistant",
-                    "AI_TEMPERATURE": 0.4,
-                    "MAX_TOKENS": 2000,
+                    "provider": "gpt4free",
+                    "AI_MODEL": "gpt-4",
+                    "AI_TEMPERATURE": "0.7",
+                    "MAX_TOKENS": "4000",
                     "embedder": "default",
                 }
                 commands = []  # You can define the default commands here
