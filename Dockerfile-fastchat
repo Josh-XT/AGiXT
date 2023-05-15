@@ -1,0 +1,25 @@
+FROM nvidia/cuda:12.0.0-cudnn8-runtime-ubuntu22.04
+
+RUN apt-get update ; \
+    apt-get upgrade -y ; \
+    apt-get install -y git python3-dev python3-pip
+
+RUN pip3 install --upgrade pip
+
+RUN git clone https://github.com/lm-sys/FastChat fastchat
+
+WORKDIR /fastchat
+RUN pip3 install .
+
+COPY fastchat.sh .
+
+ENV MODEL_NAME="llama-7b-hf"
+ENV MODEL_PATH="/model/llama-7b-hf"
+ENV VICUNA_PATH="/model/vicuna-7b-1.1"
+ENV FASTCHAT_API_PORT=7500
+ENV FASTCHAT_CONTROLLER_PORT=21001
+ENV FASTCHAT_WORKER_PORT=21002
+ENV FASTCHAT_DEVICE="cpu"
+ENV FASTCHAT_GPU_COUNT=0
+
+ENTRYPOINT ["bash", "fastchat.sh"]
