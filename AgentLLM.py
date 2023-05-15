@@ -337,9 +337,7 @@ class AgentLLM:
         if links is not None:
             for link in links:
                 print(f"Scraping: {link['href']}")
-                collected_data, link_list = await self.scrape_text_with_playwright(
-                    link["href"]
-                )
+                collected_data, link_list = await self.browse_web(link["href"])
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
                 if len(link_list) > 0:
@@ -349,7 +347,7 @@ class AgentLLM:
                     if not pick_a_link.startswith("None"):
                         self.resursive_browsing(task, pick_a_link)
 
-    async def scrape_text_and_links_with_playwright(self, url):
+    async def browse_web(self, url):
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
