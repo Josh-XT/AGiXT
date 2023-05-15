@@ -88,7 +88,8 @@ jobs:
           images: |
             ${{ env.image-names }}
           # generate Docker tags based on the following events/attributes
-          tags: ${{ inputs.tags }}
+          tags: |
+            ${{ inputs.tags }}
       
       # Needed for cache layers on github registry
       - name: Set up Docker Buildx
