@@ -346,28 +346,79 @@ elif main_selection == "Chat":
         st.warning("Please select an agent to start chatting.")
 
 elif main_selection == "Instructions":
-    st.header("Instruct Agent")
+    st.header("Instruct an Agent")
 
     agent_name = st.selectbox(
-        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+        "Select Agent",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
-    instruct_prompt = st.text_area("Enter your instruction")
+
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
-    if st.button("Instruct Agent"):
-        if agent_name and instruct_prompt:
-            if agent_name not in st.session_state:
-                st.session_state[agent_name] = AgentLLM(agent_name)
-            agent = st.session_state[agent_name]
-            if smart_instruct_toggle:
-                response = agent.smart_instruct(
-                    task=instruct_prompt, shots=3, async_exec=True
+    if "instruct_history" not in st.session_state:
+        st.session_state["instruct_history"] = {}
+
+    instruct_container = st.container()
+
+    def render_instruct_history(instruct_container, instruct_history):
+        instruct_container.empty()
+        with instruct_container:
+            for instruct in instruct_history:
+                if "sender" in instruct and "message" in instruct:
+                    if instruct["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    if agent_name:
+        instruct_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
+
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                instruct_history = agent_data.get("interactions", [])
+
+        st.session_state.instruct_history[agent_name] = instruct_history
+
+        render_instruct_history(
+            instruct_container, st.session_state.instruct_history[agent_name]
+        )
+
+        instruct_prompt = st.text_input("Enter your message", key="instruct_prompt")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and instruct_prompt:
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_instruct_toggle:
+                        response = agent.smart_instruct(
+                            instruct_prompt, shots=3, async_exec=True
+                        )
+                    else:
+                        response = agent.run(
+                            instruct_prompt, prompt="Instruct", context_results=6
+                        )
+                instruct_entry = [
+                    {"sender": "User", "message": instruct_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.instruct_history[agent_name].extend(instruct_entry)
+                render_instruct_history(
+                    instruct_container, st.session_state.instruct_history[agent_name]
                 )
             else:
-                response = agent.run(task=instruct_prompt, prompt="instruct")
-            st.markdown(f"**Response:** {response}")
-        else:
-            st.error("Agent name and instruction are required.")
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to give instructs.")
 
 elif main_selection == "Tasks":
     st.header("Manage Tasks")
