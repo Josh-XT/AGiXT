@@ -424,11 +424,14 @@ elif main_selection == "Tasks":
     st.header("Manage Tasks")
 
     agent_name = st.selectbox(
-        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+        "Select Agent",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
     task_objective = st.text_area("Enter the task objective")
 
     if agent_name:
+        CFG = Agent(agent_name)
         agent_status = "Not Running"
         if agent_name in agent_stop_events:
             agent_status = "Running"
