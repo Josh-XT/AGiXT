@@ -319,7 +319,8 @@ class AgentLLM:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             links = ddg(search_string, max_results=depth)
-            self.resursive_browsing(task, links)
+            if len(links) > 0:
+                self.resursive_browsing(task, links)
 
     async def resursive_browsing(self, task, links):
         links = links.split("\n")
