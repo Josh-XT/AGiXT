@@ -1,12 +1,7 @@
-FROM python:3.10-slim-buster
+ARG FROM_DIGEST
+ARG FROM_VARIANT=
+FROM localagi/agent-llm${FROM_VARIANT}@${FROM_DIGEST}
 
-WORKDIR /app
-COPY requirements.txt .
-
-RUN apt-get update && apt-get install -y git build-essential
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY --link . .
 
 ENV PATH="/usr/local/bin:$PATH"
 
