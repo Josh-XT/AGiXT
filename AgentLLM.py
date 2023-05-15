@@ -159,11 +159,11 @@ class AgentLLM:
                     command_output=command_output,
                     **kwargs,
                 )
-                if validate_command.startswith("N"):
+                if validate_command.startswith("Y"):
                     print(
                         f"Command {command_name} executed successfully with args {command_args}."
                     )
-                    response = f"\nExecuted Command:\n{command_name} with output {command_output}\n"
+                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
                     return response
                 else:
                     print(
