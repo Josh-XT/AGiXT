@@ -323,7 +323,10 @@ class AgentLLM:
                 self.resursive_browsing(task, links)
 
     async def resursive_browsing(self, task, links):
-        links = links.split("\n")
+        try:
+            links = links.split("\n")
+        except:
+            pass
         if links is not None:
             for link in links:
                 print(f"Scraping: {link['href']}")
