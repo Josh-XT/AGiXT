@@ -1,6 +1,6 @@
-ARG TAG=latest
+ARG DIGEST
 ARG VARIANT=
-FROM localagi/agent-llm${VARIANT}:${TAG}
+FROM localagi/agent-llm${VARIANT}@${DIGEST}
 
 
 WORKDIR /app

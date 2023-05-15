@@ -17,6 +17,10 @@ on:
         required: true
       DOCKER_PASSWORD:
         required: true
+    outputs:
+      digest:
+        description: "Digest of docker image"
+        value: ${{ jobs.build_publish_docker.outputs.digest }}
 
 jobs:
   build_publish_docker:
@@ -26,6 +30,8 @@ jobs:
       packages: write
       contents: read
       
+    outputs:
+      digest: ${{ steps.dockerBuild.outputs.digest }}
     steps:
 
       - name: Log in to Docker Hub
@@ -61,7 +67,7 @@ jobs:
         uses: docker/setup-buildx-action@v2
       
       - name: Build and push Docker images
-        id: build-and-push
+        id: dockerBuild
         uses: docker/build-push-action@v4
         with:
           file: ${{ inputs.dockerfile }}
@@ -70,5 +76,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max	
 
