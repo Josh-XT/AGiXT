@@ -5,7 +5,6 @@ Arguments:
 {command_args}
 
 We received the following output:
-
 {command_output}
 
 Did the command execute as expected?  Simply reply "Yes" or "No" to question, no further explanation is required.

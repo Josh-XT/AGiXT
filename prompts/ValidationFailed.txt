@@ -1,3 +1,6 @@
+Context:
+{context}
+
 Commands Available To Complete Task:
 {command_list}
 
