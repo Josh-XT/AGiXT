@@ -77,4 +77,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max	
+ 
+      # publish README on docker hub
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Docker Hub Description
+        uses: peter-evans/dockerhub-description@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ inputs.image-name }}
+          readme-filepath: ./docs/README.md
 
