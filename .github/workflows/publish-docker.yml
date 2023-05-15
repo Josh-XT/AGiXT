@@ -31,13 +31,13 @@ jobs:
       dockerfile: Dockerfile
     secrets: inherit
 
-  call-docker-build-local:
+  call-docker-build-localprovider:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
-      image-name: ${{ github.repository }}-local
-      dockerfile: Dockerfile.local
+      image-name: ${{ github.repository }}-localprovider
+      dockerfile: Dockerfile.localprovider
       build-args: |
-        DIGEST=${{needs.call-docker-build.outputs.digest}}
+        FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
     secrets: inherit
     needs: call-docker-build
    
@@ -46,15 +46,18 @@ jobs:
     with:
       image-name: ${{ github.repository }}-streamlit
       dockerfile: Dockerfile.streamlit
+      build-args: |
+        FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
     secrets: inherit
+    needs: call-docker-build
     
-  call-docker-build-streamlit-local:
+  call-docker-build-localprovider-streamlit:
     uses: ./.github/workflows/operation-docker-build-publish.yml
     with:
-      image-name: ${{ github.repository }}-streamlit-local
-      dockerfile: Dockerfile.local
+      image-name: ${{ github.repository }}-localprovider-streamlit
+      dockerfile: Dockerfile.streamlit
       build-args: |
-        VARIANT=-streamlit
-        DIGEST=${{needs.call-docker-build-streamlit.outputs.digest}}
+        FROM_VARIANT=-localprovider
+        FROM_DIGEST=${{needs.call-docker-build-localprovider.outputs.digest}}
     secrets: inherit
-    needs: call-docker-build-streamlit
+    needs: call-docker-build-localprovider
