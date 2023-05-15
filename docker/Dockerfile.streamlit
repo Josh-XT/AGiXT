@@ -1,0 +1,9 @@
+ARG FROM_DIGEST
+ARG FROM_VARIANT=
+FROM localagi/agent-llm${FROM_VARIANT}@${FROM_DIGEST}
+
+
+ENV PATH="/usr/local/bin:$PATH"
+
+EXPOSE 8501
+CMD streamlit run streamlit.py
