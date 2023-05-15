@@ -191,6 +191,7 @@ class AgentLLM:
         context_results: int = 3,
         websearch: bool = False,
         websearch_depth: int = 3,
+        async_exec: bool = False,
         **kwargs,
     ):
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
@@ -200,10 +201,14 @@ class AgentLLM:
             **kwargs,
         )
         if websearch:
-            run_asyncio_coroutine(
+            # This seems to only work in Streamlit app at the moment
+            # Need to make it work with FastAPI also.
+            if async_exec:
+                run_asyncio_coroutine(
+                    self.websearch_to_memory(task=task, depth=websearch_depth)
+                )
+            else:
                 self.websearch_to_memory(task=task, depth=websearch_depth)
-            )
-            # self.websearch_to_memory(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if in response
         if "{COMMANDS}" in unformatted_prompt:
@@ -220,6 +225,7 @@ class AgentLLM:
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
+        async_exec: bool = False,
     ):
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
@@ -231,6 +237,7 @@ class AgentLLM:
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
+                async_exec=async_exec,
             )
         )
         if shots > 1:
@@ -269,6 +276,7 @@ class AgentLLM:
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
+        async_exec: bool = False,
     ):
         answers = []
         answers.append(
@@ -279,6 +287,7 @@ class AgentLLM:
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
+                async_exec=async_exec,
             )
         )
         # Do multi shots of prompt to get N different answers to be validated

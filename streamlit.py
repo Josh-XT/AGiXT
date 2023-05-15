@@ -297,7 +297,9 @@ elif main_selection == "Chat":
                 with st.spinner("Thinking, please wait..."):
                     agent = AgentLLM(agent_name)
                     if smart_chat_toggle:
-                        response = agent.smart_chat(chat_prompt, shots=3)
+                        response = agent.smart_chat(
+                            chat_prompt, shots=3, async_exec=True
+                        )
                     else:
                         response = agent.run(
                             chat_prompt, prompt="Chat", context_results=6
@@ -330,7 +332,9 @@ elif main_selection == "Instructions":
                 st.session_state[agent_name] = AgentLLM(agent_name)
             agent = st.session_state[agent_name]
             if smart_instruct_toggle:
-                response = agent.smart_instruct(task=instruct_prompt, shots=3)
+                response = agent.smart_instruct(
+                    task=instruct_prompt, shots=3, async_exec=True
+                )
             else:
                 response = agent.run(task=instruct_prompt, prompt="instruct")
             st.markdown(f"**Response:** {response}")
