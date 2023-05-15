@@ -32,16 +32,6 @@ jobs:
       push: ${{ github.event_name == 'release' }}
     secrets: inherit
 
-  call-docker-build-localprovider:
-    uses: ./.github/workflows/operation-docker-build-publish.yml
-    with:
-      image-name: ${{ github.repository }}-localprovider
-      dockerfile: Dockerfile.localprovider
-      build-args: |
-        FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
-      push: ${{ github.event_name == 'release' }}
-    secrets: inherit
-    needs: call-docker-build
    
   call-docker-build-streamlit:
     uses: ./.github/workflows/operation-docker-build-publish.yml
@@ -53,15 +43,3 @@ jobs:
       push: ${{ github.event_name == 'release' }}
     secrets: inherit
     needs: call-docker-build
-    
-  call-docker-build-localprovider-streamlit:
-    uses: ./.github/workflows/operation-docker-build-publish.yml
-    with:
-      image-name: ${{ github.repository }}-localprovider-streamlit
-      dockerfile: Dockerfile.streamlit
-      build-args: |
-        FROM_VARIANT=-localprovider
-        FROM_DIGEST=${{needs.call-docker-build-localprovider.outputs.digest}}
-      push: ${{ github.event_name == 'release' }}
-    secrets: inherit
-    needs: call-docker-build-localprovider
