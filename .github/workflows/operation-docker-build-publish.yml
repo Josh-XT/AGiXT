@@ -57,14 +57,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} 
-          
+
+      - name: Set image names
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "image-names<<$EOF" >> "$GITHUB_ENV"
+          if ${{ inputs.registry-dockerhub }} ; then
+            echo "${{ inputs.image-name }}" >> "$GITHUB_ENV"
+          fi
+          if ${{ inputs.registry-github }} ; then
+            echo "ghcr.io/${{ inputs.image-name }}" >> "$GITHUB_ENV"
+          fi
+          echo "$EOF" >> "$GITHUB_ENV"
+      
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: |
-            ghcr.io/${{ inputs.image-name }}
-            ${{ inputs.image-name }}
+            ${{ env.image-names }}
           # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
