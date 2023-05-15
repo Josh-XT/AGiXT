@@ -1,5 +1,5 @@
 Commands Available To Complete Task:
-{COMMANDS}
+{command_list}
 
 Context:
 {context}

@@ -265,7 +265,18 @@ class AgentLLM:
         resolver = self.run(
             task=researcher, prompt="SmartInstruct-Resolver", shots=shots
         )
-        return resolver
+        execution_agent = self.run(
+            task=task,
+            prompt="SmartInstruct-Execution",
+            previous_response=resolver,
+        )
+        clean_response_agent = self.run(
+            task=task,
+            prompt="SmartInstruct-CleanResponse",
+            resolver_response=resolver,
+            execution_response=execution_agent,
+        )
+        return clean_response_agent
 
     def smart_chat(
         self,
@@ -306,7 +317,10 @@ class AgentLLM:
         resolver = self.run(
             task=researcher, prompt="SmartChat-Resolver", context_results=6, shots=shots
         )
-        return resolver
+        clean_response_agent = self.run(
+            task=task, prompt="SmartChat-CleanResponse", resolver_response=resolver
+        )
+        return clean_response_agent
 
     async def websearch_to_memory(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
