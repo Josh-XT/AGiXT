@@ -5,7 +5,6 @@ from collections import deque
 from typing import List, Dict
 from Config.Agent import Agent
 from datetime import datetime
-from commands.web_requests import web_requests
 from playwright.async_api import async_playwright
 from duckduckgo_search import ddg
 from Commands import Commands
@@ -30,7 +29,6 @@ class AgentLLM:
         self.task_list = deque([])
         self.commands = Commands(self.agent_name)
         self.available_commands = self.commands.get_available_commands()
-        self.web_requests = web_requests()
         self.agent_config = self.CFG.load_agent_config(self.agent_name)
         self.output_list = []
         self.memories = Memories(self.agent_name, self.CFG)
@@ -55,7 +53,7 @@ class AgentLLM:
         )
         return "\n".join(friendly_names)
 
-    def validation_agent(self, json_string: str):
+    def validate_json(self, json_string: str):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(json_string)
@@ -117,73 +115,6 @@ class AgentLLM:
         tokens = len(self.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
-    def execution_agent(self, execution_response, task, **kwargs):
-        valid_json = self.validation_agent(execution_response)
-        while not valid_json:
-            print("INVALID JSON RESPONSE")
-            print(execution_response)
-            print("... Trying again.")
-            if context_results != 0:
-                context_results = context_results - 1
-            else:
-                context_results = 0
-            formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                task=task,
-                top_results=context_results,
-                prompt=prompt,
-                **kwargs,
-            )
-            execution_response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-            valid_json = self.validation_agent(execution_response)
-        if valid_json:
-            execution_response = valid_json
-        for command_name, command_args in execution_response["commands"].items():
-            # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-            if command_name is not None:
-                for available_command in self.available_commands:
-                    if command_name in [
-                        available_command["friendly_name"],
-                        available_command["name"],
-                    ]:
-                        command_name = available_command["name"]
-                        break
-                command_output = self.commands.execute_command(
-                    command_name, command_args
-                )
-                print("Running Command Execution Validation...")
-                validate_command = self.run(
-                    task=task,
-                    prompt="Validation",
-                    command_name=command_name,
-                    command_args=command_args,
-                    command_output=command_output,
-                    **kwargs,
-                )
-                if validate_command.startswith("Y"):
-                    print(
-                        f"Command {command_name} executed successfully with args {command_args}."
-                    )
-                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                    return response
-                else:
-                    print(
-                        f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
-                    )
-                    revalidate = self.run(
-                        task=task,
-                        prompt="ValidationFailed",
-                        command_name=command_name,
-                        command_args=command_args,
-                        command_output=command_output,
-                        **kwargs,
-                    )
-                    return self.execution_agent(revalidate, task, **kwargs)
-            else:
-                if command_name == "None.":
-                    return "\nNo commands were executed.\n"
-                else:
-                    return f"\n\nCommand not recognized: {command_name}"
-
     def run(
         self,
         task: str,
@@ -203,10 +134,10 @@ class AgentLLM:
         if websearch:
             if async_exec:
                 run_asyncio_coroutine(
-                    self.websearch_to_memory(task=task, depth=websearch_depth)
+                    self.websearch_agent(task=task, depth=websearch_depth)
                 )
             else:
-                self.websearch_to_memory(task=task, depth=websearch_depth)
+                self.websearch_agent(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
@@ -317,7 +248,132 @@ class AgentLLM:
         )
         return clean_response_agent
 
-    async def websearch_to_memory(
+    def get_status(self):
+        try:
+            return not self.stop_running_event.is_set()
+        except:
+            return False
+
+    def update_output_list(self, output):
+        print(
+            self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
+        )
+
+    # Worker Agents
+    def execution_agent(self, execution_response, task, **kwargs):
+        valid_json = self.validate_json(execution_response)
+        while not valid_json:
+            print("INVALID JSON RESPONSE")
+            print(execution_response)
+            print("... Trying again.")
+            if context_results != 0:
+                context_results = context_results - 1
+            else:
+                context_results = 0
+            formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+                task=task,
+                top_results=context_results,
+                prompt=prompt,
+                **kwargs,
+            )
+            execution_response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+            valid_json = self.validate_json(execution_response)
+        if valid_json:
+            execution_response = valid_json
+        for command_name, command_args in execution_response["commands"].items():
+            # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+            if command_name is not None:
+                for available_command in self.available_commands:
+                    if command_name in [
+                        available_command["friendly_name"],
+                        available_command["name"],
+                    ]:
+                        command_name = available_command["name"]
+                        break
+                command_output = self.commands.execute_command(
+                    command_name, command_args
+                )
+                print("Running Command Execution Validation...")
+                validate_command = self.run(
+                    task=task,
+                    prompt="Validation",
+                    command_name=command_name,
+                    command_args=command_args,
+                    command_output=command_output,
+                    **kwargs,
+                )
+                if validate_command.startswith("Y"):
+                    print(
+                        f"Command {command_name} executed successfully with args {command_args}."
+                    )
+                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                    return response
+                else:
+                    print(
+                        f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+                    )
+                    revalidate = self.run(
+                        task=task,
+                        prompt="ValidationFailed",
+                        command_name=command_name,
+                        command_args=command_args,
+                        command_output=command_output,
+                        **kwargs,
+                    )
+                    return self.execution_agent(revalidate, task, **kwargs)
+            else:
+                if command_name == "None.":
+                    return "\nNo commands were executed.\n"
+                else:
+                    return f"\n\nCommand not recognized: {command_name}"
+
+    def task_creation_agent(
+        self, result: Dict, task_description: str, task_list: List[str]
+    ) -> List[Dict]:
+        response = self.run(
+            task=self.primary_objective,
+            prompt="task",
+            result=result,
+            task_description=task_description,
+            tasks=", ".join(task_list),
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        return [{"task_name": task_name} for task_name in new_tasks]
+
+    def prioritization_agent(self):
+        task_names = [t["task_name"] for t in self.task_list]
+        if not task_names:
+            return
+        next_task_id = len(self.task_list) + 1
+
+        response = self.run(
+            task=self.primary_objective,
+            prompt="priority",
+            task_names=", ".join(task_names),
+            next_task_id=next_task_id,
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        self.task_list = deque()
+        for task_string in new_tasks:
+            task_parts = task_string.strip().split(".", 1)
+            if len(task_parts) == 2:
+                task_id = task_parts[0].strip()
+                task_name = task_parts[1].strip()
+                self.task_list.append({"task_id": task_id, "task_name": task_name})
+
+    async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
         results = self.run(task=task, prompt="WebSearch")
@@ -368,63 +424,6 @@ class AgentLLM:
                 return content, link_list
         except:
             return None, None
-
-    def get_status(self):
-        try:
-            return not self.stop_running_event.is_set()
-        except:
-            return False
-
-    def update_output_list(self, output):
-        print(
-            self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
-        )
-
-    def task_creation_agent(
-        self, result: Dict, task_description: str, task_list: List[str]
-    ) -> List[Dict]:
-        response = self.run(
-            task=self.primary_objective,
-            prompt="task",
-            result=result,
-            task_description=task_description,
-            tasks=", ".join(task_list),
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        return [{"task_name": task_name} for task_name in new_tasks]
-
-    def prioritization_agent(self):
-        task_names = [t["task_name"] for t in self.task_list]
-        if not task_names:
-            return
-        next_task_id = len(self.task_list) + 1
-
-        response = self.run(
-            task=self.primary_objective,
-            prompt="priority",
-            task_names=", ".join(task_names),
-            next_task_id=next_task_id,
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        self.task_list = deque()
-        for task_string in new_tasks:
-            task_parts = task_string.strip().split(".", 1)
-            if len(task_parts) == 2:
-                task_id = task_parts[0].strip()
-                task_name = task_parts[1].strip()
-                self.task_list.append({"task_id": task_id, "task_name": task_name})
 
     def run_task(self, stop_event, objective):
         self.primary_objective = objective
