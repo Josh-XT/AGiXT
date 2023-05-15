@@ -5,13 +5,21 @@ on:
   workflow_call:
     inputs:
       image-name:
-        required: true
         type: string
+        required: true
+      tags:
+        type: string
+        default: |
+          type=schedule
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=sha
       build-args:
         type: string
       dockerfile:
-        default: Dockerfile
         type: string
+        default: Dockerfile
       push:
         type: boolean
         default: true
@@ -77,12 +85,7 @@ jobs:
           images: |
             ${{ env.image-names }}
           # generate Docker tags based on the following events/attributes
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=sha
+          tags: ${{ inputs.tags }}
       
       # Needed for cache layers on github registry
       - name: Set up Docker Buildx
