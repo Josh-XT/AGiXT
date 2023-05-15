@@ -117,7 +117,7 @@ class AgentLLM:
         tokens = len(self.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
-    def run_commands(self, execution_response, task, **kwargs):
+    def execution_agent(self, execution_response, task, **kwargs):
         valid_json = self.validation_agent(execution_response)
         while not valid_json:
             print("INVALID JSON RESPONSE")
@@ -177,7 +177,7 @@ class AgentLLM:
                         command_output=command_output,
                         **kwargs,
                     )
-                    return self.run_commands(revalidate, task, **kwargs)
+                    return self.execution_agent(revalidate, task, **kwargs)
             else:
                 if command_name == "None.":
                     return "\nNo commands were executed.\n"
@@ -201,8 +201,6 @@ class AgentLLM:
             **kwargs,
         )
         if websearch:
-            # This seems to only work in Streamlit app at the moment
-            # Need to make it work with FastAPI also.
             if async_exec:
                 run_asyncio_coroutine(
                     self.websearch_to_memory(task=task, depth=websearch_depth)
@@ -210,9 +208,10 @@ class AgentLLM:
             else:
                 self.websearch_to_memory(task=task, depth=websearch_depth)
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-        # Handle commands if in response
+        # Handle commands if the prompt contains the {COMMANDS} placeholder
+        # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            self.response = self.run_commands(
+            self.response = self.execution_agent(
                 execution_response=self.response, task=task, **kwargs
             )
         print(f"Response: {self.response}")
@@ -259,7 +258,7 @@ class AgentLLM:
         resolver = self.run(
             task=researcher, prompt="SmartInstruct-Resolver", shots=shots
         )
-        execution_agent = self.run(
+        execution_response = self.run(
             task=task,
             prompt="SmartInstruct-Execution",
             previous_response=resolver,
@@ -268,7 +267,7 @@ class AgentLLM:
             task=task,
             prompt="SmartInstruct-CleanResponse",
             resolver_response=resolver,
-            execution_response=execution_agent,
+            execution_response=execution_response,
         )
         return clean_response_agent
 
