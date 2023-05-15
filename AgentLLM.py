@@ -193,18 +193,8 @@ class AgentLLM:
                             )
             self.response = "".join(response_parts)
             print(f"Pre-Validation Response: {self.response}")
-        self.memories.store_result(task, self.response)
-        # Second shot to validate response
-        context_results = 3
-        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-            task=task,
-            top_results=context_results,
-            prompt="validate",
-            previous_response=self.response,
-            **kwargs,
-        )
-        response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-        if "{COMMANDS}" in unformatted_prompt:
+            self.memories.store_result(task, self.response)
+            response = self.CFG.instruct(formatted_prompt, tokens=tokens)
             valid_json = self.validation_agent(response)
             while not valid_json:
                 print("INVALID JSON RESPONSE")
