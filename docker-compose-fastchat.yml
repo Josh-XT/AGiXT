@@ -14,7 +14,7 @@ services:
 
   fastchat:
     build:
-      dockerfile: Dockerfile-fastchat
+      dockerfile: docker/Dockerfile.service.fastchat
     environment:
       FASTCHAT_DEVICE: "cpu"
       MODEL_NAME: "vicuna-7b-1.1"
@@ -41,7 +41,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     init: true
     env_file:
       - .env
