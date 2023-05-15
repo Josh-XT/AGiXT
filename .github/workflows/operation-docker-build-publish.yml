@@ -9,6 +9,7 @@ on:
       dockerfile:
         required: true
         type: string
+
 jobs:
   build_publish_docker:
     runs-on: ubuntu-latest
