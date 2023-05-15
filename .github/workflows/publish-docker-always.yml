@@ -42,6 +42,7 @@ jobs:
       image-name: ${{ github.repository }}-nvidia-streamlit
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
+        FROM_VARIANT=nvidia
         FROM_DIGEST=${{needs.call-docker-build-nvidia.outputs.digest}}
       registry-readme: ./docs/README.md
     secrets: inherit
