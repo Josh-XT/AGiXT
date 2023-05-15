@@ -1,6 +1,6 @@
 ARG FROM_DIGEST
 ARG FROM_VARIANT=
-FROM localagi/agent-llm${FROM_VARIANT}@${FROM_DIGEST}
+FROM josh-xt/agent-llm${FROM_VARIANT}@${FROM_DIGEST}
 
 
 ENV PATH="/usr/local/bin:$PATH"
