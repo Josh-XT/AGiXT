@@ -1,4 +1,8 @@
+# big dependencies
+--extra-index-url https://download.pytorch.org/whl/cpu torch
 chromadb
+
+
 argparse
 beautifulsoup4
 captcha-solver
