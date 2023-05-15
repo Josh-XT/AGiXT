@@ -1,3 +1,4 @@
+chromadb
 argparse
 beautifulsoup4
 captcha-solver
