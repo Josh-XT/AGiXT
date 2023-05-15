@@ -9,7 +9,6 @@ You have the following commands available to complete this task given:
 RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
 
 {
-    "plan": "Your plan for achieving the task",
     "response": "Your response to the task",
     "commands": {
         "command_name": {
