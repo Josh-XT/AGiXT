@@ -117,6 +117,7 @@ class Agent(Config):
                 "AI_MODEL": "openassistant",
                 "AI_TEMPERATURE": 0.4,
                 "MAX_TOKENS": 2000,
+                "embedder": "default",
             }
         settings = json.dumps(
             {
@@ -155,6 +156,7 @@ class Agent(Config):
                         "AI_MODEL": "openassistant",
                         "AI_TEMPERATURE": 0.4,
                         "MAX_TOKENS": 2000,
+                        "embedder": "default",
                     }
                     # Save the updated agent_config to the file
                     with open(
@@ -178,6 +180,7 @@ class Agent(Config):
                                 "AI_MODEL": "openassistant",
                                 "AI_TEMPERATURE": 0.4,
                                 "MAX_TOKENS": 2000,
+                                "embedder": "default",
                             },
                         }
                     )
