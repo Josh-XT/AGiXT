@@ -42,11 +42,3 @@ jobs:
         FROM_DIGEST=${{needs.call-docker-build-nvidia.outputs.digest}}
     secrets: inherit
     needs: call-docker-build-nvidia
-    
-  # Package 3rd party services
-  call-docker-build-fastchat:
-    uses: ./.github/workflows/operation-docker-build-publish.yml
-    with:
-      image-name: ${{ github.repository_owner }}/fastchat
-      dockerfile: docker/Dockerfile.service.fastchat
-    secrets: inherit
