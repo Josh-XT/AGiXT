@@ -4,5 +4,5 @@ FROM localagi/agent-llm${FROM_VARIANT}@${FROM_DIGEST}
 
 
 WORKDIR /app
-COPY requirements-local.txt .
+COPY requirements-localprovider.txt .
 RUN pip install --no-cache-dir -r requirements-localprovider.txt
