@@ -4,4 +4,5 @@ FROM localagi/agent-llm${VARIANT}:${TAG}
 
 
 WORKDIR /app
+COPY requirements-local.txt .
 RUN pip install --no-cache-dir -r requirements-local.txt
