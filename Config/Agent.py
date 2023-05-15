@@ -113,10 +113,10 @@ class Agent(Config):
             or provider_settings == {}
         ):
             provider_settings = {
-                "provider": "huggingchat",
-                "AI_MODEL": "openassistant",
-                "AI_TEMPERATURE": 0.4,
-                "MAX_TOKENS": 2000,
+                "provider": "gpt4free",
+                "AI_MODEL": "gpt-4",
+                "AI_TEMPERATURE": "0.7",
+                "MAX_TOKENS": "4000",
                 "embedder": "default",
             }
         settings = json.dumps(
@@ -152,10 +152,10 @@ class Agent(Config):
                         for command_name, _, _ in self.load_commands(agent_name)
                     }
                     agent_config_data["settings"] = {
-                        "provider": "huggingchat",
-                        "AI_MODEL": "openassistant",
-                        "AI_TEMPERATURE": 0.4,
-                        "MAX_TOKENS": 2000,
+                        "provider": "gpt4free",
+                        "AI_MODEL": "gpt-4",
+                        "AI_TEMPERATURE": "0.7",
+                        "MAX_TOKENS": "4000",
                         "embedder": "default",
                     }
                     # Save the updated agent_config to the file
@@ -176,10 +176,10 @@ class Agent(Config):
                                 for command_name, _, _ in self.load_commands()
                             },
                             "settings": {
-                                "provider": "huggingchat",
-                                "AI_MODEL": "openassistant",
-                                "AI_TEMPERATURE": 0.4,
-                                "MAX_TOKENS": 2000,
+                                "provider": "gpt4free",
+                                "AI_MODEL": "gpt-4",
+                                "AI_TEMPERATURE": "0.7",
+                                "MAX_TOKENS": "4000",
                                 "embedder": "default",
                             },
                         }
