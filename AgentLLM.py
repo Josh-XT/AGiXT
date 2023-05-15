@@ -259,10 +259,18 @@ class AgentLLM:
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
 
-    # Worker Agents
-    def execution_agent(self, execution_response, task, **kwargs):
-        valid_json = self.validate_json(execution_response)
-        while not valid_json:
+    # Worker Sub-Agents
+    def validation_agent(self, task, execution_response, **kwargs):
+        try:
+            pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
+            cleaned_json = pattern.findall(execution_response)
+            if len(cleaned_json) == 0:
+                return False
+            if isinstance(cleaned_json, list):
+                cleaned_json = cleaned_json[0]
+            response = json.loads(cleaned_json)
+            return response
+        except:
             print("INVALID JSON RESPONSE")
             print(execution_response)
             print("... Trying again.")
@@ -270,17 +278,14 @@ class AgentLLM:
                 context_results = context_results - 1
             else:
                 context_results = 0
-            formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
-                task=task,
-                top_results=context_results,
-                prompt=prompt,
-                **kwargs,
+            execution_response = self.run(
+                task=task, context_results=context_results, **kwargs
             )
-            execution_response = self.CFG.instruct(formatted_prompt, tokens=tokens)
-            valid_json = self.validate_json(execution_response)
-        if valid_json:
-            execution_response = valid_json
-        for command_name, command_args in execution_response["commands"].items():
+            return self.validation_agent(execution_response)
+
+    def execution_agent(self, execution_response, task, **kwargs):
+        validated_response = self.validation_agent(execution_response)
+        for command_name, command_args in validated_response["commands"].items():
             # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
             if command_name is not None:
                 for available_command in self.available_commands:
