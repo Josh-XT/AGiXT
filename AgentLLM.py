@@ -330,16 +330,26 @@ class AgentLLM:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             links = ddg(search_string, max_results=depth)
-            if links is not None:
-                for link in links:
-                    print(f"Scraping: {link['href']}")
-                    collected_data = await self.scrape_text_with_playwright(
-                        link["href"]
-                    )
-                    if collected_data is not None:
-                        self.memories.store_result(task, collected_data)
+            self.resursive_browsing(task, links)
 
-    async def scrape_text_with_playwright(self, url):
+    async def resursive_browsing(self, task, links):
+        links = links.split("\n")
+        if links is not None:
+            for link in links:
+                print(f"Scraping: {link['href']}")
+                collected_data, link_list = await self.scrape_text_with_playwright(
+                    link["href"]
+                )
+                if collected_data is not None:
+                    self.memories.store_result(task, collected_data)
+                if len(link_list) > 0:
+                    pick_a_link = self.run(
+                        task=task, prompt="Pick-a-Link", links=link_list
+                    )
+                    if not pick_a_link.startswith("None"):
+                        self.resursive_browsing(task, pick_a_link)
+
+    async def scrape_text_and_links_with_playwright(self, url):
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -347,10 +357,20 @@ class AgentLLM:
                 page = await context.new_page()
                 await page.goto(url)
                 content = await page.content()
+
+                # Scrape links and their titles
+                links = await page.query_selector_all("a")
+                link_list = []
+                for link in links:
+                    title = await page.evaluate("(link) => link.textContent", link)
+                    href = await page.evaluate("(link) => link.href", link)
+                    link_list.append((title, href))
+
                 await browser.close()
-                return content
+
+                return content, link_list
         except:
-            return None
+            return None, None
 
     def get_status(self):
         try:
