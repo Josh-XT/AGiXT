@@ -35,7 +35,9 @@ llama-cpp-python==0.1.48
 spacy
 discord
 git+https://github.com/xtekky/gpt4free
+
 -r https://raw.githubusercontent.com/xtekky/gpt4free/main/requirements.txt
+
 accelerate
 torch
 EdgeGPT
