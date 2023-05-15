@@ -9,6 +9,7 @@ from Chain import Chain
 from CustomPrompt import CustomPrompt
 from provider import get_provider_options
 from Commands import Commands
+from Embedding import get_embedding_providers
 
 CFG = Config()
 
@@ -131,12 +132,30 @@ if main_selection == "Agent Settings":
                 if provider_name in CFG.get_providers()
                 else 0,
             )
+
+            agent_settings[
+                "provider"
+            ] = provider_name  # Update the agent_settings with the selected provider
+
+            embedder_name = agent_settings.get("embedder", "")
+            embedders = get_embedding_providers()
+            embedder_name = st.selectbox(
+                "Select Embedder",
+                embedders,
+                index=embedders.index(embedder_name)
+                if embedder_name in embedders
+                else 0,
+            )
+
+            agent_settings[
+                "embedder"
+            ] = embedder_name  # Update the agent_settings with the selected embedder
+
             if provider_name:
                 provider_settings = render_provider_settings(
                     agent_settings, provider_name
                 )
                 agent_settings.update(provider_settings)
-
             st.subheader("Custom Settings")
             custom_settings = agent_settings.get("custom_settings", [])
 
@@ -213,11 +232,11 @@ if main_selection == "Agent Settings":
                     key=command_friendly_name,
                 )
                 command["enabled"] = toggle_status
-
+            reduced_commands = {
+                cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
+            }
             # Update the available commands back to the agent config
-            Agent(agent_name).update_agent_config(
-                {"commands": available_commands}, "commands"
-            )
+            Agent(agent_name).update_agent_config(reduced_commands, "commands")
 
         except Exception as e:
             st.error(f"Error loading agent configuration: {str(e)}")
@@ -226,6 +245,14 @@ if main_selection == "Agent Settings":
         if st.button("Update Agent Settings"):
             if agent_name:
                 try:
+                    # Update the available commands back to the agent config
+                    # Save commands in the desired format
+                    reduced_commands = {
+                        cmd["friendly_name"]: cmd["enabled"]
+                        for cmd in available_commands
+                    }
+                    Agent(agent_name).update_agent_config(reduced_commands, "commands")
+                    # Update other settings
                     Agent(agent_name).update_agent_config(agent_settings, "settings")
                     st.success(f"Agent '{agent_name}' updated.")
                 except Exception as e:
@@ -243,6 +270,7 @@ if main_selection == "Agent Settings":
                     st.error(f"Error deleting agent: {str(e)}")
             else:
                 st.error("Agent name is required.")
+
 
 elif main_selection == "Chat":
     st.header("Chat with Agent")
@@ -297,7 +325,9 @@ elif main_selection == "Chat":
                 with st.spinner("Thinking, please wait..."):
                     agent = AgentLLM(agent_name)
                     if smart_chat_toggle:
-                        response = agent.smart_chat(chat_prompt, shots=3)
+                        response = agent.smart_chat(
+                            chat_prompt, shots=3, async_exec=True
+                        )
                     else:
                         response = agent.run(
                             chat_prompt, prompt="Chat", context_results=6
@@ -330,7 +360,9 @@ elif main_selection == "Instructions":
                 st.session_state[agent_name] = AgentLLM(agent_name)
             agent = st.session_state[agent_name]
             if smart_instruct_toggle:
-                response = agent.smart_instruct(task=instruct_prompt, shots=3)
+                response = agent.smart_instruct(
+                    task=instruct_prompt, shots=3, async_exec=True
+                )
             else:
                 response = agent.run(task=instruct_prompt, prompt="instruct")
             st.markdown(f"**Response:** {response}")

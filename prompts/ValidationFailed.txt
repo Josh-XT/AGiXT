@@ -1,0 +1,35 @@
+Context:
+{context}
+
+Commands Available To Complete Task:
+{command_list}
+
+Task:
+{task}
+
+We attempted to run the following command with the Arguments:
+{command_name}
+
+Arguments:
+{command_args}
+
+We received the following output:
+{command_output}
+
+The validation for running the command has failed.  The goal of this validation is to assist in completing the task.  Review the command output and correct the issue. Respond with the corrected command to usage to get the proper intended output.
+
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
+
+{
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}

@@ -263,7 +263,6 @@ class Agent(Config):
             # Save the updated configuration back to the file
             with open(agent_config_file, "w") as f:
                 json.dump(current_config, f)
-
             return f"Agent {agent_name} configuration updated."
         else:
             return f"Agent {agent_name} configuration not found."
