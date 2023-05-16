@@ -13,6 +13,9 @@ from json.decoder import JSONDecodeError
 from CustomPrompt import CustomPrompt
 from Memories import Memories
 import asyncio
+import pandas as pd
+import docx2txt
+import pdfplumber
 
 
 def run_asyncio_coroutine(coro):
@@ -123,8 +126,13 @@ class AgentLLM:
         websearch: bool = False,
         websearch_depth: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
+        if learn_file != "":
+            learning_file = self.read_file_to_memory(task=task, file_path=learn_file)
+            if learning_file == False:
+                return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
@@ -170,6 +178,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
         answers = []
@@ -183,6 +192,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                learn_file=learn_file,
                 **kwargs,
             )
         )
@@ -232,6 +242,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
         answers = []
@@ -244,6 +255,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                learn_file=learn_file,
                 **kwargs,
             )
         )
@@ -294,6 +306,27 @@ class AgentLLM:
         print(
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
+
+    def read_file_to_memory(self, task: str, file_path: str):
+        try:
+            # If file extension is pdf, convert to text
+            if file_path.endswith(".pdf"):
+                with pdfplumber.open(file_path) as pdf:
+                    content = "\n".join([page.extract_text() for page in pdf.pages])
+            # If file extension is xls, convert to csv
+            elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
+                content = pd.read_excel(file_path).to_csv()
+            # If file extension is doc, convert to text
+            elif file_path.endswith(".doc") or file_path.endswith(".docx"):
+                content = docx2txt.process(file_path)
+            # Otherwise just read the file
+            else:
+                with open(file_path, "r") as f:
+                    content = f.read()
+            self.memories.store_result(task_name=task, result=content)
+            return True
+        except:
+            return False
 
     # Worker Sub-Agents
     def validation_agent(self, task, execution_response, **kwargs):
@@ -489,8 +522,28 @@ class AgentLLM:
         except:
             return None, None
 
-    def run_task(self, stop_event, objective, async_exec: bool = False):
+    def run_task(
+        self,
+        stop_event,
+        objective,
+        async_exec: bool = False,
+        learn_file: str = "",
+        **kwargs,
+    ):
         self.primary_objective = objective
+        if learn_file != "":
+            learned_file = self.read_file_to_memory(
+                task=objective, file_path=learn_file
+            )
+            if learned_file == True:
+                self.update_output_list(
+                    f"Read file {learn_file} into memory for task {objective}.\n\n"
+                )
+            else:
+                self.update_output_list(
+                    f"Failed to read file {learn_file} into memory.\n\n"
+                )
+
         self.update_output_list(
             f"Starting task with objective: {self.primary_objective}.\n\n"
         )
@@ -513,7 +566,10 @@ class AgentLLM:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
             result = self.smart_instruct(
-                task=task["task_name"], shots=3, async_exec=async_exec
+                task=task["task_name"],
+                shots=3,
+                async_exec=async_exec,
+                **kwargs,
             )
             # result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
