@@ -283,6 +283,15 @@ elif main_selection == "Chat":
 
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
+    learn_file_upload = st.file_uploader("Upload a file to learn from")
+    learn_file_path = ""
+    if learn_file_upload is not None:
+        if not os.path.exists(os.path.join("data", "uploaded_files")):
+            os.makedirs(os.path.join("data", "uploaded_files"))
+        learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
+        with open(learn_file_path, "wb") as f:
+            f.write(learn_file_upload.getbuffer())
+
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = {}
 
@@ -326,11 +335,17 @@ elif main_selection == "Chat":
                     agent = AgentLLM(agent_name)
                     if smart_chat_toggle:
                         response = agent.smart_chat(
-                            chat_prompt, shots=3, async_exec=True
+                            chat_prompt,
+                            shots=3,
+                            async_exec=True,
+                            learn_file=learn_file_path,
                         )
                     else:
                         response = agent.run(
-                            chat_prompt, prompt="Chat", context_results=6
+                            chat_prompt,
+                            prompt="Chat",
+                            context_results=6,
+                            learn_file=learn_file_path,
                         )
                 chat_entry = [
                     {"sender": "User", "message": chat_prompt},

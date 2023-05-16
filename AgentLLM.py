@@ -126,8 +126,13 @@ class AgentLLM:
         websearch: bool = False,
         websearch_depth: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
+        if learn_file != "":
+            learning_file = self.read_file_to_memory(task=task, file_path=learn_file)
+            if learning_file == False:
+                return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
@@ -299,21 +304,25 @@ class AgentLLM:
         )
 
     def read_file_to_memory(self, task: str, file_path: str):
-        # If file extension is pdf, convert to text
-        if file_path.endswith(".pdf"):
-            with pdfplumber.open(file_path) as pdf:
-                content = "\n".join([page.extract_text() for page in pdf.pages])
-        # If file extension is xls, convert to csv
-        elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
-            content = pd.read_excel(file_path).to_csv()
-        # If file extension is doc, convert to text
-        elif file_path.endswith(".doc") or file_path.endswith(".docx"):
-            content = docx2txt.process(file_path)
-        # Otherwise just read the file
-        else:
-            with open(file_path, "r") as f:
-                content = f.read()
-        self.memories.store_result(task_name=task, result=content)
+        try:
+            # If file extension is pdf, convert to text
+            if file_path.endswith(".pdf"):
+                with pdfplumber.open(file_path) as pdf:
+                    content = "\n".join([page.extract_text() for page in pdf.pages])
+            # If file extension is xls, convert to csv
+            elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
+                content = pd.read_excel(file_path).to_csv()
+            # If file extension is doc, convert to text
+            elif file_path.endswith(".doc") or file_path.endswith(".docx"):
+                content = docx2txt.process(file_path)
+            # Otherwise just read the file
+            else:
+                with open(file_path, "r") as f:
+                    content = f.read()
+            self.memories.store_result(task_name=task, result=content)
+            return True
+        except:
+            return False
 
     # Worker Sub-Agents
     def validation_agent(self, task, execution_response, **kwargs):
