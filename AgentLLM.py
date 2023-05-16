@@ -633,7 +633,7 @@ if __name__ == "__main__":
     parser.add_argument("--option", type=str, default="")
     parser.add_argument("--shots", type=int, default=3)
     args = parser.parse_args()
-    prompt = args.prompt
+    prompt = args.task
     agent_name = args.agent_name
     option = args.option
     # Options are instruct, smartinstruct, smartchat, and chat.
