@@ -1,0 +1,2 @@
+# Commands
+Commands are functions that can be executed by the agent. They are defined in the `commands` section of the agent configuration file. The agent will execute the commands in the order they are defined in the configuration file. The agent will wait for the command to complete before executing the next command. If a command fails, the agent will take the failure message and then ask the Agent what to do about the message to fix it, then attempts to execute again until the Agent works out the issues they're having with executing commands.
