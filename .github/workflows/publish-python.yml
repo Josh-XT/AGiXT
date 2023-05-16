@@ -37,20 +37,3 @@ jobs:
       with:
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
-
-  deploy-docs:
-  
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/setup-node@v1
-      with:
-        node-version: v18.x
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 1
-    - name: install honkit
-      run: npm install -g honkit gitbook-plugin-github-issue-feedback gitbook-plugin-page-toc-button gitbook-plugin-summary
-    - name: build doc
-      run: honkit build
-      #TODO publish in a way whatever you want

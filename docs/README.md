@@ -3,7 +3,7 @@
 ![RELEASE](https://img.shields.io/github/v/release/Josh-XT/Agent-LLM?label=Release%20Version&style=plastic) 
 [![STATUS](https://img.shields.io/badge/status-beta-blue?label=Release%20Status&style=plastic)](https://github.com/josh-xt/Agent-LLM) 
 [![LICENSE: MIT](https://img.shields.io/github/license/Josh-XT/Agent-LLM?label=License&style=plastic)](https://github.com/Josh-XT/Agent-LLM/blob/main/LICENSE) 
-![DOCKER](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/docker-image.yml?branch=main&label=Docker&style=plastic) [![CODESTYLE](https://img.shields.io/badge/code%20style-Black-black?branch=main&label=Code%20Style&style=plastic)](https://black.readthedocs.io/en/stable/the_black_code_style/index.html)
+![DOCKER](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/publish-docker.yml?branch=main&label=Docker&style=plastic) [![CODESTYLE](https://img.shields.io/badge/code%20style-Black-black?branch=main&label=Code%20Style&style=plastic)](https://black.readthedocs.io/en/stable/the_black_code_style/index.html)
 
 [![GitHub](https://img.shields.io/badge/GitHub-Frontend_Repository-grey?logo=github&style=plastic)](https://github.com/JamesonRGrieve/Agent-LLM-Frontend)
 
@@ -27,7 +27,7 @@ Agent-LLM is an Artificial Intelligence Automation Platform designed to power ef
 ## ⚠️ Run this in Docker or a Virtual Machine!
 You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
 
-See also [SECURITY.md](SECURITY.MD)
+See also [SECURITY.md](1-Getting started/SECURITY.MD)
 
 ## ⚠️ Monitor Your Usage!
 Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
@@ -79,8 +79,14 @@ If you have issues with Windows, please ask in Discord, but please do not tag th
   - [Web Application Features](#web-application-features)
   - [Quick Start with Docker](#quick-start-with-docker)
     - [Linux or Windows](#linux-or-windows)
-    - [Linux Arm64](#linux-arm64)
+    - [Streamlit version](#streamlit-version)
     - [MacOS](#macos)
+    - [Streamlit version for Mac OS](#streamlit-version-for-mac-os)
+  - [Remote-only, NON-persistent Setup](#remote-only-non-persistent-setup)
+    - [AKA *quick and dirty*](#aka-quick-and-dirty)
+      - [Console](#console)
+      - [Windows Docker Desktop](#windows-docker-desktop)
+      - [Enjoy](#enjoy)
   - [Alternative: Quick Start for Local or Virtual Machine](#alternative-quick-start-for-local-or-virtual-machine)
     - [Back End](#back-end)
     - [Front End](#front-end)

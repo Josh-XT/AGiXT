@@ -125,6 +125,10 @@ class AgentLLM:
         async_exec: bool = False,
         **kwargs,
     ):
+        if prompt in ["Instruction", "instruct"]:
+            is_instruction = self.instruction_confirmation_agent(task=task)
+            if is_instruction == False:
+                return "The task given is not an instruction. Please review the documentation to get an understanding of the difference between a conversation and an instruction."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
             task=task,
             top_results=context_results,
@@ -172,6 +176,9 @@ class AgentLLM:
         async_exec: bool = False,
         **kwargs,
     ):
+        is_instruction = self.instruction_confirmation_agent(task=task)
+        if is_instruction == False:
+            return "The task given is not an instruction. Please review the documentation to get an understanding of the difference between a conversation and an instruction."
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
         answers.append(
@@ -296,6 +303,19 @@ class AgentLLM:
         )
 
     # Worker Sub-Agents
+    def instruction_confirmation_agent(self, task, **kwargs):
+        # Check if the task given is actually an instruction.
+        response = self.run(
+            task=task,
+            prompt="Check-Instruction",
+            context_results=0,
+            **kwargs,
+        )
+        if response.startswith("Y"):
+            return True
+        else:
+            return False
+
     def validation_agent(self, task, execution_response, **kwargs):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
@@ -445,8 +465,12 @@ class AgentLLM:
             links = links
         if links is not None:
             for link in links:
-                print(f"Scraping: {link['href']}")
-                collected_data, link_list = await self.browse_website(link["href"])
+                if "href" in link:
+                    url = link["href"]
+                else:
+                    url = link
+                print(f"Scraping: {url}")
+                collected_data, link_list = await self.browse_website(url)
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
                 if link_list is not None:
@@ -460,7 +484,7 @@ class AgentLLM:
                             if not pick_a_link.startswith("None"):
                                 await self.resursive_browsing(task, pick_a_link)
                         except:
-                            print(f"Issues reading {link}. Moving on...")
+                            print(f"Issues reading {url}. Moving on...")
 
     async def browse_website(self, url):
         try:
