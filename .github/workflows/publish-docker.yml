@@ -17,11 +17,14 @@ permissions:
   contents: read
   
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   pull_request:
     branches: ["main"]
-
+  release:
+    types: [published]
+  workflow_dispatch:
+  
 jobs:
 
   call-docker-build:
