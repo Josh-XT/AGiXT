@@ -13,6 +13,9 @@ from json.decoder import JSONDecodeError
 from CustomPrompt import CustomPrompt
 from Memories import Memories
 import asyncio
+import pandas as pd
+import docx2txt
+import pdfplumber
 
 
 def run_asyncio_coroutine(coro):
@@ -294,6 +297,23 @@ class AgentLLM:
         print(
             self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
         )
+
+    def read_file_to_memory(self, task: str, file_path: str):
+        # If file extension is pdf, convert to text
+        if file_path.endswith(".pdf"):
+            with pdfplumber.open(file_path) as pdf:
+                content = "\n".join([page.extract_text() for page in pdf.pages])
+        # If file extension is xls, convert to csv
+        elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
+            content = pd.read_excel(file_path).to_csv()
+        # If file extension is doc, convert to text
+        elif file_path.endswith(".doc") or file_path.endswith(".docx"):
+            content = docx2txt.process(file_path)
+        # Otherwise just read the file
+        else:
+            with open(file_path, "r") as f:
+                content = f.read()
+        self.memories.store_result(task_name=task, result=content)
 
     # Worker Sub-Agents
     def validation_agent(self, task, execution_response, **kwargs):
