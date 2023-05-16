@@ -1,7 +1,4 @@
-# GPT4FREE
-
-## AI Provider: GPT4Free
-
+# GPT4Free
 - [GPT4Free](https://github.com/xtekky/gpt4free)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

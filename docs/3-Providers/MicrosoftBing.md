@@ -1,7 +1,4 @@
-# BING
-
-## AI Provider: Bing
-
+# Microsoft Bing
 - [Bing](https://bing.com)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

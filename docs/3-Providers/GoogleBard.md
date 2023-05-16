@@ -1,7 +1,4 @@
-# BARD
-
-## AI Provider: Google Bard
-
+# Google Bard
 - [Google Bard](https://bard.google.com)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

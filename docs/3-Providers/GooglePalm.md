@@ -1,7 +1,4 @@
-# PALM
-
-## AI Provider: Google PaLM 2
-
+# Google Palm 2
 - [Google PaLM 2](https://blog.google/technology/ai/google-palm-2-ai-large-language-model/)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

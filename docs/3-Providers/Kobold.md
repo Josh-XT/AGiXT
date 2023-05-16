@@ -1,7 +1,4 @@
-# KOBOLD
-
-## AI Provider: Kobold
-
+# Kobold
 - [Kobold](https://github.com/KoboldAI/KoboldAI-Client)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 
