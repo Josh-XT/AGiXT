@@ -34,7 +34,8 @@ jobs:
       push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   call-docker-build-streamlit:
     if: github.event_name == 'release'
@@ -46,7 +47,8 @@ jobs:
         FROM_IMAGE=${{needs.call-docker-build.outputs.primary-image}}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     needs: call-docker-build
 
   call-docker-build-nvidia:
@@ -56,7 +58,8 @@ jobs:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia
       dockerfile: docker/Dockerfile.nvidia
       registry-readme: ./docs/README.md
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     
   call-docker-build-nvidia-streamlit:
     if: github.event_name == 'release'
@@ -67,5 +70,6 @@ jobs:
       build-args: |
         FROM_IMAGE=${{needs.call-docker-build-nvidia.outputs.primary-image}}
       registry-readme: ./docs/README.md
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     needs: call-docker-build-nvidia
