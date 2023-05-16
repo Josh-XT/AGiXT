@@ -1,5 +1,5 @@
 # Instructions
-**Instructions are not questions or conversations, use the Chat for this!**.
+**Instructions are not questions or conversations, use the Chat for those!**
 
 The Instructions feature is designed to allow users to provide specific instructions or tasks to a selected agent. The Agent will choose to run commands from its list of available commands (if any) to complete whatever task was given to it in the instructions.
 
