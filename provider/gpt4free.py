@@ -17,14 +17,7 @@ class Gpt4freeProvider:
         self.FAILED_PROVIDERS = []
 
     def instruct(self, prompt, tokens: int = 0):
-        providers = [
-            Provider.UseLess,
-            Provider.You,
-            Provider.ForeFront,
-            Provider.Poe,
-            Provider.Theb,
-        ]
-
+        providers = list(Provider)
         for provider in providers:
             try:
                 if provider not in self.FAILED_PROVIDERS:
