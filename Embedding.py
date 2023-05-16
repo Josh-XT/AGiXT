@@ -1,5 +1,6 @@
 import requests
 import inspect
+import openai
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
@@ -60,6 +61,44 @@ class GoogleVertexEmbeddingFunction(EmbeddingFunction):
         return {}
 
 
+class AzureEmbeddingFunction(EmbeddingFunction):
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "text-embedding-ada-002",
+        deployment_id: str = "",
+    ):
+        openai.api_type = "azure"
+        if api_key is not None:
+            self.api_key = api_key
+        else:
+            raise ValueError("Please update your Agent settings with an AZURE_API_KEY.")
+        if deployment_id is not None:
+            self.deployment_id = deployment_id
+        else:
+            raise ValueError("Please update your Agent settings with an AZURE_API_KEY.")
+        self._client = openai.Embedding(engine=self.deployment_id)
+        self._model_name = model_name
+
+    def __call__(self, texts: Documents) -> Embeddings:
+        # replace newlines, which can negatively affect performance.
+        texts = [t.replace("\n", " ") for t in texts]
+
+        # Call the OpenAI Embedding API
+        embeddings = self._client.create(
+            input=texts,
+            engine=self.deployment_id,
+            model=self._model_name,
+            api_key=self.api_key,
+        )["data"]
+
+        # Sort resulting embeddings by index
+        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
+
+        # Return just the embeddings
+        return [result["embedding"] for result in sorted_embeddings]
+
+
 class Embedding:
     def __init__(self, embedder: str = "default"):
         # We need to take the embedder string and then return the correct embedder
@@ -80,6 +119,14 @@ class Embedding:
         chunk_size = 512
         embed = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="gtr-t5-large"
+        )
+        return embed, chunk_size
+
+    def azure(self):
+        chunk_size = 2048
+        embed = AzureEmbeddingFunction(
+            api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
+            deployment_id=self.CFG.AGENT_CONFIG["settings"]["DEPLOYMENT_ID"],
         )
         return embed, chunk_size
 
