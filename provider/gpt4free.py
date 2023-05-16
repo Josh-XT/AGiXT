@@ -1,5 +1,4 @@
 import gpt4free
-from gpt4free import Provider
 
 
 class Gpt4freeProvider:
@@ -17,25 +16,27 @@ class Gpt4freeProvider:
         self.FAILED_PROVIDERS = []
 
     def instruct(self, prompt, tokens: int = 0):
-        providers = list(Provider)
+        providers = gpt4free.Provider._member_names_
         for provider in providers:
             try:
                 if provider not in self.FAILED_PROVIDERS:
                     response = gpt4free.Completion.create(
-                        provider,
+                        getattr(gpt4free.Provider, provider),
                         prompt=prompt,
-                        model=self.AI_MODEL,
                     )
                     if "text" in response:
                         response = response["text"]
                     if "status" in response and response["status"] == "Fail":
                         self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
                         response = self.instruct(prompt, tokens)
                     if response == "Unable to fetch the response, Please try again.":
                         self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
                         response = self.instruct(prompt, tokens)
                 return response
             except:
+                print(f"Failed to use {provider}")
                 self.FAILED_PROVIDERS.append(provider)
                 if len(self.FAILED_PROVIDERS) == len(providers):
                     self.FAILED_PROVIDERS = []
