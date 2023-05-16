@@ -435,30 +435,36 @@ elif main_selection == "Tasks":
         agent_status = "Not Running"
         if agent_name in agent_stop_events:
             agent_status = "Running"
-        st.markdown(f"**Status:** {agent_status}")
 
-        if st.button("Start Task"):
-            if agent_name and task_objective:
-                if agent_name not in CFG.agent_instances:
-                    CFG.agent_instances[agent_name] = AgentLLM(agent_name)
-                stop_event = threading.Event()
-                agent_stop_events[agent_name] = stop_event
-                agent_thread = threading.Thread(
-                    target=CFG.agent_instances[agent_name].run_task,
-                    args=(stop_event, task_objective),
-                )
-                agent_thread.start()
-                st.success(f"Task started for agent '{agent_name}'.")
-            else:
-                st.error("Agent name and task objective are required.")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("Start Task"):
+                if agent_name and task_objective:
+                    if agent_name not in CFG.agent_instances:
+                        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+                    stop_event = threading.Event()
+                    agent_stop_events[agent_name] = stop_event
+                    agent_thread = threading.Thread(
+                        target=CFG.agent_instances[agent_name].run_task,
+                        args=(stop_event, task_objective),
+                    )
+                    agent_thread.start()
+                    agent_status = "Running"
+                    st.success(f"Task started for agent '{agent_name}'.")
+                else:
+                    st.error("Agent name and task objective are required.")
 
-        if st.button("Stop Task"):
-            if agent_name in agent_stop_events:
-                agent_stop_events[agent_name].set()
-                del agent_stop_events[agent_name]
-                st.success(f"Task stopped for agent '{agent_name}'.")
-            else:
-                st.error("No task is running for the selected agent.")
+            if st.button("Stop Task"):
+                if agent_name in agent_stop_events:
+                    agent_stop_events[agent_name].set()
+                    del agent_stop_events[agent_name]
+                    agent_status = "Not Running"
+                    st.success(f"Task stopped for agent '{agent_name}'.")
+                else:
+                    st.error("No task is running for the selected agent.")
+
+        with col2:
+            st.markdown(f"**Status:** {agent_status}")
 
 elif main_selection == "Chains":
     st.header("Manage Chains")
