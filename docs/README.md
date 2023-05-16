@@ -200,6 +200,21 @@ docker run -p 8501:8501 josh-xt/agent-llm-streamlit
 - Create an agent named `hugU` and enable huggingface provider
 - Start chatting
 
+### With docker compose
+#### user
+```
+docker compose up
+```
+
+* browse to the given URLs
+
+#### dev
+```
+docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
+```
+
+* mounts dev space into container - happy building 
+
 ## Alternative: Quick Start for Local or Virtual Machine
 
 As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
