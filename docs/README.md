@@ -146,19 +146,13 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
 
 ### Linux or Windows
-Works for all platforms except for arm64 processors use streamlit version
+Works for all platforms (amd64, arm64)
+
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-docker-compose up -d
-```
-### Streamlit version
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd Agent-LLM
-docker compose -f docker-compose-streamlit.yml up -d
+docker compose up 
 ```
 
 ### MacOS
@@ -178,6 +172,14 @@ docker compose -f docker-compose-mac-streamlit.yml up -d
 ```
 
 Access the web interface at http://localhost:3000
+
+## Development using docker
+```
+docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
+```
+
+* mounts dev space into container - happy building 
+
 
 ## Remote-only, NON-persistent Setup
 ### AKA *quick and dirty*
@@ -199,21 +201,6 @@ docker run -p 8501:8501 josh-xt/agent-llm-streamlit
 - Browse to `http://localhost:8501`
 - Create an agent named `hugU` and enable huggingface provider
 - Start chatting
-
-### With docker compose
-#### user
-```
-docker compose up
-```
-
-* browse to the given URLs
-
-#### dev
-```
-docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
-```
-
-* mounts dev space into container - happy building 
 
 ## Alternative: Quick Start for Local or Virtual Machine
 
