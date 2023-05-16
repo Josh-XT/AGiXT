@@ -11,7 +11,7 @@ argparse
 beautifulsoup4
 captcha-solver
 docker
-duckduckgo_search==2.8.5
+duckduckgo_search==2.9.5
 fastapi
 uvicorn
 gitpython
@@ -40,9 +40,7 @@ webdriver_manager
 spacy
 discord
 git+https://github.com/xtekky/gpt4free
-
 -r https://raw.githubusercontent.com/xtekky/gpt4free/main/requirements.txt
-
 EdgeGPT
 google-generativeai
 google-cloud-aiplatform
