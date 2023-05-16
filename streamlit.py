@@ -438,6 +438,7 @@ elif main_selection == "Tasks":
 
         col1, col2 = st.columns([3, 1])
         with col1:
+            columns = st.columns([3, 2])
             if st.button("Start Task"):
                 if agent_name and task_objective:
                     if agent_name not in CFG.agent_instances:
@@ -450,10 +451,8 @@ elif main_selection == "Tasks":
                     )
                     agent_thread.start()
                     agent_status = "Running"
-                    columns = st.columns([3, 2])
                     columns[0].success(f"Task started for agent '{agent_name}'.")
                 else:
-                    columns = st.columns([3, 2])
                     columns[0].error("Agent name and task objective are required.")
 
             if st.button("Stop Task"):
@@ -461,10 +460,8 @@ elif main_selection == "Tasks":
                     agent_stop_events[agent_name].set()
                     del agent_stop_events[agent_name]
                     agent_status = "Not Running"
-                    columns = st.columns([3, 2])
                     columns[0].success(f"Task stopped for agent '{agent_name}'.")
                 else:
-                    columns = st.columns([3, 2])
                     columns[0].error("No task is running for the selected agent.")
 
         with col2:
