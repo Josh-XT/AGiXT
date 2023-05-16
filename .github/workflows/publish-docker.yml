@@ -25,7 +25,7 @@ on:
 jobs:
 
   call-docker-build:
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       image-name: ${{ github.repository }}
       dockerfile: docker/Dockerfile
@@ -35,7 +35,7 @@ jobs:
 
   call-docker-build-streamlit:
     if: github.event_name == 'release'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       image-name: ${{ github.repository }}-streamlit
       dockerfile: docker/Dockerfile.streamlit
@@ -48,7 +48,7 @@ jobs:
 
   call-docker-build-nvidia:
     if: github.event_name == 'release'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       image-name: ${{ github.repository }}-nvidia
       dockerfile: docker/Dockerfile.nvidia
@@ -58,7 +58,7 @@ jobs:
     
   call-docker-build-nvidia-streamlit:
     if: github.event_name == 'release'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       image-name: ${{ github.repository }}-nvidia-streamlit
       dockerfile: docker/Dockerfile.streamlit
