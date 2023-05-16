@@ -13,10 +13,10 @@ We are not responsible if Microsoft bans your account for doing this. This may n
 
 ### Get your Bing Cookies
 
-1. Install the cookie editor extension for Chrome or Firefox
-2. Go to bing.com
+1. Install the [EditThisCookie extension for Chrome](https://chrome.google.com/webstore/detail/editthiscookie/fngmhnnpilhplaeedifhccceomclgfbg)
+2. Go to https://bing.com
 3. Open the extension
-4. Click "Export" on the bottom right, then "Export as JSON" (This saves your cookies to clipboard)
+4. Click the export button (Looks like `[>`), this saves your cookies to clipboard.
 5. Paste your cookies into a file `cookies.json` in your `Agent-LLM` directory
 
 ### Update your agent settings

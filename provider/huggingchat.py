@@ -15,20 +15,20 @@ class HuggingchatProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = int(MAX_TOKENS)
         self.AI_MODEL = AI_MODEL
+        # get cookie from huggingchat-cookies.json
+        self.cookie = None
 
     def instruct(self, prompt: str, tokens: int = 0) -> str:
+        self.cookie_path = "./huggingchat-cookies.json"
+        with open(self.cookie_path, "r") as f:
+            self.cookie = f.read()
         session = Session()
         session.get(url="https://huggingface.co/chat/")
-        res = session.post(
-            url="https://huggingface.co/chat/settings",
-            data={"ethicsModalAccepted": True},
-        )
-        assert res.status_code == 200, "Failed to accept ethics modal"
-
+        headers = {"Content-Type": "application/json", "Cookie": self.cookie}
         res = session.post(
             url="https://huggingface.co/chat/conversation",
             json={"model": self._get_model_name(self.AI_MODEL)},
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         assert res.status_code == 200, "Failed to create new conversation"
 
@@ -37,6 +37,7 @@ class HuggingchatProvider:
         max_new_tokens = int(self.MAX_TOKENS) - tokens - 428
         res = session.post(
             url=url,
+            headers=headers,
             json={
                 "inputs": prompt,
                 "parameters": {
