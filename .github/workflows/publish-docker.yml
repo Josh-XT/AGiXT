@@ -30,7 +30,6 @@ jobs:
   call-docker-build:
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
-      image-name: ${{ github.repository }}
       dockerfile: docker/Dockerfile
       push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
@@ -41,11 +40,10 @@ jobs:
     if: github.event_name == 'release'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
-      image-name: ${{ github.repository }}-streamlit
+      registry-repo-name: ${{ github.event.repository.name }}-streamlit
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
         FROM_IMAGE=${{needs.call-docker-build.outputs.primary-image}}
-      push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
     secrets: inherit
@@ -55,9 +53,8 @@ jobs:
     if: github.event_name == 'release'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
-      image-name: ${{ github.repository }}-nvidia
+      registry-repo-name: ${{ github.event.repository.name }}-nvidia
       dockerfile: docker/Dockerfile.nvidia
-      push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
     secrets: inherit
     
@@ -65,11 +62,10 @@ jobs:
     if: github.event_name == 'release'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
-      image-name: ${{ github.repository }}-nvidia-streamlit
+      registry-repo-name: ${{ github.event.repository.name }}-nvidia-streamlit
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
         FROM_IMAGE=${{needs.call-docker-build-nvidia.outputs.primary-image}}
-      push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
     secrets: inherit
     needs: call-docker-build-nvidia
