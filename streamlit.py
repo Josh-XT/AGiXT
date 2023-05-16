@@ -436,7 +436,7 @@ elif main_selection == "Tasks":
         if agent_name in agent_stop_events:
             agent_status = "Running"
 
-        col1, col2 = st.columns([3, 1])
+        col1, col2 = st.columns([3, 2])
         with col1:
             if st.button("Start Task"):
                 if agent_name and task_objective:
