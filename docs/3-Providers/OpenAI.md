@@ -1,7 +1,4 @@
-# OPENAI
-
-## AI Provider: OpenAI
-
+# OpenAI
 - [OpenAI](https://openai.com)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

@@ -1,7 +1,4 @@
-# GPUGPT4ALL
-
-## AI Provider: GPT4All
-
+# GPT4All - GPU
 - [GPT4All](https://github.com/nomic-ai/gpt4all)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

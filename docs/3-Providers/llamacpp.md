@@ -1,7 +1,4 @@
-# LLAMACPP
-
-## AI Provider: llama.cpp
-
+# llamacpp
 - [llama.cpp](https://github.com/ggerganov/llama.cpp)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

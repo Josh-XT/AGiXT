@@ -1,10 +1,4 @@
-# HUGGINGCHAT
-
-## AI Provider: Hugging Face Huggingchat
-
-- [Hugging Face Huggingchat](https://huggingface.co/chat/)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
-
+# HuggingChat
 ## Disclaimer
 
 We are not responsible if Hugging Face bans your account for doing this. This may not be consistent with their rules to use their services in this way. This was developed for experimental purposes and we assume no responsibility for how you use it.

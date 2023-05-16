@@ -1,7 +1,4 @@
-# FASTCHAT
-
-## AI Provider: FastChat
-
+# FastChat
 - [FastChat](https://github.com/lm-sys/FastChat)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 

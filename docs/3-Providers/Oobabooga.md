@@ -1,7 +1,4 @@
-# OOBABOOGA
-
-## AI Provider: Oobabooga Text Generation Web UI
-
+# Oobabooga Text Generation Web UI
 - [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui)
 - [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
 
