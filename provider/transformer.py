@@ -7,7 +7,7 @@ from transformers import (
 )
 
 
-class HuggingfaceProvider:
+class TransformerProvider:
     def __init__(
         self,
         MODEL_PATH: str = "HuggingFaceH4/starchat-alpha",
