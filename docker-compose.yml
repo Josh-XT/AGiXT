@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   frontend:
-    image: ghcr.io/jamesonrgrieve/agent-llm-frontend:latest
+    image: ghcr.io/jamesonrgrieve/agent-llm-frontend
     init: true
     env_file:
       - .env
@@ -11,16 +11,26 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-
+      
   backend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    image: localagi/agent-llm
     init: true
     env_file:
       - .env
     ports:
       - "7437:7437"
+    volumes:
+      - ./data/agents:/app/agents:rw
+      - ./data/workspace:/app/WORKSPACE:rw
+      - ./models:/model:rw
+
+  backend-streamlit:
+    image: localagi/agent-llm-streamlit
+    init: true
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
     volumes:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
