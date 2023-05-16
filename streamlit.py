@@ -283,15 +283,6 @@ elif main_selection == "Chat":
 
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
-    learn_file_upload = st.file_uploader("Upload a file to learn from")
-    learn_file_path = ""
-    if learn_file_upload is not None:
-        if not os.path.exists(os.path.join("data", "uploaded_files")):
-            os.makedirs(os.path.join("data", "uploaded_files"))
-        learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
-        with open(learn_file_path, "wb") as f:
-            f.write(learn_file_upload.getbuffer())
-
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = {}
 
@@ -314,6 +305,17 @@ elif main_selection == "Chat":
                         )
 
     if agent_name:
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
+
         chat_history = []
         agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
 
@@ -393,6 +395,16 @@ elif main_selection == "Instructions":
                         )
 
     if agent_name:
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
         instruct_history = []
         agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
 
@@ -416,11 +428,17 @@ elif main_selection == "Instructions":
                     agent = AgentLLM(agent_name)
                     if smart_instruct_toggle:
                         response = agent.smart_instruct(
-                            instruct_prompt, shots=3, async_exec=True
+                            instruct_prompt,
+                            shots=3,
+                            async_exec=True,
+                            learn_file=learn_file_path,
                         )
                     else:
                         response = agent.run(
-                            instruct_prompt, prompt="Instruct", context_results=6
+                            instruct_prompt,
+                            prompt="Instruct",
+                            context_results=6,
+                            learn_file=learn_file_path,
                         )
                 instruct_entry = [
                     {"sender": "User", "message": instruct_prompt},
@@ -446,6 +464,16 @@ elif main_selection == "Tasks":
     task_objective = st.text_area("Enter the task objective")
 
     if agent_name:
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
         CFG = Agent(agent_name)
         agent_status = "Not Running"
         if agent_name in agent_stop_events:
@@ -462,7 +490,7 @@ elif main_selection == "Tasks":
                     agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(
                         target=CFG.agent_instances[agent_name].run_task,
-                        args=(stop_event, task_objective, True),
+                        args=(stop_event, task_objective, True, learn_file_path),
                     )
                     agent_thread.start()
                     agent_status = "Running"

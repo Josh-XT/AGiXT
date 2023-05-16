@@ -178,6 +178,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
         answers = []
@@ -191,6 +192,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                learn_file=learn_file,
                 **kwargs,
             )
         )
@@ -240,6 +242,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        learn_file: str = "",
         **kwargs,
     ):
         answers = []
@@ -252,6 +255,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                learn_file=learn_file,
                 **kwargs,
             )
         )
@@ -518,8 +522,28 @@ class AgentLLM:
         except:
             return None, None
 
-    def run_task(self, stop_event, objective, async_exec: bool = False):
+    def run_task(
+        self,
+        stop_event,
+        objective,
+        async_exec: bool = False,
+        learn_file: str = "",
+        **kwargs,
+    ):
         self.primary_objective = objective
+        if learn_file != "":
+            learned_file = self.read_file_to_memory(
+                task=objective, file_path=learn_file
+            )
+            if learned_file == True:
+                self.update_output_list(
+                    f"Read file {learn_file} into memory for task {objective}.\n\n"
+                )
+            else:
+                self.update_output_list(
+                    f"Failed to read file {learn_file} into memory.\n\n"
+                )
+
         self.update_output_list(
             f"Starting task with objective: {self.primary_objective}.\n\n"
         )
@@ -542,7 +566,10 @@ class AgentLLM:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
             result = self.smart_instruct(
-                task=task["task_name"], shots=3, async_exec=async_exec
+                task=task["task_name"],
+                shots=3,
+                async_exec=async_exec,
+                **kwargs,
             )
             # result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
