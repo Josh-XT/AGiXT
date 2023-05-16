@@ -9,6 +9,7 @@ from Chain import Chain
 from CustomPrompt import CustomPrompt
 from provider import get_provider_options
 from Commands import Commands
+from Embedding import get_embedding_providers
 
 CFG = Config()
 
@@ -100,10 +101,10 @@ if main_selection == "Agent Settings":
             if new_agent_name:
                 # You can customize provider_settings and commands as needed
                 provider_settings = {
-                    "provider": "huggingchat",
-                    "AI_MODEL": "openassistant",
-                    "AI_TEMPERATURE": 0.4,
-                    "MAX_TOKENS": 2000,
+                    "provider": "gpt4free",
+                    "AI_MODEL": "gpt-4",
+                    "AI_TEMPERATURE": "0.7",
+                    "MAX_TOKENS": "4000",
                     "embedder": "default",
                 }
                 commands = []  # You can define the default commands here
@@ -131,12 +132,30 @@ if main_selection == "Agent Settings":
                 if provider_name in CFG.get_providers()
                 else 0,
             )
+
+            agent_settings[
+                "provider"
+            ] = provider_name  # Update the agent_settings with the selected provider
+
+            embedder_name = agent_settings.get("embedder", "")
+            embedders = get_embedding_providers()
+            embedder_name = st.selectbox(
+                "Select Embedder",
+                embedders,
+                index=embedders.index(embedder_name)
+                if embedder_name in embedders
+                else 0,
+            )
+
+            agent_settings[
+                "embedder"
+            ] = embedder_name  # Update the agent_settings with the selected embedder
+
             if provider_name:
                 provider_settings = render_provider_settings(
                     agent_settings, provider_name
                 )
                 agent_settings.update(provider_settings)
-
             st.subheader("Custom Settings")
             custom_settings = agent_settings.get("custom_settings", [])
 
@@ -213,11 +232,11 @@ if main_selection == "Agent Settings":
                     key=command_friendly_name,
                 )
                 command["enabled"] = toggle_status
-
+            reduced_commands = {
+                cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
+            }
             # Update the available commands back to the agent config
-            Agent(agent_name).update_agent_config(
-                {"commands": available_commands}, "commands"
-            )
+            Agent(agent_name).update_agent_config(reduced_commands, "commands")
 
         except Exception as e:
             st.error(f"Error loading agent configuration: {str(e)}")
@@ -226,6 +245,14 @@ if main_selection == "Agent Settings":
         if st.button("Update Agent Settings"):
             if agent_name:
                 try:
+                    # Update the available commands back to the agent config
+                    # Save commands in the desired format
+                    reduced_commands = {
+                        cmd["friendly_name"]: cmd["enabled"]
+                        for cmd in available_commands
+                    }
+                    Agent(agent_name).update_agent_config(reduced_commands, "commands")
+                    # Update other settings
                     Agent(agent_name).update_agent_config(agent_settings, "settings")
                     st.success(f"Agent '{agent_name}' updated.")
                 except Exception as e:
@@ -243,6 +270,7 @@ if main_selection == "Agent Settings":
                     st.error(f"Error deleting agent: {str(e)}")
             else:
                 st.error("Agent name is required.")
+
 
 elif main_selection == "Chat":
     st.header("Chat with Agent")
@@ -297,7 +325,9 @@ elif main_selection == "Chat":
                 with st.spinner("Thinking, please wait..."):
                     agent = AgentLLM(agent_name)
                     if smart_chat_toggle:
-                        response = agent.smart_chat(chat_prompt, shots=3)
+                        response = agent.smart_chat(
+                            chat_prompt, shots=3, async_exec=True
+                        )
                     else:
                         response = agent.run(
                             chat_prompt, prompt="Chat", context_results=6
@@ -316,63 +346,127 @@ elif main_selection == "Chat":
         st.warning("Please select an agent to start chatting.")
 
 elif main_selection == "Instructions":
-    st.header("Instruct Agent")
+    st.header("Instruct an Agent")
 
     agent_name = st.selectbox(
-        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+        "Select Agent",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
-    instruct_prompt = st.text_area("Enter your instruction")
+
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
-    if st.button("Instruct Agent"):
-        if agent_name and instruct_prompt:
-            if agent_name not in st.session_state:
-                st.session_state[agent_name] = AgentLLM(agent_name)
-            agent = st.session_state[agent_name]
-            if smart_instruct_toggle:
-                response = agent.smart_instruct(task=instruct_prompt, shots=3)
+    if "instruct_history" not in st.session_state:
+        st.session_state["instruct_history"] = {}
+
+    instruct_container = st.container()
+
+    def render_instruct_history(instruct_container, instruct_history):
+        instruct_container.empty()
+        with instruct_container:
+            for instruct in instruct_history:
+                if "sender" in instruct and "message" in instruct:
+                    if instruct["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    if agent_name:
+        instruct_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
+
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                instruct_history = agent_data.get("interactions", [])
+
+        st.session_state.instruct_history[agent_name] = instruct_history
+
+        render_instruct_history(
+            instruct_container, st.session_state.instruct_history[agent_name]
+        )
+
+        instruct_prompt = st.text_input("Enter your message", key="instruct_prompt")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and instruct_prompt:
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_instruct_toggle:
+                        response = agent.smart_instruct(
+                            instruct_prompt, shots=3, async_exec=True
+                        )
+                    else:
+                        response = agent.run(
+                            instruct_prompt, prompt="Instruct", context_results=6
+                        )
+                instruct_entry = [
+                    {"sender": "User", "message": instruct_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.instruct_history[agent_name].extend(instruct_entry)
+                render_instruct_history(
+                    instruct_container, st.session_state.instruct_history[agent_name]
+                )
             else:
-                response = agent.run(task=instruct_prompt, prompt="instruct")
-            st.markdown(f"**Response:** {response}")
-        else:
-            st.error("Agent name and instruction are required.")
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to give instructions.")
 
 elif main_selection == "Tasks":
     st.header("Manage Tasks")
 
     agent_name = st.selectbox(
-        "Select Agent", [""] + [agent["name"] for agent in CFG.get_agents()]
+        "Select Agent",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
     task_objective = st.text_area("Enter the task objective")
 
     if agent_name:
+        CFG = Agent(agent_name)
         agent_status = "Not Running"
         if agent_name in agent_stop_events:
             agent_status = "Running"
-        st.markdown(f"**Status:** {agent_status}")
 
-        if st.button("Start Task"):
-            if agent_name and task_objective:
-                if agent_name not in CFG.agent_instances:
-                    CFG.agent_instances[agent_name] = AgentLLM(agent_name)
-                stop_event = threading.Event()
-                agent_stop_events[agent_name] = stop_event
-                agent_thread = threading.Thread(
-                    target=CFG.agent_instances[agent_name].run_task,
-                    args=(stop_event, task_objective),
-                )
-                agent_thread.start()
-                st.success(f"Task started for agent '{agent_name}'.")
-            else:
-                st.error("Agent name and task objective are required.")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            columns = st.columns([3, 2])
+            if st.button("Start Task"):
+                if agent_name and task_objective:
+                    if agent_name not in CFG.agent_instances:
+                        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+                    stop_event = threading.Event()
+                    agent_stop_events[agent_name] = stop_event
+                    agent_thread = threading.Thread(
+                        target=CFG.agent_instances[agent_name].run_task,
+                        args=(stop_event, task_objective, True),
+                    )
+                    agent_thread.start()
+                    agent_status = "Running"
+                    columns[0].success(f"Task started for agent '{agent_name}'.")
+                else:
+                    columns[0].error("Agent name and task objective are required.")
 
-        if st.button("Stop Task"):
-            if agent_name in agent_stop_events:
-                agent_stop_events[agent_name].set()
-                del agent_stop_events[agent_name]
-                st.success(f"Task stopped for agent '{agent_name}'.")
-            else:
-                st.error("No task is running for the selected agent.")
+            if st.button("Stop Task"):
+                if agent_name in agent_stop_events:
+                    agent_stop_events[agent_name].set()
+                    del agent_stop_events[agent_name]
+                    agent_status = "Not Running"
+                    columns[0].success(f"Task stopped for agent '{agent_name}'.")
+                else:
+                    columns[0].error("No task is running for the selected agent.")
+
+        with col2:
+            st.markdown(f"**Status:** {agent_status}")
+
 
 elif main_selection == "Chains":
     st.header("Manage Chains")

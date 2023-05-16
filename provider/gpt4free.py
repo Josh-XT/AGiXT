@@ -1,5 +1,4 @@
 import gpt4free
-from gpt4free import Provider
 
 
 class Gpt4freeProvider:
@@ -14,37 +13,37 @@ class Gpt4freeProvider:
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
-        self.providers = [Provider.UseLess, Provider.You]
+        self.FAILED_PROVIDERS = []
 
     def instruct(self, prompt, tokens: int = 0):
-        for provider in self.providers:
+        # This will work when more than 2 of the 5 providers are working
+        # providers = gpt4free.Provider._member_names_
+        providers = ["You", "Useless"]
+        for provider in providers:
             try:
-                if provider == gpt4free.Provider.UseLess:
+                if provider not in self.FAILED_PROVIDERS:
                     response = gpt4free.Completion.create(
-                        provider,
+                        getattr(gpt4free.Provider, provider),
                         prompt=prompt,
-                        model=self.AI_MODEL,
-                        systemMessage="",
                     )
                     if "text" in response:
                         response = response["text"]
                     if "status" in response and response["status"] == "Fail":
-                        response = None
-                elif provider == gpt4free.Provider.You:
-                    response = gpt4free.Completion.create(provider, prompt=prompt)
+                        self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
+                        response = self.instruct(prompt, tokens)
                     if response == "Unable to fetch the response, Please try again.":
-                        response = None
-                else:
-                    response = gpt4free.Completion.create(
-                        provider,
-                        prompt=prompt,
-                        model=self.AI_MODEL,
-                    )
-                if not response:
-                    raise Exception(f"No model result with: {provider}")
+                        self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
+                        response = self.instruct(prompt, tokens)
                 return response
-            except Exception as e:
-                if provider == self.providers[-1]:
-                    raise Exception(f"Model error: {e}", e)
-                else:
-                    print(f"Model error: {e}")
+            except:
+                print(f"Failed to use {provider}")
+                self.FAILED_PROVIDERS.append(provider)
+                if len(self.FAILED_PROVIDERS) == len(providers):
+                    self.FAILED_PROVIDERS = []
+                try:
+                    response = self.instruct(prompt, tokens)
+                except:
+                    response = self.instruct(prompt, tokens)
+                return response

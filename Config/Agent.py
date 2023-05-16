@@ -43,6 +43,10 @@ class Agent(Config):
                     self.EMBEDDER = "default"
             if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
                 self.AI_MODEL = "default"
+            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
+                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
+            else:
+                self.MAX_TOKENS = 4000
 
         # Memory Settings
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)
@@ -113,10 +117,10 @@ class Agent(Config):
             or provider_settings == {}
         ):
             provider_settings = {
-                "provider": "huggingchat",
-                "AI_MODEL": "openassistant",
-                "AI_TEMPERATURE": 0.4,
-                "MAX_TOKENS": 2000,
+                "provider": "gpt4free",
+                "AI_MODEL": "gpt-4",
+                "AI_TEMPERATURE": "0.7",
+                "MAX_TOKENS": "4000",
                 "embedder": "default",
             }
         settings = json.dumps(
@@ -152,10 +156,10 @@ class Agent(Config):
                         for command_name, _, _ in self.load_commands(agent_name)
                     }
                     agent_config_data["settings"] = {
-                        "provider": "huggingchat",
-                        "AI_MODEL": "openassistant",
-                        "AI_TEMPERATURE": 0.4,
-                        "MAX_TOKENS": 2000,
+                        "provider": "gpt4free",
+                        "AI_MODEL": "gpt-4",
+                        "AI_TEMPERATURE": "0.7",
+                        "MAX_TOKENS": "4000",
                         "embedder": "default",
                     }
                     # Save the updated agent_config to the file
@@ -176,10 +180,10 @@ class Agent(Config):
                                 for command_name, _, _ in self.load_commands()
                             },
                             "settings": {
-                                "provider": "huggingchat",
-                                "AI_MODEL": "openassistant",
-                                "AI_TEMPERATURE": 0.4,
-                                "MAX_TOKENS": 2000,
+                                "provider": "gpt4free",
+                                "AI_MODEL": "gpt-4",
+                                "AI_TEMPERATURE": "0.7",
+                                "MAX_TOKENS": "4000",
                                 "embedder": "default",
                             },
                         }
@@ -263,7 +267,6 @@ class Agent(Config):
             # Save the updated configuration back to the file
             with open(agent_config_file, "w") as f:
                 json.dump(current_config, f)
-
             return f"Agent {agent_name} configuration updated."
         else:
             return f"Agent {agent_name} configuration not found."
