@@ -25,7 +25,6 @@ class Gpt4freeProvider:
                         provider,
                         prompt=prompt,
                         model=self.AI_MODEL,
-                        systemMessage="",
                     )
                     if "text" in response:
                         response = response["text"]
