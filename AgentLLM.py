@@ -449,17 +449,18 @@ class AgentLLM:
                 collected_data, link_list = await self.browse_website(link["href"])
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
-                if len(link_list) > 0:
-                    if len(link_list) > 5:
-                        link_list = link_list[:3]
-                    try:
-                        pick_a_link = self.run(
-                            task=task, prompt="Pick-a-Link", links=link_list
-                        )
-                        if not pick_a_link.startswith("None"):
-                            await self.resursive_browsing(task, pick_a_link)
-                    except:
-                        print(f"Issues reading {link}. Moving on...")
+                if link_list is not None:
+                    if len(link_list) > 0:
+                        if len(link_list) > 5:
+                            link_list = link_list[:3]
+                        try:
+                            pick_a_link = self.run(
+                                task=task, prompt="Pick-a-Link", links=link_list
+                            )
+                            if not pick_a_link.startswith("None"):
+                                await self.resursive_browsing(task, pick_a_link)
+                        except:
+                            print(f"Issues reading {link}. Moving on...")
 
     async def browse_website(self, url):
         try:
