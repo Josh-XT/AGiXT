@@ -16,7 +16,9 @@ class Gpt4freeProvider:
         self.FAILED_PROVIDERS = []
 
     def instruct(self, prompt, tokens: int = 0):
-        providers = gpt4free.Provider._member_names_
+        # This will work when more than 2 of the 5 providers are working
+        # providers = gpt4free.Provider._member_names_
+        providers = ["You", "Useless"]
         for provider in providers:
             try:
                 if provider not in self.FAILED_PROVIDERS:
