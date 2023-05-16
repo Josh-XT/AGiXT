@@ -446,7 +446,7 @@ elif main_selection == "Tasks":
                     agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(
                         target=CFG.agent_instances[agent_name].run_task,
-                        args=(stop_event, task_objective),
+                        args=(stop_event, task_objective, True),
                     )
                     agent_thread.start()
                     agent_status = "Running"

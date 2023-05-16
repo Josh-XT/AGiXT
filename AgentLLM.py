@@ -430,7 +430,7 @@ class AgentLLM:
         except:
             return None, None
 
-    def run_task(self, stop_event, objective):
+    def run_task(self, stop_event, objective, async_exec: bool = False):
         self.primary_objective = objective
         self.update_output_list(
             f"Starting task with objective: {self.primary_objective}.\n\n"
@@ -453,7 +453,9 @@ class AgentLLM:
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-            result = self.smart_instruct(task=task["task_name"], shots=3)
+            result = self.smart_instruct(
+                task=task["task_name"], shots=3, async_exec=async_exec
+            )
             # result = self.run(task=task["task_name"], prompt="execute")
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
