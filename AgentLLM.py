@@ -138,6 +138,20 @@ class AgentLLM:
                 )
             else:
                 self.websearch_agent(task=task, depth=websearch_depth)
+        if int(tokens) > int(self.CFG.MAX_TOKENS):
+            if context_results > 0:
+                context_results = context_results - 1
+            if context_results == 0:
+                print("Warning: No context injected due to max tokens.")
+            return self.run(
+                task=task,
+                prompt=prompt,
+                context_results=context_results,
+                websearch=websearch,
+                websearch_depth=websearch_depth,
+                async_exec=async_exec,
+                **kwargs,
+            )
         self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
@@ -422,14 +436,13 @@ class AgentLLM:
             search_string = result.lstrip("0123456789. ")
             links = ddg(search_string, max_results=depth)
             if links is not None:
-                if len(links) > 0:
-                    await self.resursive_browsing(task, links)
+                await self.resursive_browsing(task, links)
 
     async def resursive_browsing(self, task, links):
         try:
             links = links.split("\n")
         except:
-            links = None
+            links = links
         if links is not None:
             for link in links:
                 print(f"Scraping: {link['href']}")
@@ -437,11 +450,16 @@ class AgentLLM:
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
                 if len(link_list) > 0:
-                    pick_a_link = self.run(
-                        task=task, prompt="Pick-a-Link", links=link_list
-                    )
-                    if not pick_a_link.startswith("None"):
-                        await self.resursive_browsing(task, pick_a_link)
+                    if len(link_list) > 5:
+                        link_list = link_list[:3]
+                    try:
+                        pick_a_link = self.run(
+                            task=task, prompt="Pick-a-Link", links=link_list
+                        )
+                        if not pick_a_link.startswith("None"):
+                            await self.resursive_browsing(task, pick_a_link)
+                    except:
+                        print(f"Issues reading {link}. Moving on...")
 
     async def browse_website(self, url):
         try:
