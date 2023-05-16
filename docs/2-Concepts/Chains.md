@@ -1,0 +1,2 @@
+# Chains
+Chains are a sequence of Agent actions such as running commands, tasks, instructions, chats, or custom prompts. The Chains feature allows users to create and manage chains by specifying a chain name. Users can create new chains, delete existing ones, and organize tasks to be executed in a specific order, providing a powerful way to automate complex processes and workflows using agents.
