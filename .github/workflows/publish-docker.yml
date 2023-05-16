@@ -41,7 +41,7 @@ jobs:
       image-name: ${{ github.repository }}-streamlit
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
-        FROM_DIGEST=${{needs.call-docker-build.outputs.digest}}
+        FROM_IMAGE=${{needs.call-docker-build.outputs.primary-image}}
       push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
@@ -65,8 +65,7 @@ jobs:
       image-name: ${{ github.repository }}-nvidia-streamlit
       dockerfile: docker/Dockerfile.streamlit
       build-args: |
-        FROM_VARIANT=-nvidia
-        FROM_DIGEST=${{needs.call-docker-build-nvidia.outputs.digest}}
+        FROM_IMAGE=${{needs.call-docker-build-nvidia.outputs.primary-image}}
       push: ${{ github.event_name == 'release' }}
       registry-readme: ./docs/README.md
     secrets: inherit
