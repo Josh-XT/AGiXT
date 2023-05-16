@@ -41,22 +41,24 @@ class Memories:
 
     def store_result(self, task_name: str, result: str):
         if result:
-            result_id = "".join(
-                secrets.choice(string.ascii_lowercase + string.digits)
-                for _ in range(64)
-            )
-            if len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0:
-                self.collection.update(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
+            chunks = self.chunk_content(result)
+            for chunk in chunks:
+                result_id = "".join(
+                    secrets.choice(string.ascii_lowercase + string.digits)
+                    for _ in range(64)
                 )
-            else:
-                self.collection.add(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
-                )
+                if len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0:
+                    self.collection.update(
+                        ids=result_id,
+                        documents=chunk,
+                        metadatas={"task": task_name, "result": chunk},
+                    )
+                else:
+                    self.collection.add(
+                        ids=result_id,
+                        documents=chunk,
+                        metadatas={"task": task_name, "result": chunk},
+                    )
 
     def context_agent(
         self,
