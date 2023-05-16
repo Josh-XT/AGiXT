@@ -445,8 +445,12 @@ class AgentLLM:
             links = links
         if links is not None:
             for link in links:
-                print(f"Scraping: {link['href']}")
-                collected_data, link_list = await self.browse_website(link["href"])
+                if "href" in link:
+                    url = link["href"]
+                else:
+                    url = link
+                print(f"Scraping: {url}")
+                collected_data, link_list = await self.browse_website(url)
                 if collected_data is not None:
                     self.memories.store_result(task, collected_data)
                 if link_list is not None:
@@ -460,7 +464,7 @@ class AgentLLM:
                             if not pick_a_link.startswith("None"):
                                 await self.resursive_browsing(task, pick_a_link)
                         except:
-                            print(f"Issues reading {link}. Moving on...")
+                            print(f"Issues reading {url}. Moving on...")
 
     async def browse_website(self, url):
         try:
