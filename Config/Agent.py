@@ -43,6 +43,10 @@ class Agent(Config):
                     self.EMBEDDER = "default"
             if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
                 self.AI_MODEL = "default"
+            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
+                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
+            else:
+                self.MAX_TOKENS = 4000
 
         # Memory Settings
         self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)
