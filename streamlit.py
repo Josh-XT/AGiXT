@@ -420,7 +420,7 @@ elif main_selection == "Instructions":
     else:
         st.warning("Please select an agent to give instructions.")
 
-if main_selection == "Tasks":
+elif main_selection == "Tasks":
     st.header("Manage Tasks")
 
     agent_name = st.selectbox(
@@ -450,27 +450,25 @@ if main_selection == "Tasks":
                     )
                     agent_thread.start()
                     agent_status = "Running"
-                    st.success(f"Task started for agent '{agent_name}'.")
+                    with st.columns([3, 1]):
+                        st.success(f"Task started for agent '{agent_name}'.")
                 else:
-                    st.error(
-                        "Agent name and task objective are required.",
-                        width=100,
-                    )
+                    with st.columns([3, 1]):
+                        st.error("Agent name and task objective are required.")
 
             if st.button("Stop Task"):
                 if agent_name in agent_stop_events:
                     agent_stop_events[agent_name].set()
                     del agent_stop_events[agent_name]
                     agent_status = "Not Running"
-                    st.success(f"Task stopped for agent '{agent_name}'.")
+                    with st.columns([3, 1]):
+                        st.success(f"Task stopped for agent '{agent_name}'.")
                 else:
-                    st.error(
-                        "No task is running for the selected agent.",
-                        width=100,
-                    )
+                    with st.columns([3, 1]):
+                        st.error("No task is running for the selected agent.")
 
         with col2:
-            st.markdown(f"**Status:** {agent_status}", width=100)
+            st.markdown(f"**Status:** {agent_status}")
 
 
 elif main_selection == "Chains":
