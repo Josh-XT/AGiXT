@@ -47,5 +47,8 @@ class Gpt4freeProvider:
                 self.FAILED_PROVIDERS.append(provider)
                 if len(self.FAILED_PROVIDERS) == len(providers):
                     self.FAILED_PROVIDERS = []
-                response = self.instruct(prompt, tokens)
+                try:
+                    response = self.instruct(prompt, tokens)
+                except:
+                    response = self.instruct(prompt, tokens)
                 return response
