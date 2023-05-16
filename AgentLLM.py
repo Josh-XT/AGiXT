@@ -283,6 +283,22 @@ class AgentLLM:
             )
             return self.validation_agent(task, execution_response, **kwargs)
 
+    def revalidation_agent(
+        self, task, command_name, command_args, command_output, **kwargs
+    ):
+        print(
+            f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+        )
+        revalidate = self.run(
+            task=task,
+            prompt="ValidationFailed",
+            command_name=command_name,
+            command_args=command_args,
+            command_output=command_output,
+            **kwargs,
+        )
+        return self.execution_agent(revalidate, task, **kwargs)
+
     def execution_agent(self, execution_response, task, **kwargs):
         validated_response = self.validation_agent(task, execution_response, **kwargs)
         for command_name, command_args in validated_response["commands"].items():
@@ -309,18 +325,9 @@ class AgentLLM:
                         **kwargs,
                     )
                 except:
-                    print(
-                        f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+                    return self.revalidation_agent(
+                        task, command_name, command_args, command_output, **kwargs
                     )
-                    revalidate = self.run(
-                        task=task,
-                        prompt="ValidationFailed",
-                        command_name=command_name,
-                        command_args=command_args,
-                        command_output=command_output,
-                        **kwargs,
-                    )
-                    return self.execution_agent(revalidate, task, **kwargs)
 
                 if validate_command.startswith("Y"):
                     print(
@@ -329,18 +336,9 @@ class AgentLLM:
                     response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
                     return response
                 else:
-                    print(
-                        f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+                    return self.revalidation_agent(
+                        task, command_name, command_args, command_output, **kwargs
                     )
-                    revalidate = self.run(
-                        task=task,
-                        prompt="ValidationFailed",
-                        command_name=command_name,
-                        command_args=command_args,
-                        command_output=command_output,
-                        **kwargs,
-                    )
-                    return self.execution_agent(revalidate, task, **kwargs)
             else:
                 if command_name == "None.":
                     return "\nNo commands were executed.\n"
