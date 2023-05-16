@@ -1,6 +1,6 @@
 import time
 from requests.sessions import Session
-from provider import max_tokens_ceiling
+import json
 
 
 class HuggingchatProvider:
@@ -21,7 +21,8 @@ class HuggingchatProvider:
     def instruct(self, prompt: str, tokens: int = 0) -> str:
         self.cookie_path = "./huggingchat-cookies.json"
         with open(self.cookie_path, "r") as f:
-            self.cookie = f.read()
+            self.cookie = json.load(f)
+
         session = Session()
         session.get(url="https://huggingface.co/chat/")
         headers = {"Content-Type": "application/json", "Cookie": self.cookie}
