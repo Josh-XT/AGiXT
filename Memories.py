@@ -1,10 +1,13 @@
 import string
 import chromadb
 import secrets
+import pdfplumber
 from typing import List
 import spacy
 from spacy.cli import download
 from Embedding import Embedding
+import pandas as pd
+import docx2txt
 
 
 class Memories:
@@ -41,22 +44,24 @@ class Memories:
 
     def store_result(self, task_name: str, result: str):
         if result:
-            result_id = "".join(
-                secrets.choice(string.ascii_lowercase + string.digits)
-                for _ in range(64)
-            )
-            if len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0:
-                self.collection.update(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
+            chunks = self.chunk_content(result)
+            for chunk in chunks:
+                result_id = "".join(
+                    secrets.choice(string.ascii_lowercase + string.digits)
+                    for _ in range(64)
                 )
-            else:
-                self.collection.add(
-                    ids=result_id,
-                    documents=result,
-                    metadatas={"task": task_name, "result": result},
-                )
+                if len(self.collection.get(ids=[result_id], include=[])["ids"]) > 0:
+                    self.collection.update(
+                        ids=result_id,
+                        documents=chunk,
+                        metadatas={"task": task_name, "result": chunk},
+                    )
+                else:
+                    self.collection.add(
+                        ids=result_id,
+                        documents=chunk,
+                        metadatas={"task": task_name, "result": chunk},
+                    )
 
     def context_agent(
         self,
@@ -99,3 +104,20 @@ class Memories:
         if chunk:
             content_chunks.append(" ".join(chunk))
         return content_chunks
+
+    def read_file_to_memory(self, task: str, file_path: str):
+        # If file extension is pdf, convert to text
+        if file_path.endswith(".pdf"):
+            with pdfplumber.open(file_path) as pdf:
+                content = "\n".join([page.extract_text() for page in pdf.pages])
+        # If file extension is xls, convert to csv
+        elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
+            content = pd.read_excel(file_path).to_csv()
+        # If file extension is doc, convert to text
+        elif file_path.endswith(".doc") or file_path.endswith(".docx"):
+            content = docx2txt.process(file_path)
+        # Otherwise just read the file
+        else:
+            with open(file_path, "r") as f:
+                content = f.read()
+        self.store_result(task_name=task, result=content)
