@@ -156,6 +156,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        **kwargs,
     ):
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
@@ -168,6 +169,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                **kwargs,
             )
         )
         if shots > 1:
@@ -178,27 +180,36 @@ class AgentLLM:
                         prompt="SmartInstruct-StepByStep",
                         context_results=6,
                         shots=shots,
+                        **kwargs,
                     )
                 )
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = self.run(
-            task=answer_str, prompt="SmartInstruct-Researcher", shots=shots
+            task=answer_str,
+            prompt="SmartInstruct-Researcher",
+            shots=shots,
+            **kwargs,
         )
         resolver = self.run(
-            task=researcher, prompt="SmartInstruct-Resolver", shots=shots
+            task=researcher,
+            prompt="SmartInstruct-Resolver",
+            shots=shots,
+            **kwargs,
         )
         execution_response = self.run(
             task=task,
             prompt="SmartInstruct-Execution",
             previous_response=resolver,
+            **kwargs,
         )
         clean_response_agent = self.run(
             task=task,
             prompt="SmartInstruct-CleanResponse",
             resolver_response=resolver,
             execution_response=execution_response,
+            **kwargs,
         )
         return clean_response_agent
 
@@ -207,6 +218,7 @@ class AgentLLM:
         task: str = "Write a tweet about AI.",
         shots: int = 3,
         async_exec: bool = False,
+        **kwargs,
     ):
         answers = []
         answers.append(
@@ -218,6 +230,7 @@ class AgentLLM:
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
+                **kwargs,
             )
         )
         # Do multi shots of prompt to get N different answers to be validated
@@ -229,6 +242,7 @@ class AgentLLM:
                         prompt="SmartChat-StepByStep",
                         context_results=6,
                         shots=shots,
+                        **kwargs,
                     )
                 )
         answer_str = ""
@@ -239,12 +253,20 @@ class AgentLLM:
             prompt="SmartChat-Researcher",
             context_results=6,
             shots=shots,
+            **kwargs,
         )
         resolver = self.run(
-            task=researcher, prompt="SmartChat-Resolver", context_results=6, shots=shots
+            task=researcher,
+            prompt="SmartChat-Resolver",
+            context_results=6,
+            shots=shots,
+            **kwargs,
         )
         clean_response_agent = self.run(
-            task=task, prompt="SmartChat-CleanResponse", resolver_response=resolver
+            task=task,
+            prompt="SmartChat-CleanResponse",
+            resolver_response=resolver,
+            **kwargs,
         )
         return clean_response_agent
 
