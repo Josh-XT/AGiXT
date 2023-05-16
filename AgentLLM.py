@@ -423,7 +423,7 @@ class AgentLLM:
             links = ddg(search_string, max_results=depth)
             if links is not None:
                 if len(links) > 0:
-                    self.resursive_browsing(task, links)
+                    await self.resursive_browsing(task, links)
 
     async def resursive_browsing(self, task, links):
         try:
@@ -441,7 +441,7 @@ class AgentLLM:
                         task=task, prompt="Pick-a-Link", links=link_list
                     )
                     if not pick_a_link.startswith("None"):
-                        self.resursive_browsing(task, pick_a_link)
+                        await self.resursive_browsing(task, pick_a_link)
 
     async def browse_website(self, url):
         try:
