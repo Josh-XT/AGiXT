@@ -1,0 +1,2 @@
+# Custom Prompts
+Custom Prompts is a feature that enables users to create, update, and delete customized prompts for their agents. By providing a prompt name and content, users can design custom interactions and tasks for the agent to perform. This feature allows users to tailor the behavior of the agent and create specialized prompts that cater to specific requirements and use cases.
