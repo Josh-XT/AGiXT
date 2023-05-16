@@ -3,7 +3,7 @@
 ![RELEASE](https://img.shields.io/github/v/release/Josh-XT/Agent-LLM?label=Release%20Version&style=plastic) 
 [![STATUS](https://img.shields.io/badge/status-beta-blue?label=Release%20Status&style=plastic)](https://github.com/josh-xt/Agent-LLM) 
 [![LICENSE: MIT](https://img.shields.io/github/license/Josh-XT/Agent-LLM?label=License&style=plastic)](https://github.com/Josh-XT/Agent-LLM/blob/main/LICENSE) 
-![DOCKER](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/operation-docker-build-publish.yml?branch=main&label=Docker&style=plastic) [![CODESTYLE](https://img.shields.io/badge/code%20style-Black-black?branch=main&label=Code%20Style&style=plastic)](https://black.readthedocs.io/en/stable/the_black_code_style/index.html)
+![DOCKER](https://img.shields.io/github/actions/workflow/status/Josh-XT/Agent-LLM/publish-docker.yml?branch=main&label=Docker&style=plastic) [![CODESTYLE](https://img.shields.io/badge/code%20style-Black-black?branch=main&label=Code%20Style&style=plastic)](https://black.readthedocs.io/en/stable/the_black_code_style/index.html)
 
 [![GitHub](https://img.shields.io/badge/GitHub-Frontend_Repository-grey?logo=github&style=plastic)](https://github.com/JamesonRGrieve/Agent-LLM-Frontend)
 
