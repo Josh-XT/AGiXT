@@ -17,7 +17,7 @@ CFG = Config()
 app = FastAPI(
     title="Agent-LLM",
     description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents.",
-    version="v1.1.30-beta",
+    version="v1.1.32-beta",
     docs_url="/",
 )
 agent_threads = {}
