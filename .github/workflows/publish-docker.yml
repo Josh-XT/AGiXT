@@ -31,14 +31,14 @@ jobs:
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       dockerfile: docker/Dockerfile
-      push: ${{ github.event_name == 'release' }}
+      push: ${{ github.event_name != 'pull_request' }}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   call-docker-build-streamlit:
-    if: github.event_name == 'release'
+    if: github.event_name != 'pull_request'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: ${{ github.event.repository.name }}-streamlit
@@ -52,7 +52,7 @@ jobs:
     needs: call-docker-build
 
   call-docker-build-nvidia:
-    if: github.event_name == 'release'
+    if: github.event_name != 'pull_request'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia
@@ -62,7 +62,7 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     
   call-docker-build-nvidia-streamlit:
-    if: github.event_name == 'release'
+    if: github.event_name != 'pull_request'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia-streamlit
