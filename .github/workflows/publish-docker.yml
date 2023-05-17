@@ -28,7 +28,7 @@ on:
 jobs:
 
   call-docker-build:
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       dockerfile: docker/Dockerfile
       push: ${{ github.event_name != 'pull_request' }}
@@ -39,7 +39,7 @@ jobs:
 
   call-docker-build-streamlit:
     if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-streamlit
       dockerfile: docker/Dockerfile.streamlit
@@ -53,7 +53,7 @@ jobs:
 
   call-docker-build-nvidia:
     if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia
       dockerfile: docker/Dockerfile.nvidia
@@ -63,7 +63,7 @@ jobs:
     
   call-docker-build-nvidia-streamlit:
     if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@main
+    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia-streamlit
       dockerfile: docker/Dockerfile.streamlit
