@@ -370,49 +370,54 @@ class AgentLLM:
 
     def execution_agent(self, execution_response, task, **kwargs):
         validated_response = self.validation_agent(task, execution_response, **kwargs)
-        for command_name, command_args in validated_response["commands"].items():
-            # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-            if command_name is not None:
-                for available_command in self.available_commands:
-                    if command_name in [
-                        available_command["friendly_name"],
-                        available_command["name"],
-                    ]:
-                        command_name = available_command["name"]
-                        break
-                try:
-                    command_output = self.commands.execute_command(
-                        command_name, command_args
-                    )
-                    print("Running Command Execution Validation...")
-                    validate_command = self.run(
-                        task=task,
-                        prompt="Validation",
-                        command_name=command_name,
-                        command_args=command_args,
-                        command_output=command_output,
-                        **kwargs,
-                    )
-                except:
-                    return self.revalidation_agent(
-                        task, command_name, command_args, command_output, **kwargs
-                    )
+        try:
+            for command_name, command_args in validated_response["commands"].items():
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.available_commands:
+                        if command_name in [
+                            available_command["friendly_name"],
+                            available_command["name"],
+                        ]:
+                            command_name = available_command["name"]
+                            break
+                    try:
+                        command_output = self.commands.execute_command(
+                            command_name, command_args
+                        )
+                        print("Running Command Execution Validation...")
+                        validate_command = self.run(
+                            task=task,
+                            prompt="Validation",
+                            command_name=command_name,
+                            command_args=command_args,
+                            command_output=command_output,
+                            **kwargs,
+                        )
+                    except:
+                        return self.revalidation_agent(
+                            task, command_name, command_args, command_output, **kwargs
+                        )
 
-                if validate_command.startswith("Y"):
-                    print(
-                        f"Command {command_name} executed successfully with args {command_args}."
-                    )
-                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                    return response
+                    if validate_command.startswith("Y"):
+                        print(
+                            f"Command {command_name} executed successfully with args {command_args}."
+                        )
+                        response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                        return response
+                    else:
+                        return self.revalidation_agent(
+                            task, command_name, command_args, command_output, **kwargs
+                        )
                 else:
-                    return self.revalidation_agent(
-                        task, command_name, command_args, command_output, **kwargs
-                    )
-            else:
-                if command_name == "None.":
-                    return "\nNo commands were executed.\n"
-                else:
-                    return f"\n\nCommand not recognized: {command_name}"
+                    if command_name == "None.":
+                        return "\nNo commands were executed.\n"
+                    else:
+                        return f"\Command not recognized: {command_name} ."
+        except:
+            print("\nERROR IN EXECUTION_AGENT, validated_response:\n")
+            print(validated_response)
+            return "\nNo commands were executed.\n"
 
     def task_creation_agent(
         self, result: Dict, task_description: str, task_list: List[str]
