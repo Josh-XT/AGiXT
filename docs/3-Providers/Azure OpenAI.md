@@ -9,7 +9,8 @@
 1. Set `AI_PROVIDER` to `azure`.
 2. Set `AZURE_API_KEY` to your Azure OpenAI API key.
 3. Set `DEPLOYMENT_ID` to your Azure OpenAI deployment ID.
-4. Choose your `AI_MODEL`.  Enter `gpt-3.5-turbo`, `gpt-4`, `gpt-4-32k`, or any other model you may have access to.
-5. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-6. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.  The maximum for `gpt-3.5-turbo` is 4096, `gpt-4` is 8192, `gpt-4-32k` is 32768.
+4. Set `AZURE_OPENAI_ENDPOINT` to your Azure OpenAI endpoint.
+5. Choose your `AI_MODEL`.  Enter `gpt-3.5-turbo`, `gpt-4`, `gpt-4-32k`, or any other model you may have access to.
+6. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
+7. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.  The maximum for `gpt-3.5-turbo` is 4096, `gpt-4` is 8192, `gpt-4-32k` is 32768.
 
