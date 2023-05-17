@@ -1,36 +1,36 @@
 version: "3.8"
 services:
   frontend:
-    image: ghcr.io/jamesonrgrieve/agent-llm-frontend
+    image: ghcr.io/jamesonrgrieve/agent-llm-frontend:main
     init: true
     env_file:
       - .env
     environment:
       NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     ports:
-      - "localhost:3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
       
   backend:
-    image: localagi/agent-llm
+    image: joshxt/agent-llm:main
     init: true
     env_file:
       - .env
     ports:
-      - "localhost:7437:7437"
+      - "127.0.0.1:7437:7437"
     volumes:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
 
   backend-streamlit:
-    image: localagi/agent-llm-streamlit
+    image: joshxt/agent-llm-streamlit:main
     init: true
     env_file:
       - .env
     ports:
-      - "localhost:8501:8501"
+      - "127.0.0.1:8501:8501"
     volumes:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
