@@ -4,6 +4,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends git build-essential && \
     apt-get install g++ -y && \
     pip install --upgrade pip && \
