@@ -187,7 +187,7 @@ Access the web interface at http://localhost:3000
 
 ### Development using docker
 ```
-docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
+docker compose --profile frontend --profile streamlit -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
 * mounts dev space into container - happy building 
