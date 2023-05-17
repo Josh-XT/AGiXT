@@ -236,7 +236,9 @@ This documentation is hosted locally and the frontend must be running for these 
 
 ## Extending Functionality
 
-When extending functionality ensure to perform the following inside the top level Agent-LLM directory:
+### Updating Requirements
+
+When extending functionality ensure to perform the following inside the top level Agent-LLM directory after saving your changes / customizations:
 
 ```
 pip install pipreqs
