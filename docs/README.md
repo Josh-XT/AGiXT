@@ -159,9 +159,6 @@ Choose a service you want to run using profiles, e.g.
 To run all available web-UIs
 `docker compose --profile frontend --profile streamlit up`
 
-**`Warning`**
-Due to https://github.com/nodejs/docker-node/issues/1335 the profile `frontend` is not available for `arm64`
-
 ### MacOS
 
 ```
