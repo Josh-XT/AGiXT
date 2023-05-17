@@ -116,14 +116,14 @@ class Embedding:
         return embed, chunk_size
 
     def large_local(self):
-        chunk_size = 512
+        chunk_size = 500
         embed = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="gtr-t5-large"
         )
         return embed, chunk_size
 
     def azure(self):
-        chunk_size = 2048
+        chunk_size = 2000
         embed = AzureEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
             deployment_id=self.CFG.AGENT_CONFIG["settings"]["DEPLOYMENT_ID"],
@@ -131,21 +131,21 @@ class Embedding:
         return embed, chunk_size
 
     def openai(self):
-        chunk_size = 2048
+        chunk_size = 2000
         embed = embedding_functions.OpenAIEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
         )
         return embed, chunk_size
 
     def google_palm(self):
-        chunk_size = 3072
+        chunk_size = 3000
         embed = GooglePalmEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
         )
         return embed, chunk_size
 
     def google_vertex(self):
-        chunk_size = 3072
+        chunk_size = 3000
         embed = GoogleVertexEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
             project_id=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_PROJECT_ID"],
@@ -153,7 +153,7 @@ class Embedding:
         return embed, chunk_size
 
     def cohere(self):
-        chunk_size = 512
+        chunk_size = 500
         embed = embedding_functions.CohereEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
         )

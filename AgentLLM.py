@@ -25,7 +25,7 @@ def run_asyncio_coroutine(coro):
 
 
 class AgentLLM:
-    def __init__(self, agent_name: str = "AgentLLM", primary_objective=None):
+    def __init__(self, agent_name: str = "Agent-LLM", primary_objective=None):
         self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
         self.primary_objective = primary_objective
