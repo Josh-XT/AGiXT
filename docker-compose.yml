@@ -11,7 +11,8 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-      
+    profiles: ["frontend"]
+    
   backend:
     image: joshxt/agent-llm:main
     init: true
@@ -23,6 +24,7 @@ services:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
+    profiles: ["backend", "frontend"]
 
   backend-streamlit:
     image: joshxt/agent-llm-streamlit:main
@@ -35,3 +37,4 @@ services:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
+    profiles: ["streamlit"]
