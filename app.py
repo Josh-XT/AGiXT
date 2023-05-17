@@ -16,8 +16,8 @@ from Embedding import get_embedding_providers
 CFG = Config()
 app = FastAPI(
     title="Agent-LLM",
-    description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents.",
-    version="v1.1.32-beta",
+    description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/Agent-LLM/",
+    version="v1.1.34-beta",
     docs_url="/",
 )
 agent_threads = {}
