@@ -47,3 +47,4 @@ google-cloud-aiplatform
 streamlit
 docx2txt
 pdfplumber
+ffmpeg
