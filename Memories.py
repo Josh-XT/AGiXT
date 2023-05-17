@@ -25,6 +25,7 @@ class Memories:
             return spacy.load("en_core_web_sm")
         except:
             spacy.cli.download("en_core_web_sm")
+            return spacy.load("en_core_web_sm")
 
     def initialize_chroma_client(self):
         try:
