@@ -7,6 +7,7 @@ class AzureProvider:
     def __init__(
         self,
         AZURE_API_KEY: str = "",
+        AZURE_OPENAI_ENDPOINT: str = "",
         DEPLOYMENT_ID: str = "",
         AI_MODEL: str = "gpt-3.5-turbo",
         AI_TEMPERATURE: float = 0.7,
@@ -14,6 +15,9 @@ class AzureProvider:
         **kwargs,
     ):
         openai.api_type = "azure"
+        openai.api_base = AZURE_OPENAI_ENDPOINT
+        openai.api_version = "2023-05-15"
+        openai.api_key = AZURE_API_KEY
         self.requirements = ["openai"]
         self.DEPLOYMENT_ID = DEPLOYMENT_ID
         self.AZURE_API_KEY = AZURE_API_KEY
@@ -29,7 +33,6 @@ class AzureProvider:
                 resp = openai.ChatCompletion.create(
                     engine=self.DEPLOYMENT_ID,
                     messages=messages,
-                    api_key=self.AZURE_API_KEY,
                     max_tokens=self.MAX_TOKENS,
                     temperature=float(self.AI_TEMPERATURE),
                 )["choices"][0]["message"]["content"]
