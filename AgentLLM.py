@@ -482,6 +482,7 @@ class AgentLLM:
                     url = link["href"]
                 else:
                     url = link
+                url = re.sub(r"^.*?(http)", r"http", url)
                 print(f"Scraping: {url}")
                 collected_data, link_list = await self.browse_website(url)
                 if collected_data is not None:
