@@ -156,26 +156,11 @@ cd Agent-LLM
 Choose a service you want to run using profiles, e.g.
 `docker compose --profile streamlit up`
 
-To run all available web-UIs
-`docker compose --profile frontend --profile streamlit up`
+Run all available services
+`docker compose --profile all up`
 
-### MacOS
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd Agent-LLM
-docker compose -f docker-compose-mac.yml up -d
-```
-
-### Streamlit version for Mac OS
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd Agent-LLM
-docker compose -f docker-compose-mac-streamlit.yml up -d
-```
-
-Access the web interface at http://localhost:3000
+- Agent-LLM-frontend http://localhost:3000
+- streamlit-UI http://localhost:8501
 
 ### Windows Docker Desktop (streamlit only example)
 
@@ -184,13 +169,13 @@ Access the web interface at http://localhost:3000
 
 ### Development using docker
 ```
-docker compose --profile frontend --profile streamlit -f docker-compose.yml -f docker-compose.dev.yaml up
+docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
 * mounts dev space into container - happy building 
 
 
-## Alternative: Quick Start for Local or Virtual Machine
+## Manual Install from source (unsupported)
 
 As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
