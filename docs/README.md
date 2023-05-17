@@ -146,14 +146,21 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
 
 ### Linux or Windows
-Works for all platforms (amd64, arm64)
 
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-docker compose up 
 ```
+
+Choose a service you want to run using profiles, e.g.
+`docker compose --profile streamlit up`
+
+To run all available web-UIs
+`docker compose --profile frontend --profile streamlit up`
+
+**`Warning`**
+Due to https://github.com/nodejs/docker-node/issues/1335 the profile `frontend` is not available for `arm64`
 
 ### MacOS
 
@@ -180,7 +187,7 @@ Access the web interface at http://localhost:3000
 
 ### Development using docker
 ```
-docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
+docker compose --profile frontend --profile streamlit -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
 * mounts dev space into container - happy building 
