@@ -141,24 +141,18 @@ The frontend web application of Agent-LLM provides an intuitive and interactive 
 - Built using NextJS and Material-UI
 - Communicates with the backend through API endpoints
 
-## Quick Start with Docker
+## Run with Docker
 
 Clone the repositories for the Agent-LLM front/back ends then start the services with Docker.
 
 ### Linux or Windows
-Works for all platforms except for arm64 processors use streamlit version
+Works for all platforms (amd64, arm64)
+
 
 ```
 git clone https://github.com/Josh-XT/Agent-LLM
 cd Agent-LLM
-docker-compose up -d
-```
-### Streamlit version
-
-```
-git clone https://github.com/Josh-XT/Agent-LLM
-cd Agent-LLM
-docker compose -f docker-compose-streamlit.yml up -d
+docker compose up 
 ```
 
 ### MacOS
@@ -179,26 +173,18 @@ docker compose -f docker-compose-mac-streamlit.yml up -d
 
 Access the web interface at http://localhost:3000
 
-## Remote-only, NON-persistent Setup
-### AKA *quick and dirty*
-
-#### Console
-
-```
-docker pull josh-xt/agent-llm-streamlit:latest
-docker run -p 8501:8501 josh-xt/agent-llm-streamlit
-```
-
-#### Windows Docker Desktop
+### Windows Docker Desktop (streamlit only example)
 
 ![On Windows Docker Desktop](Docker-desktop-win-setting-streamlit.png)
 
 
-#### Enjoy
+### Development using docker
+```
+docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
+```
 
-- Browse to `http://localhost:8501`
-- Create an agent named `hugU` and enable huggingface provider
-- Start chatting
+* mounts dev space into container - happy building 
+
 
 ## Alternative: Quick Start for Local or Virtual Machine
 

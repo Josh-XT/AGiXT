@@ -1,0 +1,8 @@
+services:
+  backend:
+    volumes:
+      - .:/app
+  backend-streamlit:
+    volumes:
+      - .:/app
+
