@@ -24,7 +24,7 @@ class Memories:
         try:
             return spacy.load("en_core_web_sm")
         except:
-            raise RuntimeError("Spacy model not found. Please download it.")
+            spacy.cli.download("en_core_web_sm")
 
     def initialize_chroma_client(self):
         try:
