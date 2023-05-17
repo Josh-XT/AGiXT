@@ -8,7 +8,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
     profiles: ["frontend"]
@@ -19,7 +19,7 @@ services:
     env_file:
       - .env
     ports:
-      - "7437:7437"
+      - "127.0.0.1:7437:7437"
     volumes:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
@@ -32,7 +32,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     volumes:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
