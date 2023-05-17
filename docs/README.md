@@ -236,6 +236,15 @@ This documentation is hosted locally and the frontend must be running for these 
 
 ## Extending Functionality
 
+When extending functionality ensure to perform the following inside the top level Agent-LLM directory:
+
+```
+pip install pipreqs
+pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv
+pip install --no-cache-dir -r gen_requirements.txt
+```
+This will generate an updated requirements file, and install the new dependencies required to support your modifications.
+
 ### Commands
 
 To introduce new commands, generate a new Python file in the `commands` folder and define a class inheriting from the `Commands` class. Implement the desired functionality as methods within the class and incorporate them into the `commands` dictionary.
