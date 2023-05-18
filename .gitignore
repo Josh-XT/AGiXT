@@ -28,3 +28,4 @@ data/*
 _book/
 package.json
 package-lock.json
+*cookies.json

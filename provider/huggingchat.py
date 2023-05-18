@@ -19,13 +19,10 @@ class HuggingchatProvider:
     def instruct(self, prompt: str, tokens: int = 0) -> str:
         try:
             chatbot = hugchat.ChatBot(cookie_path=self.HUGGINGCHAT_COOKIE_PATH)
-            max_new_tokens = int(self.MAX_TOKENS) - tokens - 428
             id = chatbot.new_conversation()
             response = chatbot.chat(
                 text=prompt,
-                temperature=self.AI_TEMPERATURE,
-                max_new_tokens=max_new_tokens,
-                stream=False,
+                temperature=float(self.AI_TEMPERATURE),
             )
             return response
         except Exception as e:
