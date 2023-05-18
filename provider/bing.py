@@ -6,6 +6,7 @@ class BingProvider:
     def __init__(self, AI_TEMPERATURE: float = 0.7, **kwargs):
         self.AI_MODEL = "default"
         self.requirements = ["EdgeGPT"]
+        AI_TEMPERATURE = float(AI_TEMPERATURE)
         if AI_TEMPERATURE >= 0.7:
             self.style = ConversationStyle.creative
         if AI_TEMPERATURE <= 0.3 and AI_TEMPERATURE >= 0.0:
