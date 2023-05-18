@@ -22,7 +22,7 @@ Agent-LLM-Frontend/
 *.code-workspace
 chains/*/*
 data/*
-
+src/agent-llm/agents/*
 src/agent-llm/data/*
 src/agent-llm/WORKSPACE/*
 # docs generation
