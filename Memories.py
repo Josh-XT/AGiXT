@@ -65,7 +65,7 @@ class Memories:
     def store_result(self, task_name: str, result: str):
         if result:
             timestamp = datetime.now()  # current time as datetime object
-            chunks = self.chunk_content(result)
+            chunks = self.chunk_content(result, task_name)
             for chunk in chunks:
                 result_id = self.generate_id(chunk, timestamp.isoformat())
                 self.store_memory(
