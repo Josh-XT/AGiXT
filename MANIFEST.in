@@ -1,0 +1,3 @@
+include docs/README.md
+include src/agent-llm/requirements.txt
+include src/agent-llm/version
