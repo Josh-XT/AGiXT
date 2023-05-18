@@ -12,12 +12,17 @@ import threading
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
+import os
+
+this_directory = os.path.abspath(os.path.dirname(__file__))
+with open(os.path.join(this_directory, "src/agent-llm/version"), encoding="utf-8") as f:
+    version = f.read().strip()
 
 CFG = Config()
 app = FastAPI(
     title="Agent-LLM",
     description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/Agent-LLM/",
-    version="v1.1.35-beta",
+    version=version,
     docs_url="/",
 )
 agent_threads = {}
