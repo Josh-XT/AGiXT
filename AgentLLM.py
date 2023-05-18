@@ -596,13 +596,13 @@ class AgentLLM:
                 )
             else:
                 resolver = self.run(
-                    task=task,
+                    task=task["task_name"],
                     prompt="SmartInstruct-StepByStep",
                     context_results=6,
                     **kwargs,
                 )
                 execution_response = self.run(
-                    task=task,
+                    task=task["task_name"],
                     prompt="SmartInstruct-Execution",
                     previous_response=resolver,
                     **kwargs,
