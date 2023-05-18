@@ -1,5 +1,5 @@
 #### This block includes deps for local providers - all may big dependencies due to torch
---extra-index-url https://download.pytorch.org/whl/cpu torch
+torch==1.8.1 -f https://download.pytorch.org/whl/torch_stable.html
 chromadb
 git+https://github.com/huggingface/transformers
 sentence-transformers
