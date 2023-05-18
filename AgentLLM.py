@@ -36,6 +36,7 @@ class AgentLLM:
         self.output_list = []
         self.memories = Memories(self.agent_name, self.CFG)
         self.stop_running_event = None
+        self.browsed_links = []
 
     def get_output_list(self):
         return self.output_list
@@ -489,21 +490,23 @@ class AgentLLM:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
                 print(f"Scraping: {url}")
-                collected_data, link_list = await self.browse_website(url)
-                if collected_data is not None:
-                    self.memories.store_result(task, collected_data)
-                if link_list is not None:
-                    if len(link_list) > 0:
-                        if len(link_list) > 5:
-                            link_list = link_list[:3]
-                        try:
-                            pick_a_link = self.run(
-                                task=task, prompt="Pick-a-Link", links=link_list
-                            )
-                            if not pick_a_link.startswith("None"):
-                                await self.resursive_browsing(task, pick_a_link)
-                        except:
-                            print(f"Issues reading {url}. Moving on...")
+                if url not in self.browsed_links:
+                    self.browsed_links.append(url)
+                    collected_data, link_list = await self.browse_website(url)
+                    if collected_data is not None:
+                        self.memories.store_result(task, collected_data)
+                    if link_list is not None:
+                        if len(link_list) > 0:
+                            if len(link_list) > 5:
+                                link_list = link_list[:3]
+                            try:
+                                pick_a_link = self.run(
+                                    task=task, prompt="Pick-a-Link", links=link_list
+                                )
+                                if not pick_a_link.startswith("None"):
+                                    await self.resursive_browsing(task, pick_a_link)
+                            except:
+                                print(f"Issues reading {url}. Moving on...")
 
     async def browse_website(self, url):
         try:
