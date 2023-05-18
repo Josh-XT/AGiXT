@@ -92,10 +92,12 @@ class Memories:
         sorted_results = sorted(
             results["metadatas"][0],
             key=lambda item: datetime.strptime(
-                item.get("timestamp", ""), "%Y-%m-%dT%H:%M:%S.%f"
+                item.get("timestamp") or "1970-01-01T00:00:00.000",
+                "%Y-%m-%dT%H:%M:%S.%f",
             ),
             reverse=True,
         )
+
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
         return "\n".join(trimmed_context)
