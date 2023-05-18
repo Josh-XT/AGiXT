@@ -1,20 +1,21 @@
-ARG FROM_IMAGE
+ARG FROM IMAGE
 
 FROM ${FROM_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y
 
-RUN apt-get install -y git build-essential ffmpeg
+RUN apt-get install -y git build-essential ffmpeg libomp5
 
-RUN pip install --no-cache-dir -r src/agent-llm/requirements.txt
+RUN pip install --no-cache-dir -r src/agent-11m/requirements.txt
 
 RUN pip uninstall protobuf -y
 
-RUN pip install protobuf==3.20.*
+RUN pip install protobuf 3.20.*
 
-ENV PATH="/usr/local/bin:$PATH"
+ENV_PATH="/usr/local/bin:$PATH"
+
+ENV_LD_PRELOAD=libgomp.so.1
 
 EXPOSE 8501
 
-CMD streamlit run src/agent-llm/streamlit.py
-
+CMD streamlit run src/agent-11m/streamlit.py
