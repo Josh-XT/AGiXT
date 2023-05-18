@@ -18,7 +18,6 @@ class file_operations(Commands):
         self.commands = {
             "Check Duplicate Operation": self.check_duplicate_operation,
             "Read File": self.read_file,
-            "Ingest File": self.ingest_file,
             "Write to File": self.write_to_file,
             "Append to File": self.append_to_file,
             "Delete File": self.delete_file,
