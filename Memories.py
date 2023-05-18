@@ -1,11 +1,10 @@
-import string
 import chromadb
-import secrets
 from typing import List
 import spacy
 from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
+from collections import Counter
 
 
 class Memories:
@@ -115,23 +114,44 @@ class Memories:
                 break
         return trimmed_context
 
-    def chunk_content(self, content: str, overlap: int = 2) -> List[str]:
+    def get_keywords(self, query: str):
+        """Extract keywords from a query using Spacy's part-of-speech tagging."""
+        doc = self.nlp(query)
+        keywords = [
+            token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
+        ]
+        return set(keywords)
+
+    def score_chunk(self, chunk: str, keywords: set):
+        """Score a chunk based on the number of query keywords it contains."""
+        chunk_counter = Counter(chunk.split())
+        score = sum(chunk_counter[keyword] for keyword in keywords)
+        return score
+
+    def chunk_content(self, content: str, query: str, overlap: int = 2) -> List[str]:
         content_chunks = []
         doc = self.nlp(content)
         sentences = list(doc.sents)
         chunk = []
         chunk_len = 0
+        keywords = self.get_keywords(query)
 
         for i, sentence in enumerate(sentences):
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > self.chunk_size and chunk:
-                content_chunks.append(" ".join(token.text for token in chunk))
+                chunk_text = " ".join(token.text for token in chunk)
+                content_chunks.append(
+                    (self.score_chunk(chunk_text, keywords), chunk_text)
+                )
                 chunk = list(sentences[i - overlap : i]) if i - overlap >= 0 else []
                 chunk_len = sum(len(s) for s in chunk)
             chunk.extend(sentence)
             chunk_len += sentence_tokens
 
         if chunk:
-            content_chunks.append(" ".join(token.text for token in chunk))
+            chunk_text = " ".join(token.text for token in chunk)
+            content_chunks.append((self.score_chunk(chunk_text, keywords), chunk_text))
 
-        return content_chunks
+        # Sort the chunks by their score in descending order before returning them
+        content_chunks.sort(key=lambda x: x[0], reverse=True)
+        return [chunk_text for score, chunk_text in content_chunks]
