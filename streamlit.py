@@ -444,11 +444,8 @@ elif main_selection == "Instructions":
                             learn_file=learn_file_path,
                         )
                     else:
-                        response = agent.run(
-                            instruct_prompt,
-                            prompt="Instruct",
-                            context_results=6,
-                            learn_file=learn_file_path,
+                        response = agent.instruction_agent(
+                            instruct_prompt, learn_file=learn_file_path
                         )
                 instruct_entry = [
                     {"sender": "User", "message": instruct_prompt},
