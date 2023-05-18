@@ -257,9 +257,19 @@ if main_selection == "Agent Settings":
                     st.success(f"Agent '{agent_name}' updated.")
                 except Exception as e:
                     st.error(f"Error updating agent: {str(e)}")
-        delete_agent_button = st.button("Delete Agent")
 
-        # If the "Delete Agent" button is clicked, delete the agent config file
+        wipe_memories_button = st.button("Wipe Agent Memories")
+        if wipe_memories_button:
+            if agent_name:
+                try:
+                    Agent(agent_name).wipe_agent_memories(agent_name)
+                    st.success(f"Memories of agent '{agent_name}' wiped.")
+                except Exception as e:
+                    st.error(f"Error wiping agent's memories: {str(e)}")
+            else:
+                st.error("Agent name is required to wipe memories.")
+
+        delete_agent_button = st.button("Delete Agent")
         if delete_agent_button:
             if agent_name:
                 try:
