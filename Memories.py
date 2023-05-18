@@ -13,6 +13,7 @@ class Memories:
         self.AGENT_NAME = AGENT_NAME
         self.CFG = AgentConfig
         self.nlp = nlp if nlp else self.load_spacy_model()
+        self.nlp.max_length = 999999999999999999999999999999999
         embedder = Embedding(embedder=self.CFG.EMBEDDER)
         self.embedding_function = embedder.embed
         self.chunk_size = embedder.chunk_size
