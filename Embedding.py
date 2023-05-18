@@ -129,7 +129,7 @@ class Embedding:
         return embed, chunk_size
 
     def azure(self):
-        chunk_size = 2000
+        chunk_size = 1000
         embed = AzureEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
             deployment_id=self.CFG.AGENT_CONFIG["settings"]["DEPLOYMENT_ID"],
@@ -140,21 +140,21 @@ class Embedding:
         return embed, chunk_size
 
     def openai(self):
-        chunk_size = 2000
+        chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
         )
         return embed, chunk_size
 
     def google_palm(self):
-        chunk_size = 3000
+        chunk_size = 1000
         embed = GooglePalmEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
         )
         return embed, chunk_size
 
     def google_vertex(self):
-        chunk_size = 3000
+        chunk_size = 1000
         embed = GoogleVertexEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
             project_id=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_PROJECT_ID"],

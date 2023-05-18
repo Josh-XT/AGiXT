@@ -538,6 +538,7 @@ class AgentLLM:
                 await browser.close()
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
+                text_content = " ".join(text_content.split())
                 return text_content, link_list
         except:
             return None, None
