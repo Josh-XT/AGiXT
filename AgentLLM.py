@@ -91,7 +91,7 @@ class AgentLLM:
     def format_prompt(
         self,
         task: str,
-        top_results: int = 3,
+        top_results: int = 5,
         prompt="",
         **kwargs,
     ):
@@ -125,7 +125,7 @@ class AgentLLM:
         self,
         task: str,
         prompt: str = "",
-        context_results: int = 3,
+        context_results: int = 5,
         websearch: bool = False,
         websearch_depth: int = 3,
         async_exec: bool = False,
@@ -543,6 +543,24 @@ class AgentLLM:
         except:
             return None, None
 
+    def instruction_agent(self, task, learn_file: str = "", **kwargs):
+        resolver = self.run(
+            task=task["task_name"],
+            prompt="SmartInstruct-StepByStep",
+            context_results=6,
+            learn_file=learn_file,
+            **kwargs,
+        )
+        execution_response = self.run(
+            task=task["task_name"],
+            prompt="SmartInstruct-Execution",
+            previous_response=resolver,
+            **kwargs,
+        )
+        return (
+            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
+        )
+
     def run_task(
         self,
         stop_event,
@@ -595,19 +613,7 @@ class AgentLLM:
                     **kwargs,
                 )
             else:
-                resolver = self.run(
-                    task=task["task_name"],
-                    prompt="SmartInstruct-StepByStep",
-                    context_results=6,
-                    **kwargs,
-                )
-                execution_response = self.run(
-                    task=task["task_name"],
-                    prompt="SmartInstruct-Execution",
-                    previous_response=resolver,
-                    **kwargs,
-                )
-                result = f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
+                result = self.instruction_agent(task=task["task_name"], **kwargs)
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
             new_tasks = self.task_creation_agent(
