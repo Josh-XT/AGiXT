@@ -1,8 +1,20 @@
 ARG FROM_IMAGE
+
 FROM ${FROM_IMAGE}
 
+RUN apt-get update && apt-get upgrade -y
+
+RUN apt-get install -y git build-essential
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip uninstall protobuf -y
+
+RUN pip install protobuf==3.20.*
 
 ENV PATH="/usr/local/bin:$PATH"
 
 EXPOSE 8501
+
 CMD streamlit run streamlit.py
+
