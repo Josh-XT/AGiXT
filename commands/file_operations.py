@@ -9,6 +9,8 @@ WORKING_DIRECTORY = CFG.WORKING_DIRECTORY
 LOG_FILE = "file_logger.txt"
 LOG_FILE_PATH = os.path.join(WORKING_DIRECTORY, LOG_FILE)
 WORKING_DIRECTORY = str(WORKING_DIRECTORY)
+if not os.path.exists(WORKING_DIRECTORY):
+    os.makedirs(WORKING_DIRECTORY)
 
 
 class file_operations(Commands):
@@ -35,10 +37,12 @@ class file_operations(Commands):
             paths = paths.replace("/path/to/", "")
         if str(CFG.WORKING_DIRECTORY_RESTRICTED).lower() == "true":
             new_path = os.path.normpath(os.path.join(base, *paths.split("/")))
-            if os.path.commonprefix([base, new_path]) != base:
-                raise ValueError("Attempted to access outside of working directory.")
+            if not os.path.exists(new_path):
+                os.makedirs(new_path)
         else:
             new_path = os.path.normpath(os.path.join("/", *paths))
+            if not os.path.exists(new_path):
+                os.makedirs(new_path)
         return new_path
 
     @staticmethod
@@ -66,31 +70,6 @@ class file_operations(Commands):
             return content
         except Exception as e:
             return f"Error: {str(e)}"
-
-    @staticmethod
-    def ingest_file(
-        filename: str, memory, max_length: int = 4000, overlap: int = 200
-    ) -> None:
-        try:
-            content = file_operations.read_file(filename)
-            content_length = len(content)
-
-            chunks = list(
-                file_operations.split_file(
-                    content, max_length=max_length, overlap=overlap
-                )
-            )
-
-            num_chunks = len(chunks)
-            for i, chunk in enumerate(chunks):
-                memory_to_add = (
-                    f"Filename: {filename}\n"
-                    f"Content part#{i + 1}/{num_chunks}: {chunk}"
-                )
-
-                memory.add(memory_to_add)
-        except Exception as e:
-            print(f"Error while ingesting file '{filename}': {str(e)}")
 
     @staticmethod
     def write_to_file(filename: str, text: str) -> str:
