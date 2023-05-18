@@ -67,8 +67,13 @@ class AzureEmbeddingFunction(EmbeddingFunction):
         api_key: str,
         model_name: str = "text-embedding-ada-002",
         deployment_id: str = "",
+        AZURE_OPENAI_ENDPOINT: str = "https://api.openai.com",
     ):
         openai.api_type = "azure"
+        openai.api_type = "azure"
+        openai.api_base = AZURE_OPENAI_ENDPOINT
+        openai.api_version = "2023-05-15"
+        openai.api_key = api_key
         if api_key is not None:
             self.api_key = api_key
         else:
@@ -77,7 +82,7 @@ class AzureEmbeddingFunction(EmbeddingFunction):
             self.deployment_id = deployment_id
         else:
             raise ValueError("Please update your Agent settings with an AZURE_API_KEY.")
-        self._client = openai.Embedding(engine=self.deployment_id)
+        self._client = openai.Embedding(engine=model_name)
         self._model_name = model_name
 
     def __call__(self, texts: Documents) -> Embeddings:
@@ -87,9 +92,7 @@ class AzureEmbeddingFunction(EmbeddingFunction):
         # Call the OpenAI Embedding API
         embeddings = self._client.create(
             input=texts,
-            engine=self.deployment_id,
-            model=self._model_name,
-            api_key=self.api_key,
+            engine=self._model_name,
         )["data"]
 
         # Sort resulting embeddings by index
@@ -127,6 +130,9 @@ class Embedding:
         embed = AzureEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
             deployment_id=self.CFG.AGENT_CONFIG["settings"]["DEPLOYMENT_ID"],
+            AZURE_OPENAI_ENDPOINT=self.CFG.AGENT_CONFIG["settings"][
+                "AZURE_OPENAI_ENDPOINT"
+            ],
         )
         return embed, chunk_size
 

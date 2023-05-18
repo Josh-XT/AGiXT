@@ -16,6 +16,7 @@ import asyncio
 import pandas as pd
 import docx2txt
 import pdfplumber
+from urllib.parse import urlparse
 
 
 def run_asyncio_coroutine(coro):
@@ -477,9 +478,15 @@ class AgentLLM:
             if links is not None:
                 await self.resursive_browsing(task, links)
 
+    def find_url(self, s):
+        # Split the string into words then check if the word is a url
+        words = s.split()
+        urls = [word for word in words if urlparse(word).scheme in ["http", "https"]]
+        return urls
+
     async def resursive_browsing(self, task, links):
         try:
-            links = links.split("\n")
+            links = self.find_url(links)
         except:
             links = links
         if links is not None:
