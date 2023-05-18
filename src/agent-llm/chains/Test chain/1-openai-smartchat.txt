@@ -1,0 +1,1 @@
+What are the top 10 most critical trending vulnerabilities today that have an available fix?
