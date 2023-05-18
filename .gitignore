@@ -17,7 +17,6 @@ memories/*
 WORKSPACE/*
 *.util.py
 agents/*
-src/*
 frontend/
 Agent-LLM-Frontend/
 *.code-workspace
