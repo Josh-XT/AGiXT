@@ -23,6 +23,8 @@ Agent-LLM-Frontend/
 chains/*/*
 data/*
 
+src/agent-llm/data/*
+src/agent-llm/WORKSPACE/*
 # docs generation
 _book/
 package.json
