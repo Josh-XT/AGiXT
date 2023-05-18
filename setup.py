@@ -12,8 +12,9 @@ with open(
     install_requires = f.read().splitlines()
 
 for reqs in install_requires:
-    if "--" in reqs:
+    if "--" in reqs or "git+" in reqs:
         install_requires.remove(reqs)
+
 # Get version from version file
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().splitlines()[0]
