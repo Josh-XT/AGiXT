@@ -17,6 +17,7 @@ import pandas as pd
 import docx2txt
 import pdfplumber
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 
 
 def run_asyncio_coroutine(coro):
@@ -535,8 +536,9 @@ class AgentLLM:
                     link_list.append((title, href))
 
                 await browser.close()
-
-                return content, link_list
+                soup = BeautifulSoup(content, "html.parser")
+                text_content = soup.get_text()
+                return text_content, link_list
         except:
             return None, None
 

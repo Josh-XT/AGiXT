@@ -103,13 +103,16 @@ class AzureEmbeddingFunction(EmbeddingFunction):
 
 
 class Embedding:
-    def __init__(self, embedder: str = "default"):
+    def __init__(self, CFG=None):
         # We need to take the embedder string and then return the correct embedder
         # We also need to return the correct chunk size
+        self.CFG = CFG
         try:
+            embedder = self.CFG.AGENT_CONFIG["settings"]["embedder"]
             self.embed, self.chunk_size = self.__getattribute__(embedder)()
         except:
             self.embed, self.chunk_size = self.default()
+            print("Embedder not found, using default embedder")
 
     def default(self):
         chunk_size = 128

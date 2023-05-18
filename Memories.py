@@ -14,7 +14,7 @@ class Memories:
         self.CFG = AgentConfig
         self.nlp = nlp if nlp else self.load_spacy_model()
         self.nlp.max_length = 999999999999999999999999999999999
-        embedder = Embedding(embedder=self.CFG.EMBEDDER)
+        embedder = Embedding(CFG=AgentConfig)
         self.embedding_function = embedder.embed
         self.chunk_size = embedder.chunk_size
         self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
@@ -100,6 +100,7 @@ class Memories:
 
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
+        print(f"CONTEXT: {trimmed_context}")
         return "\n".join(trimmed_context)
 
     def trim_context(self, context: List[str]) -> List[str]:
