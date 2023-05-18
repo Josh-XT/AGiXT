@@ -33,7 +33,7 @@ class AzureProvider:
                 resp = openai.ChatCompletion.create(
                     engine=self.AI_MODEL,
                     messages=messages,
-                    max_tokens=self.MAX_TOKENS,
+                    max_tokens=int(self.MAX_TOKENS),
                     temperature=float(self.AI_TEMPERATURE),
                 )["choices"][0]["message"]["content"]
                 return resp
