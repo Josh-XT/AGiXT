@@ -6,7 +6,7 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y git build-essential
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r src/agent-llm/requirements.txt
 
 RUN pip uninstall protobuf -y
 
@@ -16,5 +16,5 @@ ENV PATH="/usr/local/bin:$PATH"
 
 EXPOSE 8501
 
-CMD streamlit run streamlit.py
+CMD streamlit run src/agent-llm/streamlit.py
 
