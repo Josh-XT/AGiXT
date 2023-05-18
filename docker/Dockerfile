@@ -5,7 +5,7 @@ COPY src/agent-llm/requirements.txt .
 
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends git build-essential && \
+    apt-get install -y --no-install-recommends git build-essential ffmpeg && \
     apt-get install g++ -y && \
     pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
