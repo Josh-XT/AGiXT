@@ -15,9 +15,9 @@ for reqs in install_requires:
     if "--" in reqs or "https:" in reqs:
         install_requires.remove(reqs)
 
-# Get version from version file
-with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
-    version = f.read().splitlines()[0]
+# Get version from version file in src/agent-llm/version
+with open(os.path.join(this_directory, "src/agent-llm/version"), encoding="utf-8") as f:
+    version = f.read().strip()
 
 setup(
     name="agent-llm",
