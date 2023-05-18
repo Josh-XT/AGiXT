@@ -1,7 +1,7 @@
 FROM python:3.10-slim-buster 
 
 WORKDIR /app
-COPY requirements.txt .
+COPY src/agent-llm/requirements.txt .
 
 RUN apt-get update && \
     apt-get upgrade -y && \
@@ -15,6 +15,6 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --link . .
+COPY --link src/agent-llm/ .
 EXPOSE 7437
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
