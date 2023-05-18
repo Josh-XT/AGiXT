@@ -102,8 +102,8 @@ if main_selection == "Agent Settings":
                 # You can customize provider_settings and commands as needed
                 provider_settings = {
                     "provider": "gpt4free",
-                    "AI_MODEL": "gpt-4",
-                    "AI_TEMPERATURE": "0.7",
+                    "AI_MODEL": "gpt-3.5-turbo",
+                    "AI_TEMPERATURE": "0.4",
                     "MAX_TOKENS": "4000",
                     "embedder": "default",
                 }
