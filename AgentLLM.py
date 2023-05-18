@@ -549,6 +549,7 @@ class AgentLLM:
         objective,
         async_exec: bool = False,
         learn_file: str = "",
+        smart: bool = False,
         **kwargs,
     ):
         self.primary_objective = objective
@@ -586,13 +587,27 @@ class AgentLLM:
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-            result = self.smart_instruct(
-                task=task["task_name"],
-                shots=3,
-                async_exec=async_exec,
-                **kwargs,
-            )
-            # result = self.run(task=task["task_name"], prompt="execute")
+            if smart:
+                result = self.smart_instruct(
+                    task=task["task_name"],
+                    shots=3,
+                    async_exec=async_exec,
+                    **kwargs,
+                )
+            else:
+                resolver = self.run(
+                    task=task,
+                    prompt="SmartInstruct-StepByStep",
+                    context_results=6,
+                    **kwargs,
+                )
+                execution_response = self.run(
+                    task=task,
+                    prompt="SmartInstruct-Execution",
+                    previous_response=resolver,
+                    **kwargs,
+                )
+                result = f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
             new_tasks = self.task_creation_agent(
