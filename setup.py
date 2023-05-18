@@ -12,7 +12,7 @@ with open(
     install_requires = f.read().splitlines()
 
 for reqs in install_requires:
-    if "--" in reqs or "git+" in reqs:
+    if "--" in reqs or "https:" in reqs:
         install_requires.remove(reqs)
 
 # Get version from version file
