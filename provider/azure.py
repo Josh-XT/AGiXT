@@ -9,7 +9,7 @@ class AzureProvider:
         AZURE_API_KEY: str = "",
         AZURE_OPENAI_ENDPOINT: str = "",
         DEPLOYMENT_ID: str = "",
-        AI_MODEL: str = "gpt-3.5-turbo",
+        AI_MODEL: str = "gpt-35-turbo",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4096,
         **kwargs,
@@ -31,7 +31,7 @@ class AzureProvider:
         for _ in range(num_retries):
             try:
                 resp = openai.ChatCompletion.create(
-                    engine=self.DEPLOYMENT_ID,
+                    engine=self.AI_MODEL,
                     messages=messages,
                     max_tokens=self.MAX_TOKENS,
                     temperature=float(self.AI_TEMPERATURE),
