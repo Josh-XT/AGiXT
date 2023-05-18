@@ -41,8 +41,6 @@ class Agent(Config):
                     self.EMBEDDER = "openai"
                 else:
                     self.EMBEDDER = "default"
-            if not os.path.exists(f"model-prompts/{self.AI_MODEL}"):
-                self.AI_MODEL = "default"
             if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
                 self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
             else:
