@@ -544,15 +544,17 @@ class AgentLLM:
             return None, None
 
     def instruction_agent(self, task, learn_file: str = "", **kwargs):
+        if "task_name" in task:
+            task = task["task_name"]
         resolver = self.run(
-            task=task["task_name"],
+            task=task,
             prompt="SmartInstruct-StepByStep",
             context_results=6,
             learn_file=learn_file,
             **kwargs,
         )
         execution_response = self.run(
-            task=task["task_name"],
+            task=task,
             prompt="SmartInstruct-Execution",
             previous_response=resolver,
             **kwargs,
