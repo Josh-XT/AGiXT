@@ -12,4 +12,4 @@ Here's a more detailed explanation:
 
 5. **Loop Continuation:** The process continues, looping back to the Smart Instruct step until all the tasks in the list are completed.
 
-Within this process, the Smart Instruct system is responsible for completing individual tasks. You can 
+Within this process, the Smart Instruct system is responsible for completing individual tasks. See the [Smart Instruct Documentation](https://josh-xt.github.io/Agent-LLM/2-Concepts/Smart%20Instruct.html) for more information.
