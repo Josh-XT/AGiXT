@@ -3,7 +3,7 @@ import threading
 import os
 import yaml
 from Config import Config
-from AgentLLM import AgentLLM
+from AGiXT import AGiXT
 from Config.Agent import Agent
 from Chain import Chain
 from CustomPrompt import CustomPrompt
@@ -14,7 +14,7 @@ from Embedding import get_embedding_providers
 CFG = Config()
 
 st.set_page_config(
-    page_title="Agent-LLM",
+    page_title="AGiXT",
     page_icon=":robot:",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -344,7 +344,7 @@ elif main_selection == "Chat":
         if send_button:
             if agent_name and chat_prompt:
                 with st.spinner("Thinking, please wait..."):
-                    agent = AgentLLM(agent_name)
+                    agent = AGiXT(agent_name)
                     if smart_chat_toggle:
                         response = agent.smart_chat(
                             chat_prompt,
@@ -435,7 +435,7 @@ elif main_selection == "Instructions":
         if send_button:
             if agent_name and instruct_prompt:
                 with st.spinner("Thinking, please wait..."):
-                    agent = AgentLLM(agent_name)
+                    agent = AGiXT(agent_name)
                     if smart_instruct_toggle:
                         response = agent.smart_instruct(
                             instruct_prompt,
@@ -492,7 +492,7 @@ elif main_selection == "Tasks":
             if st.button("Start Task"):
                 if agent_name and task_objective:
                     if agent_name not in CFG.agent_instances:
-                        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+                        CFG.agent_instances[agent_name] = AGiXT(agent_name)
                     stop_event = threading.Event()
                     agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(

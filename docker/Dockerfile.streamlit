@@ -6,7 +6,7 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y git build-essential ffmpeg libomp5
 
-RUN pip install --no-cache-dir -r src/agent-llm/requirements.txt
+RUN pip install --no-cache-dir -r src/agixt/requirements.txt
 
 RUN pip uninstall protobuf -y
 
@@ -18,4 +18,4 @@ ENV LD_PRELOAD=libgomp.so.1
 
 EXPOSE 8501
 
-CMD streamlit run src/agent-llm/streamlit.py
+CMD streamlit run src/agixt/streamlit.py

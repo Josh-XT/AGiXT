@@ -1,6 +1,6 @@
 # OpenAI
 - [OpenAI](https://openai.com)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
+- [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ⚠️ **Please note that using some AI providers, such as OpenAI's API, can be expensive. Monitor your usage carefully to avoid incurring unexpected costs. We're NOT responsible for your usage under any circumstance.**
 

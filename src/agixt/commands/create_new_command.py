@@ -2,7 +2,7 @@ import os
 from typing import List
 from Commands import Commands
 from Config import Config
-from AgentLLM import AgentLLM
+from AGiXT import AGiXT
 
 CFG = Config()
 
@@ -15,14 +15,14 @@ class create_new_command(Commands):
         return os.path.exists(f"commands/{file_name}.py")
 
     def create_command(
-        self, function_description: str, agent_name: str = "Agent-LLM"
+        self, function_description: str, agent_name: str = "AGiXT"
     ) -> List[str]:
         args = [function_description]
         # Get prompt from model-prompts/{CFG.AI_MODEL}/script.txt
         with open(f"model-prompts/{CFG.AI_MODEL}/script.txt", "r") as f:
             prompt = f.read()
         prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
-        response = AgentLLM(agent_name).run(prompt)
+        response = AGiXT(agent_name).run(prompt)
         file_name = response.split("class ")[1].split("(")[0]
         code = code.replace("```", "")
 
