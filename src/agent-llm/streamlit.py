@@ -522,7 +522,7 @@ elif main_selection == "Chains":
     st.header("Manage Chains")
 
     chain_name = st.text_input("Chain Name")
-    chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain"])
+    chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
 
     if st.button("Perform Action"):
         if chain_name:
@@ -532,6 +532,9 @@ elif main_selection == "Chains":
             elif chain_action == "Delete Chain":
                 Chain().delete_chain(chain_name)
                 st.success(f"Chain '{chain_name}' deleted.")
+            elif chain_action == "Run Chain":
+                Chain().run_chain(chain_name)
+                st.success(f"Chain '{chain_name}' executed.")
         else:
             st.error("Chain name is required.")
 
