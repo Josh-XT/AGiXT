@@ -13,6 +13,8 @@ from provider import get_provider_options
 from Commands import Commands
 from Embedding import get_embedding_providers
 
+CFG = Config()
+
 st.set_page_config(
     page_title="Agent-LLM",
     page_icon=":robot:",
@@ -20,7 +22,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-CFG = Config()
 
 SETUP_INI = "setup.cfgi"
 if not os.path.exists(SETUP_INI):
@@ -262,6 +263,35 @@ else:
     ],
 )
 
+# Agent Settings UI code
+def render_provider_settings(agent_settings, provider_name: str):
+    try:
+        required_settings = get_provider_options(provider_name)
+    except (TypeError, ValueError):
+        st.error(
+            f"Error loading provider settings: expected a list, but got {required_settings}"
+        )
+        return {}
+    rendered_settings = {}
+
+    if not isinstance(required_settings, list):
+        st.error(
+            f"Error loading provider settings: expected a list, but got {required_settings}"
+        )
+        return rendered_settings
+
+    for key in required_settings:
+        if key in agent_settings:
+            default_value = agent_settings[key]
+        else:
+            default_value = None
+
+        user_val = st.text_input(key, value=default_value)
+        rendered_settings[key] = user_val
+
+    return rendered_settings
+
+
 # Add the UI sections here based on the main_selection
 if main_selection == "Account Manager":
 
@@ -376,34 +406,6 @@ if main_selection == "Account Manager":
         create_user_form()
 
 elif main_selection == "Agent Settings":
-    # Agent Settings UI code
-    def render_provider_settings(agent_settings, provider_name: str):
-        try:
-            required_settings = get_provider_options(provider_name)
-        except (TypeError, ValueError):
-            st.error(
-                f"Error loading provider settings: expected a list, but got {required_settings}"
-            )
-            return {}
-        rendered_settings = {}
-
-        if not isinstance(required_settings, list):
-            st.error(
-                f"Error loading provider settings: expected a list, but got {required_settings}"
-            )
-            return rendered_settings
-
-        for key in required_settings:
-            if key in agent_settings:
-                default_value = agent_settings[key]
-            else:
-                default_value = None
-
-            user_val = st.text_input(key, value=default_value)
-            rendered_settings[key] = user_val
-
-        return rendered_settings
-
     st.header("Manage Agent Settings")
 
     if "new_agent_name" not in st.session_state:
@@ -540,137 +542,358 @@ elif main_selection == "Agent Settings":
                     ):
                         st.session_state.custom_settings_list.append("")
 
-            # Remove any empty key/value pairs at the end of the list
-            while (
-                st.session_state.custom_settings_list
-                and not st.session_state.custom_settings_list[-1]
-            ):
-                st.session_state.custom_settings_list.pop()
+            # Update the custom settings in the agent_settings directly
+            agent_settings.update(
+                {
+                    custom_setting.split(":", 1)[0]: custom_setting.split(":", 1)[1]
+                    for custom_setting in st.session_state.custom_settings_list
+                    if custom_setting and ":" in custom_setting
+                }
+            )
 
-            agent_settings["custom_settings"] = [
-                cs for cs in st.session_state.custom_settings_list if cs
-            ]
+            st.subheader("Agent Commands")
+            # Fetch the available commands using the `Commands` class
+            commands = Commands(agent_name)
+            available_commands = commands.get_available_commands()
 
-            # Update the agent config with the new settings
-            Agent(agent_name).update_agent_config(agent_settings)
+            # Save the existing command state to prevent duplication
+            existing_command_states = {
+                command["friendly_name"]: command["enabled"]
+                for command in available_commands
+            }
+            for command in available_commands:
+                command_friendly_name = command["friendly_name"]
+                command_status = (
+                    existing_command_states[command_friendly_name]
+                    if command_friendly_name in existing_command_states
+                    else command["enabled"]
+                )
+                toggle_status = st.checkbox(
+                    command_friendly_name,
+                    value=command_status,
+                    key=command_friendly_name,
+                )
+                command["enabled"] = toggle_status
+            reduced_commands = {
+                cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
+            }
+            # Update the available commands back to the agent config
+            Agent(agent_name).update_agent_config(reduced_commands, "commands")
 
-            if st.button("Delete Agent"):
-                if st.session_state.email == admin_email:
-                    Agent(agent_name).delete_agent()
+        except Exception as e:
+            st.error(f"Error loading agent configuration: {str(e)}")
+
+    if not new_agent:
+        if st.button("Update Agent Settings"):
+            if agent_name:
+                try:
+                    # Update the available commands back to the agent config
+                    # Save commands in the desired format
+                    reduced_commands = {
+                        cmd["friendly_name"]: cmd["enabled"]
+                        for cmd in available_commands
+                    }
+                    Agent(agent_name).update_agent_config(reduced_commands, "commands")
+                    # Update other settings
+                    Agent(agent_name).update_agent_config(agent_settings, "settings")
+                    st.success(f"Agent '{agent_name}' updated.")
+                except Exception as e:
+                    st.error(f"Error updating agent: {str(e)}")
+        delete_agent_button = st.button("Delete Agent")
+
+        # If the "Delete Agent" button is clicked, delete the agent config file
+        if delete_agent_button:
+            if agent_name:
+                try:
+                    Agent(agent_name).delete_agent(agent_name)
                     st.success(f"Agent '{agent_name}' deleted.")
                     agent_name = ""
                     st.experimental_rerun()  # Rerun the app to update the agent list
-                else:
-                    st.error("Only the admin can delete agents.")
+                except Exception as e:
+                    st.error(f"Error deleting agent: {str(e)}")
+            else:
+                st.error("Agent name is required.")
 
-        except Exception as e:
-            st.error(f"Error loading agent settings: {str(e)}")
 
 elif main_selection == "Chat":
-    # Chat UI code
-    st.header("Chat")
+    st.header("Chat with Agent")
 
     agent_name = st.selectbox(
         "Select Agent",
-        [""] + [agent["name"] for agent in CFG.get_agents()],
-        key="chat_agent_name_select",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
 
+    smart_chat_toggle = st.checkbox("Enable Smart Chat")
+
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = {}
+
+    chat_container = st.container()
+
+    def render_chat_history(chat_container, chat_history):
+        chat_container.empty()
+        with chat_container:
+            for chat in chat_history:
+                if "sender" in chat and "message" in chat:
+                    if chat["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
     if agent_name:
-        agent = Agent(agent_name)
-        agent_settings = agent.get_agent_config().get("settings", {})
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
 
-        message = st.text_input("User:")
-        if st.button("Send"):
-            agent.handle_message(message)
-            response = agent.get_response()
-            st.text_area("Agent:", value=response, height=200, max_chars=None)
+        chat_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
 
-            # Save the conversation
-            conversation = agent.get_conversation()
-            agent.save_conversation(conversation)
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                chat_history = agent_data.get("interactions", [])
+
+        st.session_state.chat_history[agent_name] = chat_history
+
+        render_chat_history(chat_container, st.session_state.chat_history[agent_name])
+
+        chat_prompt = st.text_input("Enter your message", key="chat_prompt")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and chat_prompt:
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_chat_toggle:
+                        response = agent.smart_chat(
+                            chat_prompt,
+                            shots=3,
+                            async_exec=True,
+                            learn_file=learn_file_path,
+                        )
+                    else:
+                        response = agent.run(
+                            chat_prompt,
+                            prompt="Chat",
+                            context_results=6,
+                            learn_file=learn_file_path,
+                        )
+                chat_entry = [
+                    {"sender": "User", "message": chat_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.chat_history[agent_name].extend(chat_entry)
+                render_chat_history(
+                    chat_container, st.session_state.chat_history[agent_name]
+                )
+            else:
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to start chatting.")
 
 elif main_selection == "Instructions":
-    # Instructions UI code
-    st.header("Instructions")
+    st.header("Instruct an Agent")
 
-    st.write(
-        """
-        Instructions for using the Agent-LLM:
-
-        1. Login with your credentials.
-        2. Manage agent settings:
-           - Select an existing agent or create a new agent.
-           - Select a provider and configure the provider settings.
-           - Add custom settings if needed.
-        3. Use the Chat feature to communicate with the agent.
-        4. View and manage tasks assigned to the agent.
-        5. Create and manage conversation chains.
-        6. Create and manage custom prompts.
-        7. Change your password if needed.
-        8. Logout when finished.
-        """
+    agent_name = st.selectbox(
+        "Select Agent",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
+
+    smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
+
+    if "instruct_history" not in st.session_state:
+        st.session_state["instruct_history"] = {}
+
+    instruct_container = st.container()
+
+    def render_instruct_history(instruct_container, instruct_history):
+        instruct_container.empty()
+        with instruct_container:
+            for instruct in instruct_history:
+                if "sender" in instruct and "message" in instruct:
+                    if instruct["sender"] == "User":
+                        st.markdown(
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+    if agent_name:
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
+        instruct_history = []
+        agent_file_path = os.path.join("data", "agents", f"{agent_name}.yaml")
+
+        if os.path.exists(agent_file_path):
+            with open(agent_file_path, "r") as file:
+                agent_data = yaml.safe_load(file)
+                instruct_history = agent_data.get("interactions", [])
+
+        st.session_state.instruct_history[agent_name] = instruct_history
+
+        render_instruct_history(
+            instruct_container, st.session_state.instruct_history[agent_name]
+        )
+
+        instruct_prompt = st.text_input("Enter your message", key="instruct_prompt")
+        send_button = st.button("Send Message")
+
+        if send_button:
+            if agent_name and instruct_prompt:
+                with st.spinner("Thinking, please wait..."):
+                    agent = AgentLLM(agent_name)
+                    if smart_instruct_toggle:
+                        response = agent.smart_instruct(
+                            instruct_prompt,
+                            shots=3,
+                            async_exec=True,
+                            learn_file=learn_file_path,
+                        )
+                    else:
+                        response = agent.run(
+                            instruct_prompt,
+                            prompt="Instruct",
+                            context_results=6,
+                            learn_file=learn_file_path,
+                        )
+                instruct_entry = [
+                    {"sender": "User", "message": instruct_prompt},
+                    {"sender": "Agent", "message": response},
+                ]
+                st.session_state.instruct_history[agent_name].extend(instruct_entry)
+                render_instruct_history(
+                    instruct_container, st.session_state.instruct_history[agent_name]
+                )
+            else:
+                st.error("Agent name and message are required.")
+    else:
+        st.warning("Please select an agent to give instructions.")
 
 elif main_selection == "Tasks":
-    # Tasks UI code
-    st.header("Tasks")
+    st.header("Manage Tasks")
 
     agent_name = st.selectbox(
         "Select Agent",
-        [""] + [agent["name"] for agent in CFG.get_agents()],
-        key="tasks_agent_name_select",
+        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        index=0,
     )
+    task_objective = st.text_area("Enter the task objective")
 
     if agent_name:
-        agent = Agent(agent_name)
-        tasks = agent.get_tasks()
-        if tasks:
-            st.write("Tasks assigned to the agent:")
-            for task in tasks:
-                st.write(task)
-        else:
-            st.write("No tasks assigned to the agent.")
+        learn_file_upload = st.file_uploader("Upload a file to learn from")
+        learn_file_path = ""
+        if learn_file_upload is not None:
+            if not os.path.exists(os.path.join("data", "uploaded_files")):
+                os.makedirs(os.path.join("data", "uploaded_files"))
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
+        CFG = Agent(agent_name)
+        agent_status = "Not Running"
+        if agent_name in agent_stop_events:
+            agent_status = "Running"
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            columns = st.columns([3, 2])
+            if st.button("Start Task"):
+                if agent_name and task_objective:
+                    if agent_name not in CFG.agent_instances:
+                        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+                    stop_event = threading.Event()
+                    agent_stop_events[agent_name] = stop_event
+                    agent_thread = threading.Thread(
+                        target=CFG.agent_instances[agent_name].run_task,
+                        args=(stop_event, task_objective, True, learn_file_path),
+                    )
+                    agent_thread.start()
+                    agent_status = "Running"
+                    columns[0].success(f"Task started for agent '{agent_name}'.")
+                else:
+                    columns[0].error("Agent name and task objective are required.")
+
+            if st.button("Stop Task"):
+                if agent_name in agent_stop_events:
+                    agent_stop_events[agent_name].set()
+                    del agent_stop_events[agent_name]
+                    agent_status = "Not Running"
+                    columns[0].success(f"Task stopped for agent '{agent_name}'.")
+                else:
+                    columns[0].error("No task is running for the selected agent.")
+
+        with col2:
+            st.markdown(f"**Status:** {agent_status}")
+
 
 elif main_selection == "Chains":
-    # Chains UI code
-    st.header("Chains")
+    st.header("Manage Chains")
 
-    agent_name = st.selectbox(
-        "Select Agent",
-        [""] + [agent["name"] for agent in CFG.get_agents()],
-        key="chains_agent_name_select",
-    )
+    chain_name = st.text_input("Chain Name")
+    chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain"])
 
-    if agent_name:
-        agent = Agent(agent_name)
-        chains = agent.get_chains()
-        if chains:
-            st.write("Conversation chains:")
-            for chain in chains:
-                st.write(chain)
+    if st.button("Perform Action"):
+        if chain_name:
+            if chain_action == "Create Chain":
+                Chain().add_chain(chain_name)
+                st.success(f"Chain '{chain_name}' created.")
+            elif chain_action == "Delete Chain":
+                Chain().delete_chain(chain_name)
+                st.success(f"Chain '{chain_name}' deleted.")
         else:
-            st.write("No conversation chains.")
+            st.error("Chain name is required.")
 
 elif main_selection == "Custom Prompts":
-    # Custom Prompts UI code
-    st.header("Custom Prompts")
+    st.header("Manage Custom Prompts")
 
-    agent_name = st.selectbox(
-        "Select Agent",
-        [""] + [agent["name"] for agent in CFG.get_agents()],
-        key="prompts_agent_name_select",
+    prompt_name = st.text_input("Prompt Name")
+    prompt_content = st.text_area("Prompt Content")
+    prompt_action = st.selectbox(
+        "Action", ["Add Prompt", "Update Prompt", "Delete Prompt"]
     )
 
-    if agent_name:
-        agent = Agent(agent_name)
-        prompts = agent.get_custom_prompts()
-        if prompts:
-            st.write("Custom prompts:")
-            for prompt in prompts:
-                st.write(prompt)
+    if st.button("Perform Action"):
+        if prompt_name and prompt_content:
+            custom_prompt = CustomPrompt()
+            if prompt_action == "Add Prompt":
+                custom_prompt.add_prompt(prompt_name, prompt_content)
+                st.success(f"Prompt '{prompt_name}' added.")
+            elif prompt_action == "Update Prompt":
+                custom_prompt.update_prompt(prompt_name, prompt_content)
+                st.success(f"Prompt '{prompt_name}' updated.")
+            elif prompt_action == "Delete Prompt":
+                custom_prompt.delete_prompt(prompt_name)
+                st.success(f"Prompt '{prompt_name}' deleted.")
         else:
-            st.write("No custom prompts.")
+            st.error("Prompt name and content are required.")
 
 # Logout if there is a session state but the email is not set (indicating a logout)
 if st.session_state and "email" not in st.session_state:
