@@ -1,4 +1,4 @@
-# AGiXT (Large Language Model)
+# AGiXT
 
 ![RELEASE](https://img.shields.io/github/v/release/Josh-XT/AGiXT?label=Release%20Version&style=plastic) 
 [![STATUS](https://img.shields.io/badge/status-beta-blue?label=Release%20Status&style=plastic)](https://github.com/josh-xt/AGiXT) 
@@ -64,7 +64,7 @@ If you have issues with Windows, please ask in Discord, but please do not tag th
 
 ## Table of Contents 📖
 
-- [AGiXT (Large Language Model)](#agixt-large-language-model)
+- [AGiXT](#agixt)
   - [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
   - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
   - [⚠️ Under Development!](#️-under-development)
