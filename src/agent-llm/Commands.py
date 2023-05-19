@@ -52,6 +52,19 @@ class Commands:
                     )
         return available_commands
 
+    def get_enabled_commands(self):
+        enabled_commands = []
+        for command in self.available_commands:
+            if command["enabled"]:
+                enabled_commands.append(command)
+        return enabled_commands
+
+    def get_command_args(self, command_name: str):
+        for command in self.available_commands:
+            if command["friendly_name"] == command_name:
+                return command["args"]
+        return None
+
     def load_commands(self):
         commands = []
         command_files = self.CFG.load_command_files()

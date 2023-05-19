@@ -535,6 +535,93 @@ elif main_selection == "Chains":
         else:
             st.error("Chain name is required.")
 
+    st.header("Manage Chain Steps")
+
+    chain_names = Chain().get_chains()
+    selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
+
+    if selected_chain_name:
+        chain = Chain().get_chain(selected_chain_name)
+
+        st.subheader(f"Selected Chain: {selected_chain_name}")
+        st.write(chain)
+
+        step_number = st.number_input("Step Number", min_value=1, step=1)
+        agent_name = st.selectbox(
+            "Select Agent",
+            options=[""] + [agent["name"] for agent in CFG.get_agents()],
+            index=0,
+        )
+        prompt_type = st.selectbox("Select Prompt Type", [""] + ["Command", "Prompt"])
+
+        if prompt_type == "Command":
+            available_commands = [
+                cmd["friendly_name"]
+                for cmd in Commands(agent_name).get_enabled_commands()
+            ]
+            command_name = st.selectbox("Select Command", [""] + available_commands)
+
+            if command_name:
+                command_args = Commands(agent_name).get_command_args(command_name)
+                formatted_command_args = ", ".join(
+                    [f"{arg}: {st.text_input(arg)}" for arg in command_args]
+                )
+                prompt = f"{command_name}({formatted_command_args})"
+        elif prompt_type == "Prompt":
+            available_prompts = CustomPrompt().get_prompts()
+            prompt_name = st.selectbox("Select Custom Prompt", [""] + available_prompts)
+
+            if prompt_name:
+                prompt_args = CustomPrompt().get_prompt_args(prompt_name)
+                formatted_prompt_args = ", ".join(
+                    [f"{arg}: {st.text_input(arg)}" for arg in prompt_args]
+                )
+                prompt = f"{prompt_name}({formatted_prompt_args})"
+        else:
+            prompt = ""
+
+        step_action = st.selectbox("Action", ["Add Step", "Update Step", "Delete Step"])
+
+        if st.button("Perform Step Action"):
+            if (
+                selected_chain_name
+                and step_number
+                and agent_name
+                and prompt_type
+                and prompt
+            ):
+                if step_action == "Add Step":
+                    Chain().add_step(
+                        selected_chain_name,
+                        step_number,
+                        prompt_type,
+                        prompt,
+                        agent_name,
+                    )
+                    st.success(
+                        f"Step {step_number} added to chain '{selected_chain_name}'."
+                    )
+                elif step_action == "Update Step":
+                    Chain().update_step(
+                        selected_chain_name,
+                        step_number,
+                        prompt_type,
+                        prompt,
+                        agent_name,
+                    )
+                    st.success(
+                        f"Step {step_number} updated in chain '{selected_chain_name}'."
+                    )
+                elif step_action == "Delete Step":
+                    Chain().delete_step(selected_chain_name, step_number)
+                    st.success(
+                        f"Step {step_number} deleted from chain '{selected_chain_name}'."
+                    )
+            else:
+                st.error("All fields are required.")
+    else:
+        st.warning("Please select a chain to manage steps.")
+
 elif main_selection == "Custom Prompts":
     st.header("Manage Custom Prompts")
 

@@ -15,7 +15,7 @@ from Embedding import get_embedding_providers
 import os
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
-with open(os.path.join(this_directory, "src/agent-llm/version"), encoding="utf-8") as f:
+with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
 CFG = Config()
