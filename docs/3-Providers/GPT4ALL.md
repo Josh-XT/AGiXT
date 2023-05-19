@@ -1,6 +1,6 @@
 # GPT4ALL
 - [GPT4All](https://github.com/nomic-ai/gpt4all)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
+- [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Quick Start Guide
 **INTEL MAC NOT SUPPORTED BY GPT4ALL**

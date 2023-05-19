@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
-from AgentLLM import AgentLLM
+from AGiXT import AGiXT
 from Config.Agent import Agent
 from Commands import Commands
 from Chain import Chain
@@ -20,8 +20,8 @@ with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
 
 CFG = Config()
 app = FastAPI(
-    title="Agent-LLM",
-    description="Agent-LLM is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/Agent-LLM/",
+    title="AGiXT",
+    description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
     version=version,
     docs_url="/",
 )
@@ -187,7 +187,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 
 @app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
 async def instruct(agent_name: str, prompt: Prompt):
-    agent = AgentLLM(agent_name)
+    agent = AGiXT(agent_name)
     response = agent.run(
         task=prompt.prompt,
         prompt="instruct",
@@ -197,21 +197,21 @@ async def instruct(agent_name: str, prompt: Prompt):
 
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
-    agent = AgentLLM(agent_name)
+    agent = AGiXT(agent_name)
     response = agent.smart_instruct(task=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
-    agent = AgentLLM(agent_name)
+    agent = AGiXT(agent_name)
     response = agent.run(prompt.prompt, prompt="Chat", context_results=6)
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = AgentLLM(agent_name)
+    agent = AGiXT(agent_name)
     response = agent.smart_chat(prompt.prompt, shots=shots)
     return {"response": str(response)}
 
@@ -267,7 +267,7 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
     # Otherwise start it.
     # If it doesn't exist, create it.
     if agent_name not in CFG.agent_instances:
-        CFG.agent_instances[agent_name] = AgentLLM(agent_name)
+        CFG.agent_instances[agent_name] = AGiXT(agent_name)
     stop_event = threading.Event()
     agent_stop_events[agent_name] = stop_event
     agent_thread = threading.Thread(

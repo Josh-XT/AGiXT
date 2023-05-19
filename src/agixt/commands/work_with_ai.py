@@ -1,6 +1,6 @@
 from Commands import Commands
 from Config import Config
-from AgentLLM import AgentLLM
+from AGiXT import AGiXT
 
 
 class work_with_ai(Commands):
@@ -15,14 +15,14 @@ class work_with_ai(Commands):
                         {f"Ask{name}": self.ask, f"Instruct{name}": self.instruct}
                     )
 
-    def ask(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
-        response = AgentLLM(agent_name).run(
+    def ask(self, prompt: str, agent_name: str = "AGiXT") -> str:
+        response = AGiXT(agent_name).run(
             prompt, prompt="chat", websearch=True, websearch_depth=4
         )
         return response
 
-    def instruct(self, prompt: str, agent_name: str = "Agent-LLM") -> str:
-        response = AgentLLM(agent_name).run(
+    def instruct(self, prompt: str, agent_name: str = "AGiXT") -> str:
+        response = AGiXT(agent_name).run(
             task=prompt, prompt="instruct", websearch=True, websearch_depth=8
         )
         return response

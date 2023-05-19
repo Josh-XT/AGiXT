@@ -11,19 +11,19 @@ with open(readme_path, encoding="utf-8") as f:
 
 # Get requirements from requirements.txt to a list
 with open(
-    os.path.join(this_directory, "src/agent-llm/requirements.txt"), encoding="utf-8"
+    os.path.join(this_directory, "src/agixt/requirements.txt"), encoding="utf-8"
 ) as f:
     install_requires = f.read().splitlines()
 requirements = []
 for reqs in install_requires:
     if "--" not in reqs and ":" not in reqs and "#" not in reqs:
         requirements.append(reqs)
-# Get version from version file in src/agent-llm/version
-with open(os.path.join(this_directory, "src/agent-llm/version"), encoding="utf-8") as f:
+# Get version from version file in src/agixt/version
+with open(os.path.join(this_directory, "src/agixt/version"), encoding="utf-8") as f:
     version = f.read().strip()
 
 setup(
-    name="agent-llm",
+    name="agixt",
     version=version,
     description="An Artificial Intelligence Automation Platform. AI Instruction management from various providers, has an adaptive memory, and a versatile plugin system with many commands including web browsing. Supports many AI providers and models and growing support every day.",
     long_description=long_description,

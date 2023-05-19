@@ -11,10 +11,10 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-    profiles: ["all","frontend"]
-    
+    profiles: [ "all", "frontend" ]
+
   backend:
-    image: joshxt/agent-llm:main
+    image: joshxt/agixt:main
     init: true
     env_file:
       - .env
@@ -24,10 +24,10 @@ services:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
-    profiles: ["all","backend", "frontend"]
+    profiles: [ "all", "backend", "frontend" ]
 
   backend-streamlit:
-    image: joshxt/agent-llm-streamlit:main
+    image: joshxt/agixt-streamlit:main
     init: true
     env_file:
       - .env
@@ -37,4 +37,4 @@ services:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
-    profiles: ["all","streamlit"]
+    profiles: [ "all", "streamlit" ]

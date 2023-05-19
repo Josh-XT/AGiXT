@@ -1,6 +1,6 @@
 # Google Bard
 - [Google Bard](https://bard.google.com)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
+- [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Disclaimer
 

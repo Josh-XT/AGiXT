@@ -8,7 +8,7 @@ from collections import Counter
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "Agent-LLM", AgentConfig=None, nlp=None):
+    def __init__(self, AGENT_NAME: str = "XTAgent", AgentConfig=None, nlp=None):
         self.AGENT_NAME = AGENT_NAME
         self.CFG = AgentConfig
         self.nlp = nlp if nlp else self.load_spacy_model()

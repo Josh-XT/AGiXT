@@ -1,6 +1,6 @@
 import os
 import json
-from AgentLLM import AgentLLM
+from AGiXT import AGiXT
 import argparse
 
 
@@ -80,8 +80,8 @@ class Chain:
             if "agent_name" in step:
                 agent_name = step["agent_name"]
             else:
-                agent_name = "Agent-LLM"
-            AgentLLM(agent_name).run_chain_step(step)
+                agent_name = "AGiXT"
+            AGiXT(agent_name).run_chain_step(step)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 try:
     from nomic.gpt4all import GPT4All
 except ImportError:
