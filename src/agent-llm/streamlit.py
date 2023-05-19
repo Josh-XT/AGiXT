@@ -596,6 +596,8 @@ elif main_selection == "Chains":
                             f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
                             for arg in command_args
                             if arg != "context"
+                            and arg != "command_list"
+                            and arg != "COMMANDS"
                         ]
                     )
                     modify_prompt = f"{command_name}({formatted_command_args})"
@@ -617,6 +619,8 @@ elif main_selection == "Chains":
                             f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
                             for arg in prompt_args
                             if arg != "context"
+                            and arg != "command_list"
+                            and arg != "COMMANDS"
                         ]
                     )
                     modify_prompt = f"{modify_prompt_name}({formatted_prompt_args})"
@@ -682,6 +686,8 @@ elif main_selection == "Chains":
                         f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
                         for arg in command_args
                         if arg != "context"
+                        and arg != "command_list"
+                        and arg != "COMMANDS"
                     ]
                 )
                 prompt = f"{command_name}({formatted_command_args})"
@@ -700,6 +706,8 @@ elif main_selection == "Chains":
                         f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
                         for arg in prompt_args
                         if arg != "context"
+                        and arg != "command_list"
+                        and arg != "COMMANDS"
                     ]
                 )
                 prompt = f"{prompt_name}({formatted_prompt_args})"
@@ -722,12 +730,20 @@ elif main_selection == "Chains":
                     if prompt_type == "Command":
                         prompt_data = {"command_name": command_name}
                         for arg in command_args:
-                            if arg != "context":
+                            if (
+                                arg != "context"
+                                and arg != "command_list"
+                                and arg != "COMMANDS"
+                            ):
                                 prompt_data[arg] = st.session_state[f"add_step_{arg}"]
                     elif prompt_type == "Prompt":
                         prompt_data = {"prompt_name": prompt_name}
                         for arg in prompt_args:
-                            if arg != "context":
+                            if (
+                                arg != "context"
+                                and arg != "command_list"
+                                and arg != "COMMANDS"
+                            ):
                                 prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
                     Chain().add_chain_step(
@@ -744,12 +760,20 @@ elif main_selection == "Chains":
                     if prompt_type == "Command":
                         prompt_data = {"command_name": command_name}
                         for arg in command_args:
-                            if arg != "context":
+                            if (
+                                arg != "context"
+                                and arg != "command_list"
+                                and arg != "COMMANDS"
+                            ):
                                 prompt_data[arg] = st.session_state[f"add_step_{arg}"]
                     elif prompt_type == "Prompt":
                         prompt_data = {"prompt_name": prompt_name}
                         for arg in prompt_args:
-                            if arg != "context":
+                            if (
+                                arg != "context"
+                                and arg != "command_list"
+                                and arg != "COMMANDS"
+                            ):
                                 prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
                     Chain().update_step(
