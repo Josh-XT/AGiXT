@@ -1,7 +1,7 @@
-Sure, I can help rephrase and explain your process for creating highly intelligent Language Learning Models (LLMs) that can efficiently complete tasks. 
+# Smart Tasks
+The Smart Task process is an intelligent system that dynamically manages tasks through a series of AI-driven agents. It starts with a user-defined objective, which is then broken down into subtasks by the Task Agent. These subtasks are methodically executed using a loop structure that employs a Smart Instruct process. This process involves a suite of agents including a Web Search Agent for information gathering, an Instruction Agent for generating potential solutions, a Research Agent for analyzing these solutions, a Solution Agent for determining the best course of action, and finally an Execution Agent for carrying out the necessary commands. The task list is continually reprioritized to optimize efficiency and prevent redundancy. The final output of the Smart Task process is a comprehensive solution to the user's initial objective, encompassing an explanation from the Solution Agent and the results of the executed commands from the Execution Agent. The Smart Task process exemplifies an innovative application of AI in task management, demonstrating a high level of responsiveness to user input and adaptability to evolving task requirements.
 
-Here's a more detailed explanation:
-
+## Overview
 1. **Task Definition:** The user provides the LLM with a specific task to accomplish. This task serves as the objective that the LLM will work towards.
 
 2. **Task Breakdown:** The Task Agent, an AI component, analyzes the main task and generates a list of subtasks necessary for its completion. 
