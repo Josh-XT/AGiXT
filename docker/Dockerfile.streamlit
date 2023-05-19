@@ -4,7 +4,7 @@ FROM ${FROM_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y
 
-RUN apt-get install -y git build-essential ffmpeg
+RUN apt-get install -y git build-essential ffmpeg libomp5
 
 RUN pip install --no-cache-dir -r src/agent-llm/requirements.txt
 
@@ -14,7 +14,8 @@ RUN pip install protobuf==3.20.*
 
 ENV PATH="/usr/local/bin:$PATH"
 
+ENV LD_PRELOAD=libgomp.so.1
+
 EXPOSE 8501
 
 CMD streamlit run src/agent-llm/streamlit.py
-
