@@ -179,7 +179,7 @@ Clone the repository for the AGiXT back end and start it.
 
 ```
 git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT
+cd AGiXT/src/agixt
 pip install -r requirements.txt
 python app.py
 ```
@@ -190,7 +190,7 @@ Clone the repository for the AGiXT front end in a separate terminal and start it
 
 ```
 git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend --recurse-submodules 
-cd AGiXT-Frontend
+cd Agent-LLM-Frontend
 yarn install
 yarn dev
 ```
