@@ -1,4 +1,5 @@
 import gpt4free
+import time
 
 
 class Gpt4freeProvider:
@@ -42,6 +43,8 @@ class Gpt4freeProvider:
                 self.FAILED_PROVIDERS.append(provider)
                 if len(self.FAILED_PROVIDERS) == len(providers):
                     self.FAILED_PROVIDERS = []
+                    print("All providers failed, trying again in 10 seconds")
+                    time.sleep(10)
                 try:
                     response = self.instruct(prompt, tokens)
                 except:
