@@ -584,7 +584,7 @@ elif main_selection == "Chains":
                     "Select Command",
                     [""] + available_commands,
                     key=f"command_name_{step_number}",
-                    index=available_commands.index(prompt["command_name"]) + 1
+                    index=available_commands.index(prompt.get("command_name", "")) + 1
                     if "command_name" in prompt
                     else 0,
                 )
@@ -593,7 +593,7 @@ elif main_selection == "Chains":
                     command_args = Commands(agent_name).get_command_args(command_name)
                     formatted_command_args = ", ".join(
                         [
-                            f"{arg}: {st.text_input(arg, value=prompt[arg], key=f'{arg}_{step_number}')} "
+                            f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
                             for arg in command_args
                             if arg != "context"
                         ]
@@ -605,7 +605,7 @@ elif main_selection == "Chains":
                     "Select Custom Prompt",
                     [""] + available_prompts,
                     key=f"prompt_name_{step_number}",
-                    index=available_prompts.index(prompt["prompt_name"]) + 1
+                    index=available_prompts.index(prompt.get("prompt_name", "")) + 1
                     if "prompt_name" in prompt
                     else 0,
                 )
@@ -614,7 +614,7 @@ elif main_selection == "Chains":
                     prompt_args = CustomPrompt().get_prompt_args(modify_prompt_name)
                     formatted_prompt_args = ", ".join(
                         [
-                            f"{arg}: {st.text_input(arg, value=prompt[arg], key=f'{arg}_{step_number}')} "
+                            f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
                             for arg in prompt_args
                             if arg != "context"
                         ]
