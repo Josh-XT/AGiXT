@@ -627,9 +627,9 @@ elif main_selection == "Chains":
                 Chain().update_step(
                     selected_chain_name,
                     step_number,
+                    modify_agent_name,
                     modify_prompt_type,
                     modify_prompt,
-                    modify_agent_name,
                 )
                 st.success(
                     f"Step {step_number} updated in chain '{selected_chain_name}'."
@@ -719,23 +719,45 @@ elif main_selection == "Chains":
                 and prompt
             ):
                 if step_action == "Add Step":
-                    Chain().add_step(
+                    if prompt_type == "Command":
+                        prompt_data = {"command_name": command_name}
+                        for arg in command_args:
+                            if arg != "context":
+                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+                    elif prompt_type == "Prompt":
+                        prompt_data = {"prompt_name": prompt_name}
+                        for arg in prompt_args:
+                            if arg != "context":
+                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+
+                    Chain().add_chain_step(
                         selected_chain_name,
                         step_number,
-                        prompt_type,
-                        prompt,
                         agent_name,
+                        prompt_type,
+                        prompt_data,
                     )
                     st.success(
                         f"Step {step_number} added to chain '{selected_chain_name}'."
                     )
                 elif step_action == "Update Step":
+                    if prompt_type == "Command":
+                        prompt_data = {"command_name": command_name}
+                        for arg in command_args:
+                            if arg != "context":
+                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+                    elif prompt_type == "Prompt":
+                        prompt_data = {"prompt_name": prompt_name}
+                        for arg in prompt_args:
+                            if arg != "context":
+                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+
                     Chain().update_step(
                         selected_chain_name,
                         step_number,
-                        prompt_type,
-                        prompt,
                         agent_name,
+                        prompt_type,
+                        prompt_data,
                     )
                     st.success(
                         f"Step {step_number} updated in chain '{selected_chain_name}'."
