@@ -8,7 +8,7 @@ from Commands import Commands
 class web_requests(Commands):
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Agent-LLM/1.0"})
+        self.session.headers.update({"User-Agent": "AGiXT/1.0"})
         self.commands = {
             "Is Valid URL": self.is_valid_url,
             "Sanitize URL": self.sanitize_url,
