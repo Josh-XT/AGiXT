@@ -541,48 +541,176 @@ elif main_selection == "Chains":
     selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
 
     if selected_chain_name:
-        chain = Chain().get_chain(selected_chain_name)
+        chain = Chain().get_steps(selected_chain_name)
 
         st.subheader(f"Selected Chain: {selected_chain_name}")
-        st.write(chain)
 
-        step_number = st.number_input("Step Number", min_value=1, step=1)
+        def modify_step(step):
+            step_number = step["step"]
+            agent_name = step["agent_name"]
+            prompt_type = step["prompt_type"]
+            prompt = step.get("prompt", "")
+
+            modify_step_number = st.number_input(
+                "Step Number",
+                min_value=1,
+                step=1,
+                value=step_number,
+                key=f"step_num_{step_number}",
+            )
+            modify_agent_name = st.selectbox(
+                "Select Agent",
+                options=[""] + [agent["name"] for agent in CFG.get_agents()],
+                index=(
+                    [agent["name"] for agent in CFG.get_agents()].index(agent_name) + 1
+                )
+                if agent_name in [agent["name"] for agent in CFG.get_agents()]
+                else 0,
+                key=f"agent_name_{step_number}",
+            )
+            modify_prompt_type = st.selectbox(
+                "Select Prompt Type",
+                options=["", "Command", "Prompt"],
+                index=["", "Command", "Prompt"].index(prompt_type),
+                key=f"prompt_type_{step_number}",
+            )
+
+            if modify_prompt_type == "Command":
+                available_commands = [
+                    cmd["friendly_name"]
+                    for cmd in Commands(agent_name).get_enabled_commands()
+                ]
+                command_name = st.selectbox(
+                    "Select Command",
+                    [""] + available_commands,
+                    key=f"command_name_{step_number}",
+                    index=available_commands.index(prompt["command_name"]) + 1
+                    if "command_name" in prompt
+                    else 0,
+                )
+
+                if command_name:
+                    command_args = Commands(agent_name).get_command_args(command_name)
+                    formatted_command_args = ", ".join(
+                        [
+                            f"{arg}: {st.text_input(arg, value=prompt[arg], key=f'{arg}_{step_number}')} "
+                            for arg in command_args
+                            if arg != "context"
+                        ]
+                    )
+                    modify_prompt = f"{command_name}({formatted_command_args})"
+            elif modify_prompt_type == "Prompt":
+                available_prompts = CustomPrompt().get_prompts()
+                modify_prompt_name = st.selectbox(
+                    "Select Custom Prompt",
+                    [""] + available_prompts,
+                    key=f"prompt_name_{step_number}",
+                    index=available_prompts.index(prompt["prompt_name"]) + 1
+                    if "prompt_name" in prompt
+                    else 0,
+                )
+
+                if modify_prompt_name:
+                    prompt_args = CustomPrompt().get_prompt_args(modify_prompt_name)
+                    formatted_prompt_args = ", ".join(
+                        [
+                            f"{arg}: {st.text_input(arg, value=prompt[arg], key=f'{arg}_{step_number}')} "
+                            for arg in prompt_args
+                            if arg != "context"
+                        ]
+                    )
+                    modify_prompt = f"{modify_prompt_name}({formatted_prompt_args})"
+            else:
+                modify_prompt = ""
+
+            if st.button("Modify Step", key=f"modify_{step_number}"):
+                Chain().update_step(
+                    selected_chain_name,
+                    step_number,
+                    modify_prompt_type,
+                    modify_prompt,
+                    modify_agent_name,
+                )
+                st.success(
+                    f"Step {step_number} updated in chain '{selected_chain_name}'."
+                )
+                return {
+                    "step": modify_step_number,
+                    "agent_name": modify_agent_name,
+                    "prompt_type": modify_prompt_type,
+                    "prompt": modify_prompt,
+                }
+            return step
+
+        st.write("Existing Steps:")
+        if chain:
+            for step in chain:
+                if step is not None:
+                    try:
+                        step = modify_step(step)
+                    except TypeError:
+                        st.error(
+                            "Error loading chain step. Please check the chain configuration."
+                        )
+
+        step_number = max([s["step"] for s in chain]) + 1 if chain else 1
         agent_name = st.selectbox(
             "Select Agent",
             options=[""] + [agent["name"] for agent in CFG.get_agents()],
             index=0,
+            key="add_step_agent_name",
         )
-        prompt_type = st.selectbox("Select Prompt Type", [""] + ["Command", "Prompt"])
+        prompt_type = st.selectbox(
+            "Select Prompt Type",
+            [""] + ["Command", "Prompt"],
+            key="add_step_prompt_type",
+        )
 
         if prompt_type == "Command":
             available_commands = [
                 cmd["friendly_name"]
                 for cmd in Commands(agent_name).get_enabled_commands()
             ]
-            command_name = st.selectbox("Select Command", [""] + available_commands)
+            command_name = st.selectbox(
+                "Select Command", [""] + available_commands, key="add_step_command_name"
+            )
 
             if command_name:
                 command_args = Commands(agent_name).get_command_args(command_name)
                 formatted_command_args = ", ".join(
-                    [f"{arg}: {st.text_input(arg)}" for arg in command_args]
+                    [
+                        f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                        for arg in command_args
+                        if arg != "context"
+                    ]
                 )
                 prompt = f"{command_name}({formatted_command_args})"
         elif prompt_type == "Prompt":
             available_prompts = CustomPrompt().get_prompts()
-            prompt_name = st.selectbox("Select Custom Prompt", [""] + available_prompts)
+            prompt_name = st.selectbox(
+                "Select Custom Prompt",
+                [""] + available_prompts,
+                key="add_step_prompt_name",
+            )
 
             if prompt_name:
                 prompt_args = CustomPrompt().get_prompt_args(prompt_name)
                 formatted_prompt_args = ", ".join(
-                    [f"{arg}: {st.text_input(arg)}" for arg in prompt_args]
+                    [
+                        f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                        for arg in prompt_args
+                        if arg != "context"
+                    ]
                 )
                 prompt = f"{prompt_name}({formatted_prompt_args})"
         else:
             prompt = ""
 
-        step_action = st.selectbox("Action", ["Add Step", "Update Step", "Delete Step"])
+        step_action = st.selectbox(
+            "Action", ["Add Step", "Update Step", "Delete Step"], key="add_step_action"
+        )
 
-        if st.button("Perform Step Action"):
+        if st.button("Perform Step Action", key="add_step_button"):
             if (
                 selected_chain_name
                 and step_number
