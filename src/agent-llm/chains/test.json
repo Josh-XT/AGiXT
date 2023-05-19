@@ -1,0 +1,14 @@
+{
+    "chain_name": "test",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Chat",
+                "task": "Write a tweet about AI"
+            }
+        }
+    ]
+}

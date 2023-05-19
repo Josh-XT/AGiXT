@@ -33,6 +33,15 @@ class CustomPrompt:
                 prompts.append(file.replace(".txt", ""))
         return prompts
 
+    def get_prompt_args(self, prompt_name):
+        prompt = self.get_prompt(prompt_name)
+        # Find anything in the file between { and } and add them to a list to return
+        prompt_vars = []
+        for word in prompt.split():
+            if word.startswith("{") and word.endswith("}"):
+                prompt_vars.append(word[1:-1])
+        return prompt_vars
+
     def delete_prompt(self, prompt_name):
         os.remove(os.path.join("prompts", f"{prompt_name}.txt"))
 
