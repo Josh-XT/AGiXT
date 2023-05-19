@@ -1,7 +1,7 @@
 {
   "gitbook": ">=3.0.0",
-  "title": "Agent-LLM",
-  "description": "Agent-LLM is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers.",
+  "title": "AGiXT",
+  "description": "AGiXT is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers.",
   "root": "./docs/",
   "structure": {
     "readme": "README.md",
@@ -18,11 +18,11 @@
       "minTocSize": 2
     },
     "github-issue-feedback": {
-      "repo": "john-x/agent-llm",
+      "repo": "josh-xt/AGiXT",
       "label": "File an issue"
     },
     "edit-link": {
-      "base": "https://github.com/john-x/agent-llm/edit/master/docs/",
+      "base": "https://github.com/josh-xt/AGiXT/edit/master/docs/",
       "label": "Edit"
     }
   },

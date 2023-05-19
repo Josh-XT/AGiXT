@@ -1,6 +1,6 @@
 # llamacpp
 - [llama.cpp](https://github.com/ggerganov/llama.cpp)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
+- [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Quick Start Guide
 _Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._

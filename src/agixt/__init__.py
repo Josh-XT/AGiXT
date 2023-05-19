@@ -1,4 +1,4 @@
-from .AgentLLM import AgentLLM
+from .AGiXT import AGiXT
 from .Memories import Memories
 from .Chain import Chain
 from .Commands import Commands

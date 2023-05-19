@@ -10,7 +10,7 @@ body:
       value: |
         * Ask questions in [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/vfXjyuKZ).
         * Before you file an issue read the [Contributing guide](./CONTRIBUTING.md).
-        * Check to make sure someone hasn't already opened a [similar issue](https://github.com/Josh-XT/Agent-LLM/issues).
+        * Check to make sure someone hasn't already opened a [similar issue](https://github.com/Josh-XT/AGiXT/issues).
   - type: textarea
     id: problem
     attributes:

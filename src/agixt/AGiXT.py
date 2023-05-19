@@ -26,8 +26,8 @@ def run_asyncio_coroutine(coro):
     return loop.run_until_complete(coro)
 
 
-class AgentLLM:
-    def __init__(self, agent_name: str = "Agent-LLM", primary_objective=None):
+class AGiXT:
+    def __init__(self, agent_name: str = "AGiXT", primary_objective=None):
         self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
         self.primary_objective = primary_objective
@@ -673,7 +673,7 @@ class AgentLLM:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", type=str, default="Write a tweet about AI.")
-    parser.add_argument("--agent_name", type=str, default="Agent-LLM")
+    parser.add_argument("--agent_name", type=str, default="AGiXT")
     parser.add_argument("--option", type=str, default="")
     parser.add_argument("--shots", type=int, default=3)
     args = parser.parse_args()
@@ -682,7 +682,7 @@ if __name__ == "__main__":
     option = args.option
     # Options are instruct, smartinstruct, smartchat, and chat.
     shots = args.shots
-    agent = AgentLLM(agent_name)
+    agent = AGiXT(agent_name)
     if option == "instruct":
         agent.run(prompt, prompt="instruct", websearch=True, websearch_depth=4)
     elif option == "smartinstruct":

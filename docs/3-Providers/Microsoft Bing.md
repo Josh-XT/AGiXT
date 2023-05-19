@@ -1,6 +1,6 @@
 # Microsoft Bing
 - [Bing](https://bing.com)
-- [Agent-LLM](https://github.com/Josh-XT/Agent-LLM)
+- [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Disclaimer
 
@@ -14,7 +14,7 @@ We are not responsible if Microsoft bans your account for doing this. This may n
 2. Go to https://bing.com
 3. Open the extension
 4. Click the export button (Looks like `[>`), this saves your cookies to clipboard.
-5. Paste your cookies into a file `cookies.json` in your `Agent-LLM` directory
+5. Paste your cookies into a file `cookies.json` in your `AGiXT` directory
 
 ### Update your agent settings
 Set `AI_PROVIDER` to `bing`.
