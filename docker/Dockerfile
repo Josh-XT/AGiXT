@@ -1,6 +1,10 @@
 FROM python:3.10-slim-buster 
 
 WORKDIR /app
+<<<<<<< HEAD
+=======
+ADD . /app
+>>>>>>> 9a295e7cc10097ba87d6f3dbfd1efb7d7ab13db0
 COPY src/agixt/requirements.txt .
 
 RUN apt-get update && \
@@ -9,6 +13,15 @@ RUN apt-get update && \
     apt-get install g++ -y && \
     pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall flask-bcrypt && \
+    pip uninstall bcrypt && \
+    pip uninstall py-bcrypt && \
+    pip install flask-bcrypt --ignore-installed --no-cache-dir && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install pipreqs && \
+    pipreqs pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv && \
+    pip pip install --no-cache-dir -r gen_requirements.txt && \
+    rm gen_requirements.txt && \
     pip install --force-reinstall --no-cache-dir hnswlib && \
     apt-get install libgomp1 -y && \
     apt-get install git -y && \

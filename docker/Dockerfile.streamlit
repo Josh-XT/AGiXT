@@ -6,8 +6,23 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y git build-essential ffmpeg libomp5
 
+<<<<<<< HEAD
 RUN pip install --no-cache-dir -r requirements.txt
 
+=======
+RUN pip uninstall flask-bcrypt
+RUN pip uninstall bcrypt
+RUN pip uninstall py-bcrypt
+RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install pipreqs
+RUN pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv
+RUN pip install --no-cache-dir -r gen_requirements.txt
+RUN rm gen_requirements.txt
+
+>>>>>>> 9a295e7cc10097ba87d6f3dbfd1efb7d7ab13db0
 RUN pip uninstall protobuf -y
 
 RUN pip install protobuf==3.20.*
@@ -18,4 +33,8 @@ ENV LD_PRELOAD=libgomp.so.1
 
 EXPOSE 8501
 
+<<<<<<< HEAD
 CMD streamlit run streamlit.py
+=======
+CMD streamlit run streamlit.py
+>>>>>>> 9a295e7cc10097ba87d6f3dbfd1efb7d7ab13db0
