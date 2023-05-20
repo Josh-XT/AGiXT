@@ -48,8 +48,9 @@ class Gpt4freeProvider:
                         self.FAILED_PROVIDERS.append(provider)
                         final_response = None
 
-                if final_response is not None:
-                    return final_response
+                if final_response:
+                    if len(final_response) > 1:
+                        return final_response
 
             if len(self.FAILED_PROVIDERS) == len(self.providers):
                 self.FAILED_PROVIDERS = []
