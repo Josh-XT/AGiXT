@@ -1,20 +1,17 @@
+from AGiXT import AGiXT
 import re
-from Learning import Learning
-from Agents import Agents
 from Config.Agent import Agent
 from collections import deque
-from AGiXT import AGiXT
 
 
-class Task:
+class Tasks:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
-        self.CFG = Agent(self.agent_name)
+        self.agent = Agent(self.agent_name)
         self.primary_objective = None
         self.task_list = deque([])
         self.output_list = []
         self.stop_running_event = None
-        self.worker_agents = Agents(self.agent_name)
 
     def get_status(self):
         try:
@@ -27,7 +24,7 @@ class Task:
 
     def update_output_list(self, output):
         print(
-            self.CFG.save_task_output(self.agent_name, output, self.primary_objective)
+            self.agent.save_task_output(self.agent_name, output, self.primary_objective)
         )
 
     def run_task(
@@ -41,7 +38,7 @@ class Task:
     ):
         self.primary_objective = objective
         if learn_file != "":
-            learned_file = Learning(self.agent_name).read_file(
+            learned_file = self.agent.memories.read_file(
                 task=objective, file_path=learn_file
             )
             if learned_file == True:
@@ -75,19 +72,17 @@ class Task:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
             if smart:
-                result = self.worker_agents.smart_instruct(
+                result = self.smart_instruct(
                     task=task["task_name"],
                     shots=3,
                     async_exec=async_exec,
                     **kwargs,
                 )
             else:
-                result = self.worker_agents.instruction_agent(
-                    task=task["task_name"], **kwargs
-                )
+                result = self.instruction_agent(task=task["task_name"], **kwargs)
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
-            new_tasks = self.worker_agents.task_agent(
+            new_tasks = self.task_agent(
                 result=result, task_description=task["task_name"], task_list=task_list
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")

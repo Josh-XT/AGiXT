@@ -1,0 +1,7 @@
+interactions:
+- message: Write a tweet about AI
+  role: USER
+- message: 'gpt4free: "The power of #AI is changing our world in ways we never thought
+    possible, from faster processing to smarter decision-making. Exciting times ahead!
+    #artificialintelligence"'
+  role: gpt4free

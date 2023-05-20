@@ -1,43 +1,22 @@
 import re
 import asyncio
-from Commands import Commands
-from CustomPrompt import CustomPrompt
-from Memories import Memories
-from Learning import Learning
-from Agents import Agents
-from Config.Agent import Agent
-from collections import deque
+import regex
+import json
 from datetime import datetime
+from Config.Agent import Agent
+from CustomPrompt import CustomPrompt
+from typing import List, Dict
+from duckduckgo_search import ddg
+from urllib.parse import urlparse
 
 
 class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
-        self.CFG = Agent(self.agent_name)
+        self.agent = Agent(self.agent_name)
         self.primary_objective = None
-        self.task_list = deque([])
-        self.commands = Commands(self.agent_name)
-        self.available_commands = self.commands.get_available_commands()
-        self.agent_config = self.CFG.load_agent_config(self.agent_name)
-        self.memories = Memories(self.agent_name, self.CFG)
         self.stop_running_event = None
-        self.worker_agents = Agents(self.agent_name)
-
-    def get_commands_string(self):
-        if len(self.available_commands) == 0:
-            return "No commands."
-
-        enabled_commands = filter(
-            lambda command: command.get("enabled", True), self.available_commands
-        )
-        if not enabled_commands:
-            return "No commands."
-
-        friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
-            enabled_commands,
-        )
-        return "\n".join(friendly_names)
+        self.browsed_links = []
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -66,17 +45,17 @@ class AGiXT:
         if prompt == "":
             prompt = task
         else:
-            prompt = cp.get_prompt(prompt_name=prompt, model=self.CFG.AI_MODEL)
+            prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
         if top_results == 0:
             context = "None"
         else:
             try:
-                context = self.memories.context_agent(
+                context = self.agent.memories.context_agent(
                     query=task, top_results_num=top_results
                 )
             except:
                 context = "None."
-        command_list = self.get_commands_string()
+        command_list = self.agent.get_commands_string()
         formatted_prompt = self.custom_format(
             prompt,
             task=task,
@@ -88,7 +67,7 @@ class AGiXT:
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
-        tokens = len(self.memories.nlp(formatted_prompt))
+        tokens = len(self.agent.memories.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
     def run(
@@ -103,7 +82,7 @@ class AGiXT:
         **kwargs,
     ):
         if learn_file != "":
-            learning_file = Learning(self.agent_name).read_file(
+            learning_file = self.agent.memories.read_file(
                 task=task, file_path=learn_file
             )
             if learning_file == False:
@@ -119,11 +98,11 @@ class AGiXT:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 loop.run_until_complete(
-                    self.worker_agents.websearch_agent(task=task, depth=websearch_depth)
+                    self.websearch_agent(task=task, depth=websearch_depth)
                 )
             else:
-                self.worker_agents.websearch_agent(task=task, depth=websearch_depth)
-        if int(tokens) > int(self.CFG.MAX_TOKENS):
+                self.websearch_agent(task=task, depth=websearch_depth)
+        if int(tokens) > int(self.agent.MAX_TOKENS):
             if context_results > 0:
                 context_results = context_results - 1
             if context_results == 0:
@@ -137,20 +116,20 @@ class AGiXT:
                 async_exec=async_exec,
                 **kwargs,
             )
-        self.response = self.CFG.instruct(formatted_prompt, tokens=tokens)
+        self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            self.response = self.worker_agents.execution_agent(
+            self.response = self.execution_agent(
                 execution_response=self.response,
                 task=task,
                 context_results=context_results,
                 **kwargs,
             )
         print(f"Response: {self.response}")
-        self.memories.store_result(task, self.response)
-        self.CFG.log_interaction("USER", task)
-        self.CFG.log_interaction(self.agent_name, self.response)
+        self.agent.memories.store_result(task, self.response)
+        self.agent.log_interaction("USER", task)
+        self.agent.log_interaction(self.agent_name, self.response)
         return self.response
 
     def smart_instruct(
@@ -275,3 +254,193 @@ class AGiXT:
             **kwargs,
         )
         return clean_response_agent
+
+    # Worker Sub-Agents
+    def validation_agent(self, task, execution_response, context_results, **kwargs):
+        try:
+            pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
+            cleaned_json = pattern.findall(execution_response)
+            if len(cleaned_json) == 0:
+                return False
+            if isinstance(cleaned_json, list):
+                cleaned_json = cleaned_json[0]
+            response = json.loads(cleaned_json)
+            return response
+        except:
+            print("INVALID JSON RESPONSE")
+            print(execution_response)
+            print("... Trying again.")
+            if context_results != 0:
+                context_results = context_results - 1
+            else:
+                context_results = 0
+            execution_response = self.run(
+                task=task, context_results=context_results, **kwargs
+            )
+            return self.validation_agent(
+                task, execution_response, context_results, **kwargs
+            )
+
+    def revalidation_agent(
+        self,
+        task,
+        command_name,
+        command_args,
+        command_output,
+        context_results,
+        **kwargs,
+    ):
+        print(
+            f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
+        )
+        revalidate = self.run(
+            task=task,
+            prompt="ValidationFailed",
+            command_name=command_name,
+            command_args=command_args,
+            command_output=command_output,
+            **kwargs,
+        )
+        return self.execution_agent(revalidate, task, context_results, **kwargs)
+
+    def execution_agent(self, execution_response, task, context_results, **kwargs):
+        validated_response = self.validation_agent(
+            task, execution_response, context_results, **kwargs
+        )
+        try:
+            for command_name, command_args in validated_response["commands"].items():
+                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
+                if command_name is not None:
+                    for available_command in self.agent.available_commands:
+                        if command_name in [
+                            available_command["friendly_name"],
+                            available_command["name"],
+                        ]:
+                            command_name = available_command["name"]
+                            break
+                    try:
+                        command_output = self.agent.execute(command_name, command_args)
+                        print("Running Command Execution Validation...")
+                        validate_command = self.run(
+                            task=task,
+                            prompt="Validation",
+                            command_name=command_name,
+                            command_args=command_args,
+                            command_output=command_output,
+                            **kwargs,
+                        )
+                    except:
+                        return self.revalidation_agent(
+                            task, command_name, command_args, command_output, **kwargs
+                        )
+
+                    if validate_command.startswith("Y"):
+                        print(
+                            f"Command {command_name} executed successfully with args {command_args}."
+                        )
+                        response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                        return response
+                    else:
+                        return self.revalidation_agent(
+                            task, command_name, command_args, command_output, **kwargs
+                        )
+                else:
+                    if command_name == "None.":
+                        return "\nNo commands were executed.\n"
+                    else:
+                        return f"\Command not recognized: {command_name} ."
+        except:
+            print("\nERROR IN EXECUTION_AGENT, validated_response:\n")
+            print(validated_response)
+            return "\nNo commands were executed.\n"
+
+    def task_agent(
+        self, result: Dict, task_description: str, task_list: List[str]
+    ) -> List[Dict]:
+        response = self.run(
+            task=self.primary_objective,
+            prompt="task",
+            result=result,
+            task_description=task_description,
+            tasks=", ".join(task_list),
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = [
+            re.sub(r"^.*?(\d)", r"\1", line)
+            for line in lines
+            if line.strip() and re.search(r"\d", line[:10])
+        ] or [response]
+        return [
+            {"task_name": task_name} for task_name in new_tasks if task_name.strip()
+        ]
+
+    async def websearch_agent(
+        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
+    ):
+        async def resursive_browsing(self, task, links):
+            try:
+                words = links.split()
+                links = [
+                    word for word in words if urlparse(word).scheme in ["http", "https"]
+                ]
+            except:
+                links = links
+            if links is not None:
+                for link in links:
+                    if "href" in link:
+                        url = link["href"]
+                    else:
+                        url = link
+                    url = re.sub(r"^.*?(http)", r"http", url)
+                    # Check if url is an actual url
+                    if url.startswith("http"):
+                        print(f"Scraping: {url}")
+                        if url not in self.browsed_links:
+                            self.browsed_links.append(url)
+                            (
+                                collected_data,
+                                link_list,
+                            ) = await self.memories.read_website(url)
+                            if link_list is not None:
+                                if len(link_list) > 0:
+                                    if len(link_list) > 5:
+                                        link_list = link_list[:3]
+                                    try:
+                                        pick_a_link = self.run(
+                                            task=task,
+                                            prompt="Pick-a-Link",
+                                            links=link_list,
+                                        )
+                                        if not pick_a_link.startswith("None"):
+                                            await resursive_browsing(task, pick_a_link)
+                                    except:
+                                        print(f"Issues reading {url}. Moving on...")
+
+        results = self.run(task=task, prompt="WebSearch")
+        results = results.split("\n")
+        for result in results:
+            search_string = result.lstrip("0123456789. ")
+            links = ddg(search_string, max_results=depth)
+            if links is not None:
+                await resursive_browsing(task, links)
+
+    def instruction_agent(self, task, learn_file: str = "", **kwargs):
+        if "task_name" in task:
+            task = task["task_name"]
+        resolver = self.run(
+            task=task,
+            prompt="SmartInstruct-StepByStep",
+            context_results=6,
+            learn_file=learn_file,
+            **kwargs,
+        )
+        execution_response = self.run(
+            task=task,
+            prompt="SmartInstruct-Execution",
+            previous_response=resolver,
+            **kwargs,
+        )
+        return (
+            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
+        )
