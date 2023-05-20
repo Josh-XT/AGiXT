@@ -8,6 +8,7 @@ accelerate
 nomic
 ####
 argparse
+anthropic
 beautifulsoup4
 captcha-solver
 docker
