@@ -5,9 +5,9 @@ from Config.Agent import Agent
 
 
 class Commands:
-    def __init__(self, agent_name: str = "XTAgent", load_commands_flag: bool = True):
+    def __init__(self, agent_name: str = "AGiXT", load_commands_flag: bool = True):
         if agent_name == "undefined":
-            self.agent_name = "XTAgent"
+            self.agent_name = "AGiXT"
         else:
             self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
