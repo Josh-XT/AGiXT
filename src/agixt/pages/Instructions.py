@@ -16,19 +16,7 @@ if not st.session_state.get("logged_in"):
     '''
     st.markdown(redirect_code, unsafe_allow_html=True)
 
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-logout_button()
-
-
-def render_chat_history(self, instruct_container, chat_history):
+def render_history(instruct_container, chat_history):
     instruct_container.empty()
     with instruct_container:
         for instruct in chat_history:
@@ -76,7 +64,7 @@ if agent_name:
         chat_history = []
     st.session_state.chat_history[agent_name] = chat_history
 
-    render_chat_history(instruct_container, st.session_state.chat_history[agent_name])
+    render_history(instruct_container, st.session_state.chat_history[agent_name])
 
     instruct_prompt = st.text_input("Enter your message", key="instruct_prompt")
     send_button = st.button("Send Message")
@@ -104,7 +92,7 @@ if agent_name:
                 {"sender": "Agent", "message": response},
             ]
             st.session_state.chat_history[agent_name].extend(instruct_entry)
-            render_chat_history(
+            render_history(
                 instruct_container,
                 st.session_state.chat_history[agent_name],
             )
