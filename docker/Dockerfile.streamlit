@@ -6,8 +6,6 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y git build-essential ffmpeg libomp5
 
-RUN pip uninstall bcrypt
-RUN pip uninstall py-bcrypt
 RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
 
 RUN pip install --no-cache-dir -r requirements.txt
