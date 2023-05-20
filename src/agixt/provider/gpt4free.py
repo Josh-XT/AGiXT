@@ -35,14 +35,14 @@ class Gpt4freeProvider:
                                 self.FAILED_PROVIDERS.append(provider)
                                 print(f"Failed to use {provider}")
                                 final_response = None
-                            elif (
+                            if (
                                 response
                                 == "Unable to fetch the response, Please try again."
                             ):
                                 self.FAILED_PROVIDERS.append(provider)
                                 print(f"Failed to use {provider}")
                                 final_response = None
-                            else:
+                            if final_response == None:
                                 final_response = response
                     if final_response:
                         if len(final_response) > 1:
