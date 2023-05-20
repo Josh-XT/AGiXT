@@ -43,7 +43,6 @@ agent_name = st.selectbox(
 
 if agent_name:
     task_objective = st.text_area("Enter the task objective")
-    task_objective = st.text_area("Enter the task objective")
     learn_file_upload = st.file_uploader("Upload a file to learn from")
     learn_file_path = ""
     if learn_file_upload is not None:
