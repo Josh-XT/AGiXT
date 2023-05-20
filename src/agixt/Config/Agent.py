@@ -6,12 +6,9 @@ import shutil
 import importlib
 import yaml
 from pathlib import Path
-from dotenv import load_dotenv
 from inspect import signature, Parameter
 from provider import Provider
 from Config import Config
-
-load_dotenv()
 
 
 class Agent(Config):
@@ -46,8 +43,6 @@ class Agent(Config):
             else:
                 self.MAX_TOKENS = 4000
 
-        # Memory Settings
-        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)
         # Yaml Memory
         self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
         self._create_parent_directories(self.memory_file)
