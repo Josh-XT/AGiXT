@@ -1,21 +1,30 @@
 import streamlit as st
+import auth_libs.Redirect as redir
 from Config import Config
 from Config.Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
+from auth_libs.Cfig import Cfig
+import os
 
 CFG = Config()
+CFIG = Cfig()
+CONFIG_FILE = "config.yaml"
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
-    # Redirect to the login page using JavaScript
-    redirect_code = '''
-        <script>
-            window.location.href = window.location.origin + "/Login"
-        </script>
-    '''
-    st.markdown(redirect_code, unsafe_allow_html=True)
+if (
+    not st.session_state.get("logged_in")
+    and os.path.exists(CONFIG_FILE)
+    and (
+        CFIG.load_config()["auth_setup_config"] == "None"
+        or CFIG.load_config()["auth_setup_config"] == None
+        or CFIG.load_config()["auth_setup_config"] == "No Login"
+    )
+):
+    # Redirect to the login page if not
+    redir.nav_page("Login")
+
 
 def logout_button():
     """
@@ -25,6 +34,7 @@ def logout_button():
         # Clear session state and redirect to the login page
         st.session_state.clear()
         st.experimental_rerun()  # Redirect to the login page
+
 
 logout_button()
 
