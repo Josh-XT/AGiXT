@@ -1,7 +1,9 @@
 import os
 import json
-from AGiXT import AGiXT
+from . import AGiXT
 import argparse
+from . import CustomPrompt
+from . import Commands
 
 
 class Chain:
@@ -76,12 +78,52 @@ class Chain:
     def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name)
         print(f"Running chain '{chain_name}'")
-        for step in chain_data["steps"]:
-            if "agent_name" in step:
+        for step_data in chain_data["steps"]:
+            if "prompt" in step_data and "step" in step_data:
+                print(f"Running step {step_data['step']}")
+                self.run_chain_step(step_data)
+
+    def run_chain_step(self, step):
+        if step:
+            if "prompt_type" in step:
+                prompt_type = step["prompt_type"]
+                prompt = step["prompt"]
                 agent_name = step["agent_name"]
-            else:
-                agent_name = "AGiXT"
-            AGiXT(agent_name).run_chain_step(step)
+                try:
+                    prompt_name = prompt["prompt_name"]
+                    prompt = {k: v for k, v in prompt.items() if k != "prompt_name"}
+                    prompt_content = CustomPrompt().get_prompt(prompt_name)
+                except:
+                    prompt_name = ""
+                try:
+                    command_name = prompt["command_name"]
+                    prompt = {k: v for k, v in prompt.items() if k != "command_name"}
+                except:
+                    command_name = ""
+                if prompt_type == "Prompt":
+                    result = AGiXT(agent_name).run(
+                        task=prompt_content, prompt=prompt_name, **prompt
+                    )
+                elif prompt_type == "Command":
+                    result = Commands(agent_name=agent_name).execute_command(
+                        command_name, prompt
+                    )
+                elif prompt_type == "Chain":
+                    result = self.run_chain(prompt["chain_name"])
+                elif prompt_type == "Smart Instruct":
+                    result = AGiXT(agent_name).smart_instruct(
+                        task=prompt_content, **prompt
+                    )
+                elif prompt_type == "Smart Chat":
+                    result = AGiXT(agent_name).smart_chat(task=prompt_content, **prompt)
+                elif prompt_type == "Task":
+                    result = AGiXT(
+                        agent_name, primary_objective=prompt_content
+                    ).run_task(objective=prompt_content, **prompt)
+        if result:
+            return result
+        else:
+            return None
 
 
 if __name__ == "__main__":
