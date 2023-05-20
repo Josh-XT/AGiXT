@@ -310,7 +310,7 @@ elif main_selection == "Chat":
                         )
                     else:
                         st.markdown(
-                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
                             unsafe_allow_html=True,
                         )
 
@@ -400,7 +400,7 @@ elif main_selection == "Instructions":
                         )
                     else:
                         st.markdown(
-                            f'<div style="text-align: right; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
+                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
                             unsafe_allow_html=True,
                         )
 
