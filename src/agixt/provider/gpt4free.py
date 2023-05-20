@@ -22,35 +22,35 @@ class Gpt4freeProvider:
         final_response = None
         while final_response is None:
             for provider in self.providers:
-                if provider not in self.FAILED_PROVIDERS:
-                    try:
+                try:
+                    if provider not in self.FAILED_PROVIDERS:
                         response = gpt4free.Completion.create(
                             getattr(gpt4free.Provider, provider),
                             prompt=prompt,
                         )
-                        if "text" in response:
-                            final_response = response["text"]
-                        if "status" in response and response["status"] == "Fail":
-                            self.FAILED_PROVIDERS.append(provider)
-                            print(f"Failed to use {provider}")
-                            final_response = None
-                        elif (
-                            response
-                            == "Unable to fetch the response, Please try again."
-                        ):
-                            self.FAILED_PROVIDERS.append(provider)
-                            print(f"Failed to use {provider}")
-                            final_response = None
-                        else:
-                            final_response = response
-                    except:
-                        print(f"Failed to use {provider}")
-                        self.FAILED_PROVIDERS.append(provider)
-                        final_response = None
-
-                if final_response:
-                    if len(final_response) > 1:
-                        return final_response
+                        if response:
+                            if "text" in response:
+                                final_response = response["text"]
+                            if "status" in response and response["status"] == "Fail":
+                                self.FAILED_PROVIDERS.append(provider)
+                                print(f"Failed to use {provider}")
+                                final_response = None
+                            elif (
+                                response
+                                == "Unable to fetch the response, Please try again."
+                            ):
+                                self.FAILED_PROVIDERS.append(provider)
+                                print(f"Failed to use {provider}")
+                                final_response = None
+                            else:
+                                final_response = response
+                    if final_response:
+                        if len(final_response) > 1:
+                            return final_response
+                except:
+                    print(f"Failed to use {provider}")
+                    self.FAILED_PROVIDERS.append(provider)
+                    final_response = None
 
             if len(self.FAILED_PROVIDERS) == len(self.providers):
                 self.FAILED_PROVIDERS = []
