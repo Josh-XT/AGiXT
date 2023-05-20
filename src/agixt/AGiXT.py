@@ -1,20 +1,20 @@
 import argparse
 import re
 import regex
-from collections import deque
-from typing import List, Dict
-from Config.Agent import Agent
-from datetime import datetime
-from playwright.async_api import async_playwright
-from duckduckgo_search import ddg
-from Commands import Commands
 import json
-from CustomPrompt import CustomPrompt
-from Memories import Memories
 import asyncio
 import pandas as pd
 import docx2txt
 import pdfplumber
+from Commands import Commands
+from CustomPrompt import CustomPrompt
+from Memories import Memories
+from Config.Agent import Agent
+from collections import deque
+from typing import List, Dict
+from datetime import datetime
+from playwright.async_api import async_playwright
+from duckduckgo_search import ddg
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
