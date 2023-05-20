@@ -53,7 +53,9 @@ class Gpt4freeProvider:
                         if len(final_response) > 1:
                             return final_response
                 except:
-                    pass
+                    print(f"Failed to use {provider}")
+                    self.FAILED_PROVIDERS.append(provider)
+                    final_response = None
 
             if len(self.FAILED_PROVIDERS) == len(self.providers):
                 self.FAILED_PROVIDERS = []
