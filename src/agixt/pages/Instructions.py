@@ -7,7 +7,7 @@ from Config.Agent import Agent
 CFG = Config()
 
 
-def render_chat_history(self, instruct_container, chat_history):
+def render_history(instruct_container, chat_history):
     instruct_container.empty()
     with instruct_container:
         for instruct in chat_history:
@@ -55,7 +55,7 @@ if agent_name:
         chat_history = []
     st.session_state.chat_history[agent_name] = chat_history
 
-    render_chat_history(instruct_container, st.session_state.chat_history[agent_name])
+    render_history(instruct_container, st.session_state.chat_history[agent_name])
 
     instruct_prompt = st.text_input("Enter your message", key="instruct_prompt")
     send_button = st.button("Send Message")
@@ -83,7 +83,7 @@ if agent_name:
                 {"sender": "Agent", "message": response},
             ]
             st.session_state.chat_history[agent_name].extend(instruct_entry)
-            render_chat_history(
+            render_history(
                 instruct_container,
                 st.session_state.chat_history[agent_name],
             )
