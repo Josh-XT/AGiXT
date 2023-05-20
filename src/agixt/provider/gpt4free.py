@@ -22,8 +22,8 @@ class Gpt4freeProvider:
         final_response = None
         while final_response is None:
             for provider in self.providers:
-                if provider not in self.FAILED_PROVIDERS:
-                    try:
+                try:
+                    if provider not in self.FAILED_PROVIDERS:
                         response = gpt4free.Completion.create(
                             getattr(gpt4free.Provider, provider),
                             prompt=prompt,
@@ -44,11 +44,6 @@ class Gpt4freeProvider:
                                 final_response = None
                             else:
                                 final_response = response
-                    except:
-                        print(f"Failed to use {provider}")
-                        self.FAILED_PROVIDERS.append(provider)
-                        final_response = None
-                try:
                     if final_response:
                         if len(final_response) > 1:
                             return final_response
