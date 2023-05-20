@@ -1,16 +1,13 @@
 import streamlit as st
+import auth_libs.Redirect as redir
 import bcrypt
 from auth_libs.Users import load_users, save_user_data
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
-    # Redirect to the login page using JavaScript
-    redirect_code = '''
-        <script>
-            window.location.href = window.location.origin + "/Profile"
-        </script>
-    '''
-    st.markdown(redirect_code, unsafe_allow_html=True)
+if st.session_state.get("logged_in"):
+    # Redirect to the Profile page if so
+    redir.nav_page("Profile")
+
 
 def registration_form():
     st.write("Registration Form")
@@ -23,8 +20,12 @@ def registration_form():
     if st.button("Register"):
         if password == confirm_password:
             if email not in [user["email"] for user in user_data["users"]]:
-                hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-                user_data["users"].append({"email": email, "password_hash": hashed_password.decode('utf-8')})
+                hashed_password = bcrypt.hashpw(
+                    password.encode("utf-8"), bcrypt.gensalt()
+                )
+                user_data["users"].append(
+                    {"email": email, "password_hash": hashed_password.decode("utf-8")}
+                )
                 save_user_data(user_data)
                 st.success("Registration successful!")
                 st.experimental_rerun()  # Redirect to UI
@@ -34,5 +35,6 @@ def registration_form():
             st.error("Passwords do not match.")
 
     st.stop()
+
 
 registration_form()

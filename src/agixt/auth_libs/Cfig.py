@@ -3,6 +3,7 @@ import yaml
 
 CONFIG_FILE = "config.yaml"
 
+
 class Cfig:
     def __init__(self):
         if not os.path.exists(CONFIG_FILE):
@@ -12,10 +13,7 @@ class Cfig:
         """
         Creates a default configuration file if it doesn't exist.
         """
-        default_config = {
-            "auth_setup": False,
-            "auth_setup_config": None
-        }
+        default_config = {"auth_setup": False, "auth_setup_config": None}
 
         with open(CONFIG_FILE, "w") as f:
             yaml.dump(default_config, f)

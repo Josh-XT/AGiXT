@@ -1,20 +1,29 @@
 import streamlit as st
+import auth_libs.Redirect as redir
 import os
 from AGiXT import AGiXT
 from Config import Config
 from Config.Agent import Agent
+from auth_libs.Cfig import Cfig
+import os
 
 CFG = Config()
+CFIG = Cfig()
+CONFIG_FILE = "config.yaml"
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
-    # Redirect to the login page using JavaScript
-    redirect_code = '''
-        <script>
-            window.location.href = window.location.origin + "/Login"
-        </script>
-    '''
-    st.markdown(redirect_code, unsafe_allow_html=True)
+if (
+    not st.session_state.get("logged_in")
+    and os.path.exists(CONFIG_FILE)
+    and (
+        CFIG.load_config()["auth_setup_config"] == "None"
+        or CFIG.load_config()["auth_setup_config"] == None
+        or CFIG.load_config()["auth_setup_config"] == "No Login"
+    )
+):
+    # Redirect to the login page if not
+    redir.nav_page("Login")
+
 
 def render_history(instruct_container, chat_history):
     instruct_container.empty()
