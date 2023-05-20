@@ -28,7 +28,7 @@ if (
     st.session_state["prof_redir"] = False
 
 # Check if the user is logged in
-if st.session_state.get("logged_in") and not st.session_state["prof_redir"]:
+if st.session_state.get("logged_in") and st.session_state["prof_redir"]:
     # Redirect to the login page if so
     redir.nav_page("Profile")
 
