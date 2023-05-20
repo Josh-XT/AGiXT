@@ -21,6 +21,8 @@ if (
     and (
         CFIG.load_config()["auth_setup_config"] == "None"
         or CFIG.load_config()["auth_setup_config"] == None
+        or CFIG.load_config()["auth_setup_config"] is None
+        or CFIG.load_config()["auth_setup_config"] == "null"
         or CFIG.load_config()["auth_setup_config"] == "No Login"
     )
 ):
