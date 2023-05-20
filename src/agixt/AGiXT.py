@@ -167,7 +167,10 @@ class AGiXT:
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
             self.response = self.execution_agent(
-                execution_response=self.response, task=task, **kwargs
+                execution_response=self.response,
+                task=task,
+                context_results=context_results,
+                **kwargs,
             )
         print(f"Response: {self.response}")
         self.memories.store_result(task, self.response)
@@ -331,7 +334,7 @@ class AGiXT:
             return False
 
     # Worker Sub-Agents
-    def validation_agent(self, task, execution_response, **kwargs):
+    def validation_agent(self, task, execution_response, context_results, **kwargs):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(execution_response)
@@ -352,10 +355,18 @@ class AGiXT:
             execution_response = self.run(
                 task=task, context_results=context_results, **kwargs
             )
-            return self.validation_agent(task, execution_response, **kwargs)
+            return self.validation_agent(
+                task, execution_response, context_results, **kwargs
+            )
 
     def revalidation_agent(
-        self, task, command_name, command_args, command_output, **kwargs
+        self,
+        task,
+        command_name,
+        command_args,
+        command_output,
+        context_results,
+        **kwargs,
     ):
         print(
             f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
@@ -368,10 +379,12 @@ class AGiXT:
             command_output=command_output,
             **kwargs,
         )
-        return self.execution_agent(revalidate, task, **kwargs)
+        return self.execution_agent(revalidate, task, context_results, **kwargs)
 
-    def execution_agent(self, execution_response, task, **kwargs):
-        validated_response = self.validation_agent(task, execution_response, **kwargs)
+    def execution_agent(self, execution_response, task, context_results, **kwargs):
+        validated_response = self.validation_agent(
+            task, execution_response, context_results, **kwargs
+        )
         try:
             for command_name, command_args in validated_response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
