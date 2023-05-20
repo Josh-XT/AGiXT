@@ -100,7 +100,11 @@ class Chain:
                     )
                 try:
                     prompt_name = prompt["prompt_name"]
-                    prompt = {k: v for k, v in prompt.items() if k != "prompt_name"}
+                    prompt = {
+                        k: v
+                        for k, v in prompt.items()
+                        if k != "prompt_name" and k != "task"
+                    }
                     prompt_content = CustomPrompt().get_prompt(prompt_name)
                     agent = AGiXT(agent_name)
                 except:
