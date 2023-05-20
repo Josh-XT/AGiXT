@@ -8,6 +8,7 @@ CFIG = Cfig()
 
 USER_FILE = "user_data.json"
 
+
 def load_users():
     """
     Loads the user data from the user file.
@@ -24,22 +25,26 @@ def load_users():
             if admin_password != confirm_password:
                 st.error("Password and confirm password do not match.")
             else:
-                admin_password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt())
+                admin_password_hash = bcrypt.hashpw(
+                    admin_password.encode(), bcrypt.gensalt()
+                )
                 admin_data = {
                     "email": admin_email,
                     "password_hash": admin_password_hash.decode(),
-                    "admin": True
+                    "admin": True,
                 }
-                user_data = {
-                    "users": [admin_data]
-                }
+                user_data = {"users": [admin_data]}
                 save_user_data(user_data)
                 st.success("Admin account created successfully!")
                 return user_data
     else:
         with open(USER_FILE, "r") as file:
             user_data = json.load(file)
-    return user_data
+    try:
+        return user_data
+    except:
+        return None
+
 
 def save_user_data(user_data):
     """
@@ -48,17 +53,28 @@ def save_user_data(user_data):
     with open(USER_FILE, "w") as file:
         json.dump(user_data, file, indent=4)
 
+
 def configure_auth_settings():
     """
     Prompts the admin to configure the authentication settings.
     """
     st.write("Auth/Login Settings Configuration")
-    setup_cfg = st.radio("Auth/Login Settings", ("No Login", "Single-User Login", "Multi-User Private Registration", "Multi-User Public Registration"), 0)
+    setup_cfg = st.radio(
+        "Auth/Login Settings",
+        (
+            "No Login",
+            "Single-User Login",
+            "Multi-User Private Registration",
+            "Multi-User Public Registration",
+        ),
+        0,
+    )
     if st.button("Build Config"):
         CFIG.set_auth_setup_config(setup_cfg)
         st.success("Auth/Login settings configured!")
         st.experimental_rerun()
     st.stop()
+
 
 def check_admin_configured():
     """
