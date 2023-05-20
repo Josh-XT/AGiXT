@@ -101,23 +101,29 @@ class Chain:
                 except:
                     command_name = ""
                 if prompt_type == "Prompt":
-                    AGiXT(agent_name).run(
+                    result = AGiXT(agent_name).run(
                         task=prompt_content, prompt=prompt_name, **prompt
                     )
                 elif prompt_type == "Command":
-                    Commands(agent_name=agent_name).execute_command(
+                    result = Commands(agent_name=agent_name).execute_command(
                         command_name, prompt
                     )
                 elif prompt_type == "Chain":
-                    self.run_chain(prompt["chain_name"])
+                    result = self.run_chain(prompt["chain_name"])
                 elif prompt_type == "Smart Instruct":
-                    AGiXT(agent_name).smart_instruct(task=prompt_content, **prompt)
-                elif prompt_type == "Smart Chat":
-                    AGiXT(agent_name).smart_chat(task=prompt_content, **prompt)
-                elif prompt_type == "Task":
-                    AGiXT(agent_name, primary_objective=prompt_content).run_task(
-                        objective=prompt_content, **prompt
+                    result = AGiXT(agent_name).smart_instruct(
+                        task=prompt_content, **prompt
                     )
+                elif prompt_type == "Smart Chat":
+                    result = AGiXT(agent_name).smart_chat(task=prompt_content, **prompt)
+                elif prompt_type == "Task":
+                    result = AGiXT(
+                        agent_name, primary_objective=prompt_content
+                    ).run_task(objective=prompt_content, **prompt)
+        if result:
+            return result
+        else:
+            return None
 
 
 if __name__ == "__main__":
