@@ -1,10 +1,7 @@
 FROM python:3.10-slim-buster 
 
 WORKDIR /app
-<<<<<<< HEAD
-=======
 ADD . /app
->>>>>>> 9a295e7cc10097ba87d6f3dbfd1efb7d7ab13db0
 COPY src/agixt/requirements.txt .
 
 RUN apt-get update && \
