@@ -1,17 +1,13 @@
 import streamlit as st
+import auth_libs.Redirect as redir
 from CustomPrompt import CustomPrompt
 
 st.header("Manage Custom Prompts")
 
 # Check if the user is logged in
 if not st.session_state.get("logged_in"):
-    # Redirect to the login page using JavaScript
-    redirect_code = '''
-        <script>
-            window.location.href = window.location.origin + "/Login"
-        </script>
-    '''
-    st.markdown(redirect_code, unsafe_allow_html=True)
+    # Redirect to the login page if not
+    redir.nav_page("Login")
 
 def logout_button():
     """

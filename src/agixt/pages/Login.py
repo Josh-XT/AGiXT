@@ -1,16 +1,12 @@
 import streamlit as st
+import auth_libs.Redirect as redir
 import bcrypt
 from auth_libs.Users import load_users, save_user_data, configure_auth_settings, check_admin_configured
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
-    # Redirect to the login page using JavaScript
-    redirect_code = '''
-        <script>
-            window.location.href = window.location.origin + "/Profile"
-        </script>
-    '''
-    st.markdown(redirect_code, unsafe_allow_html=True)
+if st.session_state.get("logged_in"):
+    # Redirect to the login page if so
+    redir.nav_page("Profile")
 
 # Login form
 def login_form():
