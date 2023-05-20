@@ -5,11 +5,13 @@ from Config.Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
+import os
 
 CFG = Config()
+CONFIG_FILE = "config.yaml"
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
+if not st.session_state.get("logged_in") and os.path.exists(CONFIG_FILE):
     # Redirect to the login page if not
     redir.nav_page("Login")
 
