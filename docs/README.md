@@ -221,11 +221,7 @@ This documentation is hosted locally and the frontend must be running for these 
 
 ### Updating Requirements
 
-<<<<<<< HEAD
 When extending functionality ensure to perform the following inside the top level AGiXT directory after saving your changes / customizations:
-=======
-When extending functionality ensure to perform the following inside the top level Agent-LLM directory after saving your changes / customizations:
->>>>>>> 9a295e7cc10097ba87d6f3dbfd1efb7d7ab13db0
 
 ```
 pip install pipreqs
