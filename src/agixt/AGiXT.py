@@ -454,7 +454,9 @@ class AGiXT:
             for line in lines
             if line.strip() and re.search(r"\d", line[:10])
         ] or [response]
-        return [{"task_name": task_name} for task_name in new_tasks]
+        return [
+            {"task_name": task_name} for task_name in new_tasks if task_name.strip()
+        ]
 
     def prioritization_agent(self):
         task_names = [t["task_name"] for t in self.task_list]
