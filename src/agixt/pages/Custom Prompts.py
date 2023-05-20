@@ -1,6 +1,27 @@
 import streamlit as st
 from CustomPrompt import CustomPrompt
 
+# Check if the user is logged in
+if not st.session_state.get("logged_in"):
+    # Redirect to the login page using JavaScript
+    redirect_code = '''
+        <script>
+            window.location.href = window.location.origin + "/Login"
+        </script>
+    '''
+    st.markdown(redirect_code, unsafe_allow_html=True)
+
+def logout_button():
+    """
+    Renders the logout button.
+    """
+    if st.button("Logout"):
+        # Clear session state and redirect to the login page
+        st.session_state.clear()
+        st.experimental_rerun()  # Redirect to the login page
+
+logout_button()
+
 st.header("Manage Custom Prompts")
 prompt_name = st.text_input("Prompt Name")
 prompt_content = st.text_area("Prompt Content")
