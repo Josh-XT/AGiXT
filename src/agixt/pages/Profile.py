@@ -8,12 +8,13 @@ CFG = Cfig()
 # Check if the user is logged in
 if not st.session_state.get("logged_in"):
     # Redirect to the login page using JavaScript
-    redirect_code = '''
+    redirect_code = """
         <script>
             window.location.href = window.location.origin + "/Login"
         </script>
-    '''
+    """
     st.markdown(redirect_code, unsafe_allow_html=True)
+
 
 def logout_button():
     """
@@ -24,7 +25,6 @@ def logout_button():
         st.session_state.clear()
         st.experimental_rerun()  # Redirect to the login page
 
-logout_button()
 
 def logout_button():
     """
