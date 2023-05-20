@@ -1,5 +1,6 @@
 from streamlit.components.v1 import html
 
+
 def nav_page(page_name, timeout_secs=3):
     nav_script = """
         <script type="text/javascript">
@@ -22,5 +23,8 @@ def nav_page(page_name, timeout_secs=3):
                 attempt_nav_page("%s", new Date(), %d);
             });
         </script>
-    """ % (page_name, timeout_secs)
+    """ % (
+        page_name,
+        timeout_secs,
+    )
     html(nav_script)
