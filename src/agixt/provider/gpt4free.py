@@ -1,6 +1,5 @@
 import gpt4free
 import time
-import itertools
 
 
 class Gpt4freeProvider:
@@ -16,35 +15,43 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
-        self.providers = itertools.cycle(["DeepAI", "Useless", "You"])
+        self.providers = ["DeepAI", "Useless", "You"]
 
     def instruct(self, prompt, tokens: int = 0):
-        provider = next(self.providers)
-        try:
-            if provider not in self.FAILED_PROVIDERS:
-                response = gpt4free.Completion.create(
-                    getattr(gpt4free.Provider, provider),
-                    prompt=prompt,
-                )
-                if "text" in response:
-                    response = response["text"]
-                if "status" in response and response["status"] == "Fail":
-                    self.FAILED_PROVIDERS.append(provider)
+        while True:  # Keep looping until we get a valid response
+            for provider in self.providers:
+                if provider in self.FAILED_PROVIDERS:
+                    continue
+
+                try:
+                    response = gpt4free.Completion.create(
+                        getattr(gpt4free.Provider, provider),
+                        prompt=prompt,
+                    )
+
+                    if "text" in response:
+                        response = response["text"]
+
+                    # If the response is a failure, add the provider to the failed list and continue the loop
+                    if "status" in response and response["status"] == "Fail":
+                        self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
+                        continue
+
+                    if response == "Unable to fetch the response, Please try again.":
+                        self.FAILED_PROVIDERS.append(provider)
+                        print(f"Failed to use {provider}")
+                        continue
+
+                    # If the response is valid, return it
+                    return response
+
+                except:
                     print(f"Failed to use {provider}")
-                    response = self.instruct(prompt, tokens)
-                if response == "Unable to fetch the response, Please try again.":
                     self.FAILED_PROVIDERS.append(provider)
-                    print(f"Failed to use {provider}")
-                    response = self.instruct(prompt, tokens)
-            return response
-        except:
-            print(f"Failed to use {provider}")
-            self.FAILED_PROVIDERS.append(provider)
-            if (
-                len(self.FAILED_PROVIDERS) == 3
-            ):  # adjust this value to the number of your providers
-                self.FAILED_PROVIDERS = []
+
+            # If all providers failed
+            if len(self.FAILED_PROVIDERS) == len(self.providers):
+                self.FAILED_PROVIDERS = []  # Reset the list
                 print("All providers failed, trying again in 10 seconds")
                 time.sleep(10)
-            response = self.instruct(prompt, tokens)
-            return response
