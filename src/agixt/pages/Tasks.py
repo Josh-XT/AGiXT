@@ -6,12 +6,20 @@ from Config import Config
 from Config.Agent import Agent
 
 st.header("Manage Tasks")
-agent_stop_events = {}
+
+# initialize session state for stop events and agent status if not exist
+if "agent_stop_events" not in st.session_state:
+    st.session_state.agent_stop_events = {}
+
+if "agent_status" not in st.session_state:
+    st.session_state.agent_status = {}
+
 agent_name = st.selectbox(
     "Select Agent",
     options=[""] + [agent["name"] for agent in Config().get_agents()],
     index=0,
 )
+
 task_objective = st.text_area("Enter the task objective")
 
 if agent_name:
@@ -24,9 +32,6 @@ if agent_name:
         with open(learn_file_path, "wb") as f:
             f.write(learn_file_upload.getbuffer())
     CFG = Agent(agent_name)
-    agent_status = "Not Running"
-    if agent_name in agent_stop_events:
-        agent_status = "Running"
 
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -36,25 +41,26 @@ if agent_name:
                 if agent_name not in CFG.agent_instances:
                     CFG.agent_instances[agent_name] = AGiXT(agent_name)
                 stop_event = threading.Event()
-                agent_stop_events[agent_name] = stop_event
+                st.session_state.agent_stop_events[agent_name] = stop_event
                 agent_thread = threading.Thread(
                     target=CFG.agent_instances[agent_name].run_task,
                     args=(stop_event, task_objective, True, learn_file_path),
                 )
                 agent_thread.start()
-                agent_status = "Running"
+                st.session_state.agent_status[agent_name] = "Running"
                 columns[0].success(f"Task started for agent '{agent_name}'.")
             else:
                 columns[0].error("Agent name and task objective are required.")
 
         if st.button("Stop Task"):
-            if agent_name in agent_stop_events:
-                agent_stop_events[agent_name].set()
-                del agent_stop_events[agent_name]
-                agent_status = "Not Running"
+            if agent_name in st.session_state.agent_stop_events:
+                st.session_state.agent_stop_events[agent_name].set()
+                del st.session_state.agent_stop_events[agent_name]
+                st.session_state.agent_status[agent_name] = "Not Running"
                 columns[0].success(f"Task stopped for agent '{agent_name}'.")
             else:
                 columns[0].error("No task is running for the selected agent.")
 
     with col2:
+        agent_status = st.session_state.agent_status.get(agent_name, "Not Running")
         st.markdown(f"**Status:** {agent_status}")
