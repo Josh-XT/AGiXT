@@ -6,6 +6,15 @@ from Config.Agent import Agent
 
 CFG = Config()
 
+# Check if the user is logged in
+if not st.session_state.get("logged_in"):
+    # Redirect to the login page using JavaScript
+    redirect_code = '''
+        <script>
+            window.location.href = window.location.origin + "/Login"
+        </script>
+    '''
+    st.markdown(redirect_code, unsafe_allow_html=True)
 
 def render_history(instruct_container, chat_history):
     instruct_container.empty()

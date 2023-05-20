@@ -6,7 +6,17 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y git build-essential ffmpeg libomp5
 
+RUN pip uninstall flask-bcrypt
+RUN pip uninstall bcrypt
+RUN pip uninstall py-bcrypt
+RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
+
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install pipreqs
+RUN pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv
+RUN pip install --no-cache-dir -r gen_requirements.txt
+RUN rm gen_requirements.txt
 
 RUN pip uninstall protobuf -y
 
