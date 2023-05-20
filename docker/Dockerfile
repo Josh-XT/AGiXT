@@ -9,7 +9,6 @@ RUN apt-get upgrade -y
 RUN apt-get install -y --no-install-recommends git build-essential ffmpeg
 RUN apt-get install g++ -y
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install pipreqs
