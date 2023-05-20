@@ -117,9 +117,9 @@ class Chain:
                 elif prompt_type == "Smart Chat":
                     result = AGiXT(agent_name).smart_chat(task=prompt_content, **prompt)
                 elif prompt_type == "Task":
-                    result = AGiXT(
-                        agent_name, primary_objective=prompt_content
-                    ).run_task(objective=prompt_content, **prompt)
+                    result = AGiXT(agent_name).run_task(
+                        objective=prompt_content, **prompt
+                    )
         if result:
             return result
         else:

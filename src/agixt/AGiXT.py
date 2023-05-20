@@ -26,10 +26,10 @@ def run_asyncio_coroutine(coro):
 
 
 class AGiXT:
-    def __init__(self, agent_name: str = "AGiXT", primary_objective=None):
+    def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.CFG = Agent(self.agent_name)
-        self.primary_objective = primary_objective
+        self.primary_objective = None
         self.task_list = deque([])
         self.commands = Commands(self.agent_name)
         self.available_commands = self.commands.get_available_commands()
