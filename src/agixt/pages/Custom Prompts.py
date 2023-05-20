@@ -44,15 +44,11 @@ else:
 if st.button("Perform Action"):
     if prompt_name and (prompt_content or action == "Delete Prompt"):
         if action == "Add Prompt":
-    if prompt_name and (prompt_content or action == "Delete Prompt"):
-        if action == "Add Prompt":
             custom_prompt.add_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' added.")
         elif action == "Update Prompt":
-        elif action == "Update Prompt":
             custom_prompt.update_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' updated.")
-        elif action == "Delete Prompt":
         elif action == "Delete Prompt":
             custom_prompt.delete_prompt(prompt_name)
             st.success(f"Prompt '{prompt_name}' deleted.")
