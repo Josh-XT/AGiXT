@@ -8,10 +8,10 @@ from collections import Counter
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "AGiXT", AgentConfig=None, nlp=None):
+    def __init__(self, AGENT_NAME: str = "AGiXT", AgentConfig=None):
         self.AGENT_NAME = AGENT_NAME
         self.CFG = AgentConfig
-        self.nlp = nlp if nlp else self.load_spacy_model()
+        self.nlp = self.load_spacy_model()
         self.nlp.max_length = 999999999999999999999999999999999
         embedder = Embedding(CFG=AgentConfig)
         self.embedding_function = embedder.embed

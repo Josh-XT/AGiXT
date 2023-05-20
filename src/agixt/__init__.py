@@ -6,3 +6,4 @@ from .Config.Agent import Agent
 from .Config import Config
 from .Embedding import Embedding
 from .CustomPrompt import CustomPrompt
+from .Learning import Learning
