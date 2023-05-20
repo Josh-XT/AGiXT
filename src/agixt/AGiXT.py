@@ -102,9 +102,12 @@ class AGiXT:
         if top_results == 0:
             context = "None"
         else:
-            context = self.memories.context_agent(
-                query=task, top_results_num=top_results
-            )
+            try:
+                context = self.memories.context_agent(
+                    query=task, top_results_num=top_results
+                )
+            except:
+                context = "None."
         command_list = self.get_commands_string()
         formatted_prompt = self.custom_format(
             prompt,
