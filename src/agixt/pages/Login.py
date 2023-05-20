@@ -1,15 +1,34 @@
 import streamlit as st
 import auth_libs.Redirect as redir
 import bcrypt
+from auth_libs.Cfig import Cfig
 from auth_libs.Users import (
     load_users,
     save_user_data,
     configure_auth_settings,
     check_admin_configured,
 )
+import os
+
+CFIG = Cfig()
+CONFIG_FILE = "config.yaml"
+
+if (
+    not st.session_state.get("logged_in")
+    and os.path.exists(CONFIG_FILE)
+    and (
+        CFIG.load_config()["auth_setup_config"] == "None"
+        or CFIG.load_config()["auth_setup_config"] == None
+        or CFIG.load_config()["auth_setup_config"] is None
+        or CFIG.load_config()["auth_setup_config"] == "null"
+        or CFIG.load_config()["auth_setup_config"] == "No Login"
+    )
+):
+    st.session_state["logged_in"] = True
+    st.session_state["prof_redir"] = False
 
 # Check if the user is logged in
-if st.session_state.get("logged_in"):
+if st.session_state.get("logged_in") and not st.sessoin_state["prof_redir"]:
     # Redirect to the login page if so
     redir.nav_page("Profile")
 

@@ -184,4 +184,4 @@ try:
     if st.session_state["email"] == admin_email and CFG.auth != "SUL":
         create_user_form()
 except:
-    st.write("You are not logged in.")
+    st.write("You are not logged in, or login is not enabled.")
