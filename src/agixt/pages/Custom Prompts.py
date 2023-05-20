@@ -45,3 +45,13 @@ Anything between the curly braces will be considered as an input field. For exam
 In the above prompt, `name` and `age` will be the input arguments. These arguments can be used in chains.
 """
 )
+st.markdown("## Predefined Injection Variables")
+st.markdown(
+    """
+- `{agent_name}` will cause the agent name to be injected.
+- `{context}` will cause the current context from memory to be injected.
+- `{date}` will cause the current date and timestamp to be injected.
+- `{COMMANDS}` will cause the available commands list to be injected and for automatic commands execution from the agent based on its suggestions.
+- `{command_list}` will cause the available commands list to be injected, but will not execute any commands the AI chooses. Useful on validation steps.
+"""
+)
