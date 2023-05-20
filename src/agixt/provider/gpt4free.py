@@ -1,5 +1,6 @@
 import gpt4free
 import time
+import itertools
 
 
 class Gpt4freeProvider:
@@ -15,38 +16,35 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
+        self.providers = itertools.cycle(["DeepAI", "Useless", "You"])
 
     def instruct(self, prompt, tokens: int = 0):
-        # This will work when more than 2 of the 5 providers are working
-        # providers = gpt4free.Provider._member_names_
-        providers = ["DeepAI", "Useless", "You"]
-        for provider in providers:
-            try:
-                if provider not in self.FAILED_PROVIDERS:
-                    response = gpt4free.Completion.create(
-                        getattr(gpt4free.Provider, provider),
-                        prompt=prompt,
-                    )
-                    if "text" in response:
-                        response = response["text"]
-                    if "status" in response and response["status"] == "Fail":
-                        self.FAILED_PROVIDERS.append(provider)
-                        print(f"Failed to use {provider}")
-                        response = self.instruct(prompt, tokens)
-                    if response == "Unable to fetch the response, Please try again.":
-                        self.FAILED_PROVIDERS.append(provider)
-                        print(f"Failed to use {provider}")
-                        response = self.instruct(prompt, tokens)
-                return response
-            except:
-                print(f"Failed to use {provider}")
-                self.FAILED_PROVIDERS.append(provider)
-                if len(self.FAILED_PROVIDERS) == len(providers):
-                    self.FAILED_PROVIDERS = []
-                    print("All providers failed, trying again in 10 seconds")
-                    time.sleep(10)
-                try:
+        provider = next(self.providers)
+        try:
+            if provider not in self.FAILED_PROVIDERS:
+                response = gpt4free.Completion.create(
+                    getattr(gpt4free.Provider, provider),
+                    prompt=prompt,
+                )
+                if "text" in response:
+                    response = response["text"]
+                if "status" in response and response["status"] == "Fail":
+                    self.FAILED_PROVIDERS.append(provider)
+                    print(f"Failed to use {provider}")
                     response = self.instruct(prompt, tokens)
-                except:
+                if response == "Unable to fetch the response, Please try again.":
+                    self.FAILED_PROVIDERS.append(provider)
+                    print(f"Failed to use {provider}")
                     response = self.instruct(prompt, tokens)
-                return response
+            return response
+        except:
+            print(f"Failed to use {provider}")
+            self.FAILED_PROVIDERS.append(provider)
+            if (
+                len(self.FAILED_PROVIDERS) == 3
+            ):  # adjust this value to the number of your providers
+                self.FAILED_PROVIDERS = []
+                print("All providers failed, trying again in 10 seconds")
+                time.sleep(10)
+            response = self.instruct(prompt, tokens)
+            return response
