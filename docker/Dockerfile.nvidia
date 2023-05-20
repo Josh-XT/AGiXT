@@ -11,7 +11,6 @@ COPY src/agixt/requirements.txt ./
 
 # Install pip requirements
 RUN pip install -r requirements.txt
-RUN pip uninstall flask-bcrypt
 RUN pip uninstall bcrypt
 RUN pip uninstall py-bcrypt
 RUN pip install flask-bcrypt --ignore-installed --no-cache-dir

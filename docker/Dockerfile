@@ -10,7 +10,6 @@ RUN apt-get update && \
     apt-get install g++ -y && \
     pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip uninstall flask-bcrypt && \
     pip uninstall bcrypt && \
     pip uninstall py-bcrypt && \
     pip install flask-bcrypt --ignore-installed --no-cache-dir && \
