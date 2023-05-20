@@ -1,5 +1,4 @@
 # AGiXT
-
 ![RELEASE](https://img.shields.io/github/v/release/Josh-XT/AGiXT?label=Release%20Version&style=plastic) 
 [![STATUS](https://img.shields.io/badge/status-beta-blue?label=Release%20Status&style=plastic)](https://github.com/josh-xt/AGiXT) 
 [![LICENSE: MIT](https://img.shields.io/github/license/Josh-XT/AGiXT?label=License&style=plastic)](https://github.com/Josh-XT/AGiXT/blob/main/LICENSE) 
@@ -13,15 +12,14 @@
 [![Twitter](https://img.shields.io/badge/Twitter-Follow_@AGi_XT-blue?logo=twitter&style=plastic)](https://twitter.com/AGi_XT) 
 [![EMail](https://img.shields.io/badge/E--Mail-Outreach_&_Media-5865f2?logo=gmail&style=plastic)](https://twitter.com/AGi_XT) 
 
+![Logo](AGiXT.svg)
+
 Please use the outreach email for media, sponsorship, or to contact us for other miscellaneous purposes. 
 
 **Do not** send us emails with troubleshooting requests, feature requests or bug reports, please direct those to [GitHub Issues](https://github.com/Josh-XT/AGiXT/issues) or [Discord](https://discord.gg/d3TkHRZcjD).
 
 AGiXT is an Artificial Intelligence Automation Platform designed to power efficient AI instruction management across multiple providers. Our agents are equipped with adaptive memory, and this versatile solution offers a powerful plugin system that supports a wide range of commands, including web browsing. With growing support for numerous AI providers and models, AGiXT is constantly evolving to empower diverse applications.
 
-![image](https://user-images.githubusercontent.com/102809327/234344654-a1a4201b-594b-4a00-ac78-279a2e5bbe43.png)
-
-![image](https://user-images.githubusercontent.com/102809327/235532233-72f291a7-0633-435f-b72c-7f56bce682d8.png)
 
 ## ⚠️ Run this in Docker or a Virtual Machine!
 You're welcome to disregard this message, but if you do and the AI decides that the best course of action for its task is to build a command to format your entire computer, that is on you.  Understand that this is given full unrestricted terminal access by design and that we have no intentions of building any safeguards.  This project intends to stay light weight and versatile for the best possible research outcomes.
@@ -81,8 +79,7 @@ If you have issues with Windows, please ask in Discord, but please do not tag th
     - [Windows Docker Desktop (streamlit only example)](#windows-docker-desktop-streamlit-only-example)
     - [Development using docker](#development-using-docker)
   - [Manual Install from source (unsupported)](#manual-install-from-source-unsupported)
-    - [Back End](#back-end)
-    - [Front End](#front-end)
+    - [Streamlit App Locally](#streamlit-app-locally)
   - [Configuration](#configuration)
   - [API Endpoints](#api-endpoints)
   - [Extending Functionality](#extending-functionality)
@@ -157,9 +154,8 @@ Run all available services
 - streamlit-UI http://localhost:8501
 
 ### Windows Docker Desktop (streamlit only example)
-
-![On Windows Docker Desktop](Docker-desktop-win-setting-streamlit.png)
-
+- Container Name: AGiXT
+- Host Port: 8501:8501/tcp
 
 ### Development using docker
 ```
@@ -173,7 +169,7 @@ docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 
 As a reminder, this can be dangerous to run locally depending on what commands you give your agents access to.  [⚠️ Run this in Docker or a Virtual Machine!](#️-run-this-in-docker-or-a-virtual-machine)
 
-### Back End
+### Streamlit App Locally
 
 Clone the repository for the AGiXT back end and start it.
 
@@ -181,21 +177,10 @@ Clone the repository for the AGiXT back end and start it.
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT/src/agixt
 pip install -r requirements.txt
-python app.py
+streamlit run streamlit.py
 ```
 
-### Front End
-
-Clone the repository for the AGiXT front end in a separate terminal and start it.
-
-```
-git clone https://github.com/JamesonRGrieve/Agent-LLM-Frontend --recurse-submodules 
-cd Agent-LLM-Frontend
-yarn install
-yarn dev
-```
-
-Access the web interface at http://localhost:3000
+Access the web interface at http://localhost:8501
 
 ## Configuration
 
@@ -210,6 +195,11 @@ For a detailed explanation of each setting, refer to the `.env.example` file pro
 ## API Endpoints
 
 AGiXT provides several API endpoints for managing agents, prompts and chains.
+
+If you're not running with Docker, the back end can be run with:
+```
+python src/agixt/app.py
+```
 
 To learn more about the API endpoints and their usage, visit the API documentation at 
 - [Swagger](http://localhost:7437)
