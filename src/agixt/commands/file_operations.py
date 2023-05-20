@@ -37,7 +37,8 @@ class file_operations(Commands):
         if str(CFG.WORKING_DIRECTORY_RESTRICTED).lower() == "true":
             new_path = os.path.normpath(os.path.join(base, *paths.split("/")))
             if not os.path.exists(new_path):
-                os.makedirs(new_path)
+                if "." not in new_path:
+                    os.makedirs(new_path)
         else:
             new_path = os.path.normpath(os.path.join("/", *paths))
             if not os.path.exists(new_path):
