@@ -31,6 +31,8 @@ if (
 if st.session_state.get("logged_in") and st.session_state["prof_redir"]:
     # Redirect to the login page if so
     redir.nav_page("Profile")
+elif st.session_state["prof_redir"] == False:
+    st.stop()
 
 
 # Login form
