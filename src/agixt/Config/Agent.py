@@ -17,7 +17,7 @@ load_dotenv()
 class Agent(Config):
     def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = agent_name if agent_name is not None else "XTAgent"
+        self.AGENT_NAME = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
         # AI Configuration
