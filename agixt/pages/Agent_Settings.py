@@ -278,6 +278,7 @@ if not new_agent:
             try:
                 Agent(agent_name).delete_agent(agent_name)
                 st.success(f"Agent '{agent_name}' deleted.")
+                st.session_state.new_agent_name = ""  # Reset the selected agent
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
                 st.error(f"Error deleting agent: {str(e)}")
