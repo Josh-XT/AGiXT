@@ -7,7 +7,7 @@ RUN apt-get update ; \
 
 WORKDIR /app
 ADD . /app
-COPY src/agixt/requirements.txt ./
+COPY agixt/requirements.txt ./
 
 # Install pip requirements
 RUN pip install -r requirements.txt
@@ -20,6 +20,6 @@ RUN pip install --no-cache-dir -r gen_requirements.txt
 RUN rm gen_requirements.txt
 
 # Run FastAPI app with Uvicorn
-COPY --link src/agixt/ .
+COPY --link agixt/ .
 EXPOSE 7437
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
