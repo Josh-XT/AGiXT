@@ -144,14 +144,14 @@ class Tasks:
     def instruction_agent(self, task, learn_file: str = "", **kwargs):
         if "task_name" in task:
             task = task["task_name"]
-        resolver = self.run(
+        resolver = AGiXT(self.agent_name).run(
             task=task,
             prompt="SmartInstruct-StepByStep",
             context_results=6,
             learn_file=learn_file,
             **kwargs,
         )
-        execution_response = self.run(
+        execution_response = AGiXT(self.agent_name).run(
             task=task,
             prompt="SmartInstruct-Execution",
             previous_response=resolver,
