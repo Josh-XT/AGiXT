@@ -128,7 +128,7 @@ if agent_name and not new_agent:
             rendered_settings = {}
 
             for extension, settings in extension_settings.items():
-                st.subheader(f"{extension} Extension Settings")
+                st.subheader(f"{extension}")
                 for key, val in settings.items():
                     if key in agent_settings:
                         default_value = agent_settings[key]
