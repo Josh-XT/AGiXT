@@ -127,9 +127,11 @@ class AGiXT:
                 **kwargs,
             )
             return_response = ""
-            if "response" in self.response:
-                # Turn it into json
+            try:
                 self.response = json.loads(self.response)
+            except:
+                return_response = self.response
+            if "response" in self.response:
                 return_response = self.response["response"]
             if "commands" in self.response:
                 if self.response["commands"] != {}:
