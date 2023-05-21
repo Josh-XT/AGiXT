@@ -141,7 +141,9 @@ class Embedding:
         chunk_size = 1000
         embed = OpenAIEmbeddingFunction(
             api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
-            organization_id=self.CFG.AGENT_CONFIG["settings"]["DEPLOYMENT_ID"],
+            organization_id=self.CFG.AGENT_CONFIG["settings"][
+                "AZURE_EMBEDDER_DEPLOYMENT_ID"
+            ],
             api_type="azure",
             api_base=self.CFG.AGENT_CONFIG["settings"]["AZURE_OPENAI_ENDPOINT"],
         )
