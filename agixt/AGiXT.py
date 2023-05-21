@@ -404,7 +404,7 @@ class AGiXT:
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
-        async def resursive_browsing(self, task, links):
+        async def resursive_browsing(task, links):
             try:
                 words = links.split()
                 links = [
