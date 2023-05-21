@@ -27,7 +27,7 @@ class BingProvider:
             bot = await Chatbot.create(cookies=cookies)
             response = await bot.ask(
                 prompt=prompt,
-                conversation_style=self.style,
+                conversation_style=ConversationStyle.creative,
             )
             await bot.close()
             return response
