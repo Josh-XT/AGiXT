@@ -70,7 +70,10 @@ class Tasks:
                 or task["task_name"] == "None."
                 or task["task_name"] == ""
             ):
-                self.stop_running_event.set()
+                try:
+                    self.stop_running_event.set()
+                except:
+                    self.task_list = []
 
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
@@ -92,14 +95,15 @@ class Tasks:
                 result=result, task_description=task["task_name"], task_list=task_list
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
+            new_task_list = deque()
             for new_task in new_tasks:
                 new_task.update({"task_id": len(self.task_list) + 1})
-                self.task_list.append(new_task)
+                new_task_list.append(new_task)
             task_names = [t["task_name"] for t in self.task_list]
             if not task_names:
-                self.stop_running_event.set()
-            new_task_list = deque()
-
+                if self.stop_running_event is not None:
+                    self.stop_running_event.set()
+            self.task_list.extend(new_task_list)
             for task_string in new_tasks:
                 task_parts = task_string.strip().split(".", 1)
                 if len(task_parts) == 2:
@@ -107,5 +111,6 @@ class Tasks:
                     task_name = task_parts[1].strip()
                     self.task_list.append({"task_id": task_id, "task_name": task_name})
         if self.task_list == []:
-            self.stop_running_event.set()
+            if self.stop_running_event is not None:
+                self.stop_running_event.set()
         self.update_output_list("All tasks completed or stopped.")
