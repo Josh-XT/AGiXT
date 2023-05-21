@@ -3,7 +3,7 @@ import asyncio
 import regex
 import json
 from datetime import datetime
-from Config.Agent import Agent
+from Agent import Agent
 from CustomPrompt import CustomPrompt
 from typing import List, Dict
 from duckduckgo_search import ddg

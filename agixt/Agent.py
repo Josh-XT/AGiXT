@@ -8,12 +8,11 @@ import yaml
 from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
-from Config import Config
 from Memories import Memories
 from Commands import Commands
 
 
-class Agent(Config):
+class Agent:
     def __init__(self, agent_name=None):
         # General Configuration
         self.agent_name = agent_name if agent_name is not None else "AGiXT"

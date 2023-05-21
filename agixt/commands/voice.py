@@ -12,20 +12,22 @@ class voice(Commands):
         ELEVENLABS_API_KEY: str = "",
         USE_MAC_OS_TTS: bool = False,
         USE_BRIAN_TTS: bool = True,
+        ELEVENLABS_VOICE: str = "Josh",
         **kwargs,
     ):
         self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
         self.USE_MAC_OS_TTS = USE_MAC_OS_TTS
         self.USE_BRIAN_TTS = USE_BRIAN_TTS
+        self.ELEVENLABS_VOICE = ELEVENLABS_VOICE
         self.commands = {"Speak with TTS": self.speak}
         self._mutex = Semaphore(1)
 
-    def speak(self, text: str, engine: str = "gtts", voice_index: int = 0) -> bool:
+    def speak(self, text: str, engine: str = "gtts") -> bool:
         with self._mutex:
             if engine == "elevenlabs" and self.ELEVENLABS_API_KEY:
-                return self._elevenlabs_speech(text, voice_index)
+                return self._elevenlabs_speech(text, self.ELEVENLABS_VOICE)
             elif engine == "macos" and self.USE_MAC_OS_TTS == "True":
-                return self._macos_speech(text, voice_index)
+                return self._macos_speech(text, self.ELEVENLABS_VOICE)
             elif engine == "brian" and self.USE_BRIAN_TTS == "True":
                 return self._brian_speech(text)
             else:

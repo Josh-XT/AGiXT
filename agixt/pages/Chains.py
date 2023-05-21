@@ -3,7 +3,7 @@ import auth_libs.Redirect as redir
 from Config import Config
 from Chain import Chain
 from Commands import Commands
-from Config.Agent import Agent
+from Agent import Agent
 from CustomPrompt import CustomPrompt
 from auth_libs.Users import check_auth_status
 

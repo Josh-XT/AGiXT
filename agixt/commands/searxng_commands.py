@@ -4,8 +4,9 @@ from typing import List
 from Commands import Commands
 
 
+# SearXNG - List of these at https://searx.space/
 class searxng_commands(Commands):
-    def __init__(self, SEARXNG_INSTANCE_URL: str = "", **kwargs):
+    def __init__(self, SEARXNG_INSTANCE_URL: str = "https://searx.work", **kwargs):
         self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
         if self.SEARXNG_INSTANCE_URL:
             self.commands = {"Searx Search": self.search_searx}

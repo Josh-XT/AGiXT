@@ -1,6 +1,6 @@
 import streamlit as st
 from Config import Config
-from Config.Agent import Agent
+from Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
