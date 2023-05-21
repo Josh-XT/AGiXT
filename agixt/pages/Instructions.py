@@ -58,6 +58,7 @@ instruct_container = container()
 if agent_name:
     learn_file_upload = file_uploader("Upload a file to learn from")
     learn_file_path = ""
+    agent = Agent(agent_name)
     if learn_file_upload is not None:
         if not os.path.exists(os.path.join("data", "uploaded_files")):
             os.makedirs(os.path.join("data", "uploaded_files"))
@@ -66,10 +67,9 @@ if agent_name:
             f.write(learn_file_upload.getbuffer())
 
     try:
-        chat_history = Agent(agent_name).get_chat_history(agent_name)
+        st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
     except:
-        chat_history = []
-    st.session_state.chat_history[agent_name] = chat_history
+        st.session_state.chat_history[agent_name] = {}
 
     render_history(instruct_container, st.session_state.chat_history[agent_name])
 
