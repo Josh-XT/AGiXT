@@ -50,3 +50,4 @@ pdfplumber
 ffmpeg
 hugchat
 bcrypt
+revChatGPT
