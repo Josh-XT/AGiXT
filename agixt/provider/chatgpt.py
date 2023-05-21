@@ -6,7 +6,7 @@ from revChatGPT.V1 import Chatbot
 class ChatgptProvider:
     def __init__(
         self,
-        CHATGPT_TOKEN: str = (None,),
+        CHATGPT_TOKEN: str = "",
         AI_MODEL: str = "gpt-3.5-turbo",
         **kwargs,
     ):
@@ -23,6 +23,9 @@ class ChatgptProvider:
 
     def instruct(self, prompt, tokens: int = 0):
         response = ""
-        for data in self.bot.ask(prompt=prompt, model=self.AI_MODEL):
-            response = data["message"]
-        return response
+        try:
+            for data in self.bot.ask(prompt=prompt, model=self.AI_MODEL):
+                response = data["message"]
+            return response
+        except Exception as e:
+            return f"Chatgpt Error: {e}"
