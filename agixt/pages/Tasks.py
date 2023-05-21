@@ -8,7 +8,6 @@ from pathlib import Path
 
 check_auth_status()
 
-CFG = Config()
 
 st.title("Manage Tasks")
 
