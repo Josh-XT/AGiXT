@@ -38,6 +38,7 @@ class Memories:
                 settings=chromadb.config.Settings(
                     chroma_db_impl="duckdb+parquet",
                     persist_directory=self.chroma_persist_dir,
+                    anonymized_telemetry=False,
                 )
             )
         except Exception as e:
