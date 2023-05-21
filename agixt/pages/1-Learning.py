@@ -1,10 +1,11 @@
 import streamlit as st
 import os
-from Agent import Agent
-from Config import Config
 from auth_libs.Users import check_auth_status
+from components.agent_selector import agent_selector
 
 check_auth_status()
+
+agent_name, agent = agent_selector()
 
 st.title("Manage Learning")
 
@@ -12,14 +13,7 @@ st.title("Manage Learning")
 if "agent_status" not in st.session_state:
     st.session_state.agent_status = {}
 
-agent_name = st.selectbox(
-    "Select Agent",
-    options=[""] + [agent["name"] for agent in Config().get_agents()],
-    index=0,
-)
-
 if agent_name:
-    agent = Agent(agent_name)
     st.markdown("## Learn from a file")
     learn_file_upload = st.file_uploader(
         "Upload a file for the agent to learn from",

@@ -1,12 +1,10 @@
 import streamlit as st
 import os
 from AGiXT import AGiXT
-from Config import Config
 from Agent import Agent
 from streamlit import (
     markdown,
     header,
-    selectbox,
     checkbox,
     container,
     file_uploader,
@@ -18,47 +16,41 @@ from streamlit import (
 )
 
 from auth_libs.Users import check_auth_status
+from components.agent_selector import agent_selector
 
 check_auth_status()
-CFG = Config()
+agent_name, agent = agent_selector()
 
 
-def render_history(instruct_container, chat_history):
-    instruct_container.empty()
-    with instruct_container:
-        for instruct in chat_history:
-            if "sender" in instruct and "message" in instruct:
-                if instruct["sender"] == "User":
+def render_chat_history(chat_container, chat_history):
+    chat_container.empty()
+    with chat_container:
+        for chat in chat_history:
+            if "sender" in chat and "message" in chat:
+                if chat["sender"] == "User":
                     markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {instruct["message"]}</div>',
+                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
                         unsafe_allow_html=True,
                     )
                 else:
                     markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
+                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
                         unsafe_allow_html=True,
                     )
 
 
-header("Instruct an Agent")
+header("Chat with Agent")
 
-agent_name = selectbox(
-    "Select Agent",
-    options=[""] + [agent["name"] for agent in CFG.get_agents()],
-    index=0,
-)
-
-smart_instruct_toggle = checkbox("Enable Smart Instruct")
+smart_chat_toggle = checkbox("Enable Smart Chat")
 
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = {}
 
-instruct_container = container()
+chat_container = container()
 
 if agent_name:
     learn_file_upload = file_uploader("Upload a file to learn from")
     learn_file_path = ""
-    agent = Agent(agent_name)
     if learn_file_upload is not None:
         if not os.path.exists(os.path.join("data", "uploaded_files")):
             os.makedirs(os.path.join("data", "uploaded_files"))
@@ -67,43 +59,44 @@ if agent_name:
             f.write(learn_file_upload.getbuffer())
 
     try:
-        st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
+        st.session_state.chat_history[agent_name] = Agent(agent_name).get_chat_history(
+            agent_name
+        )
     except:
         st.session_state.chat_history[agent_name] = {}
 
-    render_history(instruct_container, st.session_state.chat_history[agent_name])
+    render_chat_history(chat_container, st.session_state.chat_history[agent_name])
 
-    instruct_prompt = text_input("Enter your message", key="instruct_prompt")
+    chat_prompt = text_input("Enter your message", key="chat_prompt")
     send_button = button("Send Message")
 
     if send_button:
-        if agent_name and instruct_prompt:
+        if agent_name and chat_prompt:
             with spinner("Thinking, please wait..."):
                 agent = AGiXT(agent_name)
-                if smart_instruct_toggle:
-                    response = agent.smart_instruct(
-                        instruct_prompt,
+                if smart_chat_toggle:
+                    response = agent.smart_chat(
+                        chat_prompt,
                         shots=3,
                         async_exec=True,
                         learn_file=learn_file_path,
                     )
                 else:
                     response = agent.run(
-                        instruct_prompt,
-                        prompt="instruct",
+                        chat_prompt,
+                        prompt="Chat",
                         context_results=6,
                         learn_file=learn_file_path,
                     )
-            instruct_entry = [
-                {"sender": "User", "message": instruct_prompt},
+            chat_entry = [
+                {"sender": "User", "message": chat_prompt},
                 {"sender": "Agent", "message": response},
             ]
-            st.session_state.chat_history[agent_name].extend(instruct_entry)
-            render_history(
-                instruct_container,
-                st.session_state.chat_history[agent_name],
+            st.session_state.chat_history[agent_name].extend(chat_entry)
+            render_chat_history(
+                chat_container, st.session_state.chat_history[agent_name]
             )
         else:
             error("Agent name and message are required.")
 else:
-    warning("Please select an agent to start instructting.")
+    warning("Please select an agent to start chatting.")

@@ -6,7 +6,7 @@ __pycache__/
 env/
 .venv
 *venv/
-
+session.txt
 .vscode/
 .idea/
 agents/*

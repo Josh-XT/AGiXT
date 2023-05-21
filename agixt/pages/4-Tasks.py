@@ -1,14 +1,13 @@
 import streamlit as st
 import os
 from Tasks import Tasks
-from Config import Config
-from Agent import Agent
 from auth_libs.Users import check_auth_status
 from pathlib import Path
+from components.agent_selector import agent_selector
 
 check_auth_status()
 
-
+agent_name, agent = agent_selector()
 st.title("Manage Tasks")
 
 # initialize session state for stop events and agent status if not exist
@@ -18,14 +17,7 @@ if "agent_stop_events" not in st.session_state:
 if "agent_status" not in st.session_state:
     st.session_state.agent_status = {}
 
-agent_name = st.selectbox(
-    "Select Agent",
-    options=[""] + [agent["name"] for agent in Config().get_agents()],
-    index=0,
-)
-
 if agent_name:
-    agent = Agent(agent_name)
     task_objective = st.text_area("Enter the task objective")
     learn_file_upload = st.file_uploader("Upload a file to learn from")
     learn_file_path = ""
