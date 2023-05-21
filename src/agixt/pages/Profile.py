@@ -10,6 +10,7 @@ CFG = Cfig()
 if not st.session_state.get("logged_in"):
     # Redirect to the login page if not
     redir.nav_page("Login")
+    st.stop()
 
 
 def logout_button():
