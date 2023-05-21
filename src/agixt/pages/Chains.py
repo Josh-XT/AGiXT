@@ -6,6 +6,7 @@ from Commands import Commands
 from Config.Agent import Agent
 from CustomPrompt import CustomPrompt
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 CFG = Config()
@@ -26,19 +27,8 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-logout_button()
+else:
+    logout_button()
 
 
 st.header("Manage Chains")

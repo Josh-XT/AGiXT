@@ -6,6 +6,7 @@ from Tasks import Tasks
 from Config import Config
 from Config.Agent import Agent
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 st.header("Manage Tasks")
@@ -28,19 +29,8 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-logout_button()
+else:
+    logout_button()
 
 # initialize session state for stop events and agent status if not exist
 if "agent_stop_events" not in st.session_state:
