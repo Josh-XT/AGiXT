@@ -16,7 +16,7 @@ class Tasks:
         self.primary_objective = None
         self.task_list = deque([])
         self.output_list = []
-        self.stop_running_event = None
+        self.stop_running_event = False
 
     def save_task(self):
         task_name = re.sub(
@@ -60,7 +60,7 @@ class Tasks:
 
     def get_status(self):
         try:
-            return not self.stop_running_event.is_set()
+            return True
         except:
             return False
 
@@ -152,7 +152,7 @@ class Tasks:
                 f"Starting task with objective: {self.primary_objective}.\n\n"
             )
 
-        while not self.stop_running_event.is_set() and self.task_list:
+        while not self.stop_running_event and self.task_list:
             task = self.task_list.popleft()
 
             if task["task_name"] in ["None", "None.", ""]:
@@ -192,6 +192,6 @@ class Tasks:
 
         if not self.task_list:
             self.stop_tasks()
-        if self.stop_running_event.is_set():
+        if self.stop_running_event:
             self.save_task()
         self.update_output_list("All tasks completed or stopped.")
