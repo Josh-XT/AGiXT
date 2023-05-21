@@ -13,12 +13,20 @@ class LlamacppProvider:
         MAX_TOKENS: int = 2000,
         AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
+        GPU_LAYERS: int = 0,
+        BATCH_SIZE: int = 512,
+        THREADS: int = 0,
+        STOP_SEQUENCE: str = "\n",
         **kwargs
     ):
         self.requirements = ["llama-cpp-python"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_MODEL = AI_MODEL
+        self.GPU_LAYERS = GPU_LAYERS
+        self.BATCH_SIZE = BATCH_SIZE
+        self.THREADS = THREADS if THREADS != 0 else None
+        self.STOP_SEQUENCE = STOP_SEQUENCE
 
         if MODEL_PATH:
             try:
@@ -27,14 +35,24 @@ class LlamacppProvider:
                 self.MAX_TOKENS = 2000
 
         if os.path.isfile(MODEL_PATH):
-            self.model = Llama(model_path=MODEL_PATH, n_ctx=self.MAX_TOKENS * 2)
+            self.model = Llama(
+                model_path=MODEL_PATH,
+                n_ctx=(int(self.MAX_TOKENS) * 2),
+                n_gpu_layers=self.GPU_LAYERS,
+                n_batch=self.BATCH_SIZE,
+                n_threads=self.THREADS,
+            )
         else:
-            print("Failed to import model - not a file")
+            print("Unable to find model path.")
 
     def instruct(self, prompt, tokens: int = 0):
+        max_tokens = int(self.MAX_TOKENS) - tokens
+        if max_tokens < 1:
+            max_tokens = int(self.MAX_TOKENS)
+
         return self.model(
             prompt,
-            max_tokens=self.MAX_TOKENS,
-            stop=["\n"],
+            max_tokens=max_tokens,
+            stop=[self.STOP_SEQUENCE],
             temperature=float(self.AI_TEMPERATURE),
         )["choices"][0]["text"]

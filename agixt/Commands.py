@@ -89,7 +89,7 @@ class Commands:
         return commands
 
     def get_extension_settings(self):
-        settings = []
+        settings = {}
         command_files = glob.glob("commands/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
@@ -103,9 +103,7 @@ class Commands:
                 if "kwargs" in params:
                     del params["kwargs"]
                 if params != {}:
-                    settings.append(list(params.keys()))
-        settings = [item for sublist in settings for item in sublist]
-        settings = list(set(settings))
+                    settings[module_name] = params
         return settings
 
     def get_command_params(self, func):

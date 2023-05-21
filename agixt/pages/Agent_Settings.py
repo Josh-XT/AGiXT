@@ -30,7 +30,7 @@ def render_provider_settings(agent_settings, provider_name: str):
         if key in agent_settings:
             default_value = agent_settings[key]
         else:
-            default_value = None
+            default_value = ""
 
         user_val = st.text_input(key, value=default_value)
         rendered_settings[key] = user_val
@@ -124,25 +124,35 @@ if agent_name and not new_agent:
             provider_settings = render_provider_settings(agent_settings, provider_name)
             agent_settings.update(provider_settings)
 
+        def render_extension_settings(extension_settings, agent_settings):
+            rendered_settings = {}
+
+            for extension, settings in extension_settings.items():
+                st.subheader(f"{extension}")
+                for key, val in settings.items():
+                    if key in agent_settings:
+                        default_value = agent_settings[key]
+                    else:
+                        default_value = val if val else ""
+
+                    user_val = st.text_input(
+                        key, value=default_value, key=f"{extension}_{key}"
+                    )
+
+                    # Check if the user value exists before saving the setting
+                    if user_val:
+                        rendered_settings[key] = user_val
+
+            return rendered_settings
+
         st.subheader("Extension Settings")
         extension_setting_keys = Commands(agent_config).get_extension_settings()
-        extension_settings = {}
+        extension_settings = render_extension_settings(
+            extension_setting_keys, agent_settings
+        )
 
-        if not isinstance(extension_setting_keys, list):
-            st.error(
-                f"Error loading extension settings: expected a list, but got {extension_setting_keys}"
-            )
-        else:
-            for key in extension_setting_keys:
-                if key in agent_settings:
-                    default_value = agent_settings[key]
-                else:
-                    default_value = None
-                user_val = st.text_input(key, value=default_value)
-                extension_settings[key] = user_val
-
-            # Update the extension settings in the agent_settings directly
-            agent_settings.update(extension_settings)
+        # Update the extension settings in the agent_settings directly
+        agent_settings.update(extension_settings)
 
         st.subheader("Custom Settings")
         custom_settings = agent_settings.get("custom_settings", [])
@@ -197,30 +207,32 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        available_commands = Commands(
-            Agent(agent_name).agent_config
-        ).get_available_commands()
+        available_commands = Commands(agent_config).get_available_commands()
 
         # Save the existing command state to prevent duplication
         existing_command_states = {
             command["friendly_name"]: command["enabled"]
             for command in available_commands
         }
+
         for command in available_commands:
             command_friendly_name = command["friendly_name"]
-            command_status = (
-                existing_command_states[command_friendly_name]
-                if command_friendly_name in existing_command_states
-                else command["enabled"]
-            )
+            if command_friendly_name in existing_command_states:
+                command_status = existing_command_states[command_friendly_name]
+            else:
+                continue  # Skip the command if it is not listed in the available commands
+
             toggle_status = st.checkbox(
                 command_friendly_name,
                 value=command_status,
                 key=command_friendly_name,
             )
             command["enabled"] = toggle_status
+
         reduced_commands = {
-            cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
+            cmd["friendly_name"]: cmd["enabled"]
+            for cmd in available_commands
+            if cmd["friendly_name"] in existing_command_states
         }
         # Update the available commands back to the agent config
         Agent(agent_name).update_agent_config(reduced_commands, "commands")
@@ -229,22 +241,30 @@ if agent_name and not new_agent:
         st.error(f"Error loading agent configuration: {str(e)}")
 
 if not new_agent:
-    if st.button("Update Agent Settings"):
+    # Create a form for each button
+    with st.form(key="update_agent_settings_form"):
+        update_agent_settings_button = st.form_submit_button("Update Agent Settings")
+
+    with st.form(key="wipe_memories_form"):
+        wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
+
+    with st.form(key="delete_agent_form"):
+        delete_agent_button = st.form_submit_button("Delete Agent")
+
+    # Trigger actions on form submit
+    if update_agent_settings_button:
         if agent_name:
             try:
-                # Update the available commands back to the agent config
                 # Save commands in the desired format
                 reduced_commands = {
                     cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
                 }
                 Agent(agent_name).update_agent_config(reduced_commands, "commands")
-                # Update other settings
                 Agent(agent_name).update_agent_config(agent_settings, "settings")
                 st.success(f"Agent '{agent_name}' updated.")
             except Exception as e:
                 st.error(f"Error updating agent: {str(e)}")
 
-    wipe_memories_button = st.button("Wipe Agent Memories")
     if wipe_memories_button:
         if agent_name:
             try:
@@ -252,10 +272,7 @@ if not new_agent:
                 st.success(f"Memories of agent '{agent_name}' wiped.")
             except Exception as e:
                 st.error(f"Error wiping agent's memories: {str(e)}")
-        else:
-            st.error("Agent name is required to wipe memories.")
 
-    delete_agent_button = st.button("Delete Agent")
     if delete_agent_button:
         if agent_name:
             try:
