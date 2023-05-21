@@ -49,16 +49,6 @@ if "chat_history" not in st.session_state:
 instruct_container = container()
 
 if agent_name:
-    learn_file_upload = file_uploader("Upload a file to learn from")
-    learn_file_path = ""
-    agent = Agent(agent_name)
-    if learn_file_upload is not None:
-        if not os.path.exists(os.path.join("data", "uploaded_files")):
-            os.makedirs(os.path.join("data", "uploaded_files"))
-        learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
-        with open(learn_file_path, "wb") as f:
-            f.write(learn_file_upload.getbuffer())
-
     try:
         st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
     except:
@@ -78,14 +68,12 @@ if agent_name:
                         instruct_prompt,
                         shots=3,
                         async_exec=True,
-                        learn_file=learn_file_path,
                     )
                 else:
                     response = agent.run(
                         instruct_prompt,
                         prompt="instruct",
                         context_results=6,
-                        learn_file=learn_file_path,
                     )
             instruct_entry = [
                 {"sender": "User", "message": instruct_prompt},

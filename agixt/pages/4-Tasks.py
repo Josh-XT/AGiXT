@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 from Tasks import Tasks
 from auth_libs.Users import check_auth_status
 from pathlib import Path
@@ -19,14 +18,6 @@ if "agent_status" not in st.session_state:
 
 if agent_name:
     task_objective = st.text_area("Enter the task objective")
-    learn_file_upload = st.file_uploader("Upload a file to learn from")
-    learn_file_path = ""
-    if learn_file_upload is not None:
-        if not os.path.exists(os.path.join("data", "uploaded_files")):
-            os.makedirs(os.path.join("data", "uploaded_files"))
-        learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
-        with open(learn_file_path, "wb") as f:
-            f.write(learn_file_upload.getbuffer())
 
     task_list_dir = Path(f"agents/{agent_name}")
     task_list_dir.mkdir(parents=True, exist_ok=True)
@@ -54,7 +45,6 @@ if agent_name:
                     agent.agent_instances[agent_name].run_task(
                         task_objective,
                         True,
-                        learn_file_path,
                         load_task,
                     )
                     st.session_state.agent_status[agent_name] = "Running"
