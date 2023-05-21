@@ -9,6 +9,7 @@ class AzureProvider:
         AZURE_API_KEY: str = "",
         AZURE_OPENAI_ENDPOINT: str = "",
         DEPLOYMENT_ID: str = "",
+        AZURE_EMBEDDER_DEPLOYMENT_ID: str = "",
         AI_MODEL: str = "gpt-35-turbo",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4096,
@@ -24,6 +25,7 @@ class AzureProvider:
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
+        self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
 
     def instruct(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3
