@@ -141,11 +141,12 @@ class Tasks:
 
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
 
-            new_tasks = AGiXT(self.agent_name).task_agent(
+            task_agent = AGiXT(self.agent_name).task_agent(
                 result=result,
                 task_description=task["task_name"],
-                task_list=list(self.task_list),
+                task_list=self.task_list,
             )
+            new_tasks = deque(task_agent)
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
 
             for new_task in new_tasks:
