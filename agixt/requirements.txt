@@ -49,5 +49,5 @@ docx2txt
 pdfplumber
 ffmpeg
 hugchat
-bcrypt
+flask-bcrypt
 revChatGPT
