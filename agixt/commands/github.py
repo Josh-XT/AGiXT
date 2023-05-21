@@ -8,6 +8,7 @@ CFG = Config()
 
 class github(Commands):
     def __init__(self):
+        self.extension_keys = ["GITHUB_USERNAME", "GITHUB_API_KEY"]
         self.commands = {"Clone Github Repository": self.clone_repo}
         if CFG.GITHUB_USERNAME and CFG.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo

@@ -13,6 +13,7 @@ CFG = Config()
 
 class image_generator(Commands):
     def __init__(self):
+        self.extension_keys = ["HUGGINGFACE_API_KEY", "OPENAI_API_KEY"]
         if CFG.HUGGINGFACE_API_KEY or CFG.OPENAI_API_KEY:
             self.commands = {"Generate Image": self.generate_image}
 

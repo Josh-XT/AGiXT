@@ -11,6 +11,11 @@ CFG = Config()
 
 class microsoft_365_email(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "MICROSOFT_365_CLIENT_ID",
+            "MICROSOFT_365_CLIENT_SECRET",
+            "MICROSOFT_365_REDIRECT_URI",
+        ]
         if (
             CFG.MICROSOFT_365_CLIENT_ID
             and CFG.MICROSOFT_365_CLIENT_SECRET
