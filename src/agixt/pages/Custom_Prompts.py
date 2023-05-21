@@ -13,13 +13,7 @@ CONFIG_FILE = "config.yaml"
 if (
     not st.session_state.get("logged_in")
     and os.path.exists(CONFIG_FILE)
-    and (
-        CFIG.load_config()["auth_setup_config"] == "None"
-        or CFIG.load_config()["auth_setup_config"] == None
-        or CFIG.load_config()["auth_setup_config"] is None
-        or CFIG.load_config()["auth_setup_config"] == "null"
-        or CFIG.load_config()["auth_setup_config"] == "No Login"
-    )
+    and (CFIG.load_config()["auth_setup"] == "True")
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
@@ -35,7 +29,11 @@ def logout_button():
         st.experimental_rerun()  # Redirect to the login page
 
 
-logout_button()
+if (
+    not CFIG.load_config()["auth_setup_config"] == "No Login"
+    and CFIG.load_config()["auth_setup"] != False
+):
+    logout_button()
 
 
 custom_prompt = CustomPrompt()
