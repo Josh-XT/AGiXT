@@ -127,19 +127,21 @@ class AGiXT:
                 **kwargs,
             )
             return_response = ""
-            if "response" in self.response:
-                # Turn it into json
+            try:
                 self.response = json.loads(self.response)
-                return_response = self.response["response"]
-            if "commands" in self.response:
-                if self.response["commands"] != {}:
+                if "response" in self.response:
+                    return_response = self.response["response"]
+                if "commands" in self.response:
+                    if self.response["commands"] != {}:
+                        return_response += (
+                            f"\n\nCommands Executed:\n{self.response['commands']}"
+                        )
+                if execution_response:
                     return_response += (
-                        f"\n\nCommands Executed:\n{self.response['commands']}"
+                        f"\n\nCommand Execution Response:\n{execution_response}"
                     )
-            if execution_response:
-                return_response += (
-                    f"\n\nCommand Execution Response:\n{execution_response}"
-                )
+            except:
+                return_response = self.response
             self.response = return_response
         print(f"Response: {self.response}")
         self.agent.memories.store_result(task, self.response)

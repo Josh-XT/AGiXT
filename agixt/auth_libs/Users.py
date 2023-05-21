@@ -102,7 +102,9 @@ def check_auth_status():
         and (CFIG.load_config()["auth_setup"] == "True")
     ):
         # Redirect to the login page if not
-        redir.nav_page("Login")
+        # redir.nav_page("Login")
+        print("Not logged in")
     else:
         if CFIG.load_config()["auth_setup"] == "True":
-            logout_button()
+            print("Logged in")
+            # logout_button()
