@@ -4,8 +4,6 @@ services:
     image: ghcr.io/jamesonrgrieve/agent-llm-frontend:latest
     platform: linux/amd64
     init: true
-    env_file:
-      - .env
     environment:
       NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     ports:
@@ -19,8 +17,6 @@ services:
       dockerfile: Dockerfile
     platform: linux/amd64
     init: true
-    env_file:
-      - .env
     ports:
       - "7437:7437"
     volumes:
