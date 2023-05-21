@@ -9,6 +9,11 @@ CFG = Config()
 
 class audio_text(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "HUGGINGFACE_API_KEY",
+            "HUGGINGFACE_AUDIO_TO_TEXT_MODEL",
+        ]
+
         if CFG.HUGGINGFACE_API_KEY is not None:
             self.commands = {
                 "Read Audio from File": self.read_audio_from_file,
