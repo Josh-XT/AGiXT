@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from Config import Config
 from Commands import Commands
@@ -73,6 +74,8 @@ if not agent_name:
                 agent.add_agent(new_agent_name, provider_settings)
                 st.success(f"Agent '{new_agent_name}' added.")
                 agent_name = new_agent_name
+                with open(os.path.join("session.txt"), "w") as f:
+                    f.write(agent_name)
                 st.session_state.new_agent_name = agent_name
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
