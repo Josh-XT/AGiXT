@@ -18,28 +18,21 @@ AGiXT is a dynamic Artificial Intelligence Automation Platform engineered to orc
 
 Embracing the spirit of extremity in every facet of life, we introduce AGiXT. This advanced AI Automation Platform is our bold step towards the realization of Artificial General Intelligence (AGI). Seamlessly orchestrating instruction management and executing complex tasks across diverse AI providers, AGiXT combines adaptive memory, smart features, and a versatile plugin system to maximize AI potential. With our unwavering commitment to innovation, we're dedicated to pushing the boundaries of AI and bringing AGI closer to reality.
 
-## ⚠️ Monitor Your Usage!
-Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
-
-## ⚠️ Under Development!
-This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
-
 ## Table of Contents 📖
 
 - [AGiXT](#agixt)
-  - [⚠️ Monitor Your Usage!](#️-monitor-your-usage)
-  - [⚠️ Under Development!](#️-under-development)
   - [Table of Contents 📖](#table-of-contents-)
-  - [Media Coverage ⏯️](#media-coverage-️)
-    - [Video](#video)
+  - [⚠️ Disclaimers!](#️-disclaimers)
+    - [Monitor Your Usage!](#monitor-your-usage)
+    - [Under Development!](#under-development)
   - [Key Features 🗝️](#key-features-️)
-  - [Run with Docker](#run-with-docker)
-    - [Linux or Windows](#linux-or-windows)
+  - [Quickstart with Docker](#quickstart-with-docker)
     - [Windows Docker Desktop (streamlit only example)](#windows-docker-desktop-streamlit-only-example)
+    - [Alternative Docker Compose Profiles](#alternative-docker-compose-profiles)
     - [Development using docker](#development-using-docker)
   - [Local Development](#local-development)
+    - [API Endpoints](#api-endpoints)
   - [Configuration](#configuration)
-  - [API Endpoints](#api-endpoints)
   - [Documentation](#documentation)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
@@ -47,11 +40,12 @@ This project is under active development and may still have issues. We appreciat
   - [Acknowledgments](#acknowledgments)
   - [History](#history)
 
-## Media Coverage ⏯️
+## ⚠️ Disclaimers!
+### Monitor Your Usage!
+Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
 
-### Video
-- From [World of AI](https://www.youtube.com/@intheworldofai) on YouTube: [AGiXT: AI Automation Bot for Managing and Implementing AI Through Applications](https://www.youtube.com/watch?v=g0_36Mf2-To)
-
+### Under Development!
+This project is under active development and may still have issues. We appreciate your understanding and patience. If you encounter any problems, please first check the open issues. If your issue is not listed, kindly create a new issue detailing the error or problem you experienced. Thank you for your support!
 
 ## Key Features 🗝️
 
@@ -70,29 +64,29 @@ This project is under active development and may still have issues. We appreciat
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
-## Run with Docker
-Clone the repositories for the AGiXT front/back ends then start the services with Docker.
-
-### Linux or Windows
+## Quickstart with Docker
+Download the `docker-compose` file and run the AGiXT Streamlit Web App.
 ```
-git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT
+wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.yml
+docker compose --profile streamlit up
 ```
-
-Choose a service you want to run using profiles, e.g.
-`docker compose --profile streamlit up`
-
-Run all available services
-`docker compose --profile all up`
 
 - Web Interface http://localhost:8501
-
 ### Windows Docker Desktop (streamlit only example)
 - Container Name: AGiXT
 - Host Port: 8501:8501/tcp
 
+### Alternative Docker Compose Profiles
+
+Run all available services, this includes the FastAPI back end (Port 7437) and NextJS front end (Port 3000).
+```
+docker compose --profile all up
+```
+
 ### Development using docker
 ```
+wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.yml
+wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.dev.yml
 docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
@@ -102,24 +96,20 @@ Clone the repository for the AGiXT back end and start it.
 
 ```
 git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT/src/agixt
+cd AGiXT/agixt
 pip install -r requirements.txt
 streamlit run streamlit.py
 ```
 
 Access the web interface at http://localhost:8501
 
-## Configuration
-
-Each AGiXT Agent has its own settings for interfacing with AI providers, and other configuration options. These settings can be set and modified through the web interface.
-
-## API Endpoints
+### API Endpoints
 
 AGiXT provides several API endpoints for managing agents, prompts and chains.
 
 If you're not running with Docker, the back end can be run with:
 ```
-python src/agixt/app.py
+python agixt/app.py
 ```
 
 To learn more about the API endpoints and their usage, visit the API documentation at 
@@ -127,7 +117,9 @@ To learn more about the API endpoints and their usage, visit the API documentati
 - [Redoc](http://localhost:7437/redoc)
 
 This documentation is hosted locally and the frontend must be running for these links to work.
+## Configuration
 
+Each AGiXT Agent has its own settings for interfacing with AI providers, and other configuration options. These settings can be set and modified through the web interface.
 ## Documentation
 
 Not enough information? Check out the [documentation](https://josh-xt.github.io/AGiXT) for more details.
