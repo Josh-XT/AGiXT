@@ -3,8 +3,6 @@ services:
   frontend:
     image: ghcr.io/jamesonrgrieve/agent-llm-frontend:main
     init: true
-    env_file:
-      - .env
     environment:
       NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
     ports:
@@ -16,8 +14,6 @@ services:
   backend:
     image: joshxt/agixt:main
     init: true
-    env_file:
-      - .env
     ports:
       - "7437:7437"
     volumes:
@@ -29,8 +25,6 @@ services:
   backend-streamlit:
     image: joshxt/agixt-streamlit:main
     init: true
-    env_file:
-      - .env
     ports:
       - "8501:8501"
     volumes:
