@@ -427,7 +427,7 @@ class AGiXT:
                             (
                                 collected_data,
                                 link_list,
-                            ) = await self.memories.read_website(url)
+                            ) = await self.agent.memories.read_website(url)
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:
