@@ -5,6 +5,7 @@ from Tasks import Tasks
 from Config import Config
 from Agent import Agent
 from auth_libs.Users import check_auth_status
+from pathlib import Path
 
 check_auth_status()
 
@@ -35,6 +36,19 @@ if agent_name:
         learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
         with open(learn_file_path, "wb") as f:
             f.write(learn_file_upload.getbuffer())
+
+    task_list_dir = Path(f"agents/{agent_name}")
+    task_list_dir.mkdir(parents=True, exist_ok=True)
+    existing_tasks = [
+        f.stem for f in task_list_dir.glob("*.json") if f.stem != "config"
+    ]
+
+    load_task = st.selectbox(
+        "Load Task",
+        options=[""] + existing_tasks,
+        index=0,
+    )
+
     CFG = Agent(agent_name)
 
     col1, col2 = st.columns([3, 1])
@@ -44,14 +58,20 @@ if agent_name:
 
         if agent_status == "Not Running":
             if st.button("Start Task", key=f"start_{agent_name}"):
-                if agent_name and task_objective:
+                if agent_name and (task_objective or load_task):
                     if agent_name not in CFG.agent_instances:
                         CFG.agent_instances[agent_name] = Tasks(agent_name)
                     stop_event = threading.Event()
                     st.session_state.agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(
                         target=CFG.agent_instances[agent_name].run_task,
-                        args=(stop_event, task_objective, True, learn_file_path),
+                        args=(
+                            stop_event,
+                            task_objective,
+                            True,
+                            learn_file_path,
+                            load_task,
+                        ),
                     )
                     agent_thread.start()
                     st.session_state.agent_status[agent_name] = "Running"

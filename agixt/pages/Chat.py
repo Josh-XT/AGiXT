@@ -66,10 +66,11 @@ if agent_name:
             f.write(learn_file_upload.getbuffer())
 
     try:
-        chat_history = Agent(agent_name).get_chat_history(agent_name)
+        st.session_state.chat_history[agent_name] = Agent(agent_name).get_chat_history(
+            agent_name
+        )
     except:
-        chat_history = []
-    st.session_state.chat_history[agent_name] = chat_history
+        st.session_state.chat_history[agent_name] = {}
 
     render_chat_history(chat_container, st.session_state.chat_history[agent_name])
 
