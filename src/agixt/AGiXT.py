@@ -120,12 +120,27 @@ class AGiXT:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            self.response = self.execution_agent(
+            execution_response = self.execution_agent(
                 execution_response=self.response,
                 task=task,
                 context_results=context_results,
                 **kwargs,
             )
+            return_response = ""
+            if "response" in self.response:
+                # Turn it into json
+                self.response = json.loads(self.response)
+                return_response = self.response["response"]
+            if "commands" in self.response:
+                if self.response["commands"] != {}:
+                    return_response += (
+                        f"\n\nCommands Executed:\n{self.response['commands']}"
+                    )
+            if execution_response:
+                return_response += (
+                    f"\n\nCommand Execution Response:\n{execution_response}"
+                )
+            self.response = return_response
         print(f"Response: {self.response}")
         self.agent.memories.store_result(task, self.response)
         self.agent.log_interaction("USER", task)
@@ -341,6 +356,17 @@ class AGiXT:
                         response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
                         return response
                     else:
+                        revalidate = self.run(
+                            task=task,
+                            prompt="ValidationFailed",
+                            command_name=command_name,
+                            command_args=command_args,
+                            command_output=command_output,
+                            **kwargs,
+                        )
+                        return self.execution_agent(
+                            execution_response, task, context_results, **kwargs
+                        )
                         return self.revalidation_agent(
                             task, command_name, command_args, command_output, **kwargs
                         )
