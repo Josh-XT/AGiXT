@@ -21,7 +21,7 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./data/agents:/app/agents:rw
-      - ./data/workspace:/app/WORKSPACE:rw
+      - ./agents:/app/agents:rw
+      - ./WORKSPACE:/app/WORKSPACE:rw
       - ./models:/model:rw
     restart: always

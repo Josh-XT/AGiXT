@@ -9,7 +9,7 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./data/agents:/app/agents:rw
-      - ./data/workspace:/app/WORKSPACE:rw
+      - ./agents:/app/agents:rw
+      - ./WORKSPACE:/app/WORKSPACE:rw
       - ./models:/model:rw
     restart: always
