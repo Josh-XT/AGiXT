@@ -30,8 +30,7 @@ setup(
     long_description_content_type="text/markdown",  # This should match the format of your README
     author="Josh XT",
     author_email="josh@devxt.com",
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
+    packages=find_packages(),
     python_requires=">=3.10",
     install_requires=requirements,
 )
