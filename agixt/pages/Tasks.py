@@ -61,19 +61,13 @@ if agent_name:
                 if agent_name and (task_objective or load_task):
                     if agent_name not in CFG.agent_instances:
                         CFG.agent_instances[agent_name] = Tasks(agent_name)
-                    stop_event = threading.Event()
-                    st.session_state.agent_stop_events[agent_name] = stop_event
-                    agent_thread = threading.Thread(
-                        target=CFG.agent_instances[agent_name].run_task,
-                        args=(
-                            stop_event,
-                            task_objective,
-                            True,
-                            learn_file_path,
-                            load_task,
-                        ),
+
+                    CFG.agent_instances[agent_name].run_task(
+                        task_objective,
+                        True,
+                        learn_file_path,
+                        load_task,
                     )
-                    agent_thread.start()
                     st.session_state.agent_status[agent_name] = "Running"
                     agent_status = "Running"
                     columns[0].success(f"Task started for agent '{agent_name}'.")
@@ -81,9 +75,8 @@ if agent_name:
                     columns[0].error("Agent name and task objective are required.")
         else:  # agent_status == "Running"
             if st.button("Stop Task", key=f"stop_{agent_name}"):
-                if agent_name in st.session_state.agent_stop_events:
-                    st.session_state.agent_stop_events[agent_name].set()
-                    del st.session_state.agent_stop_events[agent_name]
+                if agent_name in CFG.agent_instances:
+                    CFG.agent_instances[agent_name].stop_tasks()
                     st.session_state.agent_status[agent_name] = "Not Running"
                     agent_status = "Not Running"
                     columns[0].success(f"Task stopped for agent '{agent_name}'.")
