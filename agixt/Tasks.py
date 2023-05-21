@@ -61,17 +61,17 @@ class Tasks:
                 }
             )
         self.stop_running_event = stop_event
-        while not stop_event.is_set():
-            if self.task_list == []:
-                break
+        while not self.stop_running_event.is_set() and self.task_list != []:
             if len(self.task_list) > 0:
                 task = self.task_list.popleft()
             if (
-                task["task_name"] == "None"
+                self.task_list == []
+                or task["task_name"] == "None"
                 or task["task_name"] == "None."
                 or task["task_name"] == ""
             ):
-                break
+                self.stop_running_event.set()
+
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
@@ -97,26 +97,15 @@ class Tasks:
                 self.task_list.append(new_task)
             task_names = [t["task_name"] for t in self.task_list]
             if not task_names:
-                return
-            next_task_id = len(self.task_list) + 1
-            response = AGiXT(self.agent_name).run(
-                task=self.primary_objective,
-                prompt="priority",
-                tasks=", ".join(task_names),
-                next_task_id=next_task_id,
-            )
+                self.stop_running_event.set()
+            new_task_list = deque()
 
-            lines = response.split("\n") if "\n" in response else [response]
-            new_tasks = [
-                re.sub(r"^.*?(\d)", r"\1", line)
-                for line in lines
-                if line.strip() and re.search(r"\d", line[:10])
-            ] or [response]
-            self.task_list = deque()
             for task_string in new_tasks:
                 task_parts = task_string.strip().split(".", 1)
                 if len(task_parts) == 2:
                     task_id = task_parts[0].strip()
                     task_name = task_parts[1].strip()
                     self.task_list.append({"task_id": task_id, "task_name": task_name})
+        if self.task_list == []:
+            self.stop_running_event.set()
         self.update_output_list("All tasks completed or stopped.")
