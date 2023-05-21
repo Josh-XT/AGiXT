@@ -1,4 +1,7 @@
+# Main.py
 import streamlit as st
+from components.agent_selector import agent_selector
+
 
 st.set_page_config(
     page_title="AGiXT",
@@ -6,7 +9,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
+agent_name, agent = agent_selector()
 st.markdown(
     """
     <img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="100%">
