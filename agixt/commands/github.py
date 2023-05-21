@@ -4,9 +4,9 @@ from Commands import Commands
 
 
 class github(Commands):
-    def __init__(self, GIT_USERNAME: str = "", GIT_API_KEY: str = "", **kwargs):
-        self.GIT_USERNAME = GIT_USERNAME
-        self.GIT_API_KEY = GIT_API_KEY
+    def __init__(self, GITHUB_USERNAME: str = "", GITHUB_API_KEY: str = "", **kwargs):
+        self.GITHUB_USERNAME = GITHUB_USERNAME
+        self.GITHUB_API_KEY = GITHUB_API_KEY
         self.commands = {"Clone Github Repository": self.clone_repo}
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo
