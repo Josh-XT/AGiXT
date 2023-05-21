@@ -15,9 +15,9 @@ class Tasks:
         self.output_list = []
         self.stop_running_event = None
 
-    def save_task(self, task_name):
+    def save_task(self):
         task_name = re.sub(
-            r"[^\w\s]", "", task_name
+            r"[^\w\s]", "", self.primary_objective
         )  # remove non-alphanumeric & non-space characters
         task_name = task_name[:15]  # truncate to 15 characters
 
@@ -34,6 +34,26 @@ class Tasks:
         }
         with open(f"agents/{self.agent_name}/{task_name}.json", "w") as f:
             json.dump(task_state, f)
+
+    def load_task(self, task_name):
+        task_name = re.sub(
+            r"[^\w\s]", "", task_name
+        )  # remove non-alphanumeric & non-space characters
+        task_name = task_name[:15]  # truncate to 15 characters
+
+        try:
+            with open(f"agents/{self.agent_name}/{task_name}.json", "r") as f:
+                task_state = json.load(f)
+
+            self.task_list = deque(task_state["task_list"])
+            self.output_list = task_state["output_list"]
+            self.primary_objective = task_state["primary_objective"]
+            print(f"Successfully loaded task '{task_name}'.")
+
+        except FileNotFoundError:
+            print(f"No saved task found with the name '{task_name}'.")
+        except Exception as e:
+            print(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
         try:
@@ -61,35 +81,41 @@ class Tasks:
         async_exec: bool = False,
         learn_file: str = "",
         smart: bool = False,
+        load_task: str = "",
         **kwargs,
     ):
-        self.primary_objective = objective
-        if learn_file != "":
-            learned_file = self.agent.memories.read_file(
-                task=objective, file_path=learn_file
-            )
-            if learned_file:
-                self.update_output_list(
-                    f"Read file {learn_file} into memory for task {objective}.\n\n"
-                )
-            else:
-                self.update_output_list(
-                    f"Failed to read file {learn_file} into memory.\n\n"
-                )
-
-        self.update_output_list(
-            f"Starting task with objective: {self.primary_objective}.\n\n"
-        )
-
-        if not self.task_list:
-            self.task_list.append(
-                {
-                    "task_id": 1,
-                    "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
-                }
-            )
-
         self.stop_running_event = stop_event
+        if load_task != "":
+            self.load_task(load_task)
+            self.update_output_list(f"Loaded task '{load_task}'.\n\n")
+        else:
+            if self.task_list == deque([]) or self.task_list == []:
+                self.task_list = deque(
+                    [
+                        {
+                            "task_id": 1,
+                            "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
+                        }
+                    ]
+                )
+            self.primary_objective = objective
+            if learn_file != "":
+                learned_file = self.agent.memories.read_file(
+                    task=objective, file_path=learn_file
+                )
+                if learned_file:
+                    self.update_output_list(
+                        f"Read file {learn_file} into memory for task {objective}.\n\n"
+                    )
+                else:
+                    self.update_output_list(
+                        f"Failed to read file {learn_file} into memory.\n\n"
+                    )
+
+            self.update_output_list(
+                f"Starting task with objective: {self.primary_objective}.\n\n"
+            )
+
         while not self.stop_running_event.is_set() and self.task_list:
             task = self.task_list.popleft()
 
@@ -129,5 +155,6 @@ class Tasks:
 
         if not self.task_list:
             self.stop_tasks()
-
+        if self.stop_running_event.is_set():
+            self.save_task()
         self.update_output_list("All tasks completed or stopped.")
