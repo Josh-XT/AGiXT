@@ -138,9 +138,7 @@ class Tasks:
                 )
             self.primary_objective = objective
             if learn_file != "":
-                learned_file = self.agent.memories.read_file(
-                    task=objective, file_path=learn_file
-                )
+                learned_file = self.agent.memories.read_file(file_path=learn_file)
                 if learned_file:
                     self.update_output_list(
                         f"Read file {learn_file} into memory for task {objective}.\n\n"
