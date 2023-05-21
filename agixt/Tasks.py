@@ -7,6 +7,7 @@ import yaml
 from pathlib import Path
 from Agent import Agent
 from collections import deque
+from typing import List, Dict
 
 
 class Tasks:
@@ -114,6 +115,52 @@ class Tasks:
             self.stop_running_event = True
         self.task_list.clear()
 
+    def task_agent(self, result: Dict, task_description: str, task_list) -> List[Dict]:
+        tasks = [task["task_name"] for task in task_list]
+        if len(tasks) == 0:
+            return []
+        task_list = ", ".join(tasks)
+
+        response = AGiXT(self.agent_name).run(
+            task=self.primary_objective,
+            prompt="task",
+            result=result,
+            task_description=task_description,
+            tasks=task_list,
+        )
+
+        lines = response.split("\n") if "\n" in response else [response]
+        new_tasks = []
+        for line in lines:
+            match = re.match(r"(\d+)\.\s+(.*)", line)
+            if match:
+                task_id, task_name = match.groups()
+                new_tasks.append(
+                    {"task_id": int(task_id), "task_name": task_name.strip()}
+                )
+
+        return new_tasks  # This line will return the list of new tasks
+
+    def instruction_agent(self, task, learn_file: str = "", **kwargs):
+        if "task_name" in task:
+            task = task["task_name"]
+        resolver = self.run(
+            task=task,
+            prompt="SmartInstruct-StepByStep",
+            context_results=6,
+            learn_file=learn_file,
+            **kwargs,
+        )
+        execution_response = self.run(
+            task=task,
+            prompt="SmartInstruct-Execution",
+            previous_response=resolver,
+            **kwargs,
+        )
+        return (
+            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
+        )
+
     def run_task(
         self,
         objective,
@@ -171,18 +218,18 @@ class Tasks:
                     **kwargs,
                 )
             else:
-                result = AGiXT(self.agent_name).instruction_agent(
-                    task=task["task_name"], **kwargs
-                )
+                result = self.instruction_agent(task=task["task_name"], **kwargs)
 
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
 
-            task_agent = AGiXT(self.agent_name).task_agent(
+            new_tasks = self.task_agent(
                 result=result,
                 task_description=task["task_name"],
                 task_list=self.task_list,
             )
-            new_tasks = deque(task_agent)
+
+            self.task_list = deque(new_tasks)
+
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
 
             for new_task in new_tasks:

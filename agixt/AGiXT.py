@@ -5,7 +5,6 @@ import json
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from typing import List, Dict
 from duckduckgo_search import ddg
 from urllib.parse import urlparse
 
@@ -381,31 +380,6 @@ class AGiXT:
             print(validated_response)
             return "\nNo commands were executed.\n"
 
-    def task_agent(self, result: Dict, task_description: str, task_list) -> List[Dict]:
-        tasks = [task["task_name"] for task in task_list]
-        if len(tasks) == 0:
-            return []
-        task_list = ", ".join(tasks)
-
-        response = self.run(
-            task=self.primary_objective,
-            prompt="task",
-            result=result,
-            task_description=task_description,
-            tasks=task_list,
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = []
-        for line in lines:
-            match = re.match(r"(\d+)\.\s+(.*)", line)
-            if match:
-                task_id, task_name = match.groups()
-                new_tasks.append(
-                    {"task_id": int(task_id), "task_name": task_name.strip()}
-                )
-        return new_tasks
-
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
@@ -455,23 +429,3 @@ class AGiXT:
             links = ddg(search_string, max_results=depth)
             if links is not None:
                 await resursive_browsing(task, links)
-
-    def instruction_agent(self, task, learn_file: str = "", **kwargs):
-        if "task_name" in task:
-            task = task["task_name"]
-        resolver = self.run(
-            task=task,
-            prompt="SmartInstruct-StepByStep",
-            context_results=6,
-            learn_file=learn_file,
-            **kwargs,
-        )
-        execution_response = self.run(
-            task=task,
-            prompt="SmartInstruct-Execution",
-            previous_response=resolver,
-            **kwargs,
-        )
-        return (
-            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
-        )
