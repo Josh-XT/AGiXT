@@ -318,26 +318,3 @@ class Agent:
             self.memory = {"interactions": []}
         self.memory["interactions"].append({"role": role, "message": message})
         self.save_memory()
-
-    def get_task_output(self, agent_name, primary_objective=None):
-        if primary_objective is None:
-            return "No primary objective specified."
-
-        # Clean up primary_objective and truncate at 15 characters
-        clean_objective = re.sub(
-            r"\W+", " ", primary_objective
-        )  # Remove non-alphanumeric characters
-        clean_objective = clean_objective.replace(
-            " ", "_"
-        )  # Replace spaces with underscores
-        clean_objective = clean_objective[:15]  # Truncate to 15 characters
-
-        task_output_file = os.path.join(
-            "agents", agent_name, "tasks", f"{clean_objective}.txt"
-        )
-        if os.path.exists(task_output_file):
-            with open(task_output_file, "r") as f:
-                task_output = f.read()
-        else:
-            task_output = ""
-        return task_output

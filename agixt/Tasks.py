@@ -67,16 +67,16 @@ class Tasks:
     def get_output_list(self):
         return self.output_list
 
-    def save_task_output(self, agent_name, task_output, primary_objective=None):
+    def save_task_output(self, agent_name, task_output):
         # Check if agents/{agent_name}/tasks/task_name.txt exists
         # If it does, append to it
         # If it doesn't, create it
         if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        if primary_objective is None:
-            primary_objective = str(uuid.uuid4())
+        if self.primary_objective is None:
+            self.primary_objective = str(uuid.uuid4())
         task_output_file = os.path.join(
-            "agents", agent_name, "tasks", f"{primary_objective}.yaml"
+            "agents", agent_name, "tasks", f"{self.primary_objective}.yaml"
         )
         with open(
             task_output_file,
@@ -86,9 +86,9 @@ class Tasks:
             yaml.dump(task_output, f)
         return task_output
 
-    def get_task_output(self, task_name):
+    def get_task_output(self):
         task_name = re.sub(
-            r"[^\w\s]", "", task_name
+            r"[^\w\s]", "", self.primary_objective
         )  # remove non-alphanumeric & non-space characters
         task_name = task_name[:15]  # truncate to 15 characters
 
@@ -116,7 +116,6 @@ class Tasks:
 
     def run_task(
         self,
-        stop_event,
         objective,
         async_exec: bool = False,
         learn_file: str = "",
@@ -124,7 +123,6 @@ class Tasks:
         load_task: str = "",
         **kwargs,
     ):
-        self.stop_running_event = stop_event
         if load_task != "":
             self.load_task(load_task)
             self.update_output_list(f"Loaded task '{load_task}'.\n\n")
