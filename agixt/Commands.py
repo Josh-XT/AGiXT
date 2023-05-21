@@ -59,13 +59,17 @@ class Commands:
         return None
 
     def load_commands(self):
+        try:
+            settings = self.agent_config["settings"]
+        except:
+            settings = {}
         commands = []
         command_files = glob.glob("commands/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
             if issubclass(getattr(module, module_name), Commands):
-                command_class = getattr(module, module_name)()
+                command_class = getattr(module, module_name)(**settings)
                 if hasattr(command_class, "commands"):
                     for (
                         command_name,
@@ -88,6 +92,8 @@ class Commands:
         params = {}
         sig = signature(func)
         for name, param in sig.parameters.items():
+            if name == "self":
+                continue
             if param.default == Parameter.empty:
                 params[name] = None
             else:

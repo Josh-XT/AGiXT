@@ -65,16 +65,6 @@ class Agent(Config):
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    def check_extension(self, extension_keys):
-        return_keys = []
-        for key in extension_keys:
-            if key in self.AGENT_CONFIG["settings"]:
-                return_keys.append(key)
-        if len(return_keys) == len(extension_keys):
-            return return_keys
-        else:
-            return False
-
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return "No commands."
