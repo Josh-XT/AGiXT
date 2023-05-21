@@ -25,4 +25,4 @@ ENV LD_PRELOAD=libgomp.so.1
 
 EXPOSE 8501
 
-CMD streamlit run streamlit.py
+CMD streamlit run Main.py
