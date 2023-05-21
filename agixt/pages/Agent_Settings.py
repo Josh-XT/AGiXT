@@ -236,22 +236,30 @@ if agent_name and not new_agent:
         st.error(f"Error loading agent configuration: {str(e)}")
 
 if not new_agent:
-    if st.button("Update Agent Settings"):
+    # Create a form for each button
+    with st.form(key="update_agent_settings_form"):
+        update_agent_settings_button = st.form_submit_button("Update Agent Settings")
+
+    with st.form(key="wipe_memories_form"):
+        wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
+
+    with st.form(key="delete_agent_form"):
+        delete_agent_button = st.form_submit_button("Delete Agent")
+
+    # Trigger actions on form submit
+    if update_agent_settings_button:
         if agent_name:
             try:
-                # Update the available commands back to the agent config
                 # Save commands in the desired format
                 reduced_commands = {
                     cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
                 }
                 Agent(agent_name).update_agent_config(reduced_commands, "commands")
-                # Update other settings
                 Agent(agent_name).update_agent_config(agent_settings, "settings")
                 st.success(f"Agent '{agent_name}' updated.")
             except Exception as e:
                 st.error(f"Error updating agent: {str(e)}")
 
-    wipe_memories_button = st.button("Wipe Agent Memories")
     if wipe_memories_button:
         if agent_name:
             try:
@@ -259,10 +267,7 @@ if not new_agent:
                 st.success(f"Memories of agent '{agent_name}' wiped.")
             except Exception as e:
                 st.error(f"Error wiping agent's memories: {str(e)}")
-        else:
-            st.error("Agent name is required to wipe memories.")
 
-    delete_agent_button = st.button("Delete Agent")
     if delete_agent_button:
         if agent_name:
             try:
