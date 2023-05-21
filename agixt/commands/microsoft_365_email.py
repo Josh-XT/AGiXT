@@ -27,7 +27,10 @@ class microsoft_365_email(Commands):
                 "Check Email with Microsoft 365": self.check_email,
                 "Move Email with Microsoft 365": self.move_email,
             }
-            self.credentials = self.get_credentials()
+            try:
+                self.credentials = self.get_credentials()
+            except:
+                pass
 
     def get_credentials(self) -> Credentials:
         flow = InstalledAppFlow.from_client_config(

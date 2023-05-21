@@ -25,21 +25,27 @@ class discord_commands(Commands):
                 "Get Discord Servers": self.get_servers,
                 "Get Discord Server Information": self.get_server_info,
             }
-            intents = discord.Intents.default()
-            intents.typing = False
-            intents.presences = False
-            self.bot = commands.Bot(
-                command_prefix=self.DISCORD_COMMAND_PREFIX, intents=intents
-            )
-            self.bot.run(self.DISCORD_API_KEY)
 
-            @self.bot.event
-            async def on_ready():
-                print(f"{self.bot.user.name} is ready")
+            try:
+                intents = discord.Intents.default()
+                intents.typing = False
+                intents.presences = False
+                if self.DISCORD_API_KEY != "None" and self.DISCORD_API_KEY != "":
+                    self.bot = commands.Bot(
+                        command_prefix=self.DISCORD_COMMAND_PREFIX, intents=intents
+                    )
+                    self.bot.run(self.DISCORD_API_KEY)
 
-            @self.bot.event
-            async def on_command_error(ctx, error):
-                await ctx.send(f"Error: {error}")
+                @self.bot.event
+                async def on_ready():
+                    print(f"{self.bot.user.name} is ready")
+
+                @self.bot.event
+                async def on_command_error(ctx, error):
+                    await ctx.send(f"Error: {error}")
+
+            except:
+                pass
 
     async def send_message(self, channel_id: int, content: str):
         channel = self.bot.get_channel(channel_id)
