@@ -386,15 +386,20 @@ class AGiXT:
             print(validated_response)
             return "\nNo commands were executed.\n"
 
-    def task_agent(
-        self, result: Dict, task_description: str, task_list: List[str]
-    ) -> List[Dict]:
+    def task_agent(self, result: Dict, task_description: str, task_list) -> List[Dict]:
+        # Task list is a deque of tasks to be completed
+        # [ {"task_name": "task1"}, {"task_name": "task2"}}]
+        tasks = [task["task_name"] for task in task_list]
+        if len(tasks) == 0:
+            return []
+        task_list = ", ".join(tasks)
+
         response = self.run(
             task=self.primary_objective,
             prompt="task",
             result=result,
             task_description=task_description,
-            tasks=", ".join(task_list),
+            tasks=task_list,
         )
 
         lines = response.split("\n") if "\n" in response else [response]
