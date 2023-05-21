@@ -72,7 +72,7 @@ class Tasks:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
             if smart:
-                result = self.smart_instruct(
+                result = AGiXT(self.agent_name).smart_instruct(
                     task=task["task_name"],
                     shots=3,
                     async_exec=async_exec,
