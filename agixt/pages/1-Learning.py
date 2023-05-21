@@ -17,7 +17,6 @@ if agent_name:
     st.markdown("## Learn from a file")
     learn_file_upload = st.file_uploader(
         "Upload a file for the agent to learn from.",
-        type=["txt", "doc", "docx", "pdf", "xls", "xlsx", "png", "jpg", "jpeg"],
     )
     if learn_file_upload is not None:
         learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
