@@ -5,6 +5,7 @@ from AGiXT import AGiXT
 from Config import Config
 from Config.Agent import Agent
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 CFG = Config()
@@ -25,6 +26,8 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
+else:
+    logout_button()
 
 
 def render_history(instruct_container, chat_history):
