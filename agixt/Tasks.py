@@ -79,10 +79,12 @@ class Tasks:
                     **kwargs,
                 )
             else:
-                result = self.instruction_agent(task=task["task_name"], **kwargs)
+                result = AGiXT(self.agent_name).instruction_agent(
+                    task=task["task_name"], **kwargs
+                )
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
             task_list = [t["task_name"] for t in self.task_list]
-            new_tasks = self.task_agent(
+            new_tasks = AGiXT(self.agent_name).task_agent(
                 result=result, task_description=task["task_name"], task_list=task_list
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
