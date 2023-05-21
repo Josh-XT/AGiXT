@@ -98,7 +98,7 @@ Clone the repository for the AGiXT back end and start it.
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT/agixt
 pip install -r requirements.txt
-streamlit run streamlit.py
+streamlit run Main.py
 ```
 
 Access the web interface at http://localhost:8501
