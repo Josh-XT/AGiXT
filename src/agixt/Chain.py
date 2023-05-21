@@ -1,6 +1,6 @@
-from AGiXT import AGiXT
 import os
 import json
+from AGiXT import AGiXT
 import argparse
 from CustomPrompt import CustomPrompt
 from Commands import Commands
