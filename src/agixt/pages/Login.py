@@ -1,5 +1,4 @@
 import streamlit as st
-import auth_libs.Redirect as redir
 import bcrypt
 from auth_libs.Cfig import Cfig
 from auth_libs.Users import (
@@ -8,19 +7,10 @@ from auth_libs.Users import (
     configure_auth_settings,
     check_admin_configured,
 )
-import os
+from auth_libs.Users import check_auth_status
 
+check_auth_status()
 CFIG = Cfig()
-CONFIG_FILE = "config.yaml"
-
-# Check if the user is logged in
-if (
-    not st.session_state.get("logged_in")
-    and os.path.exists(CONFIG_FILE)
-    and (CFIG.load_config()["auth_setup"] == "True")
-):
-    # Redirect to the login page if not
-    redir.nav_page("Login")
 
 
 # Login form

@@ -3,6 +3,7 @@ import json
 import bcrypt
 import streamlit as st
 from auth_libs.Cfig import Cfig
+import auth_libs.Redirect as redir
 
 CFIG = Cfig()
 
@@ -91,3 +92,17 @@ def logout_button():
         # Clear session state and redirect to the login page
         st.session_state.clear()
         st.experimental_rerun()  # Redirect to the login page
+
+
+def check_auth_status():
+    # Check if the user is logged in
+    if (
+        not st.session_state.get("logged_in")
+        and os.path.exists("config.yaml")
+        and (CFIG.load_config()["auth_setup"] == "True")
+    ):
+        # Redirect to the login page if not
+        redir.nav_page("Login")
+    else:
+        if CFIG.load_config()["auth_setup"] == "True":
+            logout_button()
