@@ -111,7 +111,7 @@ class Tasks:
 
     def stop_tasks(self):
         if self.stop_running_event is not None:
-            self.stop_running_event.set()
+            self.stop_running_event = True
         self.task_list.clear()
 
     def run_task(
