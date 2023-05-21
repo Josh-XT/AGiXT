@@ -10,6 +10,7 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+    restart: always
 
   backend:
     build:
@@ -23,3 +24,4 @@ services:
       - ./data/agents:/app/agents:rw
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
+    restart: always
