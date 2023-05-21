@@ -70,23 +70,6 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
         api_base: Optional[str] = None,
         api_type: Optional[str] = None,
     ):
-        """
-        Initialize the OpenAIEmbeddingFunction.
-
-        Args:
-            api_key (str, optional): Your API key for the OpenAI API. If not
-                provided, it will raise an error to provide an OpenAI API key.
-            organization_id(str, optional): The OpenAI organization ID if applicable
-            model_name (str, optional): The name of the model to use for text
-                embeddings. Defaults to "text-embedding-ada-002".
-            api_base (str, optional): The base path for the API. If not provided,
-                it will use the base path for the OpenAI API. This can be used to
-                point to a different deployment, such as an Azure deployment.
-            api_type (str, optional): The type of the API deployment. This can be
-                used to specify a different deployment, such as 'azure'. If not
-                provided, it will use the default OpenAI deployment.
-
-        """
         try:
             import openai
         except ImportError:
