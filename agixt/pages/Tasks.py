@@ -10,7 +10,7 @@ check_auth_status()
 
 CFG = Config()
 
-st.header("Manage Tasks")
+st.title("Manage Tasks")
 
 # initialize session state for stop events and agent status if not exist
 if "agent_stop_events" not in st.session_state:
@@ -43,7 +43,7 @@ if agent_name:
         agent_status = st.session_state.agent_status.get(agent_name, "Not Running")
 
         if agent_status == "Not Running":
-            if st.button("Start Task"):
+            if st.button("Start Task", key=f"start_{agent_name}"):
                 if agent_name and task_objective:
                     if agent_name not in CFG.agent_instances:
                         CFG.agent_instances[agent_name] = Tasks(agent_name)
@@ -55,15 +55,17 @@ if agent_name:
                     )
                     agent_thread.start()
                     st.session_state.agent_status[agent_name] = "Running"
+                    agent_status = "Running"
                     columns[0].success(f"Task started for agent '{agent_name}'.")
                 else:
                     columns[0].error("Agent name and task objective are required.")
         else:  # agent_status == "Running"
-            if st.button("Stop Task"):
+            if st.button("Stop Task", key=f"stop_{agent_name}"):
                 if agent_name in st.session_state.agent_stop_events:
                     st.session_state.agent_stop_events[agent_name].set()
                     del st.session_state.agent_stop_events[agent_name]
                     st.session_state.agent_status[agent_name] = "Not Running"
+                    agent_status = "Not Running"
                     columns[0].success(f"Task stopped for agent '{agent_name}'.")
                 else:
                     columns[0].error("No task is running for the selected agent.")
