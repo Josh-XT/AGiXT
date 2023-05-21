@@ -98,6 +98,7 @@ Clone the repository for the AGiXT back end and start it.
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT/agixt
 pip install -r requirements.txt
+playwright install
 streamlit run Main.py
 ```
 
