@@ -30,7 +30,7 @@ def render_provider_settings(agent_settings, provider_name: str):
         if key in agent_settings:
             default_value = agent_settings[key]
         else:
-            default_value = None
+            default_value = ""
 
         user_val = st.text_input(key, value=default_value)
         rendered_settings[key] = user_val
@@ -124,25 +124,32 @@ if agent_name and not new_agent:
             provider_settings = render_provider_settings(agent_settings, provider_name)
             agent_settings.update(provider_settings)
 
+        def render_extension_settings(extension_settings, agent_settings):
+            rendered_settings = {}
+
+            for extension, settings in extension_settings.items():
+                st.subheader(f"{extension} Extension Settings")
+                for key, val in settings.items():
+                    if key in agent_settings:
+                        default_value = agent_settings[key]
+                    else:
+                        default_value = val if val else ""
+
+                    user_val = st.text_input(
+                        key, value=default_value, key=f"{extension}_{key}"
+                    )
+                    rendered_settings[key] = user_val
+
+            return rendered_settings
+
         st.subheader("Extension Settings")
         extension_setting_keys = Commands(agent_config).get_extension_settings()
-        extension_settings = {}
+        extension_settings = render_extension_settings(
+            extension_setting_keys, agent_settings
+        )
 
-        if not isinstance(extension_setting_keys, list):
-            st.error(
-                f"Error loading extension settings: expected a list, but got {extension_setting_keys}"
-            )
-        else:
-            for key in extension_setting_keys:
-                if key in agent_settings:
-                    default_value = agent_settings[key]
-                else:
-                    default_value = None
-                user_val = st.text_input(key, value=default_value)
-                extension_settings[key] = user_val
-
-            # Update the extension settings in the agent_settings directly
-            agent_settings.update(extension_settings)
+        # Update the extension settings in the agent_settings directly
+        agent_settings.update(extension_settings)
 
         st.subheader("Custom Settings")
         custom_settings = agent_settings.get("custom_settings", [])
