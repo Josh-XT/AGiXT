@@ -107,7 +107,7 @@ class Tasks:
             return None
 
     def update_output_list(self, output):
-        print(self.save_task_output(self.agent_name, output, self.primary_objective))
+        print(self.save_task_output(self.agent_name, output))
 
     def stop_tasks(self):
         if self.stop_running_event is not None:
