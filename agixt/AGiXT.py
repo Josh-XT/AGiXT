@@ -82,9 +82,7 @@ class AGiXT:
         **kwargs,
     ):
         if learn_file != "":
-            learning_file = self.agent.memories.read_file(
-                task=task, file_path=learn_file
-            )
+            learning_file = self.agent.memories.read_file(file_path=learn_file)
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
