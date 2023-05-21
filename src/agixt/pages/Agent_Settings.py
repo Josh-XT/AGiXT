@@ -6,6 +6,7 @@ from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 CFG = Config()
@@ -20,22 +21,7 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-if (
-    not CFIG.load_config()["auth_setup_config"] == "No Login"
-    and CFIG.load_config()["auth_setup"] != False
-):
+else:
     logout_button()
 
 
@@ -205,8 +191,9 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        commands = Commands(agent_name)
-        available_commands = commands.get_available_commands()
+        available_commands = Commands(
+            Agent(agent_name).agent_config
+        ).get_available_commands()
 
         # Save the existing command state to prevent duplication
         existing_command_states = {

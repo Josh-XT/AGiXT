@@ -2,6 +2,7 @@ import streamlit as st
 import auth_libs.Redirect as redir
 from CustomPrompt import CustomPrompt
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 st.header("Manage Custom Prompts")
@@ -17,22 +18,7 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-if (
-    not CFIG.load_config()["auth_setup_config"] == "No Login"
-    and CFIG.load_config()["auth_setup"] != False
-):
+else:
     logout_button()
 
 

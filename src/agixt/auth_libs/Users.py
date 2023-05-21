@@ -81,3 +81,13 @@ def check_admin_configured():
     Returns True if configured, False otherwise.
     """
     return CFIG.is_auth_setup_configured()
+
+
+def logout_button():
+    """
+    Renders the logout button.
+    """
+    if st.button("Logout"):
+        # Clear session state and redirect to the login page
+        st.session_state.clear()
+        st.experimental_rerun()  # Redirect to the login page

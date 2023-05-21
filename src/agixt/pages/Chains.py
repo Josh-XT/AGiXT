@@ -3,8 +3,10 @@ import auth_libs.Redirect as redir
 from Config import Config
 from Chain import Chain
 from Commands import Commands
+from Config.Agent import Agent
 from CustomPrompt import CustomPrompt
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 CFG = Config()
@@ -19,22 +21,7 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-if (
-    not CFIG.load_config()["auth_setup_config"] == "No Login"
-    and CFIG.load_config()["auth_setup"] != False
-):
+else:
     logout_button()
 
 
@@ -98,7 +85,9 @@ if selected_chain_name:
         if modify_prompt_type == "Command":
             available_commands = [
                 cmd["friendly_name"]
-                for cmd in Commands(agent_name).get_enabled_commands()
+                for cmd in Commands(
+                    Agent(agent_name).agent_config
+                ).get_enabled_commands()
             ]
             command_name = st.selectbox(
                 "Select Command",
@@ -110,7 +99,9 @@ if selected_chain_name:
             )
 
             if command_name:
-                command_args = Commands(agent_name).get_command_args(command_name)
+                command_args = Commands(
+                    Agent(agent_name).agent_config
+                ).get_command_args(command_name)
                 formatted_command_args = ", ".join(
                     [
                         f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
@@ -190,7 +181,8 @@ if selected_chain_name:
 
     if prompt_type == "Command":
         available_commands = [
-            cmd["friendly_name"] for cmd in Commands(agent_name).get_enabled_commands()
+            cmd["friendly_name"]
+            for cmd in Commands(Agent(agent_name).agent_config).get_enabled_commands()
         ]
         command_name = st.selectbox(
             "Select Command",
@@ -199,7 +191,9 @@ if selected_chain_name:
         )
 
         if command_name:
-            command_args = Commands(agent_name).get_command_args(command_name)
+            command_args = Commands(Agent(agent_name).agent_config).get_command_args(
+                command_name
+            )
             formatted_command_args = ", ".join(
                 [
                     f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "

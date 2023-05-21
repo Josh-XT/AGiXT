@@ -2,10 +2,11 @@ import streamlit as st
 import auth_libs.Redirect as redir
 import os
 import threading
-from AGiXT import AGiXT
+from Tasks import Tasks
 from Config import Config
 from Config.Agent import Agent
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import logout_button
 import os
 
 st.header("Manage Tasks")
@@ -22,22 +23,7 @@ if (
 ):
     # Redirect to the login page if not
     redir.nav_page("Login")
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-if (
-    not CFIG.load_config()["auth_setup_config"] == "No Login"
-    and CFIG.load_config()["auth_setup"] != False
-):
+else:
     logout_button()
 
 # initialize session state for stop events and agent status if not exist
@@ -74,7 +60,7 @@ if agent_name:
             if st.button("Start Task"):
                 if agent_name and task_objective:
                     if agent_name not in CFG.agent_instances:
-                        CFG.agent_instances[agent_name] = AGiXT(agent_name)
+                        CFG.agent_instances[agent_name] = Tasks(agent_name)
                     stop_event = threading.Event()
                     st.session_state.agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(
