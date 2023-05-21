@@ -144,9 +144,13 @@ class AGiXT:
                 return_response = self.response
             self.response = return_response
         print(f"Response: {self.response}")
-        self.agent.memories.store_result(task, self.response)
-        self.agent.log_interaction("USER", task)
-        self.agent.log_interaction(self.agent_name, self.response)
+        if self.response != "" and self.response != None:
+            try:
+                self.agent.memories.store_result(task, self.response)
+            except:
+                pass
+            self.agent.log_interaction("USER", task)
+            self.agent.log_interaction(self.agent_name, self.response)
         return self.response
 
     def smart_instruct(
