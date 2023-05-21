@@ -5,7 +5,7 @@ import time
 class Gpt4freeProvider:
     def __init__(
         self,
-        AI_MODEL: str = "gpt-4",
+        AI_MODEL: str = "gpt-3.5-turbo",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4000,
         **kwargs,
