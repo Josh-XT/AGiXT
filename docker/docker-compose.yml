@@ -10,6 +10,7 @@ services:
     depends_on:
       - backend
     profiles: [ "all", "frontend" ]
+    restart: always
 
   backend:
     image: joshxt/agixt:main
@@ -21,6 +22,7 @@ services:
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
     profiles: [ "all", "backend", "frontend" ]
+    restart: always
 
   backend-streamlit:
     image: joshxt/agixt-streamlit:main
@@ -32,3 +34,4 @@ services:
       - ./data/workspace:/app/WORKSPACE:rw
       - ./models:/model:rw
     profiles: [ "all", "streamlit" ]
+    restart: always
