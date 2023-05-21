@@ -49,3 +49,4 @@ docx2txt
 pdfplumber
 ffmpeg
 hugchat
+bcrypt
