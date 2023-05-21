@@ -13,26 +13,14 @@ import os
 CFIG = Cfig()
 CONFIG_FILE = "config.yaml"
 
+# Check if the user is logged in
 if (
     not st.session_state.get("logged_in")
     and os.path.exists(CONFIG_FILE)
-    and (
-        CFIG.load_config()["auth_setup_config"] == "None"
-        or CFIG.load_config()["auth_setup_config"] == None
-        or CFIG.load_config()["auth_setup_config"] is None
-        or CFIG.load_config()["auth_setup_config"] == "null"
-        or CFIG.load_config()["auth_setup_config"] == "No Login"
-    )
+    and (CFIG.load_config()["auth_setup"] == "True")
 ):
-    st.session_state["logged_in"] = True
-    st.session_state["prof_redir"] = False
-
-# Check if the user is logged in
-if st.session_state.get("logged_in") and st.session_state["prof_redir"]:
-    # Redirect to the login page if so
-    redir.nav_page("Profile")
-elif st.session_state["prof_redir"] == False:
-    st.stop()
+    # Redirect to the login page if not
+    redir.nav_page("Login")
 
 
 # Login form
@@ -40,11 +28,17 @@ def login_form():
     """
     Renders the login form.
     """
+    if CFIG.load_config()["auth_setup_config"] == "No Login":
+        st.write("Login Is Not Enabled")
+        st.stop()
+
+    user_data = load_users()
+    if user_data == "Reload":
+        st.experimental_rerun()
+
     st.write("Please log in")
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
-
-    user_data = load_users()
 
     if st.button("Login"):
         for user in user_data["users"]:

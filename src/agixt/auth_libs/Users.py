@@ -25,18 +25,17 @@ def load_users():
             if admin_password != confirm_password:
                 st.error("Password and confirm password do not match.")
             else:
-                admin_password_hash = bcrypt.hashpw(
-                    admin_password.encode(), bcrypt.gensalt()
-                )
+                admin_password_hash = bcrypt.hashpw(admin_password, bcrypt.gensalt())
                 admin_data = {
                     "email": admin_email,
-                    "password_hash": admin_password_hash.decode(),
+                    "password_hash": admin_password_hash,
                     "admin": True,
                 }
                 user_data = {"users": [admin_data]}
                 save_user_data(user_data)
                 st.success("Admin account created successfully!")
-                return user_data
+                st.experimental_rerun()
+        st.stop()
     else:
         with open(USER_FILE, "r") as file:
             user_data = json.load(file)
