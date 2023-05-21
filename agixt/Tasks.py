@@ -66,7 +66,11 @@ class Tasks:
                 break
             if len(self.task_list) > 0:
                 task = self.task_list.popleft()
-            if task["task_name"] == "None" or task["task_name"] == "None.":
+            if (
+                task["task_name"] == "None"
+                or task["task_name"] == "None."
+                or task["task_name"] == ""
+            ):
                 break
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
@@ -98,7 +102,7 @@ class Tasks:
             response = AGiXT(self.agent_name).run(
                 task=self.primary_objective,
                 prompt="priority",
-                task_names=", ".join(task_names),
+                tasks=", ".join(task_names),
                 next_task_id=next_task_id,
             )
 
