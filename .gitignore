@@ -23,7 +23,6 @@ Agent-LLM-Frontend/
 chains/*/*
 data/*
 agixt/agents/*
-agixt/agents/*/*
 agixt/data/*
 agixt/WORKSPACE/*
 # docs generation
