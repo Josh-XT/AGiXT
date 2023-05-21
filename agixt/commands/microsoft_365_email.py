@@ -28,7 +28,11 @@ class microsoft_365_email(Commands):
                 "Move Email with Microsoft 365": self.move_email,
             }
             try:
-                self.credentials = self.get_credentials()
+                if (
+                    self.MICROSOFT_365_CLIENT_SECRET != "None"
+                    and self.MICROSOFT_365_CLIENT_SECRET != ""
+                ):
+                    self.credentials = self.get_credentials()
             except:
                 pass
 
