@@ -9,6 +9,10 @@ CFG = Config()
 
 class sendgrid_email(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "SENDGRID_API_KEY",
+            "SENDGRID_EMAIL",
+        ]
         if CFG.SENDGRID_API_KEY:
             self.commands = {"Send Email with Sendgrid": self.send_email}
 

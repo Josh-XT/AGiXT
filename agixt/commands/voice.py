@@ -11,6 +11,11 @@ CFG = Config()
 
 class voice(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "ELEVENLABS_API_KEY",
+            "USE_MAC_OS_TTS",
+            "USE_BRIAN_TTS",
+        ]
         self.commands = {"Speak with TTS": self.speak}
         self._mutex = Semaphore(1)
 

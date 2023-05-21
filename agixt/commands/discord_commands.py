@@ -9,6 +9,9 @@ CFG = Config()
 
 class discord_commands(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "DISCORD_API_KEY",
+        ]
         if CFG.DISCORD_API_KEY:
             self.commands = {
                 "Send Discord Message": self.send_message,

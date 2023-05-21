@@ -7,6 +7,12 @@ CFG = Config()
 
 class twitter(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "TW_CONSUMER_KEY",
+            "TW_CONSUMER_SECRET",
+            "TW_ACCESS_TOKEN",
+            "TW_ACCESS_TOKEN_SECRET",
+        ]
         if CFG.TW_CONSUMER_KEY and CFG.TW_ACCESS_TOKEN:
             self.commands = {"Send Tweet": self.send_tweet}
 

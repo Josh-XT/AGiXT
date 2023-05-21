@@ -9,6 +9,9 @@ CFG = Config()
 
 class searxng_commands(Commands):
     def __init__(self):
+        self.extension_keys = [
+            "SEARXNG_INSTANCE_URL",
+        ]
         if CFG.SEARXNG_INSTANCE_URL:
             self.commands = {"Searx Search": self.search_searx}
 
