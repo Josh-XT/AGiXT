@@ -16,7 +16,7 @@ if "agent_status" not in st.session_state:
 if agent_name:
     st.markdown("## Learn from a file")
     learn_file_upload = st.file_uploader(
-        "Upload a file for the agent to learn from",
+        "Upload a file for the agent to learn from.",
         type=["txt", "doc", "docx", "pdf", "xls", "xlsx", "png", "jpg", "jpeg"],
     )
     if learn_file_upload is not None:
@@ -29,12 +29,15 @@ if agent_name:
         st.success(f"Agent '{agent_name}' has learned from the uploaded file.")
 
     st.markdown("## Learn from a URL")
-    learn_url = st.text_input("Enter a URL for the agent to learn from")
+    learn_url = st.text_input("Enter a URL for the agent to learn from..")
     if st.button("Learn from URL"):
         if learn_url:
             _, _ = agent.memories.read_website(learn_url)
             st.success(f"Agent '{agent_name}' has learned from the URL.")
-
-    if st.button("Clear agent memory"):
+    st.markdown("## Wipe Agent Memory")
+    st.markdown(
+        "The agent can simply learn too much undesired information at times. If you're having an issue with the context being injected from memory with your agent, try wiping the memory."
+    )
+    if st.button("Wipe agent memory"):
         agent.wipe_agent_memories(agent_name)
         st.success(f"Memory for agent '{agent_name}' has been cleared.")
