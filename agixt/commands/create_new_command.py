@@ -17,9 +17,7 @@ class create_new_command(Commands):
     def create_command(
         self, function_description: str, agent_name: str = "AGiXT"
     ) -> List[str]:
-        args = [function_description]
-        # Get prompt from model-prompts/{CFG.AI_MODEL}/script.txt
-        with open(f"model-prompts/{CFG.AI_MODEL}/script.txt", "r") as f:
+        with open(f"prompts/Create New Command.txt", "r") as f:
             prompt = f.read()
         prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
         response = AGiXT(agent_name).run(prompt)
