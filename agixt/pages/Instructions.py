@@ -3,7 +3,19 @@ import os
 from AGiXT import AGiXT
 from Config import Config
 from Config.Agent import Agent
-from streamlit import markdown, header, selectbox, checkbox, container, file_uploader, text_input, button, spinner, error, warning
+from streamlit import (
+    markdown,
+    header,
+    selectbox,
+    checkbox,
+    container,
+    file_uploader,
+    text_input,
+    button,
+    spinner,
+    error,
+    warning,
+)
 
 from auth_libs.Users import check_auth_status
 
