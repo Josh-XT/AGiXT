@@ -8,8 +8,14 @@ CFG = Config()
 
 
 class discord_commands(Commands):
-    def __init__(self, DISCORD_API_KEY: str = "", **kwargs):
+    def __init__(
+        self,
+        DISCORD_API_KEY: str = "",
+        DISCORD_COMMAND_PREFIX: str = "/AGiXT",
+        **kwargs,
+    ):
         self.DISCORD_API_KEY = DISCORD_API_KEY
+        self.DISCORD_COMMAND_PREFIX = DISCORD_COMMAND_PREFIX
         if self.DISCORD_API_KEY:
             self.commands = {
                 "Send Discord Message": self.send_message,
@@ -22,7 +28,9 @@ class discord_commands(Commands):
             intents = discord.Intents.default()
             intents.typing = False
             intents.presences = False
-            self.bot = commands.Bot(command_prefix=self.PREFIX, intents=intents)
+            self.bot = commands.Bot(
+                command_prefix=self.DISCORD_COMMAND_PREFIX, intents=intents
+            )
             self.bot.run(self.DISCORD_API_KEY)
 
             @self.bot.event
