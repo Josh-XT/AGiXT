@@ -404,7 +404,7 @@ class AGiXT:
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
-        async def resursive_browsing(self, task, links):
+        async def resursive_browsing(task, links):
             try:
                 words = links.split()
                 links = [
@@ -427,7 +427,7 @@ class AGiXT:
                             (
                                 collected_data,
                                 link_list,
-                            ) = await self.memories.read_website(url)
+                            ) = await self.agent.memories.read_website(url)
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:
