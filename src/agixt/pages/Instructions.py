@@ -94,7 +94,7 @@ if agent_name:
                 else:
                     response = agent.run(
                         instruct_prompt,
-                        prompt="Instruct",
+                        prompt="instruct",
                         context_results=6,
                         learn_file=learn_file_path,
                     )

@@ -6,20 +6,21 @@ import shutil
 import importlib
 import yaml
 from pathlib import Path
-from dotenv import load_dotenv
 from inspect import signature, Parameter
 from provider import Provider
 from Config import Config
-
-load_dotenv()
+from Memories import Memories
+from Commands import Commands
 
 
 class Agent(Config):
     def __init__(self, agent_name=None):
         # General Configuration
-        self.AGENT_NAME = agent_name if agent_name is not None else "AGiXT"
+        self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
+        self.available_commands = Commands(self.AGENT_CONFIG).get_available_commands()
+        self.execute = Commands(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -46,13 +47,13 @@ class Agent(Config):
             else:
                 self.MAX_TOKENS = 4000
 
-        # Memory Settings
-        self.USE_LONG_TERM_MEMORY_ONLY = os.getenv("USE_LONG_TERM_MEMORY_ONLY", False)
         # Yaml Memory
-        self.memory_file = f"agents/{self.AGENT_NAME}.yaml"
+        self.memory_file = f"agents/{self.agent_name}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
+        self.memories = Memories(self.agent_name, self)
         self.agent_instances = {}
+        self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
 
     def _load_agent_config_keys(self, keys):
@@ -63,6 +64,22 @@ class Agent(Config):
     def _create_parent_directories(self, file_path):
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
+    def get_commands_string(self):
+        if len(self.available_commands) == 0:
+            return "No commands."
+
+        enabled_commands = filter(
+            lambda command: command.get("enabled", True), self.available_commands
+        )
+        if not enabled_commands:
+            return "No commands."
+
+        friendly_names = map(
+            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
+            enabled_commands,
+        )
+        return "\n".join(friendly_names)
 
     def get_provider(self):
         config_file = self.get_agent_config()
@@ -101,10 +118,6 @@ class Agent(Config):
                     params = self.get_command_params(command_function)
                     commands.append((command_name, command_function.__name__, params))
         return commands
-
-    def load_command_files(self):
-        command_files = glob.glob("commands/*.py")
-        return command_files
 
     def create_agent_config_file(self, agent_name, provider_settings, commands):
         agent_dir = os.path.join("agents", agent_name)
@@ -234,7 +247,7 @@ class Agent(Config):
 
     def get_agent_config(self):
         while True:
-            agent_file = os.path.abspath(f"agents/{self.AGENT_NAME}/config.json")
+            agent_file = os.path.abspath(f"agents/{self.agent_name}/config.json")
             if os.path.exists(agent_file):
                 with open(agent_file, "r") as f:
                     file_content = f.read().strip()
@@ -242,13 +255,13 @@ class Agent(Config):
                         agent_config = json.loads(file_content)
                         break
                     else:
-                        self.add_agent(self.AGENT_NAME, {})
+                        self.add_agent(self.agent_name, {})
             else:
-                self.add_agent(self.AGENT_NAME, {})
+                self.add_agent(self.agent_name, {})
         return agent_config
 
     def update_agent_config(self, new_config, config_key):
-        agent_name = self.AGENT_NAME
+        agent_name = self.agent_name
         agent_config_file = os.path.join("agents", agent_name, "config.json")
         if os.path.exists(agent_config_file):
             with open(agent_config_file, "r") as f:
