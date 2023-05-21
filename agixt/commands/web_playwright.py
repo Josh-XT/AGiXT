@@ -2,14 +2,11 @@ from typing import List, Union
 from requests.compat import urljoin
 from bs4 import BeautifulSoup
 from Commands import Commands
-from Config import Config
 from playwright.sync_api import sync_playwright
-
-CFG = Config()
 
 
 class web_playwright(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.commands = {
             "Scrape Text with Playwright": self.scrape_text_with_playwright,
             "Scrape Links with Playwright": self.scrape_links_with_playwright,

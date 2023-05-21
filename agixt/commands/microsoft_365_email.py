@@ -4,22 +4,23 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from Commands import Commands
-from Config import Config
-
-CFG = Config()
 
 
 class microsoft_365_email(Commands):
-    def __init__(self):
-        self.extension_keys = [
-            "MICROSOFT_365_CLIENT_ID",
-            "MICROSOFT_365_CLIENT_SECRET",
-            "MICROSOFT_365_REDIRECT_URI",
-        ]
+    def __init__(
+        self,
+        MICROSOFT_365_CLIENT_ID: str = "",
+        MICROSOFT_365_CLIENT_SECRET: str = "",
+        MICROSOFT_365_REDIRECT_URI: str = "",
+        **kwargs,
+    ):
+        self.MICROSOFT_365_CLIENT_ID = MICROSOFT_365_CLIENT_ID
+        self.MICROSOFT_365_CLIENT_SECRET = MICROSOFT_365_CLIENT_SECRET
+        self.MICROSOFT_365_REDIRECT_URI = MICROSOFT_365_REDIRECT_URI
         if (
-            CFG.MICROSOFT_365_CLIENT_ID
-            and CFG.MICROSOFT_365_CLIENT_SECRET
-            and CFG.MICROSOFT_365_REDIRECT_URI
+            self.MICROSOFT_365_CLIENT_ID
+            and self.MICROSOFT_365_CLIENT_SECRET
+            and self.MICROSOFT_365_REDIRECT_URI
         ):
             self.commands = {
                 "Send Email with Microsoft 365": self.send_email,
@@ -32,9 +33,9 @@ class microsoft_365_email(Commands):
         flow = InstalledAppFlow.from_client_config(
             {
                 "installed": {
-                    "client_id": CFG.MICROSOFT_365_CLIENT_ID,
-                    "client_secret": CFG.MICROSOFT_365_CLIENT_SECRET,
-                    "redirect_uris": [CFG.MICROSOFT_365_REDIRECT_URI],
+                    "client_id": self.MICROSOFT_365_CLIENT_ID,
+                    "client_secret": self.MICROSOFT_365_CLIENT_SECRET,
+                    "redirect_uris": [self.MICROSOFT_365_REDIRECT_URI],
                     "auth_uri": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
                     "token_uri": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
                 }

@@ -8,11 +8,9 @@ CFG = Config()
 
 
 class discord_commands(Commands):
-    def __init__(self):
-        self.extension_keys = [
-            "DISCORD_API_KEY",
-        ]
-        if CFG.DISCORD_API_KEY:
+    def __init__(self, DISCORD_API_KEY: str = "", **kwargs):
+        self.DISCORD_API_KEY = DISCORD_API_KEY
+        if self.DISCORD_API_KEY:
             self.commands = {
                 "Send Discord Message": self.send_message,
                 "Get Discord Messages": self.get_messages,
@@ -24,8 +22,8 @@ class discord_commands(Commands):
             intents = discord.Intents.default()
             intents.typing = False
             intents.presences = False
-            self.bot = commands.Bot(command_prefix=CFG.PREFIX, intents=intents)
-            self.bot.run(CFG.DISCORD_API_KEY)
+            self.bot = commands.Bot(command_prefix=self.PREFIX, intents=intents)
+            self.bot.run(self.DISCORD_API_KEY)
 
             @self.bot.event
             async def on_ready():

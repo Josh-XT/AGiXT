@@ -1,22 +1,20 @@
 import git
 from github import Github
 from Commands import Commands
-from Config import Config
-
-CFG = Config()
 
 
 class github(Commands):
-    def __init__(self):
-        self.extension_keys = ["GITHUB_USERNAME", "GITHUB_API_KEY"]
+    def __init__(self, GIT_USERNAME: str = "", GIT_API_KEY: str = "", **kwargs):
+        self.GIT_USERNAME = GIT_USERNAME
+        self.GIT_API_KEY = GIT_API_KEY
         self.commands = {"Clone Github Repository": self.clone_repo}
-        if CFG.GITHUB_USERNAME and CFG.GITHUB_API_KEY:
+        if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo
 
     def clone_repo(self, repo_url: str, clone_path: str) -> str:
         split_url = repo_url.split("//")
-        if CFG.GITHUB_USERNAME is not None and CFG.GITHUB_API_KEY is not None:
-            auth_repo_url = f"//{CFG.GITHUB_USERNAME}:{CFG.GITHUB_API_KEY}@".join(
+        if self.GITHUB_USERNAME is not None and self.GITHUB_API_KEY is not None:
+            auth_repo_url = f"//{self.GITHUB_USERNAME}:{self.GITHUB_API_KEY}@".join(
                 split_url
             )
         else:
@@ -28,8 +26,8 @@ class github(Commands):
             return f"Error: {str(e)}"
 
     def create_repo(self, repo_name: str, readme: str) -> str:
-        g = Github(CFG.GITHUB_API_KEY)
-        user = g.get_user(CFG.GITHUB_USERNAME)
+        g = Github(self.GITHUB_API_KEY)
+        user = g.get_user(self.GITHUB_USERNAME)
         repo = user.create_repo(repo_name, private=True)
         repo_url = repo.clone_url
         repo_dir = f"./{repo_name}"

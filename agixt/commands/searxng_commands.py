@@ -2,21 +2,16 @@
 import requests
 from typing import List
 from Commands import Commands
-from Config import Config
-
-CFG = Config()
 
 
 class searxng_commands(Commands):
-    def __init__(self):
-        self.extension_keys = [
-            "SEARXNG_INSTANCE_URL",
-        ]
-        if CFG.SEARXNG_INSTANCE_URL:
+    def __init__(self, SEARXNG_INSTANCE_URL: str = "", **kwargs):
+        self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
+        if self.SEARXNG_INSTANCE_URL:
             self.commands = {"Searx Search": self.search_searx}
 
     def search_searx(self, query: str, category: str = "general") -> List[str]:
-        searx_url = CFG.SEARXNG_INSTANCE_URL.rstrip("/") + "/search"
+        searx_url = self.SEARXNG_INSTANCE_URL.rstrip("/") + "/search"
         payload = {
             "q": query,
             "categories": category,

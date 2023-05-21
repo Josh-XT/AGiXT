@@ -1,7 +1,6 @@
 from bs4 import BeautifulSoup
 from captcha_solver import CaptchaSolver
 from Commands import Commands
-from Config import Config
 from pathlib import Path
 from requests.compat import urljoin
 from selenium import webdriver
@@ -17,16 +16,13 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 import logging
 
-FILE_DIR = Path(__file__).parent.parent
-CFG = Config()
-
 
 class web_selenium(Commands):
-    def __init__(self):
-        self.commands = {"Browse Website": self.scrape_text_with_selenium}
+    def __init__(self, SELENIUM_WEB_BROWSER: str = "chrome", **kwargs):
+        self.SELENIUM_WEB_BROWSER = SELENIUM_WEB_BROWSER
+        self.commands = {"Scrape Text with Selenium": self.scrape_text_with_selenium}
 
-    @staticmethod
-    def scrape_text_with_selenium(url: str) -> Tuple[WebDriver, str]:
+    def scrape_text_with_selenium(self, url: str) -> Tuple[WebDriver, str]:
         logging.getLogger("selenium").setLevel(logging.CRITICAL)
 
         options_available = {
@@ -35,16 +31,16 @@ class web_selenium(Commands):
             "firefox": FirefoxOptions,
         }
 
-        options = options_available[CFG.SELENIUM_WEB_BROWSER]()
+        options = options_available[self.SELENIUM_WEB_BROWSER]()
         options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5615.49 Safari/537.36"
         )
         options.add_argument("--headless")
-        if CFG.SELENIUM_WEB_BROWSER == "firefox":
+        if self.SELENIUM_WEB_BROWSER == "firefox":
             driver = webdriver.Firefox(
                 executable_path=GeckoDriverManager().install(), options=options
             )
-        elif CFG.SELENIUM_WEB_BROWSER == "safari":
+        elif self.SELENIUM_WEB_BROWSER == "safari":
             driver = webdriver.Safari(options=options)
         else:
             driver = webdriver.Chrome(
@@ -109,4 +105,5 @@ class web_selenium(Commands):
 
     @staticmethod
     def add_header(driver: WebDriver) -> None:
+        FILE_DIR = Path(__file__).parent.parent
         driver.execute_script(open(f"{FILE_DIR}/js/overlay.js", "r").read())
