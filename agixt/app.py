@@ -326,7 +326,7 @@ async def delete_chain(chain_name: str) -> ResponseMessage:
 
 @app.post("/api/chain/{chain_name}/step", tags=["Chain"])
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
-    Chain().add_step(
+    Chain().add_chain_step(
         chain_name,
         step_info.step_number,
         step_info.prompt_type,
