@@ -24,7 +24,7 @@ class Gpt4freeProvider:
             for provider in self.providers:
                 try:
                     if provider not in self.FAILED_PROVIDERS:
-                        print(f"[GPT4Free] Using: {provider})
+                        print(f"[GPT4Free] Using: {provider}")
                         response = gpt4free.Completion.create(
                             getattr(gpt4free.Provider, provider),
                             prompt=prompt,
