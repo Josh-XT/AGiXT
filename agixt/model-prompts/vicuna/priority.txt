@@ -1,4 +1,4 @@
 ###Human:
-Please help me clean up and re-prioritize the tasks: {task_names} based on our team's objective: {objective}. Provide the updated list starting from task number {next_task_id} in a numbered list. Keep all tasks intact.
+Please help me clean up and re-prioritize the tasks: {tasks} based on our team's objective: {objective}. Provide the updated list starting from task number {next_task_id} in a numbered list. Keep all tasks intact.
 
 ###Assistant:
