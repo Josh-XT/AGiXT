@@ -1,5 +1,7 @@
 from AGiXT import AGiXT
 import re
+import json
+from pathlib import Path
 from Agent import Agent
 from collections import deque
 
@@ -12,6 +14,46 @@ class Tasks:
         self.task_list = deque([])
         self.output_list = []
         self.stop_running_event = None
+
+    def save_task(self):
+        task_name = re.sub(
+            r"[^\w\s]", "", self.primary_objective
+        )  # remove non-alphanumeric & non-space characters
+        task_name = task_name[:15]  # truncate to 15 characters
+
+        # ensure the directories exist
+        directory = Path(f"agents/{self.agent_name}")
+        directory.mkdir(parents=True, exist_ok=True)
+
+        # serialize the task state and save to a file
+        task_state = {
+            "task_name": task_name,
+            "task_list": list(self.task_list),
+            "output_list": self.output_list,
+            "primary_objective": self.primary_objective,
+        }
+        with open(f"agents/{self.agent_name}/{task_name}.json", "w") as f:
+            json.dump(task_state, f)
+
+    def load_task(self, task_name):
+        task_name = re.sub(
+            r"[^\w\s]", "", task_name
+        )  # remove non-alphanumeric & non-space characters
+        task_name = task_name[:15]  # truncate to 15 characters
+
+        try:
+            with open(f"agents/{self.agent_name}/{task_name}.json", "r") as f:
+                task_state = json.load(f)
+
+            self.task_list = deque(task_state["task_list"])
+            self.output_list = task_state["output_list"]
+            self.primary_objective = task_state["primary_objective"]
+            print(f"Successfully loaded task '{task_name}'.")
+
+        except FileNotFoundError:
+            print(f"No saved task found with the name '{task_name}'.")
+        except Exception as e:
+            print(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
         try:
@@ -27,6 +69,11 @@ class Tasks:
             self.agent.save_task_output(self.agent_name, output, self.primary_objective)
         )
 
+    def stop_tasks(self):
+        if self.stop_running_event is not None:
+            self.stop_running_event.set()
+        self.task_list.clear()
+
     def run_task(
         self,
         stop_event,
@@ -34,47 +81,52 @@ class Tasks:
         async_exec: bool = False,
         learn_file: str = "",
         smart: bool = False,
+        load_task: str = "",
         **kwargs,
     ):
-        self.primary_objective = objective
-        if learn_file != "":
-            learned_file = self.agent.memories.read_file(
-                task=objective, file_path=learn_file
-            )
-            if learned_file == True:
-                self.update_output_list(
-                    f"Read file {learn_file} into memory for task {objective}.\n\n"
-                )
-            else:
-                self.update_output_list(
-                    f"Failed to read file {learn_file} into memory.\n\n"
-                )
-
-        self.update_output_list(
-            f"Starting task with objective: {self.primary_objective}.\n\n"
-        )
-        if len(self.task_list) == 0:
-            self.task_list.append(
-                {
-                    "task_id": 1,
-                    "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
-                }
-            )
         self.stop_running_event = stop_event
-        while not stop_event.is_set():
-            if self.task_list == []:
-                break
-            if len(self.task_list) > 0:
-                task = self.task_list.popleft()
-            if (
-                task["task_name"] == "None"
-                or task["task_name"] == "None."
-                or task["task_name"] == ""
-            ):
-                break
+        if load_task != "":
+            self.load_task(load_task)
+            self.update_output_list(f"Loaded task '{load_task}'.\n\n")
+        else:
+            if self.task_list == deque([]) or self.task_list == []:
+                self.task_list = deque(
+                    [
+                        {
+                            "task_id": 1,
+                            "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
+                        }
+                    ]
+                )
+            self.primary_objective = objective
+            if learn_file != "":
+                learned_file = self.agent.memories.read_file(
+                    task=objective, file_path=learn_file
+                )
+                if learned_file:
+                    self.update_output_list(
+                        f"Read file {learn_file} into memory for task {objective}.\n\n"
+                    )
+                else:
+                    self.update_output_list(
+                        f"Failed to read file {learn_file} into memory.\n\n"
+                    )
+
+            self.update_output_list(
+                f"Starting task with objective: {self.primary_objective}.\n\n"
+            )
+
+        while not self.stop_running_event.is_set() and self.task_list:
+            task = self.task_list.popleft()
+
+            if task["task_name"] in ["None", "None.", ""]:
+                self.stop_tasks()
+                continue
+
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
+
             if smart:
                 result = AGiXT(self.agent_name).smart_instruct(
                     task=task["task_name"],
@@ -86,37 +138,23 @@ class Tasks:
                 result = AGiXT(self.agent_name).instruction_agent(
                     task=task["task_name"], **kwargs
                 )
+
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
-            task_list = [t["task_name"] for t in self.task_list]
+
             new_tasks = AGiXT(self.agent_name).task_agent(
-                result=result, task_description=task["task_name"], task_list=task_list
+                result=result,
+                task_description=task["task_name"],
+                task_list=list(self.task_list),
             )
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
-            for new_task in new_tasks:
-                new_task.update({"task_id": len(self.task_list) + 1})
-                self.task_list.append(new_task)
-            task_names = [t["task_name"] for t in self.task_list]
-            if not task_names:
-                return
-            next_task_id = len(self.task_list) + 1
-            response = AGiXT(self.agent_name).run(
-                task=self.primary_objective,
-                prompt="priority",
-                tasks=", ".join(task_names),
-                next_task_id=next_task_id,
-            )
 
-            lines = response.split("\n") if "\n" in response else [response]
-            new_tasks = [
-                re.sub(r"^.*?(\d)", r"\1", line)
-                for line in lines
-                if line.strip() and re.search(r"\d", line[:10])
-            ] or [response]
-            self.task_list = deque()
-            for task_string in new_tasks:
-                task_parts = task_string.strip().split(".", 1)
-                if len(task_parts) == 2:
-                    task_id = task_parts[0].strip()
-                    task_name = task_parts[1].strip()
-                    self.task_list.append({"task_id": task_id, "task_name": task_name})
+            for new_task in new_tasks:
+                new_task_id = len(self.task_list) + 1
+                new_task.update({"task_id": new_task_id})
+                self.task_list.append(new_task)
+
+        if not self.task_list:
+            self.stop_tasks()
+        if self.stop_running_event.is_set():
+            self.save_task()
         self.update_output_list("All tasks completed or stopped.")
