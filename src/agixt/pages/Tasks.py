@@ -1,30 +1,16 @@
 import streamlit as st
-import auth_libs.Redirect as redir
 import os
 import threading
 from Tasks import Tasks
 from Config import Config
 from Config.Agent import Agent
-from auth_libs.Cfig import Cfig
-from auth_libs.Users import logout_button
-import os
+from auth_libs.Users import check_auth_status
 
-st.header("Manage Tasks")
+check_auth_status()
 
 CFG = Config()
-CFIG = Cfig()
-CONFIG_FILE = "config.yaml"
 
-# Check if the user is logged in
-if (
-    not st.session_state.get("logged_in")
-    and os.path.exists(CONFIG_FILE)
-    and (CFIG.load_config()["auth_setup"] == "True")
-):
-    # Redirect to the login page if not
-    redir.nav_page("Login")
-else:
-    logout_button()
+st.header("Manage Tasks")
 
 # initialize session state for stop events and agent status if not exist
 if "agent_stop_events" not in st.session_state:

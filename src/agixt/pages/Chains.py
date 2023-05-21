@@ -5,25 +5,11 @@ from Chain import Chain
 from Commands import Commands
 from Config.Agent import Agent
 from CustomPrompt import CustomPrompt
-from auth_libs.Cfig import Cfig
-from auth_libs.Users import logout_button
-import os
+from auth_libs.Users import check_auth_status
+
+check_auth_status()
 
 CFG = Config()
-CFIG = Cfig()
-CONFIG_FILE = "config.yaml"
-
-# Check if the user is logged in
-if (
-    not st.session_state.get("logged_in")
-    and os.path.exists(CONFIG_FILE)
-    and (CFIG.load_config()["auth_setup"] == "True")
-):
-    # Redirect to the login page if not
-    redir.nav_page("Login")
-else:
-    logout_button()
-
 
 st.header("Manage Chains")
 

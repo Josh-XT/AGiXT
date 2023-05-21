@@ -1,26 +1,13 @@
 import streamlit as st
-import auth_libs.Redirect as redir
 import bcrypt
 from auth_libs.Users import load_users, save_user_data
 from auth_libs.Cfig import Cfig
+from auth_libs.Users import check_auth_status
 
+check_auth_status()
 CFG = Cfig()
 
 # Check if the user is logged in
-if not st.session_state.get("logged_in"):
-    # Redirect to the login page if not
-    redir.nav_page("Login")
-    st.stop()
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
 
 
 def logout_button():

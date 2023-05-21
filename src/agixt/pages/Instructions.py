@@ -1,44 +1,13 @@
 import streamlit as st
-import auth_libs.Redirect as redir
 import os
 from AGiXT import AGiXT
 from Config import Config
 from Config.Agent import Agent
-from auth_libs.Cfig import Cfig
-from auth_libs.Users import logout_button
 import os
+from auth_libs.Users import check_auth_status
 
+check_auth_status()
 CFG = Config()
-CFIG = Cfig()
-CONFIG_FILE = "config.yaml"
-
-# Check if the user is logged in
-if (
-    not st.session_state.get("logged_in")
-    and os.path.exists(CONFIG_FILE)
-    and (CFIG.load_config()["auth_setup"] == "True")
-):
-    # Redirect to the login page if not
-    redir.nav_page("Login")
-else:
-    logout_button()
-
-
-def logout_button():
-    """
-    Renders the logout button.
-    """
-    if st.button("Logout"):
-        # Clear session state and redirect to the login page
-        st.session_state.clear()
-        st.experimental_rerun()  # Redirect to the login page
-
-
-if (
-    not CFIG.load_config()["auth_setup_config"] == "No Login"
-    and CFIG.load_config()["auth_setup"] != False
-):
-    logout_button()
 
 
 def render_history(instruct_container, chat_history):
