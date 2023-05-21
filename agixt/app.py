@@ -9,7 +9,6 @@ from Commands import Commands
 from Chain import Chain
 from Tasks import Tasks
 from CustomPrompt import CustomPrompt
-import threading
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
