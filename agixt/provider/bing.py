@@ -6,15 +6,9 @@ import json
 
 class BingProvider:
     def __init__(self, AI_TEMPERATURE: float = 0.7, **kwargs):
-        self.AI_MODEL = "default"
+        self.AI_MODEL = "bing"
         self.requirements = ["EdgeGPT"]
-        AI_TEMPERATURE = float(AI_TEMPERATURE)
-        if AI_TEMPERATURE >= 0.7:
-            self.style = ConversationStyle.creative
-        if AI_TEMPERATURE <= 0.3 and AI_TEMPERATURE >= 0.0:
-            self.style = ConversationStyle.precise
-        if AI_TEMPERATURE >= 0.4 and AI_TEMPERATURE <= 0.6:
-            self.style = ConversationStyle.balanced
+        self.AI_TEMPERATURE = AI_TEMPERATURE
 
     async def ask(self, prompt, tokens: int = 0):
         cookie_path = "./cookies.json"
