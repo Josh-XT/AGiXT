@@ -207,8 +207,9 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        commands = Commands(agent_name)
-        available_commands = commands.get_available_commands()
+        available_commands = Commands(
+            Agent(agent_name).agent_config
+        ).get_available_commands()
 
         # Save the existing command state to prevent duplication
         existing_command_states = {
