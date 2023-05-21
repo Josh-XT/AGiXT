@@ -1,12 +1,14 @@
 import streamlit as st
 from Config import Config
-from Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
 from auth_libs.Users import check_auth_status
+from components.agent_selector import agent_selector
 
 check_auth_status()
+
+agent_name, agent = agent_selector()
 CFG = Config()
 
 
@@ -43,18 +45,6 @@ st.header("Manage Agent Settings")
 if "new_agent_name" not in st.session_state:
     st.session_state.new_agent_name = ""
 
-agent_name = st.selectbox(
-    "Select Agent",
-    [""] + [agent["name"] for agent in CFG.get_agents()],
-    index=0
-    if not st.session_state.new_agent_name
-    else [agent["name"] for agent in CFG.get_agents()].index(
-        st.session_state.new_agent_name
-    )
-    + 1,
-    key="agent_name_select",
-)
-
 # Check if a new agent has been added and reset the session state variable
 if st.session_state.new_agent_name and st.session_state.new_agent_name != agent_name:
     st.session_state.new_agent_name = ""
@@ -80,7 +70,7 @@ if not agent_name:
             }
             commands = []  # You can define the default commands here
             try:
-                Agent(new_agent_name).add_agent(new_agent_name, provider_settings)
+                agent.add_agent(new_agent_name, provider_settings)
                 st.success(f"Agent '{new_agent_name}' added.")
                 agent_name = new_agent_name
                 st.session_state.new_agent_name = agent_name
@@ -93,7 +83,7 @@ if not agent_name:
 
 if agent_name and not new_agent:
     try:
-        agent_config = Agent(agent_name).get_agent_config()
+        agent_config = agent.get_agent_config()
         agent_settings = agent_config.get("settings", {})
         provider_name = agent_settings.get("provider", "")
         provider_name = st.selectbox(
@@ -235,7 +225,7 @@ if agent_name and not new_agent:
             if cmd["friendly_name"] in existing_command_states
         }
         # Update the available commands back to the agent config
-        Agent(agent_name).update_agent_config(reduced_commands, "commands")
+        agent.update_agent_config(reduced_commands, "commands")
 
     except Exception as e:
         st.error(f"Error loading agent configuration: {str(e)}")
@@ -259,8 +249,8 @@ if not new_agent:
                 reduced_commands = {
                     cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
                 }
-                Agent(agent_name).update_agent_config(reduced_commands, "commands")
-                Agent(agent_name).update_agent_config(agent_settings, "settings")
+                agent.update_agent_config(reduced_commands, "commands")
+                agent.update_agent_config(agent_settings, "settings")
                 st.success(f"Agent '{agent_name}' updated.")
             except Exception as e:
                 st.error(f"Error updating agent: {str(e)}")
@@ -268,7 +258,7 @@ if not new_agent:
     if wipe_memories_button:
         if agent_name:
             try:
-                Agent(agent_name).wipe_agent_memories(agent_name)
+                agent.wipe_agent_memories(agent_name)
                 st.success(f"Memories of agent '{agent_name}' wiped.")
             except Exception as e:
                 st.error(f"Error wiping agent's memories: {str(e)}")
@@ -276,8 +266,9 @@ if not new_agent:
     if delete_agent_button:
         if agent_name:
             try:
-                Agent(agent_name).delete_agent(agent_name)
+                agent.delete_agent(agent_name)
                 st.success(f"Agent '{agent_name}' deleted.")
+                st.session_state.new_agent_name = ""  # Reset the selected agent
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
                 st.error(f"Error deleting agent: {str(e)}")
