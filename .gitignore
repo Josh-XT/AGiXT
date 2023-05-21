@@ -22,9 +22,9 @@ Agent-LLM-Frontend/
 *.code-workspace
 chains/*/*
 data/*
-src/agixt/agents/*
-src/agixt/data/*
-src/agixt/WORKSPACE/*
+agixt/agents/*
+agixt/data/*
+agixt/WORKSPACE/*
 # docs generation
 _book/
 package.json
