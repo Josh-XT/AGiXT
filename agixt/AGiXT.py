@@ -387,8 +387,6 @@ class AGiXT:
             return "\nNo commands were executed.\n"
 
     def task_agent(self, result: Dict, task_description: str, task_list) -> List[Dict]:
-        # Task list is a deque of tasks to be completed
-        # [ {"task_name": "task1"}, {"task_name": "task2"}}]
         tasks = [task["task_name"] for task in task_list]
         if len(tasks) == 0:
             return []
@@ -403,14 +401,16 @@ class AGiXT:
         )
 
         lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        return [
-            {"task_name": task_name} for task_name in new_tasks if task_name.strip()
-        ]
+        new_tasks = []
+        for line in lines:
+            match = re.match(r"(\d+)\.\s+(.*)", line)
+            if match:
+                task_id, task_name = match.groups()
+                new_tasks.append(
+                    {"task_id": int(task_id), "task_name": task_name.strip()}
+                )
+
+        return new_tasks
 
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
