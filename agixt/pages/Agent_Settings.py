@@ -214,21 +214,25 @@ if agent_name and not new_agent:
             command["friendly_name"]: command["enabled"]
             for command in available_commands
         }
+
         for command in available_commands:
             command_friendly_name = command["friendly_name"]
-            command_status = (
-                existing_command_states[command_friendly_name]
-                if command_friendly_name in existing_command_states
-                else command["enabled"]
-            )
+            if command_friendly_name in existing_command_states:
+                command_status = existing_command_states[command_friendly_name]
+            else:
+                continue  # Skip the command if it is not listed in the available commands
+
             toggle_status = st.checkbox(
                 command_friendly_name,
                 value=command_status,
                 key=command_friendly_name,
             )
             command["enabled"] = toggle_status
+
         reduced_commands = {
-            cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
+            cmd["friendly_name"]: cmd["enabled"]
+            for cmd in available_commands
+            if cmd["friendly_name"] in existing_command_states
         }
         # Update the available commands back to the agent config
         Agent(agent_name).update_agent_config(reduced_commands, "commands")
