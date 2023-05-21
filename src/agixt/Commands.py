@@ -1,19 +1,12 @@
 import importlib
 import os
+import glob
 from inspect import signature, Parameter
-from Config.Agent import Agent
 
 
 class Commands:
-    def __init__(self, agent_name: str = "AGiXT", load_commands_flag: bool = True):
-        if agent_name == "undefined":
-            self.agent_name = "AGiXT"
-        else:
-            self.agent_name = agent_name
-        self.CFG = Agent(self.agent_name)
-        self.agent_folder = self.CFG.create_agent_folder(self.agent_name)
-        # self.agent_config_file = self.CFG.create_agent_config_file(self.agent_folder)
-        self.agent_config = self.CFG.load_agent_config(self.agent_name)
+    def __init__(self, agent_config, load_commands_flag: bool = True):
+        self.agent_config = agent_config
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
@@ -67,7 +60,7 @@ class Commands:
 
     def load_commands(self):
         commands = []
-        command_files = self.CFG.load_command_files()
+        command_files = glob.glob("commands/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")

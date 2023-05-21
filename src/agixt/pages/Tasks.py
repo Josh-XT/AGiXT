@@ -2,7 +2,7 @@ import streamlit as st
 import auth_libs.Redirect as redir
 import os
 import threading
-from AGiXT import AGiXT
+from Tasks import Tasks
 from Config import Config
 from Config.Agent import Agent
 from auth_libs.Cfig import Cfig
@@ -76,7 +76,7 @@ if agent_name:
             if st.button("Start Task"):
                 if agent_name and task_objective:
                     if agent_name not in CFG.agent_instances:
-                        CFG.agent_instances[agent_name] = AGiXT(agent_name)
+                        CFG.agent_instances[agent_name] = Tasks(agent_name)
                     stop_event = threading.Event()
                     st.session_state.agent_stop_events[agent_name] = stop_event
                     agent_thread = threading.Thread(
