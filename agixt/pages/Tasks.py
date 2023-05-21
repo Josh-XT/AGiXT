@@ -25,6 +25,7 @@ agent_name = st.selectbox(
 )
 
 if agent_name:
+    agent = Agent(agent_name)
     task_objective = st.text_area("Enter the task objective")
     learn_file_upload = st.file_uploader("Upload a file to learn from")
     learn_file_path = ""
@@ -47,8 +48,6 @@ if agent_name:
         index=0,
     )
 
-    CFG = Agent(agent_name)
-
     col1, col2 = st.columns([3, 1])
     with col1:
         columns = st.columns([3, 2])
@@ -57,10 +56,10 @@ if agent_name:
         if agent_status == "Not Running":
             if st.button("Start Task", key=f"start_{agent_name}"):
                 if agent_name and (task_objective or load_task):
-                    if agent_name not in CFG.agent_instances:
-                        CFG.agent_instances[agent_name] = Tasks(agent_name)
+                    if agent_name not in agent.agent_instances:
+                        agent.agent_instances[agent_name] = Tasks(agent_name)
 
-                    CFG.agent_instances[agent_name].run_task(
+                    agent.agent_instances[agent_name].run_task(
                         task_objective,
                         True,
                         learn_file_path,
@@ -73,8 +72,8 @@ if agent_name:
                     columns[0].error("Agent name and task objective are required.")
         else:  # agent_status == "Running"
             if st.button("Stop Task", key=f"stop_{agent_name}"):
-                if agent_name in CFG.agent_instances:
-                    CFG.agent_instances[agent_name].stop_tasks()
+                if agent_name in agent.agent_instances:
+                    agent.agent_instances[agent_name].stop_tasks()
                     st.session_state.agent_status[agent_name] = "Not Running"
                     agent_status = "Not Running"
                     columns[0].success(f"Task stopped for agent '{agent_name}'.")
