@@ -1,6 +1,9 @@
 from AGiXT import AGiXT
 import re
+import os
 import json
+import uuid
+import yaml
 from pathlib import Path
 from Agent import Agent
 from collections import deque
@@ -32,8 +35,8 @@ class Tasks:
             "output_list": self.output_list,
             "primary_objective": self.primary_objective,
         }
-        with open(f"agents/{self.agent_name}/{task_name}.json", "w") as f:
-            json.dump(task_state, f)
+        with open(f"agents/{self.agent_name}/{task_name}.yaml", "w") as f:
+            yaml.dump(task_state, f)
 
     def load_task(self, task_name):
         task_name = re.sub(
@@ -64,10 +67,47 @@ class Tasks:
     def get_output_list(self):
         return self.output_list
 
-    def update_output_list(self, output):
-        print(
-            self.agent.save_task_output(self.agent_name, output, self.primary_objective)
+    def save_task_output(self, agent_name, task_output, primary_objective=None):
+        # Check if agents/{agent_name}/tasks/task_name.txt exists
+        # If it does, append to it
+        # If it doesn't, create it
+        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
+            os.makedirs(os.path.join("agents", agent_name, "tasks"))
+        if primary_objective is None:
+            primary_objective = str(uuid.uuid4())
+        task_output_file = os.path.join(
+            "agents", agent_name, "tasks", f"{primary_objective}.yaml"
         )
+        with open(
+            task_output_file,
+            "a" if os.path.exists(task_output_file) else "w",
+            encoding="utf-8",
+        ) as f:
+            yaml.dump(task_output, f)
+        return task_output
+
+    def get_task_output(self, task_name):
+        task_name = re.sub(
+            r"[^\w\s]", "", task_name
+        )  # remove non-alphanumeric & non-space characters
+        task_name = task_name[:15]  # truncate to 15 characters
+
+        try:
+            with open(f"agents/{self.agent_name}/tasks/{task_name}.yaml", "r") as f:
+                task_output = yaml.safe_load(f)
+
+            print(f"Successfully loaded task output for '{task_name}'.")
+            return task_output
+
+        except FileNotFoundError:
+            print(f"No saved task output found with the name '{task_name}'.")
+            return None
+        except Exception as e:
+            print(f"An error occurred while loading the task output: {e}")
+            return None
+
+    def update_output_list(self, output):
+        print(self.save_task_output(self.agent_name, output, self.primary_objective))
 
     def stop_tasks(self):
         if self.stop_running_event is not None:

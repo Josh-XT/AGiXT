@@ -341,22 +341,3 @@ class Agent:
         else:
             task_output = ""
         return task_output
-
-    def save_task_output(self, agent_name, task_output, primary_objective=None):
-        # Check if agents/{agent_name}/tasks/task_name.txt exists
-        # If it does, append to it
-        # If it doesn't, create it
-        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
-            os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        if primary_objective is None:
-            primary_objective = str(uuid.uuid4())
-        task_output_file = os.path.join(
-            "agents", agent_name, "tasks", f"{primary_objective}.txt"
-        )
-        with open(
-            task_output_file,
-            "a" if os.path.exists(task_output_file) else "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(task_output)
-        return task_output

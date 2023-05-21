@@ -373,9 +373,6 @@ class AGiXT:
                         return self.execution_agent(
                             execution_response, task, context_results, **kwargs
                         )
-                        return self.revalidation_agent(
-                            task, command_name, command_args, command_output, **kwargs
-                        )
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
@@ -409,7 +406,6 @@ class AGiXT:
                 new_tasks.append(
                     {"task_id": int(task_id), "task_name": task_name.strip()}
                 )
-
         return new_tasks
 
     async def websearch_agent(
