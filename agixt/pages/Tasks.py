@@ -39,7 +39,9 @@ if agent_name:
 
     task_list_dir = Path(f"agents/{agent_name}")
     task_list_dir.mkdir(parents=True, exist_ok=True)
-    existing_tasks = [f.stem for f in task_list_dir.glob("*.json")]
+    existing_tasks = [
+        f.stem for f in task_list_dir.glob("*.json") if f.stem != "config"
+    ]
 
     load_task = st.selectbox(
         "Load Task",
