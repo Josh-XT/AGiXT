@@ -1,10 +1,7 @@
 import os
 from typing import List
 from Commands import Commands
-from Config import Config
 from AGiXT import AGiXT
-
-CFG = Config()
 
 
 class create_new_command(Commands):
