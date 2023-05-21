@@ -138,7 +138,10 @@ if agent_name and not new_agent:
                     user_val = st.text_input(
                         key, value=default_value, key=f"{extension}_{key}"
                     )
-                    rendered_settings[key] = user_val
+
+                    # Check if the user value exists before saving the setting
+                    if user_val:
+                        rendered_settings[key] = user_val
 
             return rendered_settings
 
