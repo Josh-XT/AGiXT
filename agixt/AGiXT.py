@@ -129,19 +129,19 @@ class AGiXT:
             return_response = ""
             try:
                 self.response = json.loads(self.response)
+                if "response" in self.response:
+                    return_response = self.response["response"]
+                if "commands" in self.response:
+                    if self.response["commands"] != {}:
+                        return_response += (
+                            f"\n\nCommands Executed:\n{self.response['commands']}"
+                        )
+                if execution_response:
+                    return_response += (
+                        f"\n\nCommand Execution Response:\n{execution_response}"
+                    )
             except:
                 return_response = self.response
-            if "response" in self.response:
-                return_response = self.response["response"]
-            if "commands" in self.response:
-                if self.response["commands"] != {}:
-                    return_response += (
-                        f"\n\nCommands Executed:\n{self.response['commands']}"
-                    )
-            if execution_response:
-                return_response += (
-                    f"\n\nCommand Execution Response:\n{execution_response}"
-                )
             self.response = return_response
         print(f"Response: {self.response}")
         self.agent.memories.store_result(task, self.response)
