@@ -4,7 +4,7 @@ from AGiXT import AGiXT
 
 
 class work_with_ai(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         agents = Config().get_agents()
         self.commands = {}
         if agents != None:

@@ -1,31 +1,34 @@
 from Commands import Commands
-from Config import Config
 import os
 from threading import Semaphore
 import requests
 from playsound import playsound
 import gtts
 
-CFG = Config()
-
 
 class voice(Commands):
-    def __init__(self):
-        self.extension_keys = [
-            "ELEVENLABS_API_KEY",
-            "USE_MAC_OS_TTS",
-            "USE_BRIAN_TTS",
-        ]
+    def __init__(
+        self,
+        ELEVENLABS_API_KEY: str = "",
+        USE_MAC_OS_TTS: bool = False,
+        USE_BRIAN_TTS: bool = True,
+        ELEVENLABS_VOICE: str = "Josh",
+        **kwargs,
+    ):
+        self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
+        self.USE_MAC_OS_TTS = USE_MAC_OS_TTS
+        self.USE_BRIAN_TTS = USE_BRIAN_TTS
+        self.ELEVENLABS_VOICE = ELEVENLABS_VOICE
         self.commands = {"Speak with TTS": self.speak}
         self._mutex = Semaphore(1)
 
-    def speak(self, text: str, engine: str = "gtts", voice_index: int = 0) -> bool:
+    def speak(self, text: str, engine: str = "gtts") -> bool:
         with self._mutex:
-            if engine == "elevenlabs" and CFG.ELEVENLABS_API_KEY:
-                return self._elevenlabs_speech(text, voice_index)
-            elif engine == "macos" and CFG.USE_MAC_OS_TTS == "True":
-                return self._macos_speech(text, voice_index)
-            elif engine == "brian" and CFG.USE_BRIAN_TTS == "True":
+            if engine == "elevenlabs" and self.ELEVENLABS_API_KEY:
+                return self._elevenlabs_speech(text, self.ELEVENLABS_VOICE)
+            elif engine == "macos" and self.USE_MAC_OS_TTS == "True":
+                return self._macos_speech(text, self.ELEVENLABS_VOICE)
+            elif engine == "brian" and self.USE_BRIAN_TTS == "True":
                 return self._brian_speech(text)
             else:
                 return self._gtts_speech(text)
@@ -56,7 +59,7 @@ class voice(Commands):
         voices = ["ErXwobaYiN019PkySvjV", "EXAVITQu4vr4xnSDxMaL"]
         headers = {
             "Content-Type": "application/json",
-            "xi-api-key": CFG.ELEVENLABS_API_KEY,
+            "xi-api-key": self.ELEVENLABS_API_KEY,
         }
 
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voices[voice_index]}"

@@ -3,7 +3,7 @@ from Chain import Chain
 
 
 class chain_commands(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.chains = Chain().get_chains()
         self.commands = {}
         if self.chains != None:

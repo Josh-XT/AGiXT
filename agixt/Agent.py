@@ -8,12 +8,11 @@ import yaml
 from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
-from Config import Config
 from Memories import Memories
 from Commands import Commands
 
 
-class Agent(Config):
+class Agent:
     def __init__(self, agent_name=None):
         # General Configuration
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
@@ -64,16 +63,6 @@ class Agent(Config):
     def _create_parent_directories(self, file_path):
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-
-    def check_extension(self, extension_keys):
-        return_keys = []
-        for key in extension_keys:
-            if key in self.AGENT_CONFIG["settings"]:
-                return_keys.append(key)
-        if len(return_keys) == len(extension_keys):
-            return return_keys
-        else:
-            return False
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:

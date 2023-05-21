@@ -5,7 +5,7 @@ from AGiXT import AGiXT
 
 
 class create_new_command(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.commands = {"Create a new command": self.create_command}
 
     def command_exists(self, file_name: str) -> bool:

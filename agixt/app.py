@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Config.Agent import Agent
+from Agent import Agent
 from Commands import Commands
 from Chain import Chain
 from CustomPrompt import CustomPrompt

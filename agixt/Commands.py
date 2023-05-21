@@ -59,13 +59,17 @@ class Commands:
         return None
 
     def load_commands(self):
+        try:
+            settings = self.agent_config["settings"]
+        except:
+            settings = {}
         commands = []
         command_files = glob.glob("commands/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"commands.{module_name}")
             if issubclass(getattr(module, module_name), Commands):
-                command_class = getattr(module, module_name)()
+                command_class = getattr(module, module_name)(**settings)
                 if hasattr(command_class, "commands"):
                     for (
                         command_name,
@@ -84,10 +88,32 @@ class Commands:
         # Return the commands list
         return commands
 
+    def get_extension_settings(self):
+        settings = []
+        command_files = glob.glob("commands/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"commands.{module_name}")
+            if issubclass(getattr(module, module_name), Commands):
+                command_class = getattr(module, module_name)()
+                params = self.get_command_params(command_class.__init__)
+                # Remove self and kwargs from params
+                if "self" in params:
+                    del params["self"]
+                if "kwargs" in params:
+                    del params["kwargs"]
+                if params != {}:
+                    settings.append(list(params.keys()))
+        settings = [item for sublist in settings for item in sublist]
+        settings = list(set(settings))
+        return settings
+
     def get_command_params(self, func):
         params = {}
         sig = signature(func)
         for name, param in sig.parameters.items():
+            if name == "self":
+                continue
             if param.default == Parameter.empty:
                 params[name] = None
             else:

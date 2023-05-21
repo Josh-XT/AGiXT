@@ -1,6 +1,6 @@
 import streamlit as st
 from Config import Config
-from Config.Agent import Agent
+from Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
@@ -123,6 +123,27 @@ if agent_name and not new_agent:
         if provider_name:
             provider_settings = render_provider_settings(agent_settings, provider_name)
             agent_settings.update(provider_settings)
+
+        st.subheader("Extension Settings")
+        extension_setting_keys = Commands(agent_config).get_extension_settings()
+        extension_settings = {}
+
+        if not isinstance(extension_setting_keys, list):
+            st.error(
+                f"Error loading extension settings: expected a list, but got {extension_setting_keys}"
+            )
+        else:
+            for key in extension_setting_keys:
+                if key in agent_settings:
+                    default_value = agent_settings[key]
+                else:
+                    default_value = None
+                user_val = st.text_input(key, value=default_value)
+                extension_settings[key] = user_val
+
+            # Update the extension settings in the agent_settings directly
+            agent_settings.update(extension_settings)
+
         st.subheader("Custom Settings")
         custom_settings = agent_settings.get("custom_settings", [])
 

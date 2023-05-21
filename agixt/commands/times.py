@@ -3,7 +3,7 @@ from Commands import Commands
 
 
 class times(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.commands = {"Get Datetime": self.get_datetime}
 
     def get_datetime(self) -> str:

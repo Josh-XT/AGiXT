@@ -30,7 +30,6 @@ playsound==1.2.2
 pre-commit
 pytz
 pynacl
-python-dotenv
 python-git
 PyGithub
 selenium
