@@ -5,24 +5,24 @@ from base64 import b64decode
 import openai
 import requests
 from PIL import Image
-from Config import Config
 from Commands import Commands
-
-CFG = Config()
 
 
 class image_generator(Commands):
-    def __init__(self):
-        self.extension_keys = ["HUGGINGFACE_API_KEY", "OPENAI_API_KEY"]
-        if CFG.HUGGINGFACE_API_KEY or CFG.OPENAI_API_KEY:
+    def __init__(
+        self, HUGGINGFACE_API_KEY: str = "", OPENAI_API_KEY: str = "", **kwargs
+    ):
+        self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
+        self.OPENAI_API_KEY = OPENAI_API_KEY
+        if self.HUGGINGFACE_API_KEY or self.OPENAI_API_KEY:
             self.commands = {"Generate Image": self.generate_image}
 
     def generate_image(self, prompt: str) -> str:
         filename = f"{str(uuid.uuid4())}.jpg"
 
-        if CFG.OPENAI_API_KEY:
+        if self.OPENAI_API_KEY:
             return self.generate_image_with_dalle(prompt, filename)
-        elif CFG.HUGGINGFACE_API_KEY:
+        elif self.HUGGINGFACE_API_KEY:
             return self.generate_image_with_hf(prompt, filename)
         else:
             return "No Image Provider Set"
@@ -31,7 +31,7 @@ class image_generator(Commands):
         API_URL = (
             "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
         )
-        headers = {"Authorization": f"Bearer {CFG.HUGGINGFACE_API_TOKEN}"}
+        headers = {"Authorization": f"Bearer {self.HUGGINGFACE_API_TOKEN}"}
 
         response = requests.post(
             API_URL,
@@ -44,12 +44,12 @@ class image_generator(Commands):
         image = Image.open(BytesIO(response.content))
         print(f"Image Generated for prompt:{prompt}")
 
-        image.save(os.path.join(CFG.WORKING_DIRECTORY, filename))
+        image.save(os.path.join(self.WORKING_DIRECTORY, filename))
 
         return f"Saved to disk:{filename}"
 
     def generate_image_with_dalle(self, prompt: str, filename: str) -> str:
-        openai.api_key = CFG.OPENAI_API_KEY
+        openai.api_key = self.OPENAI_API_KEY
 
         response = openai.Image.create(
             prompt=prompt,
@@ -62,7 +62,7 @@ class image_generator(Commands):
 
         image_data = b64decode(response["data"][0]["b64_json"])
 
-        with open(f"{CFG.WORKING_DIRECTORY}/{filename}", mode="wb") as png:
+        with open(f"{self.WORKING_DIRECTORY}/{filename}", mode="wb") as png:
             png.write(image_data)
 
         return f"Saved to disk:{filename}"

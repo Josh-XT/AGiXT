@@ -6,7 +6,7 @@ from Commands import Commands
 
 
 class web_requests(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "AGiXT/1.0"})
         self.commands = {

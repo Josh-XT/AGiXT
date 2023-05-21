@@ -1,18 +1,16 @@
 from typing import Union, List
 import json
 from duckduckgo_search import ddg
-from Config import Config
 from Commands import Commands
-
-CFG = Config()
 
 
 class google(Commands):
-    def __init__(self):
+    def __init__(self, GOOGLE_API_KEY: str = "", **kwargs):
+        self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.commands = {
             "Google Search": self.google_search,
         }
-        if hasattr(CFG, "GOOGLE_API_KEY") and CFG.GOOGLE_API_KEY:
+        if self.GOOGLE_API_KEY:
             self.commands["Google Official Search"] = self.google_official_search
 
     @staticmethod
@@ -27,17 +25,16 @@ class google(Commands):
             search_results.append(j)
         return json.dumps(search_results, ensure_ascii=False, indent=4)
 
-    @staticmethod
     def google_official_search(
-        query: str, num_results: int = 8
+        self, query: str, num_results: int = 8
     ) -> Union[str, List[str]]:
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
 
         try:
             # Get the Google API key and Custom Search Engine ID from the config file
-            api_key = CFG.GOOGLE_API_KEY
-            custom_search_engine_id = CFG.custom_search_engine_id
+            api_key = self.GOOGLE_API_KEY
+            custom_search_engine_id = self.custom_search_engine_id
 
             # Initialize the Custom Search API service
             service = build("customsearch", "v1", developerKey=api_key)

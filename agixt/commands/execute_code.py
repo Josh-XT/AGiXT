@@ -9,7 +9,7 @@ CFG = Config()
 
 
 class execute_code(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.commands = {
             "Execute Python File": self.execute_python_file,
             "Execute Shell": self.execute_shell,

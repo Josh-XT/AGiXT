@@ -3,7 +3,7 @@ import os
 import threading
 from Tasks import Tasks
 from Config import Config
-from Config.Agent import Agent
+from Agent import Agent
 from auth_libs.Users import check_auth_status
 
 check_auth_status()

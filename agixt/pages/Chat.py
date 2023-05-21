@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from AGiXT import AGiXT
 from Config import Config
-from Config.Agent import Agent
+from Agent import Agent
 from streamlit import (
     markdown,
     header,

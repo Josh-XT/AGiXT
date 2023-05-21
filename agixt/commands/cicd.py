@@ -5,7 +5,7 @@ from AGiXT import AGiXT
 
 
 class cicd(Commands):
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.commands = {
             "Evaluate Code": self.evaluate_code,
             "Analyze Pull Request": self.analyze_pull_request,

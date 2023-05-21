@@ -1,6 +1,6 @@
 from AGiXT import AGiXT
 import re
-from Config.Agent import Agent
+from Agent import Agent
 from collections import deque
 
 
