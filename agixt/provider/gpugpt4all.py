@@ -1,7 +1,11 @@
+import subprocess
+import sys
+
 try:
     from nomic.gpt4all import GPT4AllGPU as GPT4All
 except ImportError:
-    print("Failed to import gpt4allgpu.")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "nomic"])
+    from nomic.gpt4all import GPT4AllGPU as GPT4All
 
 
 class Gpugpt4allProvider:

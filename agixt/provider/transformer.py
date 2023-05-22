@@ -1,10 +1,23 @@
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    AutoModel,
-    AutoModelForSeq2SeqLM,
-    T5Tokenizer,
-)
+import subprocess
+import sys
+
+try:
+    from transformers import (
+        AutoTokenizer,
+        AutoModelForCausalLM,
+        AutoModel,
+        AutoModelForSeq2SeqLM,
+        T5Tokenizer,
+    )
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
+    from transformers import (
+        AutoTokenizer,
+        AutoModelForCausalLM,
+        AutoModel,
+        AutoModelForSeq2SeqLM,
+        T5Tokenizer,
+    )
 
 
 class TransformerProvider:
