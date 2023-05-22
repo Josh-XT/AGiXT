@@ -60,9 +60,9 @@ class Tasks:
             print(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
-        try:
+        if self.task_list:
             return True
-        except:
+        else:
             return False
 
     def get_output_list(self):
