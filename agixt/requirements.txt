@@ -1,5 +1,4 @@
 chromadb
-accelerate
 argparse
 anthropic
 beautifulsoup4
