@@ -1,7 +1,8 @@
 FROM python:3.10-slim-buster 
 
 WORKDIR /app
-COPY requirements.txt .
+COPY agixt/requirements.txt .
+COPY --link agixt/ .
 
 RUN apt-get update
 RUN apt-get upgrade -y
@@ -20,6 +21,5 @@ RUN apt-get install git -y
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
 
-COPY --link . .
 EXPOSE 7437
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
