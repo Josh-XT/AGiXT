@@ -41,7 +41,7 @@ class LlamacppProvider:
             self.model = Llama(
                 model_path=MODEL_PATH,
                 n_ctx=(int(self.MAX_TOKENS) * 2),
-                n_gpu_layers=self.GPU_LAYERS,
+                n_gpu_layers=int(self.GPU_LAYERS),
                 n_batch=self.BATCH_SIZE,
                 n_threads=self.THREADS,
             )
