@@ -130,8 +130,13 @@ class Chain:
                 except:
                     command_name = ""
                 if prompt_type == "Command":
+                    commands_args = prompt
+                    for prompt_content in prompt:
+                        commands_args[prompt_content] = self.get_step_content(
+                            chain_name, step_number, prompt_content
+                        )
                     return Commands(agent_name=agent_name).execute_command(
-                        command_name, prompt
+                        command_name, commands_args
                     )
                 try:
                     prompt_name = prompt["prompt_name"]
