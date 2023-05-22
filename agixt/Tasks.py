@@ -204,15 +204,16 @@ class Tasks:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
 
-            if smart:
+            if smart != True:
+                result = self.instruction_agent(task=task["task_name"], **kwargs)
+            else:
                 result = AGiXT(self.agent_name).smart_instruct(
                     task=task["task_name"],
                     shots=3,
                     async_exec=async_exec,
+                    objective=self.primary_objective,
                     **kwargs,
                 )
-            else:
-                result = self.instruction_agent(task=task["task_name"], **kwargs)
 
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
 
