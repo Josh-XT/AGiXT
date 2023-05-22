@@ -207,8 +207,9 @@ class Agent:
             json.dump(config_data, f)
 
     def add_agent(self, agent_name, provider_settings):
+        if not agent_name:
+            return "Agent name cannot be empty."
         agent_folder = self.create_agent_folder(agent_name)
-
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
@@ -217,7 +218,8 @@ class Agent:
         agent_config = self.create_agent_config_file(
             agent_name, provider_settings, command_dict
         )
-        # self.write_agent_config(agent_config, {"commands": command_dict})
+        with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
+            f.write("")
         return {"agent_file": f"{agent_name}.yaml"}
 
     def rename_agent(self, agent_name, new_name):
