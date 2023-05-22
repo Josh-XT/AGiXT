@@ -43,4 +43,4 @@ ffmpeg
 hugchat
 flask-bcrypt
 revChatGPT
-password_generator
+random-password-generator
