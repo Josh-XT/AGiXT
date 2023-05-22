@@ -78,10 +78,44 @@ class Chain:
     def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name)
         print(f"Running chain '{chain_name}'")
+        responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 print(f"Running step {step_data['step']}")
-                self.run_chain_step(step_data)
+                step_response = self.run_chain_step(
+                    step_data
+                )  # Get the response of the current step.
+                responses[step_data["step"]] = step_response  # Store the response.
+        # Write the responses to the json file.
+        with open(os.path.join("chains", f"{chain_name}_responses.json"), "w") as f:
+            json.dump(responses, f)
+        return responses
+
+    def get_step_response(self, chain_name, step_number):
+        try:
+            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+                responses = json.load(f)
+            return responses.get(str(step_number))
+        except:
+            return ""
+
+    def get_step_content(self, chain_name, step_number, prompt_content):
+        if "{STEP" in prompt_content:
+            # get the step number from the prompt content
+            step_number = int(
+                prompt_content[
+                    prompt_content.find("{STEP") + 5 : prompt_content.find("}")
+                ]
+            )
+            # get the response from the step number
+            step_response = self.get_step_response(
+                chain_name=chain_name, step_number=step_number
+            )
+            # replace the {STEPx} with the response
+            prompt_content = prompt_content.replace(
+                f"{{STEP{step_number}}}", step_response
+            )
+        return prompt_content
 
     def run_chain_step(self, step):
         if step:
@@ -89,14 +123,20 @@ class Chain:
                 prompt_type = step["prompt_type"]
                 prompt = step["prompt"]
                 agent_name = step["agent_name"]
+                step_number = step["step"]
                 try:
                     command_name = prompt["command_name"]
                     prompt = {k: v for k, v in prompt.items() if k != "command_name"}
                 except:
                     command_name = ""
                 if prompt_type == "Command":
+                    commands_args = prompt
+                    for prompt_content in prompt:
+                        commands_args[prompt_content] = self.get_step_content(
+                            chain_name, step_number, prompt_content
+                        )
                     return Commands(agent_name=agent_name).execute_command(
-                        command_name, prompt
+                        command_name, commands_args
                     )
                 try:
                     prompt_name = prompt["prompt_name"]
@@ -106,6 +146,9 @@ class Chain:
                         if k != "prompt_name" and k != "task"
                     }
                     prompt_content = CustomPrompt().get_prompt(prompt_name)
+                    prompt_content = self.get_step_content(
+                        chain_name, step_number, prompt_content
+                    )
                     agent = AGiXT(agent_name)
                 except:
                     return None
