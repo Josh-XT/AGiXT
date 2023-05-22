@@ -1,6 +1,7 @@
 import chromadb
 from typing import List
 import spacy
+import os
 from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
@@ -22,6 +23,8 @@ class Memories:
         self.embedding_function = embedder.embed
         self.chunk_size = embedder.chunk_size
         self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
+        if not os.path.exists(self.chroma_persist_dir):
+            os.makedirs(self.chroma_persist_dir)
         self.chroma_client = self.initialize_chroma_client()
         self.collection = self.get_or_create_collection()
 
