@@ -1,8 +1,7 @@
 FROM python:3.10-slim-buster 
 
-WORKDIR /app
-COPY agixt/requirements.txt .
-COPY --link agixt/ .
+COPY --link agixt/ /agixt
+WORKDIR /agixt
 
 RUN apt-get update
 RUN apt-get upgrade -y
