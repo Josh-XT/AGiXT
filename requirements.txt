@@ -40,7 +40,11 @@ webdriver_manager
 spacy
 discord
 git+https://github.com/xtekky/gpt4free
+
 -r https://raw.githubusercontent.com/xtekky/gpt4free/main/requirements.txt
+
+accelerate
+torch
 EdgeGPT
 google-generativeai
 google-cloud-aiplatform
