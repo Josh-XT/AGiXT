@@ -156,6 +156,7 @@ class AGiXT:
         shots: int = 3,
         async_exec: bool = False,
         learn_file: str = "",
+        objective: str = None,
         **kwargs,
     ):
         answers = []
@@ -163,13 +164,16 @@ class AGiXT:
         answers.append(
             self.run(
                 task=task,
-                prompt="SmartInstruct-StepByStep",
+                prompt="SmartInstruct-StepByStep"
+                if objective == None
+                else "SmartTask-StepByStep",
                 context_results=6,
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
                 learn_file=learn_file,
+                objective=objective,
                 **kwargs,
             )
         )
@@ -178,9 +182,12 @@ class AGiXT:
                 answers.append(
                     self.run(
                         task=task,
-                        prompt="SmartInstruct-StepByStep",
+                        prompt="SmartInstruct-StepByStep"
+                        if objective == None
+                        else "SmartTask-StepByStep",
                         context_results=6,
                         shots=shots,
+                        objective=objective,
                         **kwargs,
                     )
                 )
@@ -207,9 +214,12 @@ class AGiXT:
         )
         clean_response_agent = self.run(
             task=task,
-            prompt="SmartInstruct-CleanResponse",
+            prompt="SmartInstruct-CleanResponse"
+            if objective == None
+            else "SmartTask-CleanResponse",
             resolver_response=resolver,
             execution_response=execution_response,
+            objective=objective,
             **kwargs,
         )
         return clean_response_agent
