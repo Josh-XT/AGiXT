@@ -42,8 +42,8 @@ class LlamacppProvider:
                 model_path=MODEL_PATH,
                 n_ctx=(int(self.MAX_TOKENS) * 2),
                 n_gpu_layers=int(self.GPU_LAYERS),
-                n_batch=self.BATCH_SIZE,
-                n_threads=self.THREADS,
+                n_batch=int(self.BATCH_SIZE),
+                n_threads=int(self.THREADS),
             )
         else:
             print("Unable to find model path.")
