@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 from Config import Config
+from Agent import Agent
 from Commands import Commands
 from Embedding import get_embedding_providers
 from provider import get_provider_options
@@ -71,7 +72,7 @@ if not agent_name:
             }
             commands = []  # You can define the default commands here
             try:
-                agent.add_agent(new_agent_name, provider_settings)
+                Agent(new_agent_name).add_agent(new_agent_name, provider_settings)
                 st.success(f"Agent '{new_agent_name}' added.")
                 agent_name = new_agent_name
                 with open(os.path.join("session.txt"), "w") as f:
