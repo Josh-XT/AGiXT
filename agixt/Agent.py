@@ -1,8 +1,6 @@
 import os
-import re
 import json
 import glob
-import uuid
 import shutil
 import importlib
 import yaml
@@ -19,7 +17,9 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
+        self.commands = self.load_commands()
         self.available_commands = Commands(self.AGENT_CONFIG).get_available_commands()
+        self.clean_agent_config_commands()
         self.execute = Commands(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
@@ -51,7 +51,7 @@ class Agent:
         self.memory_file = f"agents/{self.agent_name}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
-        self.memories = Memories(self.agent_name, self)
+        self.memories = Memories(self.agent_name, self.AGENT_CONFIG)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -64,6 +64,17 @@ class Agent:
     def _create_parent_directories(self, file_path):
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
+    def clean_agent_config_commands(self):
+        for command in self.commands:
+            friendly_name = command[0]
+            if friendly_name not in self.AGENT_CONFIG["commands"]:
+                self.AGENT_CONFIG["commands"][friendly_name] = False
+        for command in list(self.AGENT_CONFIG["commands"]):
+            if command not in [cmd[0] for cmd in self.commands]:
+                del self.AGENT_CONFIG["commands"][command]
+        with open(f"agents/{self.agent_name}/config.json", "w") as f:
+            json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -202,13 +213,20 @@ class Agent:
                 )
         return agent_config_data
 
-    def write_agent_config(self, agent_config, config_data):
-        with open(agent_config, "w") as f:
-            json.dump(config_data, f)
-
     def add_agent(self, agent_name, provider_settings):
         if not agent_name:
             return "Agent name cannot be empty."
+        provider_settings = (
+            {
+                "provider": "gpt4free",
+                "AI_MODEL": "gpt-3.5-turbo",
+                "AI_TEMPERATURE": "0.4",
+                "MAX_TOKENS": "4000",
+                "embedder": "default",
+            }
+            if not provider_settings
+            else provider_settings
+        )
         agent_folder = self.create_agent_folder(agent_name)
         commands_list = self.load_commands()
         command_dict = {}
@@ -223,6 +241,7 @@ class Agent:
         return {"agent_file": f"{agent_name}.yaml"}
 
     def rename_agent(self, agent_name, new_name):
+        self.agent_name = new_name
         agent_file = f"agents/{agent_name}.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
@@ -254,13 +273,13 @@ class Agent:
                 with open(agent_file, "r") as f:
                     file_content = f.read().strip()
                     if file_content:
-                        agent_config = json.loads(file_content)
-                        break
+                        return json.loads(file_content)
                     else:
                         self.add_agent(self.agent_name, {})
+                        return self.get_agent_config()
             else:
                 self.add_agent(self.agent_name, {})
-        return agent_config
+                return self.get_agent_config()
 
     def update_agent_config(self, new_config, config_key):
         agent_name = self.agent_name
@@ -285,14 +304,22 @@ class Agent:
             return f"Agent {agent_name} configuration not found."
 
     def get_chat_history(self, agent_name):
-        with open(f"agents/{agent_name}.yaml", "r") as f:
-            yaml_history = yaml.safe_load(f)
-        chat_history = []
-        for interaction in yaml_history["interactions"]:
-            role = interaction["role"]
-            message = interaction["message"]
-            chat_history.append({role: message})
-        return chat_history
+        # If it doesn't exist, create it
+        if not os.path.exists(f"agents/{agent_name}.yaml"):
+            with open(f"agents/{agent_name}.yaml", "w") as f:
+                f.write("")
+            return []
+        try:
+            with open(f"agents/{agent_name}.yaml", "r") as f:
+                yaml_history = yaml.safe_load(f)
+            chat_history = []
+            for interaction in yaml_history["interactions"]:
+                role = interaction["role"]
+                message = interaction["message"]
+                chat_history.append({role: message})
+            return chat_history
+        except:
+            return []
 
     def wipe_agent_memories(self, agent_name):
         agent_folder = f"agents/{agent_name}/"

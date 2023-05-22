@@ -60,9 +60,9 @@ class Tasks:
             print(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
-        try:
+        if self.task_list:
             return True
-        except:
+        else:
             return False
 
     def get_output_list(self):
@@ -141,20 +141,26 @@ class Tasks:
 
         return new_tasks  # This line will return the list of new tasks
 
-    def instruction_agent(self, task, learn_file: str = "", **kwargs):
+    def instruction_agent(self, task, **kwargs):
         if "task_name" in task:
             task = task["task_name"]
+
         resolver = AGiXT(self.agent_name).run(
             task=task,
-            prompt="SmartInstruct-StepByStep",
+            prompt="SmartInstruct-StepByStep"
+            if self.primary_objective is None
+            else "SmartTask-StepByStep",
             context_results=6,
-            learn_file=learn_file,
+            objective=self.primary_objective,
             **kwargs,
         )
         execution_response = AGiXT(self.agent_name).run(
             task=task,
-            prompt="SmartInstruct-Execution",
+            prompt="SmartInstruct-Execution"
+            if self.primary_objective is None
+            else "SmartTask-Execution",
             previous_response=resolver,
+            objective=self.primary_objective,
             **kwargs,
         )
         return (
@@ -165,11 +171,11 @@ class Tasks:
         self,
         objective,
         async_exec: bool = False,
-        learn_file: str = "",
         smart: bool = False,
         load_task: str = "",
         **kwargs,
     ):
+        self.primary_objective = objective
         if load_task != "":
             self.load_task(load_task)
             self.update_output_list(f"Loaded task '{load_task}'.\n\n")
@@ -183,18 +189,6 @@ class Tasks:
                         }
                     ]
                 )
-            self.primary_objective = objective
-            if learn_file != "":
-                learned_file = self.agent.memories.read_file(file_path=learn_file)
-                if learned_file:
-                    self.update_output_list(
-                        f"Read file {learn_file} into memory for task {objective}.\n\n"
-                    )
-                else:
-                    self.update_output_list(
-                        f"Failed to read file {learn_file} into memory.\n\n"
-                    )
-
             self.update_output_list(
                 f"Starting task with objective: {self.primary_objective}.\n\n"
             )
@@ -210,15 +204,16 @@ class Tasks:
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
 
-            if smart:
+            if smart != True:
+                result = self.instruction_agent(task=task["task_name"], **kwargs)
+            else:
                 result = AGiXT(self.agent_name).smart_instruct(
                     task=task["task_name"],
                     shots=3,
                     async_exec=async_exec,
+                    objective=self.primary_objective,
                     **kwargs,
                 )
-            else:
-                result = self.instruction_agent(task=task["task_name"], **kwargs)
 
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
 

@@ -1,6 +1,7 @@
 import chromadb
 from typing import List
 import spacy
+import os
 from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
@@ -13,15 +14,16 @@ from bs4 import BeautifulSoup
 
 
 class Memories:
-    def __init__(self, AGENT_NAME: str = "AGiXT", AgentConfig=None):
-        self.AGENT_NAME = AGENT_NAME
-        self.CFG = AgentConfig
+    def __init__(self, agent_name: str = "AGiXT", agent_config=None):
+        self.agent_name = agent_name
         self.nlp = self.load_spacy_model()
-        self.nlp.max_length = 999999999999999999999999999999999
-        embedder = Embedding(CFG=AgentConfig)
+        self.nlp.max_length = 99999999999999999999999
+        embedder = Embedding(agent_config)
         self.embedding_function = embedder.embed
         self.chunk_size = embedder.chunk_size
-        self.chroma_persist_dir = f"agents/{self.AGENT_NAME}/memories"
+        self.chroma_persist_dir = f"agents/{self.agent_name}/memories"
+        if not os.path.exists(self.chroma_persist_dir):
+            os.makedirs(self.chroma_persist_dir)
         self.chroma_client = self.initialize_chroma_client()
         self.collection = self.get_or_create_collection()
 
@@ -50,7 +52,7 @@ class Memories:
                 name="memories", embedding_function=self.embedding_function
             )
         except ValueError:
-            print(f"Memories for {self.AGENT_NAME} do not exist. Creating...")
+            print(f"Memories for {self.agent_name} do not exist. Creating...")
             return self.chroma_client.create_collection(
                 name="memories", embedding_function=self.embedding_function
             )

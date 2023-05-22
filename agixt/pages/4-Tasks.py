@@ -17,8 +17,14 @@ if "agent_status" not in st.session_state:
     st.session_state.agent_status = {}
 
 if agent_name:
+    smart_task_toggle = st.checkbox("Enable Smart Task")
     task_objective = st.text_area("Enter the task objective")
-
+    task_agent = Tasks(agent_name)
+    status = task_agent.get_status()
+    if status == True:
+        st.session_state.agent_status[agent_name] = "Running"
+    else:
+        st.session_state.agent_status[agent_name] = "Not Running"
     task_list_dir = Path(f"agents/{agent_name}")
     task_list_dir.mkdir(parents=True, exist_ok=True)
     existing_tasks = [
@@ -40,13 +46,15 @@ if agent_name:
             if st.button("Start Task", key=f"start_{agent_name}"):
                 if agent_name and (task_objective or load_task):
                     if agent_name not in agent.agent_instances:
-                        agent.agent_instances[agent_name] = Tasks(agent_name)
+                        agent.agent_instances[agent_name] = task_agent
 
-                    agent.agent_instances[agent_name].run_task(
-                        task_objective,
-                        True,
-                        load_task,
+                    task_agent.run_task(
+                        objective=task_objective,
+                        async_exec=True,
+                        smart=smart_task_toggle,
+                        load_task=load_task,
                     )
+
                     st.session_state.agent_status[agent_name] = "Running"
                     agent_status = "Running"
                     columns[0].success(f"Task started for agent '{agent_name}'.")
@@ -55,7 +63,7 @@ if agent_name:
         else:  # agent_status == "Running"
             if st.button("Stop Task", key=f"stop_{agent_name}"):
                 if agent_name in agent.agent_instances:
-                    agent.agent_instances[agent_name].stop_tasks()
+                    task_agent.stop_tasks()
                     st.session_state.agent_status[agent_name] = "Not Running"
                     agent_status = "Not Running"
                     columns[0].success(f"Task stopped for agent '{agent_name}'.")

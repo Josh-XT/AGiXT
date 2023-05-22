@@ -12,8 +12,8 @@ def nav_page(page_name, timeout_secs=3):
                         return;
                     }
                 }
-                var elasped = new Date() - start_time;
-                if (elasped < timeout_secs * 1000) {
+                var elapsed = new Date() - start_time;
+                if (elapsed < timeout_secs * 1000) {
                     setTimeout(attempt_nav_page, 100, page_name, start_time, timeout_secs);
                 } else {
                     alert("Unable to navigate to page '" + page_name + "' after " + timeout_secs + " second(s).");
