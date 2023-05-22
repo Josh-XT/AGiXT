@@ -145,34 +145,24 @@ class Tasks:
         if "task_name" in task:
             task = task["task_name"]
 
-        if self.primary_objective != None:
-            resolver = AGiXT(self.agent_name).run(
-                task=task,
-                prompt="SmartTask-StepByStep",
-                context_results=6,
-                objective=self.primary_objective,
-                **kwargs,
-            )
-            execution_response = AGiXT(self.agent_name).run(
-                task=task,
-                prompt="SmartTask-Execution",
-                previous_response=resolver,
-                objective=self.primary_objective,
-                **kwargs,
-            )
-        else:
-            resolver = AGiXT(self.agent_name).run(
-                task=task,
-                prompt="SmartInstruct-StepByStep",
-                context_results=6,
-                **kwargs,
-            )
-            execution_response = AGiXT(self.agent_name).run(
-                task=task,
-                prompt="SmartInstruct-Execution",
-                previous_response=resolver,
-                **kwargs,
-            )
+        resolver = AGiXT(self.agent_name).run(
+            task=task,
+            prompt="SmartInstruct-StepByStep"
+            if self.primary_objective is None
+            else "SmartTask-StepByStep",
+            context_results=6,
+            objective=self.primary_objective,
+            **kwargs,
+        )
+        execution_response = AGiXT(self.agent_name).run(
+            task=task,
+            prompt="SmartInstruct-Execution"
+            if self.primary_objective is None
+            else "SmartTask-Execution",
+            previous_response=resolver,
+            objective=self.primary_objective,
+            **kwargs,
+        )
         return (
             f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
         )
