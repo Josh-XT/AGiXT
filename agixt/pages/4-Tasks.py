@@ -17,6 +17,7 @@ if "agent_status" not in st.session_state:
     st.session_state.agent_status = {}
 
 if agent_name:
+    smart_task_toggle = st.checkbox("Enable Smart Task")
     task_objective = st.text_area("Enter the task objective")
     task_agent = Tasks(agent_name)
     status = task_agent.get_status()
@@ -50,9 +51,10 @@ if agent_name:
                     task_agent.run_task(
                         objective=task_objective,
                         async_exec=True,
-                        smart=False,
+                        smart=smart_task_toggle,
                         load_task=load_task,
                     )
+
                     st.session_state.agent_status[agent_name] = "Running"
                     agent_status = "Running"
                     columns[0].success(f"Task started for agent '{agent_name}'.")
