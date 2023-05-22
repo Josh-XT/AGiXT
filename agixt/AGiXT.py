@@ -99,7 +99,9 @@ class AGiXT:
                 )
             else:
                 self.websearch_agent(task=task, depth=websearch_depth)
-        if int(tokens) > int(self.agent.MAX_TOKENS):
+        try:
+            self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+        except:
             if context_results > 0:
                 context_results = context_results - 1
             if context_results == 0:
@@ -108,12 +110,10 @@ class AGiXT:
                 task=task,
                 prompt=prompt,
                 context_results=context_results,
-                websearch=websearch,
-                websearch_depth=websearch_depth,
                 async_exec=async_exec,
                 **kwargs,
             )
-        self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
