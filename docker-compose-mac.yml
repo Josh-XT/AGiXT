@@ -21,7 +21,7 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./agents:/app/agents:rw
-      - ./WORKSPACE:/app/WORKSPACE:rw
+      - ./agixt/agents:/agixt/agents:rw
+      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
       - ./models:/model:rw
     restart: always
