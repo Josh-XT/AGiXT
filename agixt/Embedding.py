@@ -103,12 +103,12 @@ class AzureEmbeddingFunction(EmbeddingFunction):
 
 
 class Embedding:
-    def __init__(self, CFG=None):
+    def __init__(self, AGENT_CONFIG=None):
         # We need to take the embedder string and then return the correct embedder
         # We also need to return the correct chunk size
-        self.CFG = CFG
+        self.AGENT_CONFIG = AGENT_CONFIG
         try:
-            embedder = self.CFG.AGENT_CONFIG["settings"]["embedder"]
+            embedder = self.AGENT_CONFIG["settings"]["embedder"]
             self.embed, self.chunk_size = self.__getattribute__(embedder)()
         except:
             self.embed, self.chunk_size = self.default()
@@ -131,11 +131,9 @@ class Embedding:
     def azure(self):
         chunk_size = 1000
         embed = AzureEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
-            deployment_id=self.CFG.AGENT_CONFIG["settings"][
-                "AZURE_EMBEDDER_DEPLOYMENT_ID"
-            ],
-            AZURE_OPENAI_ENDPOINT=self.CFG.AGENT_CONFIG["settings"][
+            api_key=self.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
+            deployment_id=self.AGENT_CONFIG["settings"]["AZURE_EMBEDDER_DEPLOYMENT_ID"],
+            AZURE_OPENAI_ENDPOINT=self.AGENT_CONFIG["settings"][
                 "AZURE_OPENAI_ENDPOINT"
             ],
         )
@@ -144,29 +142,29 @@ class Embedding:
     def openai(self):
         chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
+            api_key=self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
         )
         return embed, chunk_size
 
     def google_palm(self):
         chunk_size = 1000
         embed = GooglePalmEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
+            api_key=self.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
         )
         return embed, chunk_size
 
     def google_vertex(self):
         chunk_size = 1000
         embed = GoogleVertexEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
-            project_id=self.CFG.AGENT_CONFIG["settings"]["GOOGLE_PROJECT_ID"],
+            api_key=self.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
+            project_id=self.AGENT_CONFIG["settings"]["GOOGLE_PROJECT_ID"],
         )
         return embed, chunk_size
 
     def cohere(self):
         chunk_size = 500
         embed = embedding_functions.CohereEmbeddingFunction(
-            api_key=self.CFG.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
+            api_key=self.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
         )
         return embed, chunk_size
 

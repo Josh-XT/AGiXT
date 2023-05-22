@@ -168,7 +168,7 @@ async def get_agents():
 
 
 @app.get("/api/agent/{agent_name}", tags=["Agent"])
-async def get_agent_config(agent_name: str):
+async def get_agentconfig(agent_name: str):
     agent_config = Agent(agent_name).get_agent_config()
     return {"agent": agent_config}
 

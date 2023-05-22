@@ -44,3 +44,4 @@ hugchat
 flask-bcrypt
 revChatGPT
 random-password-generator
+cryptography==38.0.4
