@@ -165,11 +165,11 @@ class Tasks:
         self,
         objective,
         async_exec: bool = False,
-        learn_file: str = "",
         smart: bool = False,
         load_task: str = "",
         **kwargs,
     ):
+        self.primary_objective = objective
         if load_task != "":
             self.load_task(load_task)
             self.update_output_list(f"Loaded task '{load_task}'.\n\n")
@@ -183,18 +183,6 @@ class Tasks:
                         }
                     ]
                 )
-            self.primary_objective = objective
-            if learn_file != "":
-                learned_file = self.agent.memories.read_file(file_path=learn_file)
-                if learned_file:
-                    self.update_output_list(
-                        f"Read file {learn_file} into memory for task {objective}.\n\n"
-                    )
-                else:
-                    self.update_output_list(
-                        f"Failed to read file {learn_file} into memory.\n\n"
-                    )
-
             self.update_output_list(
                 f"Starting task with objective: {self.primary_objective}.\n\n"
             )
