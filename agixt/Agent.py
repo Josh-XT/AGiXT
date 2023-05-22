@@ -1,8 +1,6 @@
 import os
-import re
 import json
 import glob
-import uuid
 import shutil
 import importlib
 import yaml
@@ -19,7 +17,9 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
+        self.commands = self.load_commands()
         self.available_commands = Commands(self.AGENT_CONFIG).get_available_commands()
+        self.clean_agent_config_commands()
         self.execute = Commands(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
@@ -64,6 +64,17 @@ class Agent:
     def _create_parent_directories(self, file_path):
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
+    def clean_agent_config_commands(self):
+        for command in self.commands:
+            friendly_name = command[0]
+            if friendly_name not in self.AGENT_CONFIG["commands"]:
+                self.AGENT_CONFIG["commands"][friendly_name] = False
+        for command in list(self.AGENT_CONFIG["commands"]):
+            if command not in [cmd[0] for cmd in self.commands]:
+                del self.AGENT_CONFIG["commands"][command]
+        with open(f"agents/{self.agent_name}/config.json", "w") as f:
+            json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -201,10 +212,6 @@ class Agent:
                     )
                 )
         return agent_config_data
-
-    def write_agent_config(self, agent_config, config_data):
-        with open(agent_config, "w") as f:
-            json.dump(config_data, f)
 
     def add_agent(self, agent_name, provider_settings):
         if not agent_name:
