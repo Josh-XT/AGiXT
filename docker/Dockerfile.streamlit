@@ -4,7 +4,7 @@ FROM ${FROM_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y
 
-RUN apt-get install -y git build-essential ffmpeg libomp5
+RUN apt-get install -y git build-essential ffmpeg libgomp1
 
 RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
 
