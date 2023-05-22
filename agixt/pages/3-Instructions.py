@@ -1,13 +1,10 @@
 import streamlit as st
-import os
 from AGiXT import AGiXT
-from Agent import Agent
 from streamlit import (
     markdown,
     header,
     checkbox,
     container,
-    file_uploader,
     text_input,
     button,
     spinner,
@@ -52,7 +49,9 @@ if agent_name:
     try:
         st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
     except:
-        st.session_state.chat_history[agent_name] = {}
+        st.session_state.chat_history[
+            agent_name
+        ] = []  # initialize as an empty list, not a dictionary
 
     render_history(instruct_container, st.session_state.chat_history[agent_name])
 

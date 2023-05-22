@@ -1,8 +1,7 @@
 services:
   backend:
     volumes:
-      - .:/app
+      - .:/agixt
   backend-streamlit:
     volumes:
-      - .:/app
-
+      - .:/agixt
