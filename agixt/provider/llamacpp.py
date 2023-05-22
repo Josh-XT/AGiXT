@@ -1,9 +1,12 @@
+import subprocess
+import sys
+import os
+
 try:
     from llama_cpp import Llama
 except:
-    print("Failed to import llama-cpp-python.")
-
-import os
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python"])
+    from llama_cpp import Llama
 
 
 class LlamacppProvider:
