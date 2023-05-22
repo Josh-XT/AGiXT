@@ -65,9 +65,9 @@ This project is under active development and may still have issues. We appreciat
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
 ## Quickstart with Docker
-Download the `docker-compose` file and run the AGiXT Streamlit Web App.
+Clone the repository and run the AGiXT Streamlit Web App.
 ```
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.yml
+git clone https://github.com/Josh-XT/AGiXT
 docker compose --profile streamlit up
 ```
 
@@ -85,8 +85,7 @@ docker compose --profile all up
 
 ### Development using docker
 ```
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.yml
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.dev.yml
+git clone https://github.com/Josh-XT/AGiXT
 docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 

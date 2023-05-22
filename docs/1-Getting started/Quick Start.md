@@ -1,7 +1,7 @@
 ## Quickstart with Docker
-Download the `docker-compose` file and run the AGiXT Streamlit Web App.
+Clone the repository and run the AGiXT Streamlit Web App.
 ```
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker/docker-compose.yml
+git clone https://github.com/Josh-XT/AGiXT
 docker compose --profile streamlit up
 ```
 
