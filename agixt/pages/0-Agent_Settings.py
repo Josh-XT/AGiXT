@@ -62,17 +62,8 @@ if not agent_name:
     # If the "Add Agent" button is clicked, create a new agent config file
     if add_agent_button:
         if new_agent_name:
-            # You can customize provider_settings and commands as needed
-            provider_settings = {
-                "provider": "gpt4free",
-                "AI_MODEL": "gpt-3.5-turbo",
-                "AI_TEMPERATURE": "0.4",
-                "MAX_TOKENS": "4000",
-                "embedder": "default",
-            }
-            commands = []  # You can define the default commands here
             try:
-                Agent(new_agent_name).add_agent(new_agent_name, provider_settings)
+                Agent(new_agent_name).add_agent(new_agent_name, {})
                 st.success(f"Agent '{new_agent_name}' added.")
                 agent_name = new_agent_name
                 with open(os.path.join("session.txt"), "w") as f:

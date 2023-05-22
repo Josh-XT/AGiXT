@@ -51,7 +51,7 @@ class Agent:
         self.memory_file = f"agents/{self.agent_name}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
-        self.memories = Memories(self.agent_name, self)
+        self.memories = Memories(self.agent_name, self.AGENT_CONFIG)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -209,6 +209,17 @@ class Agent:
     def add_agent(self, agent_name, provider_settings):
         if not agent_name:
             return "Agent name cannot be empty."
+        provider_settings = (
+            {
+                "provider": "gpt4free",
+                "AI_MODEL": "gpt-3.5-turbo",
+                "AI_TEMPERATURE": "0.4",
+                "MAX_TOKENS": "4000",
+                "embedder": "default",
+            }
+            if not provider_settings
+            else provider_settings
+        )
         agent_folder = self.create_agent_folder(agent_name)
         commands_list = self.load_commands()
         command_dict = {}
@@ -254,13 +265,13 @@ class Agent:
                 with open(agent_file, "r") as f:
                     file_content = f.read().strip()
                     if file_content:
-                        agent_config = json.loads(file_content)
-                        break
+                        return json.loads(file_content)
                     else:
                         self.add_agent(self.agent_name, {})
+                        return self.get_agent_config()
             else:
                 self.add_agent(self.agent_name, {})
-        return agent_config
+                return self.get_agent_config()
 
     def update_agent_config(self, new_config, config_key):
         agent_name = self.agent_name
