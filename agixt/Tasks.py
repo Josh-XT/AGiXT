@@ -141,22 +141,38 @@ class Tasks:
 
         return new_tasks  # This line will return the list of new tasks
 
-    def instruction_agent(self, task, learn_file: str = "", **kwargs):
+    def instruction_agent(self, task, **kwargs):
         if "task_name" in task:
             task = task["task_name"]
-        resolver = AGiXT(self.agent_name).run(
-            task=task,
-            prompt="SmartInstruct-StepByStep",
-            context_results=6,
-            learn_file=learn_file,
-            **kwargs,
-        )
-        execution_response = AGiXT(self.agent_name).run(
-            task=task,
-            prompt="SmartInstruct-Execution",
-            previous_response=resolver,
-            **kwargs,
-        )
+
+        if self.primary_objective != None:
+            resolver = AGiXT(self.agent_name).run(
+                task=task,
+                prompt="SmartTask-StepByStep",
+                context_results=6,
+                objective=self.primary_objective,
+                **kwargs,
+            )
+            execution_response = AGiXT(self.agent_name).run(
+                task=task,
+                prompt="SmartTask-Execution",
+                previous_response=resolver,
+                objective=self.primary_objective,
+                **kwargs,
+            )
+        else:
+            resolver = AGiXT(self.agent_name).run(
+                task=task,
+                prompt="SmartInstruct-StepByStep",
+                context_results=6,
+                **kwargs,
+            )
+            execution_response = AGiXT(self.agent_name).run(
+                task=task,
+                prompt="SmartInstruct-Execution",
+                previous_response=resolver,
+                **kwargs,
+            )
         return (
             f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
         )
