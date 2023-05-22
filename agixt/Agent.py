@@ -296,14 +296,22 @@ class Agent:
             return f"Agent {agent_name} configuration not found."
 
     def get_chat_history(self, agent_name):
-        with open(f"agents/{agent_name}.yaml", "r") as f:
-            yaml_history = yaml.safe_load(f)
-        chat_history = []
-        for interaction in yaml_history["interactions"]:
-            role = interaction["role"]
-            message = interaction["message"]
-            chat_history.append({role: message})
-        return chat_history
+        # If it doesn't exist, create it
+        if not os.path.exists(f"agents/{agent_name}.yaml"):
+            with open(f"agents/{agent_name}.yaml", "w") as f:
+                f.write("")
+            return []
+        try:
+            with open(f"agents/{agent_name}.yaml", "r") as f:
+                yaml_history = yaml.safe_load(f)
+            chat_history = []
+            for interaction in yaml_history["interactions"]:
+                role = interaction["role"]
+                message = interaction["message"]
+                chat_history.append({role: message})
+            return chat_history
+        except:
+            return []
 
     def wipe_agent_memories(self, agent_name):
         agent_folder = f"agents/{agent_name}/"
