@@ -13,7 +13,6 @@ class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)
-        self.primary_objective = None
         self.stop_running_event = None
         self.browsed_links = []
 
@@ -61,7 +60,6 @@ class AGiXT:
             agent_name=self.agent_name,
             COMMANDS=command_list,
             context=context,
-            objective=self.primary_objective,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
