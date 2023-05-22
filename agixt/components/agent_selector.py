@@ -37,5 +37,8 @@ def agent_selector():
         if selected_agent != previously_selected_agent:
             with open(os.path.join("session.txt"), "w") as f:
                 f.write(selected_agent)
-        agent = Agent(selected_agent)
+        if selected_agent != "":
+            agent = Agent(selected_agent)
+        else:
+            agent = None
         return selected_agent, agent
