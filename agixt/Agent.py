@@ -234,6 +234,7 @@ class Agent:
         return {"agent_file": f"{agent_name}.yaml"}
 
     def rename_agent(self, agent_name, new_name):
+        self.agent_name = new_name
         agent_file = f"agents/{agent_name}.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
