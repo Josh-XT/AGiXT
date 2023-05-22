@@ -6,10 +6,10 @@ __pycache__/
 env/
 .venv
 *venv/
-
+session.txt
 .vscode/
 .idea/
-
+agents/*
 models/*
 llama.cpp
 node_modules
@@ -17,14 +17,16 @@ memories/*
 WORKSPACE/*
 *.util.py
 agents/*
-src/*
 frontend/
 Agent-LLM-Frontend/
 *.code-workspace
 chains/*/*
 data/*
-
+agixt/agents/*
+agixt/data/*
+agixt/WORKSPACE/*
 # docs generation
 _book/
 package.json
 package-lock.json
+*cookies.json
