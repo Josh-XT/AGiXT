@@ -2,25 +2,25 @@ ARG FROM_IMAGE
 
 FROM ${FROM_IMAGE}
 
-RUN apt-get update && apt-get upgrade -y
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y git build-essential ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install -y git build-essential ffmpeg libgomp1
+RUN pip install flask-bcrypt --ignore-installed --no-cache-dir \
+    && pip install pipreqs
 
-RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
+WORKDIR /app
 
-RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
 
-RUN pip install pipreqs
-RUN pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv
-RUN pip install --no-cache-dir -r gen_requirements.txt
-RUN rm gen_requirements.txt
-
-RUN pip uninstall protobuf -y
-
-RUN pip install protobuf==3.20.*
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv \
+    && pip install --no-cache-dir -r gen_requirements.txt \
+    && rm gen_requirements.txt \
+    && pip uninstall protobuf -y \
+    && pip install protobuf==3.20.*
 
 ENV PATH="/usr/local/bin:$PATH"
-
 ENV LD_PRELOAD=libgomp.so.1
 
 EXPOSE 8501

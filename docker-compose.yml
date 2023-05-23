@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: agixt-backend:latest
     init: true
     ports:
       - "7437:7437"
@@ -17,6 +18,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.streamlit
+      args:
+        - FROM_IMAGE=agixt-backend:latest
+    image: agixt-backend-streamlit:latest
+    depends_on:
+      - backend
     init: true
     ports:
       - "8501:8501"
