@@ -50,10 +50,12 @@ class LlamacppProvider:
         max_tokens = int(self.MAX_TOKENS) - tokens
         if max_tokens < 1:
             max_tokens = int(self.MAX_TOKENS)
-
-        return self.model(
+        response = self.model(
             prompt,
             max_tokens=max_tokens,
             stop=[self.STOP_SEQUENCE],
             temperature=float(self.AI_TEMPERATURE),
-        )["choices"][0]["text"]
+        )
+        data = response["choices"][0]["text"]
+        data = data.replace(prompt, "")
+        return data
