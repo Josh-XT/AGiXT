@@ -1,6 +1,8 @@
 import subprocess
 import sys
 import os
+import requests
+import git
 
 try:
     from llama_cpp import Llama
@@ -20,7 +22,7 @@ class LlamacppProvider:
         BATCH_SIZE: int = 512,
         THREADS: int = 0,
         STOP_SEQUENCE: str = "\n",
-        **kwargs
+        **kwargs,
     ):
         self.requirements = ["llama-cpp-python"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
@@ -36,11 +38,10 @@ class LlamacppProvider:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
-
-        if os.path.isfile(MODEL_PATH):
+        if os.path.isfile(self.MODEL_PATH):
             self.model = Llama(
-                model_path=MODEL_PATH,
-                n_ctx=(int(self.MAX_TOKENS) * 2),
+                model_path=self.MODEL_PATH,
+                n_ctx=int(self.MAX_TOKENS),
                 n_gpu_layers=int(self.GPU_LAYERS),
                 n_threads=int(self.THREADS),
             )
