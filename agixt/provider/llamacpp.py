@@ -1,8 +1,6 @@
 import subprocess
 import sys
 import os
-import requests
-import git
 
 try:
     from llama_cpp import Llama
@@ -32,8 +30,8 @@ class LlamacppProvider:
         self.BATCH_SIZE = BATCH_SIZE
         self.THREADS = THREADS if THREADS != 0 else None
         self.STOP_SEQUENCE = STOP_SEQUENCE
-
-        if MODEL_PATH:
+        self.MODEL_PATH = MODEL_PATH
+        if self.MODEL_PATH:
             try:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
