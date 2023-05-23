@@ -68,11 +68,11 @@ class LlamacppEmbeddingFunction(EmbeddingFunction):
 
     def __call__(self, texts: Documents) -> Embeddings:
         response = self._session.post(
-            self._api_url, json={"instances": [{"content": texts}]}
+            self._api_url, json={"content": texts, "threads": 5}
         ).json()
-
-        if "predictions" in response:
-            return response["predictions"]
+        if "data" in response:
+            if "embedding" in response["data"]:
+                return response["data"]["embedding"]
         return {}
 
 
@@ -183,13 +183,12 @@ class Embedding:
         )
         return embed, chunk_size
 
-    # def llamacpp(self):
-    # chunk_size = 250
-    # embed = embedding_functions.LlamaCppEmbeddingFunction(
-    #    model_name=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_NAME"],
-    #    model_path=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_PATH"],
-    # )
-    # return embed, chunk_size
+    def llamacpp(self):
+        chunk_size = 250
+        embed = embedding_functions.LlamaCppEmbeddingFunction(
+            model_name=self.AGENT_CONFIG["settings"]["EMBEDDING_URI"],
+        )
+        return embed, chunk_size
 
 
 def get_embedding_providers():
