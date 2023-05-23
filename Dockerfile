@@ -18,6 +18,6 @@ RUN apt-get install libgomp1 -y
 RUN apt-get install git -y
 RUN apt-get autoremove -y
 RUN rm -rf /var/lib/apt/lists/*
-
+RUN playwright install
 EXPOSE 7437
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
