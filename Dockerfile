@@ -1,21 +1,23 @@
-FROM python:3.10-slim-buster
+ARG BASE_IMAGE="python:3.10-slim-bullseye"
+FROM ${BASE_IMAGE}
 
-COPY . .
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update ; \
+    apt-get upgrade -y ; \
+    # leave python deps when BASE_IMAGE changes
+    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev 
+
+COPY --link agixt/ /agixt
 WORKDIR /agixt
 
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends git build-essential ffmpeg g++ libgomp1 \
-    && pip install --upgrade pip \
-    && pip install --no-cache-dir -r agixt/requirements.txt \
-    && pip install pipreqs \
-    && pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv \
-    && pip install --no-cache-dir -r gen_requirements.txt \
-    && rm gen_requirements.txt \
-    && pip install --force-reinstall --no-cache-dir hnswlib \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* \
-    && playwright install
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt && \
+    # try protobuf here if still fails on arm64
+    pip install --force-reinstall hnswlib protobuf==3.20.*
 
-EXPOSE 7437
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437"]
+ENV PATH="/usr/local/bin:$PATH"
+ENV LD_PRELOAD=libgomp.so.1
+
+ENTRYPOINT ["uvicorn", "app:app"]
+CMD ["--host", "0.0.0.0", "--port", "7437"]

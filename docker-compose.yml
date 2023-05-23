@@ -10,31 +10,26 @@ services:
     depends_on:
       - backend
     profiles: [ "all", "frontend" ]
+
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: agixt-backend:latest
+    image: josh-xt/agixt:main
     init: true
     ports:
       - "7437:7437"
     volumes:
-      - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./agixt/models:/agixt/model:rw
+      - ./xtagi/agents:/xtagi/agents:rw
+      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
+      - ./xtagi/models:/xtagi/model:rw
     profiles: [ "all", "backend", "frontend" ]
+
   backend-streamlit:
-    build:
-      context: .
-      dockerfile: Dockerfile.streamlit
-      args:
-        - FROM_IMAGE=agixt-backend:latest
-    image: agixt-backend-streamlit:latest
+    image: josh-xt/agixt:main
+    entrypoint: [ "streamlit", "run", "Main.py" ]
     init: true
     ports:
       - "8501:8501"
     volumes:
-      - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./agixt/models:/agixt/model:rw
+      - ./xtagi/agents:/xtagi/agents:rw
+      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
+      - ./xtagi/models:/xtagi/model:rw
     profiles: [ "all", "streamlit" ]
