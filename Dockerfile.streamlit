@@ -2,18 +2,15 @@ ARG FROM_IMAGE
 
 FROM ${FROM_IMAGE}
 
-RUN apt-get update && apt-get upgrade -y \
-    && apt-get install -y git build-essential ffmpeg libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install flask-bcrypt --ignore-installed --no-cache-dir \
-    && pip install pipreqs
-
-WORKDIR /app
-
 COPY . .
 
-RUN pip install --no-cache-dir -r requirements.txt \
+WORKDIR /xtagi
+
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y git build-essential ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install pipreqs --ignore-installed --no-cache-dir \
     && pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv \
     && pip install --no-cache-dir -r gen_requirements.txt \
     && rm gen_requirements.txt \
