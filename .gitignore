@@ -30,3 +30,4 @@ _book/
 package.json
 package-lock.json
 *cookies.json
+agixt/models/*

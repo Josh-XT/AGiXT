@@ -19,8 +19,8 @@ class LlamacppProvider:
         GPU_LAYERS: int = 0,
         BATCH_SIZE: int = 512,
         THREADS: int = 0,
-        STOP_SEQUENCE: str = "\n",
-        **kwargs
+        STOP_SEQUENCE: str = "</s>",
+        **kwargs,
     ):
         self.requirements = ["llama-cpp-python"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
@@ -30,31 +30,34 @@ class LlamacppProvider:
         self.BATCH_SIZE = BATCH_SIZE
         self.THREADS = THREADS if THREADS != 0 else None
         self.STOP_SEQUENCE = STOP_SEQUENCE
-
-        if MODEL_PATH:
+        self.MODEL_PATH = MODEL_PATH
+        if self.MODEL_PATH:
             try:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
 
-        if os.path.isfile(MODEL_PATH):
-            self.model = Llama(
-                model_path=MODEL_PATH,
-                n_ctx=(int(self.MAX_TOKENS) * 2),
-                n_gpu_layers=int(self.GPU_LAYERS),
-                n_threads=int(self.THREADS),
-            )
-        else:
-            print("Unable to find model path.")
-
     def instruct(self, prompt, tokens: int = 0):
         max_tokens = int(self.MAX_TOKENS) - tokens
         if max_tokens < 1:
             max_tokens = int(self.MAX_TOKENS)
-
-        return self.model(
+        if os.path.isfile(self.MODEL_PATH):
+            self.model = Llama(
+                model_path=self.MODEL_PATH,
+                n_gpu_layers=int(self.GPU_LAYERS),
+                n_threads=int(self.THREADS),
+                n_ctx=max_tokens,
+            )
+        else:
+            print("Unable to find model path.")
+            return None
+        response = self.model(
             prompt,
-            max_tokens=max_tokens,
             stop=[self.STOP_SEQUENCE],
             temperature=float(self.AI_TEMPERATURE),
-        )["choices"][0]["text"]
+            echo=True,
+        )
+        data = response["choices"][0]["text"]
+        data = data.replace(prompt, "")
+        data = data.lstrip("\n")
+        return data

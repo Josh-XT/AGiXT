@@ -2,6 +2,7 @@ import re
 import asyncio
 import regex
 import json
+import time
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
@@ -15,6 +16,7 @@ class AGiXT:
         self.agent = Agent(self.agent_name)
         self.stop_running_event = None
         self.browsed_links = []
+        self.failures = 0
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -99,11 +101,19 @@ class AGiXT:
                 self.websearch_agent(task=task, depth=websearch_depth)
         try:
             self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"PROMPT CONTENT: {formatted_prompt}")
+            print(f"TOKENS: {tokens}")
+            self.failures += 1
+            if self.failures == 5:
+                self.failures == 0
+                print("Failed to get a response 5 times in a row.")
+                return None
+            print(f"Retrying in 10 seconds...")
+            time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            if context_results == 0:
-                print("Warning: No context injected due to max tokens.")
             return self.run(
                 task=task,
                 prompt=prompt,

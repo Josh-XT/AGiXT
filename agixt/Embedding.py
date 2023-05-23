@@ -61,6 +61,21 @@ class GoogleVertexEmbeddingFunction(EmbeddingFunction):
         return {}
 
 
+class LlamacppEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, api_host: str):
+        self._api_host = api_host
+        self._session = requests.Session()
+
+    def __call__(self, texts: Documents) -> Embeddings:
+        response = self._session.post(
+            self._api_url, json={"content": texts, "threads": 5}
+        ).json()
+        if "data" in response:
+            if "embedding" in response["data"]:
+                return response["data"]["embedding"]
+        return {}
+
+
 class AzureEmbeddingFunction(EmbeddingFunction):
     def __init__(
         self,
@@ -165,6 +180,13 @@ class Embedding:
         chunk_size = 500
         embed = embedding_functions.CohereEmbeddingFunction(
             api_key=self.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
+        )
+        return embed, chunk_size
+
+    def llamacpp(self):
+        chunk_size = 250
+        embed = embedding_functions.LlamaCppEmbeddingFunction(
+            model_name=self.AGENT_CONFIG["settings"]["EMBEDDING_URI"],
         )
         return embed, chunk_size
 
