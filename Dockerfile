@@ -1,6 +1,6 @@
 FROM python:3.10-slim-buster 
 
-COPY --link agixt/ /agixt
+COPY . .
 WORKDIR /agixt
 
 RUN apt-get update
@@ -8,7 +8,6 @@ RUN apt-get upgrade -y
 RUN apt-get install -y --no-install-recommends git build-essential ffmpeg
 RUN apt-get install g++ -y
 RUN pip install --upgrade pip
-RUN pip install flask-bcrypt --ignore-installed --no-cache-dir
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install pipreqs
 RUN pipreqs ./ --savepath gen_requirements.txt --ignore bin,etc,include,lib,lib64,env,venv

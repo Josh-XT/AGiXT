@@ -1,37 +1,27 @@
 version: "3.8"
 services:
-  frontend:
-    image: ghcr.io/jamesonrgrieve/agent-llm-frontend:main
-    init: true
-    environment:
-      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    profiles: [ "all", "frontend" ]
-    restart: always
-
   backend:
-    image: joshxt/agixt:main
+    build:
+      context: .
+      dockerfile: Dockerfile
     init: true
     ports:
       - "7437:7437"
     volumes:
       - ./agixt/agents:/agixt/agents:rw
       - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./models:/model:rw
-    profiles: [ "all", "backend", "frontend" ]
+      - ./agixt/models:/agixt/model:rw
     restart: always
 
   backend-streamlit:
-    image: joshxt/agixt-streamlit:main
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
     init: true
     ports:
       - "8501:8501"
     volumes:
       - ./agixt/agents:/agixt/agents:rw
       - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./models:/model:rw
-    profiles: [ "all", "streamlit" ]
+      - ./agixt/models:/agixt/model:rw
     restart: always

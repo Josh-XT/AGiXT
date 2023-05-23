@@ -1,4 +1,4 @@
-# This workflow will build and publish the docker image to 
+# This workflow will build and publish the docker image to
 # - Github packages
 # - Docker hub
 # For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-docker-images
@@ -15,7 +15,7 @@ name: Publish Docker images
 permissions:
   packages: write
   contents: read
-  
+
 on:
   push:
     branches: [main]
@@ -24,13 +24,12 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-  
-jobs:
 
+jobs:
   call-docker-build:
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
       push: ${{ github.event_name != 'pull_request' }}
       registry-readme: ./docs/README.md
       platforms: linux/amd64,linux/arm64/v8
@@ -42,7 +41,7 @@ jobs:
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-streamlit
-      dockerfile: docker/Dockerfile.streamlit
+      dockerfile: Dockerfile.streamlit
       build-args: |
         FROM_IMAGE=${{needs.call-docker-build.outputs.primary-image}}
       registry-readme: ./docs/README.md
@@ -56,17 +55,17 @@ jobs:
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia
-      dockerfile: docker/Dockerfile.nvidia
+      dockerfile: Dockerfile.nvidia
       registry-readme: ./docs/README.md
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-    
+
   call-docker-build-nvidia-streamlit:
     if: github.event_name != 'pull_request'
     uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
     with:
       registry-repo-name: ${{ github.event.repository.name }}-nvidia-streamlit
-      dockerfile: docker/Dockerfile.streamlit
+      dockerfile: Dockerfile.streamlit
       build-args: |
         FROM_IMAGE=${{needs.call-docker-build-nvidia.outputs.primary-image}}
       registry-readme: ./docs/README.md

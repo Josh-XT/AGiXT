@@ -183,12 +183,13 @@ class Embedding:
         )
         return embed, chunk_size
 
-    def llamacpp(self):
-        chunk_size = 250
-        embed = embedding_functions.LlamaCppEmbeddingFunction(
-            model_name=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_NAME"],
-            model_path=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_PATH"],
-        )
+    # def llamacpp(self):
+    # chunk_size = 250
+    # embed = embedding_functions.LlamaCppEmbeddingFunction(
+    #    model_name=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_NAME"],
+    #    model_path=self.AGENT_CONFIG["settings"]["LLAMACPP_MODEL_PATH"],
+    # )
+    # return embed, chunk_size
 
 
 def get_embedding_providers():
