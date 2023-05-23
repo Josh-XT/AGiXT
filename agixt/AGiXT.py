@@ -99,7 +99,8 @@ class AGiXT:
                 self.websearch_agent(task=task, depth=websearch_depth)
         try:
             self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
             if context_results > 0:
                 context_results = context_results - 1
             return self.run(
