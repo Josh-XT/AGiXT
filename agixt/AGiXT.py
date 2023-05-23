@@ -102,8 +102,6 @@ class AGiXT:
         except:
             if context_results > 0:
                 context_results = context_results - 1
-            if context_results == 0:
-                print("Warning: No context injected due to max tokens.")
             return self.run(
                 task=task,
                 prompt=prompt,
