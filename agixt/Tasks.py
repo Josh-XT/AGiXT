@@ -4,6 +4,7 @@ import os
 import json
 import uuid
 import yaml
+import time
 from pathlib import Path
 from Agent import Agent
 from collections import deque
@@ -128,7 +129,9 @@ class Tasks:
             task_description=task_description,
             tasks=task_list,
         )
-
+        if response == None:
+            time.sleep(5)
+            return self.task_agent(result, task_description, task_list)
         lines = response.split("\n") if "\n" in response else [response]
         new_tasks = []
         for line in lines:
