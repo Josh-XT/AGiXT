@@ -1,9 +1,12 @@
+import subprocess
+import sys
+import os
+
 try:
     from llama_cpp import Llama
 except:
-    print("Failed to import llama-cpp-python.")
-
-import os
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python"])
+    from llama_cpp import Llama
 
 
 class LlamacppProvider:
@@ -38,9 +41,8 @@ class LlamacppProvider:
             self.model = Llama(
                 model_path=MODEL_PATH,
                 n_ctx=(int(self.MAX_TOKENS) * 2),
-                n_gpu_layers=self.GPU_LAYERS,
-                n_batch=self.BATCH_SIZE,
-                n_threads=self.THREADS,
+                n_gpu_layers=int(self.GPU_LAYERS),
+                n_threads=int(self.THREADS),
             )
         else:
             print("Unable to find model path.")

@@ -5,7 +5,6 @@ import json
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from typing import List, Dict
 from duckduckgo_search import ddg
 from urllib.parse import urlparse
 
@@ -14,7 +13,6 @@ class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)
-        self.primary_objective = None
         self.stop_running_event = None
         self.browsed_links = []
 
@@ -62,7 +60,6 @@ class AGiXT:
             agent_name=self.agent_name,
             COMMANDS=command_list,
             context=context,
-            objective=self.primary_objective,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
@@ -82,9 +79,7 @@ class AGiXT:
         **kwargs,
     ):
         if learn_file != "":
-            learning_file = self.agent.memories.read_file(
-                task=task, file_path=learn_file
-            )
+            learning_file = self.agent.memories.read_file(file_path=learn_file)
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
@@ -102,7 +97,9 @@ class AGiXT:
                 )
             else:
                 self.websearch_agent(task=task, depth=websearch_depth)
-        if int(tokens) > int(self.agent.MAX_TOKENS):
+        try:
+            self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+        except:
             if context_results > 0:
                 context_results = context_results - 1
             if context_results == 0:
@@ -111,12 +108,10 @@ class AGiXT:
                 task=task,
                 prompt=prompt,
                 context_results=context_results,
-                websearch=websearch,
-                websearch_depth=websearch_depth,
                 async_exec=async_exec,
                 **kwargs,
             )
-        self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
@@ -159,6 +154,7 @@ class AGiXT:
         shots: int = 3,
         async_exec: bool = False,
         learn_file: str = "",
+        objective: str = None,
         **kwargs,
     ):
         answers = []
@@ -166,13 +162,16 @@ class AGiXT:
         answers.append(
             self.run(
                 task=task,
-                prompt="SmartInstruct-StepByStep",
+                prompt="SmartInstruct-StepByStep"
+                if objective == None
+                else "SmartTask-StepByStep",
                 context_results=6,
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
                 async_exec=async_exec,
                 learn_file=learn_file,
+                objective=objective,
                 **kwargs,
             )
         )
@@ -181,9 +180,12 @@ class AGiXT:
                 answers.append(
                     self.run(
                         task=task,
-                        prompt="SmartInstruct-StepByStep",
+                        prompt="SmartInstruct-StepByStep"
+                        if objective == None
+                        else "SmartTask-StepByStep",
                         context_results=6,
                         shots=shots,
+                        objective=objective,
                         **kwargs,
                     )
                 )
@@ -210,9 +212,12 @@ class AGiXT:
         )
         clean_response_agent = self.run(
             task=task,
-            prompt="SmartInstruct-CleanResponse",
+            prompt="SmartInstruct-CleanResponse"
+            if objective == None
+            else "SmartTask-CleanResponse",
             resolver_response=resolver,
             execution_response=execution_response,
+            objective=objective,
             **kwargs,
         )
         return clean_response_agent
@@ -373,9 +378,6 @@ class AGiXT:
                         return self.execution_agent(
                             execution_response, task, context_results, **kwargs
                         )
-                        return self.revalidation_agent(
-                            task, command_name, command_args, command_output, **kwargs
-                        )
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
@@ -385,27 +387,6 @@ class AGiXT:
             print("\nERROR IN EXECUTION_AGENT, validated_response:\n")
             print(validated_response)
             return "\nNo commands were executed.\n"
-
-    def task_agent(
-        self, result: Dict, task_description: str, task_list: List[str]
-    ) -> List[Dict]:
-        response = self.run(
-            task=self.primary_objective,
-            prompt="task",
-            result=result,
-            task_description=task_description,
-            tasks=", ".join(task_list),
-        )
-
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = [
-            re.sub(r"^.*?(\d)", r"\1", line)
-            for line in lines
-            if line.strip() and re.search(r"\d", line[:10])
-        ] or [response]
-        return [
-            {"task_name": task_name} for task_name in new_tasks if task_name.strip()
-        ]
 
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
@@ -456,23 +437,3 @@ class AGiXT:
             links = ddg(search_string, max_results=depth)
             if links is not None:
                 await resursive_browsing(task, links)
-
-    def instruction_agent(self, task, learn_file: str = "", **kwargs):
-        if "task_name" in task:
-            task = task["task_name"]
-        resolver = self.run(
-            task=task,
-            prompt="SmartInstruct-StepByStep",
-            context_results=6,
-            learn_file=learn_file,
-            **kwargs,
-        )
-        execution_response = self.run(
-            task=task,
-            prompt="SmartInstruct-Execution",
-            previous_response=resolver,
-            **kwargs,
-        )
-        return (
-            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
-        )

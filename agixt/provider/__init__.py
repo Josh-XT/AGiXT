@@ -19,7 +19,7 @@ def get_provider_options(provider_name):
 class Provider:
     def __init__(self, name, **kwargs):
         try:
-            module = importlib.import_module(f".{name}", package=__name__)
+            module = importlib.import_module(f"provider.{name}")
             provider_class = getattr(module, f"{name.capitalize()}Provider")
             self.instance = provider_class(**kwargs)
 

@@ -5,7 +5,7 @@ import time
 class Gpt4freeProvider:
     def __init__(
         self,
-        AI_MODEL: str = "gpt-4",
+        AI_MODEL: str = "gpt-3.5-turbo",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4000,
         **kwargs,
@@ -15,7 +15,7 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
-        self.providers = gpt4free.Provider._member_names_
+        self.providers = ["DeepAI", "You", "Poe", "UseLess", "ForeFront"]
         self.providers.sort()
 
     def instruct(self, prompt, tokens: int = 0):
@@ -24,6 +24,7 @@ class Gpt4freeProvider:
             for provider in self.providers:
                 try:
                     if provider not in self.FAILED_PROVIDERS:
+                        print(f"[GPT4Free] Using: {provider}")
                         response = gpt4free.Completion.create(
                             getattr(gpt4free.Provider, provider),
                             prompt=prompt,

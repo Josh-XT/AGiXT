@@ -3,8 +3,10 @@ import bcrypt
 from auth_libs.Users import load_users, save_user_data
 from auth_libs.Cfig import Cfig
 from auth_libs.Users import check_auth_status
+from components.agent_selector import agent_selector
 
 check_auth_status()
+agent_name, agent = agent_selector()
 CFG = Cfig()
 
 # Check if the user is logged in

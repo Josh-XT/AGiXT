@@ -7,8 +7,8 @@ from AGiXT import AGiXT
 from Agent import Agent
 from Commands import Commands
 from Chain import Chain
+from Tasks import Tasks
 from CustomPrompt import CustomPrompt
-import threading
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
@@ -168,7 +168,7 @@ async def get_agents():
 
 
 @app.get("/api/agent/{agent_name}", tags=["Agent"])
-async def get_agent_config(agent_name: str):
+async def get_agentconfig(agent_name: str):
     agent_config = Agent(agent_name).get_agent_config()
     return {"agent": agent_config}
 
@@ -255,50 +255,34 @@ async def toggle_command(
 @app.post("/api/agent/{agent_name}/task", tags=["Agent"])
 async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
     # If it's running stop it.
-    CFG = Agent(agent_name)
-    if (
-        agent_name in CFG.agent_instances
-        and CFG.agent_instances[agent_name].get_status()
-    ):
-        agent_stop_events[agent_name].set()
-        del agent_threads[agent_name]
-        del agent_stop_events[agent_name]
+    task_status = Tasks(agent_name).get_status()
+    if task_status != False:
+        Tasks(agent_name).stop_tasks()
         return ResponseMessage(message="Task agent stopped")
-    # Otherwise start it.
-    # If it doesn't exist, create it.
-    if agent_name not in CFG.agent_instances:
-        CFG.agent_instances[agent_name] = AGiXT(agent_name)
-    stop_event = threading.Event()
-    agent_stop_events[agent_name] = stop_event
-    agent_thread = threading.Thread(
-        target=CFG.agent_instances[agent_name].run_task,
-        args=(stop_event, objective.objective),
-    )
-    agent_threads[agent_name] = agent_thread
-    agent_thread.start()
+    # If it's not running start it.
+    Tasks(agent_name).run_task(objective=objective.objective)
     return ResponseMessage(message="Task agent started")
 
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
-    CFG = Agent(agent_name)
-    if agent_name not in CFG.agent_instances:
-        return TaskOutput(output="", message="")
-    return TaskOutput(
-        output=CFG.get_task_output(
-            agent_name, CFG.agent_instances[agent_name].primary_objective
-        ),
-        message="Task agent is still running",
-    )
+    task_output = Tasks(agent_name).get_task_output()
+    if task_output != False:
+        return TaskOutput(
+            output=task_output,
+            message="Task agent is not running",
+        )
+    else:
+        return TaskOutput(
+            output="",
+            message="Task agent is not running",
+        )
 
 
 @app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
 async def get_task_status(agent_name: str):
-    CFG = Agent(agent_name)
-    if agent_name not in CFG.agent_instances:
-        return {"status": False}
-    status = CFG.agent_instances[agent_name].get_status()
-    return {"status": status}
+    task_status = Tasks(agent_name).get_status()
+    return {"status": task_status}
 
 
 @app.get("/api/chain", tags=["Chain"])
@@ -341,7 +325,7 @@ async def delete_chain(chain_name: str) -> ResponseMessage:
 
 @app.post("/api/chain/{chain_name}/step", tags=["Chain"])
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
-    Chain().add_step(
+    Chain().add_chain_step(
         chain_name,
         step_info.step_number,
         step_info.prompt_type,

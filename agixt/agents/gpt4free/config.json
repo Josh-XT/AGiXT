@@ -1,1 +1,43 @@
-{"commands": {"Generate Image": false, "Scrape Text with Playwright": false, "Scrape Links with Playwright": false, "Searx Search": false, "Read Audio from File": false, "Read Audio": false, "Speak with TTS": false, "Google Search": true, "Evaluate Code": false, "Analyze Pull Request": false, "Perform Automated Testing": false, "Run CI-CD Pipeline": false, "Improve Code": false, "Write Tests": false, "Clone Github Repository": false, "Create Github Repository": false, "Execute Python File": false, "Execute Shell": false, "Create a new command": false, "Get Datetime": false, "Ask AI Agent supertest": false, "Instruct AI Agent supertest": false, "Ask AI Agent openai": false, "Instruct AI Agent openai": false, "Ask AI Agent gpt4free": false, "Instruct AI Agent gpt4free": false, "Ask AI Agent huggingchat": false, "Instruct AI Agent huggingchat": false, "Ask AI Agent bard": false, "Instruct AI Agent bard": false, "Browse Website": false, "Is Valid URL": false, "Sanitize URL": false, "Check Local File Access": false, "Get Response": false, "Scrape Text": false, "Scrape Links": false, "Send Email with Sendgrid": false, "Send Tweet": false, "Check Duplicate Operation": false, "Read File": false, "Ingest File": false, "Write to File": false, "Append to File": false, "Delete File": false, "Search Files": false}, "settings": {"provider": "gpt4free", "AI_MODEL": "gpt-4", "AI_TEMPERATURE": "0.4", "MAX_TOKENS": "4000", "embedder": "default", "": ""}}
+{
+    "commands": {
+        "Scrape Text with Playwright": false,
+        "Scrape Links with Playwright": false,
+        "Searx Search": false,
+        "Read Audio from File": false,
+        "Read Audio": false,
+        "Speak with TTS": false,
+        "Google Search": false,
+        "Evaluate Code": false,
+        "Analyze Pull Request": false,
+        "Perform Automated Testing": false,
+        "Run CI-CD Pipeline": false,
+        "Improve Code": false,
+        "Write Tests": false,
+        "Clone Github Repository": false,
+        "Execute Python File": false,
+        "Execute Shell": false,
+        "Create a new command": false,
+        "Get Datetime": false,
+        "Ask AI Agent gpt4free": false,
+        "Instruct AI Agent gpt4free": false,
+        "Scrape Text with Selenium": false,
+        "Is Valid URL": false,
+        "Sanitize URL": false,
+        "Check Local File Access": false,
+        "Get Response": false,
+        "Scrape Text": false,
+        "Scrape Links": false,
+        "Read File": false,
+        "Write to File": false,
+        "Append to File": false,
+        "Delete File": false,
+        "Search Files": false
+    },
+    "settings": {
+        "provider": "gpt4free",
+        "AI_MODEL": "gpt-3.5-turbo",
+        "AI_TEMPERATURE": "0.4",
+        "MAX_TOKENS": "4000",
+        "embedder": "default"
+    }
+}
