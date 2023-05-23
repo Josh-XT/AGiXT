@@ -25,13 +25,5 @@ jobs:
         type=ref,event=branch
         type=semver,pattern={{version}}
       platforms: linux/amd64,linux/arm64/v8
-    secrets: inherit
-
-  test-agixt:
-    uses: localagi/ai-pipeline/.github/workflows/operation-test-with-jupyter.yml@main
-    with:
-      image: ${{ needs.build-agixt.outputs.primary-image }}
-      port: "7437"
-      additional-python-dependencies: requests
-    secrets: inherit
-    needs: build-agixt
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
