@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import requests
 
 try:
     from llama_cpp import Llama
@@ -9,6 +10,12 @@ except:
     from llama_cpp import Llama
 
 
+# wget https://huggingface.co/NeoDim/starchat-alpha-GGML/blob/main/starchat-alpha-ggml-q5_1.bin
+# MODEL_PATH = "./models/starchat/starchat-alpha-ggml-q5_1.bin"
+# AI_MODEL = "starchat"
+# MAX_TOKENS = 8000
+# GPU_LAYERS = 40
+# TREADS = 24
 class LlamacppProvider:
     def __init__(
         self,
@@ -36,21 +43,33 @@ class LlamacppProvider:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
                 self.MAX_TOKENS = 2000
-
-        if os.path.isfile(MODEL_PATH):
-            self.model = Llama(
-                model_path=MODEL_PATH,
-                n_ctx=(int(self.MAX_TOKENS) * 2),
-                n_gpu_layers=int(self.GPU_LAYERS),
-                n_threads=int(self.THREADS),
-            )
         else:
-            print("Unable to find model path.")
+            self.MODEL_PATH = "./models/starchat/starchat-alpha-ggml-q5_1.bin"
+            print("No model found. Downloading Starchat model...")
+            with requests.get(
+                "https://huggingface.co/NeoDim/starchat-alpha-GGML/blob/main/starchat-alpha-ggml-q5_1.bin",
+                stream=True,
+            ) as r:
+                r.raise_for_status()
+                with open(self.MODEL_PATH, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            self.MAX_TOKENS = 8000
 
     def instruct(self, prompt, tokens: int = 0):
         max_tokens = int(self.MAX_TOKENS) - tokens
         if max_tokens < 1:
             max_tokens = int(self.MAX_TOKENS)
+
+        if os.path.isfile(self.MODEL_PATH):
+            self.model = Llama(
+                model_path=self.MODEL_PATH,
+                n_ctx=int(self.MAX_TOKENS),
+                n_gpu_layers=int(self.GPU_LAYERS),
+                n_threads=int(self.THREADS),
+            )
+        else:
+            print("Unable to find model path.")
 
         return self.model(
             prompt,
