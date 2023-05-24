@@ -15,6 +15,7 @@ class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)
+        self.agent_commands = self.agent.get_commands_string()
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -71,16 +72,12 @@ class AGiXT:
             prompt,
             task=task,
             agent_name=self.agent_name,
-            COMMANDS=command_list,
+            COMMANDS=self.agent_commands,
             context=context,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
-        if command_list == "No commands.":
-            formatted_prompt = formatted_prompt.replace(
-                "Commands Available To Complete Task:", ""
-            )
         if not self.nlp:
             self.load_spacy_model()
         tokens = len(self.nlp(formatted_prompt))

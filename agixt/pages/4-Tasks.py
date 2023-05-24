@@ -32,11 +32,9 @@ if agent_name:
     col1, col2 = st.columns([3, 1])
     with col1:
         columns = st.columns([3, 2])
+        agent_status = st.session_state.agent_status.get(agent_name, "Not Running")
 
-        if (
-            st.session_state.agent_status.get(agent_name, "Not Running")
-            == "Not Running"
-        ):
+        if agent_status == "Not Running":
             if st.button("Start Task", key=f"start_{agent_name}"):
                 if agent_name and (task_objective or load_task):
                     if agent_name not in agent.agent_instances:

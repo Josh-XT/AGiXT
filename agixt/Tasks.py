@@ -75,8 +75,6 @@ class Tasks:
         # If it doesn't, create it
         if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
             os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        if self.primary_objective is None:
-            self.primary_objective = str(uuid.uuid4())
         task_output_file = os.path.join(
             "agents", agent_name, "tasks", f"{self.primary_objective}.yaml"
         )
@@ -116,35 +114,6 @@ class Tasks:
             self.stop_running_event = True
         self.task_list.clear()
 
-    def task_agent(self, result: str, task_description: str, task_list) -> List[Dict]:
-        tasks = [task["task_name"] for task in task_list]
-        if len(tasks) == 0:
-            return []
-        task_list = ", ".join(tasks)
-
-        response = self.ai.run(
-            task=self.primary_objective,
-            prompt="task",
-            result=result,
-            task_description=task_description,
-            tasks=task_list,
-        )
-        print(f"TASK_AGENT RESPONSE IN TASK AGENT FUNCTION: {response}")
-        if response == None:
-            time.sleep(5)
-            return self.task_agent(result, task_description, task_list)
-        lines = response.split("\n") if "\n" in response else [response]
-        new_tasks = []
-        for line in lines:
-            match = re.match(r"(\d+)\.\s+(.*)", line)
-            if match:
-                task_id, task_name = match.groups()
-                new_tasks.append(
-                    {"task_id": int(task_id), "task_name": task_name.strip()}
-                )
-
-        return new_tasks  # This line will return the list of new tasks
-
     def instruction_agent(self, task, **kwargs):
         if "task_name" in task:
             task = task["task_name"]
@@ -158,18 +127,20 @@ class Tasks:
             objective=self.primary_objective,
             **kwargs,
         )
-        execution_response = self.ai.run(
-            task=task,
-            prompt="SmartInstruct-Execution"
-            if self.primary_objective is None
-            else "SmartTask-Execution",
-            previous_response=resolver,
-            objective=self.primary_objective,
-            **kwargs,
-        )
-        return (
-            f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
-        )
+        # Check if agent has commands before trying to run execution agent
+        if Agent(self.agent_name).get_commands_string() != None:
+            execution_response = self.ai.run(
+                task=task,
+                prompt="SmartInstruct-Execution"
+                if self.primary_objective is None
+                else "SmartTask-Execution",
+                previous_response=resolver,
+                objective=self.primary_objective,
+                **kwargs,
+            )
+            return f"RESPONSE:\n{resolver}\n\nCommand Execution Response{execution_response}"
+        else:
+            return f"RESPONSE:\n{resolver}"
 
     def run_task(
         self,
@@ -180,6 +151,7 @@ class Tasks:
         **kwargs,
     ):
         self.primary_objective = objective
+        initial_task = "Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective."
         if load_task != "":
             self.load_task(load_task)
             self.update_output_list(f"Loaded task '{load_task}'.\n\n")
@@ -189,7 +161,7 @@ class Tasks:
                     [
                         {
                             "task_id": 1,
-                            "task_name": "Develop list of necessary tasks to complete in order to achieve the goal of the objective.",
+                            "task_name": initial_task,
                         }
                     ]
                 )
@@ -216,10 +188,7 @@ class Tasks:
                     **kwargs,
                 )
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
-            if (
-                task["task_name"]
-                == "Develop list of necessary tasks to complete in order to achieve the goal of the objective."
-            ):
+            if task["task_name"] == initial_task:
                 lines = result.split("\n") if "\n" in result else [result]
                 new_tasks = deque([])
                 for line in lines:
@@ -229,8 +198,8 @@ class Tasks:
                         new_tasks.append(
                             {"task_id": int(task_id), "task_name": task_name.strip()}
                         )
+                print(f"NEW TASKS: {new_tasks}")
                 self.task_list = new_tasks
-                print(f"NEW TASK LIST: {self.task_list}")
             if self.task_list == deque([]) or self.task_list == []:
                 self.stop_tasks()
                 continue

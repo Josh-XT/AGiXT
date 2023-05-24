@@ -123,7 +123,9 @@ class Memories:
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
         print(f"CONTEXT: {trimmed_context}")
-        return "\n".join(trimmed_context)
+        context_str = "\n".join(trimmed_context)
+        response = f"Context: {context_str}\n\n"
+        return response
 
     def trim_context(self, context: List[str]) -> List[str]:
         if not self.nlp:
