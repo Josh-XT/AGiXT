@@ -55,7 +55,7 @@ class Tasks:
             # If it doesn't, create it
             data = {
                 "primary_objective": self.primary_objective,
-                "task_list": self.task_list,
+                "task_list": list(self.task_list),
                 "tasks": [],
             }
         # Check if task is in the data["tasks"] list
@@ -75,8 +75,8 @@ class Tasks:
         out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
         out_file = out_file[:25]
         try:
-            with open(f"agents/{self.agent_name}/tasks/{out_file}.yaml", "r") as f:
-                task_output = yaml.safe_load(f)
+            with open(f"agents/{self.agent_name}/tasks/{out_file}.json", "r") as f:
+                task_output = json.load(f)
 
             print(f"Successfully loaded task output for '{out_file}'.")
             return task_output
