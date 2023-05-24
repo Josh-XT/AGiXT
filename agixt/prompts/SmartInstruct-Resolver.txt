@@ -1,7 +1,4 @@
-Commands Available To Complete Task:
 {command_list}
-
-Context:
 {context}
 
 Today's date is {date}. 

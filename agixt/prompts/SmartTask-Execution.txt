@@ -1,4 +1,3 @@
-Commands Available To Complete Task:
 {COMMANDS}
 
 Primary Objective: {objective}

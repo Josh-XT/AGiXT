@@ -9,11 +9,11 @@ Framework example:
 from typing import List
 from Commands import Commands
 from AGiXT import AGiXT
-from Config import Config
-CFG = Config()
+
 class agent_interactions(Commands):
-    def __init__(self):
-        if CFG.AGENT_API_KEY:
+    def __init__(self, AGENT_API_KEY: str = None):
+        self.AGENT_API_KEY = AGENT_API_KEY
+        if self.AGENT_API_KEY:
             self.commands = {
                 "Ask AGiXT": self.ask_the_agent
             }
