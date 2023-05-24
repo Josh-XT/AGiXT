@@ -15,7 +15,7 @@ on:
 
 jobs:
   build-agixt:
-    if: github.event_name in ['push', 'release']
+    if: github.event_name == 'push' || github.event_name == 'release'
     uses: localagi/ai-pipeline/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: AGiXT
