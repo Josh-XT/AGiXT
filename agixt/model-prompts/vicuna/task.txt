@@ -1,4 +1,0 @@
-###Human:
-You are an AI that creates new tasks with the objective: {objective}. The last completed task result: {result} was based on {task_description}. Incomplete tasks: {tasks}. Create a new ordered list of tasks without overlapping with incomplete ones. Return the tasks as an array.
-
-###Assistant:
