@@ -116,7 +116,7 @@ class Tasks:
             self.stop_running_event = True
         self.task_list.clear()
 
-    def task_agent(self, result: Dict, task_description: str, task_list) -> List[Dict]:
+    def task_agent(self, result: str, task_description: str, task_list) -> List[Dict]:
         tasks = [task["task_name"] for task in task_list]
         if len(tasks) == 0:
             return []
@@ -196,7 +196,7 @@ class Tasks:
                 f"Starting task with objective: {self.primary_objective}.\n\n"
             )
 
-        while not self.stop_running_event and self.task_list:
+        while not self.stop_running_event:
             task = self.task_list.popleft()
 
             if task["task_name"] in ["None", "None.", ""]:
@@ -217,7 +217,6 @@ class Tasks:
                     objective=self.primary_objective,
                     **kwargs,
                 )
-
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
 
             new_tasks = self.task_agent(
@@ -225,9 +224,11 @@ class Tasks:
                 task_description=task["task_name"],
                 task_list=self.task_list,
             )
-
+            print(f"TASK_AGENT RESULT: {new_tasks}")
             self.task_list = deque(new_tasks)
-
+            if self.task_list == deque([]) or self.task_list == []:
+                self.stop_tasks()
+                continue
             self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
 
             for new_task in new_tasks:
