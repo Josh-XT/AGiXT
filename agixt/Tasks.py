@@ -2,13 +2,9 @@ from AGiXT import AGiXT
 import re
 import os
 import json
-import uuid
 import yaml
-import time
-from pathlib import Path
 from Agent import Agent
 from collections import deque
-from typing import List, Dict
 
 
 class Tasks:
@@ -138,24 +134,23 @@ class Tasks:
         load_task: str = "",
         **kwargs,
     ):
-        self.primary_objective = objective
         initial_task = "Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective."
         if load_task != "":
-            self.primary_objective = self.load_task(load_task)
+            self.load_task(load_task)
             print(f"Loaded task '{load_task}'.\n\n")
         else:
-            if self.task_list == deque([]) or self.task_list == []:
-                self.task_list = deque(
-                    [
-                        {
-                            "task_id": 1,
-                            "task_name": initial_task,
-                        }
-                    ]
-                )
+            self.primary_objective = objective
+            self.task_list = deque(
+                [
+                    {
+                        "task_id": 1,
+                        "task_name": initial_task,
+                    }
+                ]
+            )
             print(f"Starting task with objective: {self.primary_objective}.\n\n")
 
-        while not self.stop_running_event:
+        while not self.stop_running_event and self.task_list != deque([]):
             task = self.task_list.popleft()
             if task["task_name"] in ["None", "None.", ""]:
                 self.stop_tasks()
@@ -175,7 +170,7 @@ class Tasks:
             print(f"\nTask Result:\n\n{result}\n")
             if task["task_name"] == initial_task:
                 lines = result.split("\n") if "\n" in result else [result]
-                new_tasks = deque([])
+                new_tasks = []
                 for line in lines:
                     match = re.match(r"(\d+)\.\s+(.*)", line)
                     if match:
@@ -183,10 +178,7 @@ class Tasks:
                         new_tasks.append(
                             {"task_id": int(task_id), "task_name": task_name.strip()}
                         )
-                self.task_list = new_tasks
-            if self.task_list == deque([]) or self.task_list == []:
-                self.stop_tasks()
-                continue
+                self.task_list = deque(new_tasks)
         if not self.task_list:
             self.stop_tasks()
         print("All tasks completed or stopped.")
