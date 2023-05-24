@@ -20,43 +20,20 @@ class Tasks:
         self.output_list = []
         self.stop_running_event = False
 
-    def save_task(self):
-        task_name = re.sub(
-            r"[^\w\s]", "", self.primary_objective
-        )  # remove non-alphanumeric & non-space characters
-        task_name = task_name[:15]  # truncate to 15 characters
-
-        # ensure the directories exist
-        directory = Path(f"agents/{self.agent_name}")
-        directory.mkdir(parents=True, exist_ok=True)
-
-        # serialize the task state and save to a file
-        task_state = {
-            "task_name": task_name,
-            "task_list": list(self.task_list),
-            "output_list": self.output_list,
-            "primary_objective": self.primary_objective,
-        }
-        with open(f"agents/{self.agent_name}/{task_name}.yaml", "w") as f:
-            yaml.dump(task_state, f)
-
-    def load_task(self, task_name):
-        task_name = re.sub(
-            r"[^\w\s]", "", task_name
-        )  # remove non-alphanumeric & non-space characters
-        task_name = task_name[:15]  # truncate to 15 characters
-
+    def load_task(self):
+        out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
+        out_file = out_file[:25]
         try:
-            with open(f"agents/{self.agent_name}/{task_name}.json", "r") as f:
+            with open(f"agents/{self.agent_name}/{out_file}.json", "r") as f:
                 task_state = json.load(f)
 
             self.task_list = deque(task_state["task_list"])
-            self.output_list = task_state["output_list"]
+            self.output_list = task_state["tasks"]
             self.primary_objective = task_state["primary_objective"]
-            print(f"Successfully loaded task '{task_name}'.")
+            print(f"Successfully loaded task '{out_file}'.")
 
         except FileNotFoundError:
-            print(f"No saved task found with the name '{task_name}'.")
+            print(f"No saved task found with the name '{out_file}'.")
         except Exception as e:
             print(f"An error occurred while loading the task: {e}")
 
@@ -66,48 +43,59 @@ class Tasks:
         else:
             return False
 
-    def get_output_list(self):
-        return self.output_list
-
-    def save_task_output(self, agent_name, task_output):
-        # Check if agents/{agent_name}/tasks/task_name.txt exists
-        # If it does, append to it
-        # If it doesn't, create it
-        if "tasks" not in os.listdir(os.path.join("agents", agent_name)):
-            os.makedirs(os.path.join("agents", agent_name, "tasks"))
-        task_output_file = os.path.join(
-            "agents", agent_name, "tasks", f"{self.primary_objective}.yaml"
+    def update_task(self, task_id, task_name, task_output):
+        # Check if the task exists at agents/{agent_name}/tasks/{self.primary_objective}.json
+        # We need to stip out symbols except spaces in primary objective and truncate the primary objective to 15 characters
+        out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
+        out_file = out_file[:25]
+        output_file = os.path.join(
+            "agents", self.agent_name, "tasks", f"{out_file}.json"
         )
-        with open(
-            task_output_file,
-            "a" if os.path.exists(task_output_file) else "w",
-            encoding="utf-8",
-        ) as f:
-            yaml.dump(task_output, f)
-        return task_output
+        if os.path.exists(output_file):
+            # If it does, load it
+            with open(output_file, "r") as f:
+                data = json.load(f)
+        else:
+            # If it doesn't, create it
+            data = {
+                "primary_objective": self.primary_objective,
+                "task_list": self.task_list,
+                "tasks": [],
+            }
+        # Check if task is in the data["tasks"] list
+        data["tasks"].append(
+            {
+                "task_id": task_id,
+                "task_name": task_name,
+                "task_output": task_output,
+            }
+        )
+        # Save the data to agents/{agent_name}/tasks/{self.primary_objective}.json
+        with open(output_file, "w") as f:
+            json.dump(data, f)
+        return data
 
     def get_task_output(self):
-        task_name = re.sub(
-            r"[^\w\s]", "", self.primary_objective
-        )  # remove non-alphanumeric & non-space characters
-        task_name = task_name[:15]  # truncate to 15 characters
-
+        out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
+        out_file = out_file[:25]
         try:
-            with open(f"agents/{self.agent_name}/tasks/{task_name}.yaml", "r") as f:
+            with open(f"agents/{self.agent_name}/tasks/{out_file}.yaml", "r") as f:
                 task_output = yaml.safe_load(f)
 
-            print(f"Successfully loaded task output for '{task_name}'.")
+            print(f"Successfully loaded task output for '{out_file}'.")
             return task_output
 
         except FileNotFoundError:
-            print(f"No saved task output found with the name '{task_name}'.")
+            print(f"No saved task output found with the name '{out_file}'.")
             return None
         except Exception as e:
             print(f"An error occurred while loading the task output: {e}")
             return None
 
-    def update_output_list(self, output):
-        print(self.save_task_output(self.agent_name, output))
+    def get_tasks_files(self):
+        files = os.listdir(os.path.join("agents", self.agent_name, "tasks"))
+        files = [file[:-5] for file in files]
+        return files
 
     def stop_tasks(self):
         if self.stop_running_event is not None:
@@ -144,7 +132,7 @@ class Tasks:
 
     def run_task(
         self,
-        objective,
+        objective: str = "",
         async_exec: bool = False,
         smart: bool = False,
         load_task: str = "",
@@ -153,8 +141,8 @@ class Tasks:
         self.primary_objective = objective
         initial_task = "Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective."
         if load_task != "":
-            self.load_task(load_task)
-            self.update_output_list(f"Loaded task '{load_task}'.\n\n")
+            self.primary_objective = self.load_task(load_task)
+            print(f"Loaded task '{load_task}'.\n\n")
         else:
             if self.task_list == deque([]) or self.task_list == []:
                 self.task_list = deque(
@@ -165,18 +153,14 @@ class Tasks:
                         }
                     ]
                 )
-            self.update_output_list(
-                f"Starting task with objective: {self.primary_objective}.\n\n"
-            )
+            print(f"Starting task with objective: {self.primary_objective}.\n\n")
 
         while not self.stop_running_event:
             task = self.task_list.popleft()
             if task["task_name"] in ["None", "None.", ""]:
                 self.stop_tasks()
                 continue
-            self.update_output_list(
-                f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
-            )
+            print(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
             if smart != True:
                 result = self.instruction_agent(task=task["task_name"], **kwargs)
             else:
@@ -187,7 +171,8 @@ class Tasks:
                     objective=self.primary_objective,
                     **kwargs,
                 )
-            self.update_output_list(f"\nTask Result:\n\n{result}\n")
+            self.update_task(task["task_id"], task["task_name"], result)
+            print(f"\nTask Result:\n\n{result}\n")
             if task["task_name"] == initial_task:
                 lines = result.split("\n") if "\n" in result else [result]
                 new_tasks = deque([])
@@ -198,13 +183,10 @@ class Tasks:
                         new_tasks.append(
                             {"task_id": int(task_id), "task_name": task_name.strip()}
                         )
-                print(f"NEW TASKS: {new_tasks}")
                 self.task_list = new_tasks
             if self.task_list == deque([]) or self.task_list == []:
                 self.stop_tasks()
                 continue
         if not self.task_list:
             self.stop_tasks()
-        if self.stop_running_event:
-            self.save_task()
-        self.update_output_list("All tasks completed or stopped.")
+        print("All tasks completed or stopped.")

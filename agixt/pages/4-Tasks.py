@@ -25,7 +25,7 @@ if agent_name:
 
     load_task = st.selectbox(
         "Load Task",
-        options=[""] + existing_tasks,
+        options=[""] + task_agent.get_tasks_files(),
         index=0,
     )
 
