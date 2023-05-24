@@ -12,7 +12,7 @@ services:
     profiles: [ "all", "frontend" ]
 
   backend:
-    image: josh-xt/agixt:main
+    image: joshxt/agixt:main
     init: true
     ports:
       - "7437:7437"
@@ -23,7 +23,7 @@ services:
     profiles: [ "all", "backend", "frontend" ]
 
   backend-streamlit:
-    image: josh-xt/agixt:main
+    image: joshxt/agixt:main
     entrypoint: [ "streamlit", "run", "Main.py" ]
     init: true
     ports:

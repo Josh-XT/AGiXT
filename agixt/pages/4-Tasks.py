@@ -56,10 +56,10 @@ if agent_name:
                     )
 
                     st.session_state.agent_status[agent_name] = "Running"
-                    agent_status = "Running"
-                    columns[0].success(f"Task started for agent '{agent_name}'.")
+                    st.experimental_rerun()
                 else:
                     columns[0].error("Agent name and task objective are required.")
+
         else:  # agent_status == "Running"
             if st.button("Stop Task", key=f"stop_{agent_name}"):
                 if agent_name in agent.agent_instances:
