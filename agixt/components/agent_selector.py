@@ -41,4 +41,8 @@ def agent_selector():
             agent = Agent(selected_agent)
         else:
             agent = None
+        try:
+            st.experimental_rerun()
+        except Exception as e:
+            print(e)
         return selected_agent, agent
