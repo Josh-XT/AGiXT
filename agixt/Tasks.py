@@ -129,6 +129,7 @@ class Tasks:
             task_description=task_description,
             tasks=task_list,
         )
+        print(f"TASK_AGENT RESPONSE IN TASK AGENT FUNCTION: {response}")
         if response == None:
             time.sleep(5)
             return self.task_agent(result, task_description, task_list)
@@ -198,15 +199,12 @@ class Tasks:
 
         while not self.stop_running_event:
             task = self.task_list.popleft()
-
             if task["task_name"] in ["None", "None.", ""]:
                 self.stop_tasks()
                 continue
-
             self.update_output_list(
                 f"\nExecuting task {task['task_id']}: {task['task_name']}\n"
             )
-
             if smart != True:
                 result = self.instruction_agent(task=task["task_name"], **kwargs)
             else:
@@ -218,24 +216,24 @@ class Tasks:
                     **kwargs,
                 )
             self.update_output_list(f"\nTask Result:\n\n{result}\n")
-
-            new_tasks = self.task_agent(
-                result=result,
-                task_description=task["task_name"],
-                task_list=self.task_list,
-            )
-            print(f"TASK_AGENT RESULT: {new_tasks}")
-            self.task_list = deque(new_tasks)
+            if (
+                task["task_name"]
+                == "Develop list of necessary tasks to complete in order to achieve the goal of the objective."
+            ):
+                lines = result.split("\n") if "\n" in result else [result]
+                new_tasks = deque([])
+                for line in lines:
+                    match = re.match(r"(\d+)\.\s+(.*)", line)
+                    if match:
+                        task_id, task_name = match.groups()
+                        new_tasks.append(
+                            {"task_id": int(task_id), "task_name": task_name.strip()}
+                        )
+                self.task_list = new_tasks
+                print(f"NEW TASK LIST: {self.task_list}")
             if self.task_list == deque([]) or self.task_list == []:
                 self.stop_tasks()
                 continue
-            self.update_output_list(f"\nNew Tasks:\n\n{new_tasks}\n")
-
-            for new_task in new_tasks:
-                new_task_id = len(self.task_list) + 1
-                new_task.update({"task_id": new_task_id})
-                self.task_list.append(new_task)
-
         if not self.task_list:
             self.stop_tasks()
         if self.stop_running_event:
