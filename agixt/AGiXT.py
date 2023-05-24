@@ -114,7 +114,7 @@ class AGiXT:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            return self.run(
+            self.response = self.run(
                 task=task,
                 prompt=prompt,
                 context_results=context_results,
