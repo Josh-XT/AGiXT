@@ -110,7 +110,6 @@ class Memories:
             n_results=min(top_results_num, count),
             include=["metadatas"],
         )
-        # Parse timestamps and sort the results by timestamp in descending order
         sorted_results = sorted(
             results["metadatas"][0],
             key=lambda item: datetime.strptime(
@@ -119,7 +118,10 @@ class Memories:
             ),
             reverse=True,
         )
-
+        # TODO: Before sending results, ask AI if each chunk it is relevant to the task-
+        #   so that we're only injecting relevant memories into the context.
+        # This will ensure we aren't injecting memories that aren't relevant.
+        # Need to research to find out how to do this locally instead of sending more shots to the AI.
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
         print(f"CONTEXT: {trimmed_context}")
