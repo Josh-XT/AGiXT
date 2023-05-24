@@ -15,6 +15,7 @@ on:
 
 jobs:
   build-agixt:
+    if: github.event_name in ['push', 'release']
     uses: localagi/ai-pipeline/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: AGiXT
@@ -25,5 +26,8 @@ jobs:
         type=ref,event=branch
         type=semver,pattern={{version}}
       platforms: linux/amd64,linux/arm64/v8
+      build-args: BUILDKIT_INLINE_CACHE=1
+      cache-from: type=registry,ref=joshxt/agixt:main
+      cache-to: type=registry,ref=joshxt/agixt:main,mode=max
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
