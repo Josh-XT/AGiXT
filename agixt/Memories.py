@@ -17,6 +17,9 @@ class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
         self.agent_name = agent_name
         self.agent_config = agent_config
+        self.chroma_client = None
+        self.collection = None
+        self.nlp = None
         self.chroma_persist_dir = f"agents/{self.agent_name}/memories"
         if not os.path.exists(self.chroma_persist_dir):
             os.makedirs(self.chroma_persist_dir)

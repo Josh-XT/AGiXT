@@ -18,6 +18,7 @@ class AGiXT:
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
+        self.nlp = None
 
     def load_spacy_model(self):
         if not self.nlp:
