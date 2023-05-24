@@ -15,6 +15,8 @@ class Tasks:
         self.task_list = deque([])
         self.output_list = []
         self.stop_running_event = False
+        if not os.path.exists(f"agents/{self.agent_name}/tasks"):
+            os.makedirs(f"agents/{self.agent_name}/tasks")
 
     def load_task(self):
         out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
