@@ -3,6 +3,7 @@ import asyncio
 import regex
 import json
 import time
+import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
@@ -14,9 +15,20 @@ class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)
+        self.agent_commands = self.agent.get_commands_string()
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
+        self.nlp = None
+
+    def load_spacy_model(self):
+        if not self.nlp:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+            except:
+                spacy.cli.download("en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+        self.nlp.max_length = 99999999999999999999999
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -60,17 +72,15 @@ class AGiXT:
             prompt,
             task=task,
             agent_name=self.agent_name,
-            COMMANDS=command_list,
+            COMMANDS=self.agent_commands,
             context=context,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
-        if command_list == "No commands.":
-            formatted_prompt = formatted_prompt.replace(
-                "Commands Available To Complete Task:", ""
-            )
-        tokens = len(self.agent.memories.nlp(formatted_prompt))
+        if not self.nlp:
+            self.load_spacy_model()
+        tokens = len(self.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
     def run(
