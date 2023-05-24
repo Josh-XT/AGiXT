@@ -14,7 +14,7 @@ from typing import List, Dict
 class Tasks:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
-        self.agent = Agent(self.agent_name)
+        self.ai = AGiXT(self.agent_name)
         self.primary_objective = None
         self.task_list = deque([])
         self.output_list = []
@@ -122,7 +122,7 @@ class Tasks:
             return []
         task_list = ", ".join(tasks)
 
-        response = AGiXT(self.agent_name).run(
+        response = self.ai.run(
             task=self.primary_objective,
             prompt="task",
             result=result,
@@ -148,7 +148,7 @@ class Tasks:
         if "task_name" in task:
             task = task["task_name"]
 
-        resolver = AGiXT(self.agent_name).run(
+        resolver = self.ai.run(
             task=task,
             prompt="SmartInstruct-StepByStep"
             if self.primary_objective is None
@@ -157,7 +157,7 @@ class Tasks:
             objective=self.primary_objective,
             **kwargs,
         )
-        execution_response = AGiXT(self.agent_name).run(
+        execution_response = self.ai.run(
             task=task,
             prompt="SmartInstruct-Execution"
             if self.primary_objective is None
@@ -188,7 +188,7 @@ class Tasks:
                     [
                         {
                             "task_id": 1,
-                            "task_name": "Develop a task list to complete the objective if necessary.  The plan is 'None' if not necessary.",
+                            "task_name": "Develop list of necessary tasks to complete in order to achieve the goal of the objective.",
                         }
                     ]
                 )
@@ -210,7 +210,7 @@ class Tasks:
             if smart != True:
                 result = self.instruction_agent(task=task["task_name"], **kwargs)
             else:
-                result = AGiXT(self.agent_name).smart_instruct(
+                result = self.ai.smart_instruct(
                     task=task["task_name"],
                     shots=3,
                     async_exec=async_exec,
