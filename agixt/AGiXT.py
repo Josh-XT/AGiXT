@@ -7,8 +7,10 @@ import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from duckduckgo_search import ddg
+from duckduckgo_search import DDGS
 from urllib.parse import urlparse
+
+ddgs = DDGS()
 
 
 class AGiXT:
@@ -464,6 +466,14 @@ class AGiXT:
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")
-            links = ddg(search_string, max_results=depth)
+            try:
+                links = ddgs.text(search_string)
+                if len(links) > depth:
+                    links = links[:depth]
+            except:
+                print(
+                    "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
+                )
+                links = None
             if links is not None:
                 await resursive_browsing(task, links)
