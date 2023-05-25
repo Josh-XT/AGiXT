@@ -1,0 +1,62 @@
+{
+    "chain_name": "Smart Chat",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-StepByStep",
+                "task": "Tell me the most important parts of the critical thinking process."
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-StepByStep",
+                "task": "Tell me the most important parts of the critical thinking process."
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-StepByStep",
+                "task": "Tell me the most important parts of the critical thinking process."
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-Researcher",
+                "shots": "3",
+                "task": "Initial task: Tell me the most important parts of the critical thinking process.\\n\\nResponse 1:\\n{STEP1}\\nResponse 2:\\n{STEP2}\\nResponse 3:\\n{STEP3}"
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-Resolver",
+                "shots": "3",
+                "task": "{STEP4}"
+            }
+        },
+        {
+            "step": 6,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-CleanResponse",
+                "task": "Tell me the most important parts of the critical thinking process.",
+                "resolver_response": "{STEP5}"
+            }
+        }
+    ]
+}
