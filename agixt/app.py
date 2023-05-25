@@ -17,7 +17,7 @@ CFG = Config()
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
-    version="1.0.0", # API version according to https://restfulapi.net/versioning/
+    version="1.0.0",  # API version according to https://restfulapi.net/versioning/
     docs_url="/",
 )
 agent_threads = {}
