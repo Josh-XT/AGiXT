@@ -12,17 +12,16 @@ from CustomPrompt import CustomPrompt
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
-import os
+import importlib.metadata
 
-this_directory = os.path.abspath(os.path.dirname(__file__))
-with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
-    version = f.read().strip()
+def get_version():
+  importlib.metadata.version('AGiXT')
 
 CFG = Config()
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
-    version=version,
+    version=get_version(),
     docs_url="/",
 )
 agent_threads = {}
