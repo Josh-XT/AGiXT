@@ -12,7 +12,6 @@ from CustomPrompt import CustomPrompt
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
-import importlib.metadata
 
 CFG = Config()
 app = FastAPI(
