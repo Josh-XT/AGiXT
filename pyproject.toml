@@ -1,2 +1,17 @@
+[tool.poetry]
+name = "AGiXT"
+version = "0.0.1"
+description = ""
+authors = ["Josh-XT"]
+readme = "docs/README.md"
+packages = [{include = "AGiXT"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["poetry-core", "setuptools", "wheel"]
+build-backend = "poetry.core.masonry.api"
+
+
