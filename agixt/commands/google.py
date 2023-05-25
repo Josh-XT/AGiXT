@@ -1,7 +1,9 @@
 from typing import Union, List
 import json
-from duckduckgo_search import ddg
+from duckduckgo_search import DDGS
 from Commands import Commands
+
+ddgs = DDGS()
 
 
 class google(Commands):
@@ -18,7 +20,15 @@ class google(Commands):
         search_results = []
         if not query:
             return json.dumps(search_results)
-        results = ddg(query, max_results=num_results)
+        try:
+            results = ddgs.text(query)
+            if len(results) > num_results:
+                results = results[:num_results]
+        except:
+            print(
+                "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
+            )
+            results = None
         if not results:
             return json.dumps(search_results)
         for j in results:
