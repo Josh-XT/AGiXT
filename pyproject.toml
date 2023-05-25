@@ -1,17 +1,76 @@
 [tool.poetry]
 name = "AGiXT"
-version = "0.0.1"
-description = ""
-authors = ["Josh-XT"]
+version = "v1.1.72-beta"
+description = "An Artificial Intelligence Automation Platform. AI Instruction management from various providers, has an adaptive memory, and a versatile plugin system with many commands including web browsing. Supports many AI providers and models and growing support every day."
+authors = ["Josh XT <josh@devxt.com>"]
 readme = "docs/README.md"
-packages = [{include = "AGiXT"}]
-
-[tool.poetry.dependencies]
-python = "^3.10"
-
 
 [build-system]
 requires = ["poetry-core", "setuptools", "wheel"]
 build-backend = "poetry.core.masonry.api"
 
+
+[tool.poetry.dependencies]
+python = "^3.10"
+argparse = "*"
+anthropic = "*"
+beautifulsoup4 = "*"
+captcha-solver = "*"
+docker = "*"
+duckduckgo_search = "*"
+fastapi = "*"
+uvicorn = "*"
+gitpython = "*"
+google-api-python-client = "*"
+GoogleBard = "*"
+google-auth = "*"
+google-auth-httplib2 = "*"
+google-auth-oauthlib = "*"
+gtts = "*"
+InstructorEmbedding = "*"
+jsonschema = "*"
+openai = "*"
+playwright = "*"
+playsound = "1.2.2"
+pre-commit = "*"
+pytz = "*"
+pynacl = "*"
+python-git = "*"
+PyGithub = "*"
+selenium = "*"
+sendgrid = "*"
+tiktoken = "*"
+tweepy = "*"
+webdriver_manager = "*"
+spacy = "*"
+discord = "*"
+gpt4free = { git = "https://github.com/xtekky/gpt4free", rev = "86142cd" }
+EdgeGPT = "*"
+google-generativeai = "*"
+google-cloud-aiplatform = "*"
+streamlit = "*"
+docx2txt = "*"
+pdfplumber = "*"
+ffmpeg = "*"
+hugchat = "*"
+flask-bcrypt = "*"
+revChatGPT = "*"
+random-password-generator = "*"
+cryptography = "38.0.4"
+
+
+#### This block includes dependencies for local providers
+[tool.poetry.group.localprovider.dependencies]
+torch = { version = "*", source = "pytorch.org" }
+chromadb = "*" 
+transformers = { git = "https://github.com/huggingface/transformers", tag = "v4.29.2" }
+sentence-transformers = "*"
+llama-cpp-python = "*"
+accelerate = "*"
+nomic = "*"
+
+[[tool.poetry.source]]
+name = "pytorch.org"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 

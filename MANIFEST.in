@@ -1,3 +1,0 @@
-include docs/README.md
-include agixt/requirements.txt
-include agixt/version
