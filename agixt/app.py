@@ -14,14 +14,11 @@ from provider import get_provider_options
 from Embedding import get_embedding_providers
 import importlib.metadata
 
-def get_version():
-  importlib.metadata.version('AGiXT')
-
 CFG = Config()
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
-    version=get_version(),
+    version="1.0.0", # API version according to https://restfulapi.net/versioning/
     docs_url="/",
 )
 agent_threads = {}
