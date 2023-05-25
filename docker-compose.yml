@@ -10,7 +10,6 @@ services:
     depends_on:
       - backend
     profiles: [ "all", "frontend" ]
-    restart: always
 
   backend:
     image: joshxt/agixt:main
@@ -18,20 +17,19 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./models:/model:rw
+      - ./xtagi/agents:/xtagi/agents:rw
+      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
+      - ./xtagi/models:/xtagi/model:rw
     profiles: [ "all", "backend", "frontend" ]
-    restart: always
 
   backend-streamlit:
-    image: joshxt/agixt-streamlit:main
+    image: joshxt/agixt:main
+    entrypoint: [ "streamlit", "run", "Main.py" ]
     init: true
     ports:
       - "8501:8501"
     volumes:
-      - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./models:/model:rw
+      - ./xtagi/agents:/xtagi/agents:rw
+      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
+      - ./xtagi/models:/xtagi/model:rw
     profiles: [ "all", "streamlit" ]
-    restart: always

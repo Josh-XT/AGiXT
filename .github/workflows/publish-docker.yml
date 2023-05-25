@@ -1,21 +1,9 @@
-# This workflow will build and publish the docker image to 
-# - Github packages
-# - Docker hub
-# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-docker-images
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-# Versions of plugins are pinned to their major version as long as they use a semVer in a good manner.
-
-name: Publish Docker images
+name: Publish Docker image
 
 permissions:
   packages: write
   contents: read
-  
+
 on:
   push:
     branches: [main]
@@ -24,52 +12,19 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-  
+
 jobs:
-
-  call-docker-build:
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
+  build-agixt:
+    uses: localagi/ai-pipeline/.github/workflows/operation-docker-build-publish.yml@main
     with:
-      dockerfile: docker/Dockerfile
-      push: ${{ github.event_name != 'pull_request' }}
+      registry-repo-name: AGiXT
+      context-repository: Josh-XT/AGiXT
+      context-repository-ref: ${{ github.ref }}
       registry-readme: ./docs/README.md
+      tags: |
+        type=schedule
+        type=ref,event=branch
+        type=semver,pattern={{version}}
       platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
-  call-docker-build-streamlit:
-    if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
-    with:
-      registry-repo-name: ${{ github.event.repository.name }}-streamlit
-      dockerfile: docker/Dockerfile.streamlit
-      build-args: |
-        FROM_IMAGE=${{needs.call-docker-build.outputs.primary-image}}
-      registry-readme: ./docs/README.md
-      platforms: linux/amd64,linux/arm64/v8
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-    needs: call-docker-build
-
-  call-docker-build-nvidia:
-    if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
-    with:
-      registry-repo-name: ${{ github.event.repository.name }}-nvidia
-      dockerfile: docker/Dockerfile.nvidia
-      registry-readme: ./docs/README.md
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-    
-  call-docker-build-nvidia-streamlit:
-    if: github.event_name != 'pull_request'
-    uses: localagi/ai-dedicated-workflows/.github/workflows/operation-docker-build-publish.yml@v1
-    with:
-      registry-repo-name: ${{ github.event.repository.name }}-nvidia-streamlit
-      dockerfile: docker/Dockerfile.streamlit
-      build-args: |
-        FROM_IMAGE=${{needs.call-docker-build-nvidia.outputs.primary-image}}
-      registry-readme: ./docs/README.md
-    secrets:
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-    needs: call-docker-build-nvidia

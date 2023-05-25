@@ -1,11 +1,9 @@
 ###Human:
 {AGENT_NAME}, follow constraints:
-
+{COMMANDS}
 500-word memory limit. Save important info.
 Recall by considering similar events.
 No user assistance.
-The following commands are available to complete this task given:
-{COMMANDS}
 
 RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
 

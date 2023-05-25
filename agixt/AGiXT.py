@@ -2,6 +2,8 @@ import re
 import asyncio
 import regex
 import json
+import time
+import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
@@ -13,8 +15,20 @@ class AGiXT:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)
+        self.agent_commands = self.agent.get_commands_string()
         self.stop_running_event = None
         self.browsed_links = []
+        self.failures = 0
+        self.nlp = None
+
+    def load_spacy_model(self):
+        if not self.nlp:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+            except:
+                spacy.cli.download("en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+        self.nlp.max_length = 99999999999999999999999
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -58,13 +72,15 @@ class AGiXT:
             prompt,
             task=task,
             agent_name=self.agent_name,
-            COMMANDS=command_list,
+            COMMANDS=self.agent_commands,
             context=context,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
-        tokens = len(self.agent.memories.nlp(formatted_prompt))
+        if not self.nlp:
+            self.load_spacy_model()
+        tokens = len(self.nlp(formatted_prompt))
         return formatted_prompt, prompt, tokens
 
     def run(
@@ -99,12 +115,20 @@ class AGiXT:
                 self.websearch_agent(task=task, depth=websearch_depth)
         try:
             self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"PROMPT CONTENT: {formatted_prompt}")
+            print(f"TOKENS: {tokens}")
+            self.failures += 1
+            if self.failures == 5:
+                self.failures == 0
+                print("Failed to get a response 5 times in a row.")
+                return None
+            print(f"Retrying in 10 seconds...")
+            time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            if context_results == 0:
-                print("Warning: No context injected due to max tokens.")
-            return self.run(
+            self.response = self.run(
                 task=task,
                 prompt=prompt,
                 context_results=context_results,
@@ -343,41 +367,47 @@ class AGiXT:
                             available_command["name"],
                         ]:
                             command_name = available_command["name"]
-                            break
-                    try:
-                        command_output = self.agent.execute(command_name, command_args)
-                        print("Running Command Execution Validation...")
-                        validate_command = self.run(
-                            task=task,
-                            prompt="Validation",
-                            command_name=command_name,
-                            command_args=command_args,
-                            command_output=command_output,
-                            **kwargs,
-                        )
-                    except:
-                        return self.revalidation_agent(
-                            task, command_name, command_args, command_output, **kwargs
-                        )
+                            try:
+                                # Check if the command is a valid command in the self.avent.available_commands list
+                                command_output = self.agent.execute(
+                                    command_name, command_args
+                                )
+                                print("Running Command Execution Validation...")
+                                validate_command = self.run(
+                                    task=task,
+                                    prompt="Validation",
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                    command_output=command_output,
+                                    **kwargs,
+                                )
+                            except:
+                                return self.revalidation_agent(
+                                    task,
+                                    command_name,
+                                    command_args,
+                                    command_output,
+                                    **kwargs,
+                                )
 
-                    if validate_command.startswith("Y"):
-                        print(
-                            f"Command {command_name} executed successfully with args {command_args}."
-                        )
-                        response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                        return response
-                    else:
-                        revalidate = self.run(
-                            task=task,
-                            prompt="ValidationFailed",
-                            command_name=command_name,
-                            command_args=command_args,
-                            command_output=command_output,
-                            **kwargs,
-                        )
-                        return self.execution_agent(
-                            execution_response, task, context_results, **kwargs
-                        )
+                            if validate_command.startswith("Y"):
+                                print(
+                                    f"Command {command_name} executed successfully with args {command_args}."
+                                )
+                                response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                                return response
+                            else:
+                                revalidate = self.run(
+                                    task=task,
+                                    prompt="ValidationFailed",
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                    command_output=command_output,
+                                    **kwargs,
+                                )
+                                return self.execution_agent(
+                                    execution_response, task, context_results, **kwargs
+                                )
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"

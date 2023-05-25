@@ -78,19 +78,20 @@ class Agent:
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
-            return "No commands."
+            return None
 
         enabled_commands = filter(
             lambda command: command.get("enabled", True), self.available_commands
         )
         if not enabled_commands:
-            return "No commands."
+            return None
 
         friendly_names = map(
             lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
             enabled_commands,
         )
-        return "\n".join(friendly_names)
+        command_list = "\n".join(friendly_names)
+        return f"Commands Available To Complete Task:\n{command_list}\n\n"
 
     def get_provider(self):
         config_file = self.get_agent_config()

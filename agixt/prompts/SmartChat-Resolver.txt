@@ -1,6 +1,4 @@
-Context:
 {context}
-
 Today's date is {date}.
 
 You are a resolver tasked with:

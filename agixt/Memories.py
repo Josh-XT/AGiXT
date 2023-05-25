@@ -16,23 +16,22 @@ from bs4 import BeautifulSoup
 class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
         self.agent_name = agent_name
-        self.nlp = self.load_spacy_model()
-        self.nlp.max_length = 99999999999999999999999
-        embedder = Embedding(agent_config)
-        self.embedding_function = embedder.embed
-        self.chunk_size = embedder.chunk_size
+        self.agent_config = agent_config
+        self.chroma_client = None
+        self.collection = None
+        self.nlp = None
         self.chroma_persist_dir = f"agents/{self.agent_name}/memories"
         if not os.path.exists(self.chroma_persist_dir):
             os.makedirs(self.chroma_persist_dir)
-        self.chroma_client = self.initialize_chroma_client()
-        self.collection = self.get_or_create_collection()
 
     def load_spacy_model(self):
-        try:
-            return spacy.load("en_core_web_sm")
-        except:
-            spacy.cli.download("en_core_web_sm")
-            return spacy.load("en_core_web_sm")
+        if not self.nlp:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+            except:
+                spacy.cli.download("en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+        self.nlp.max_length = 99999999999999999999999
 
     def initialize_chroma_client(self):
         try:
@@ -47,6 +46,11 @@ class Memories:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
 
     def get_or_create_collection(self):
+        if not self.chroma_client:
+            self.chroma_client = self.initialize_chroma_client()
+        embedder = Embedding(self.agent_config)
+        self.embedding_function = embedder.embed
+        self.chunk_size = embedder.chunk_size
         try:
             return self.chroma_client.get_collection(
                 name="memories", embedding_function=self.embedding_function
@@ -61,6 +65,9 @@ class Memories:
         return sha256((content + timestamp).encode()).hexdigest()
 
     def store_memory(self, id: str, content: str, metadatas: dict):
+        if not self.chroma_client:
+            self.chroma_client = self.initialize_chroma_client()
+            self.collection = self.get_or_create_collection()
         try:
             self.collection.add(
                 ids=id,
@@ -71,6 +78,9 @@ class Memories:
             print(f"Failed to store memory: {e}")
 
     def store_result(self, task_name: str, result: str):
+        if not self.chroma_client:
+            self.chroma_client = self.initialize_chroma_client()
+            self.collection = self.get_or_create_collection()
         if result:
             timestamp = datetime.now()  # current time as datetime object
             if not isinstance(result, str):
@@ -89,6 +99,9 @@ class Memories:
                 )
 
     def context_agent(self, query: str, top_results_num: int) -> List[str]:
+        if not self.chroma_client:
+            self.chroma_client = self.initialize_chroma_client()
+            self.collection = self.get_or_create_collection()
         count = self.collection.count()
         if count == 0:
             return []
@@ -97,7 +110,6 @@ class Memories:
             n_results=min(top_results_num, count),
             include=["metadatas"],
         )
-        # Parse timestamps and sort the results by timestamp in descending order
         sorted_results = sorted(
             results["metadatas"][0],
             key=lambda item: datetime.strptime(
@@ -106,13 +118,20 @@ class Memories:
             ),
             reverse=True,
         )
-
+        # TODO: Before sending results, ask AI if each chunk it is relevant to the task-
+        #   so that we're only injecting relevant memories into the context.
+        # This will ensure we aren't injecting memories that aren't relevant.
+        # Need to research to find out how to do this locally instead of sending more shots to the AI.
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
         print(f"CONTEXT: {trimmed_context}")
-        return "\n".join(trimmed_context)
+        context_str = "\n".join(trimmed_context)
+        response = f"Context: {context_str}\n\n"
+        return response
 
     def trim_context(self, context: List[str]) -> List[str]:
+        if not self.nlp:
+            self.load_spacy_model()
         trimmed_context = []
         total_tokens = 0
         for item in context:
@@ -126,6 +145,8 @@ class Memories:
 
     def get_keywords(self, query: str):
         """Extract keywords from a query using Spacy's part-of-speech tagging."""
+        if not self.nlp:
+            self.load_spacy_model()
         doc = self.nlp(query)
         keywords = [
             token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
@@ -139,9 +160,11 @@ class Memories:
         return score
 
     def chunk_content(self, content: str, query: str, overlap: int = 2) -> List[str]:
-        content_chunks = []
+        if not self.nlp:
+            self.load_spacy_model()
         doc = self.nlp(content)
         sentences = list(doc.sents)
+        content_chunks = []
         chunk = []
         chunk_len = 0
         keywords = self.get_keywords(query)
