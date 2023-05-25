@@ -31,12 +31,12 @@ if st.button("Perform Action"):
     if chain_name:
         if chain_action == "Create Chain":
             Chain().add_chain(chain_name)
-            st.experimental_rerun()
             st.success(f"Chain '{chain_name}' created.")
+            st.experimental_rerun()
         elif chain_action == "Delete Chain":
             Chain().delete_chain(chain_name)
-            st.experimental_rerun()
             st.success(f"Chain '{chain_name}' deleted.")
+            st.experimental_rerun()
         elif chain_action == "Run Chain":
             Chain().run_chain(chain_name)
             st.success(f"Chain '{chain_name}' executed.")
