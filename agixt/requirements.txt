@@ -13,7 +13,7 @@ anthropic
 beautifulsoup4
 captcha-solver
 docker
-duckduckgo_search==2.9.5
+duckduckgo_search
 fastapi
 uvicorn
 gitpython
