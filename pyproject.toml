@@ -12,7 +12,7 @@ maintainers = [
 ]
 readme = "docs/README.md"
 packages = [
-    { include = "AGiXT", from = "agixt" },
+    { include = "agixt" },
 ]
 
 [build-system]
