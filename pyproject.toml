@@ -12,10 +12,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+
 argparse = "*"
 anthropic = "*"
 beautifulsoup4 = "*"
 captcha-solver = "*"
+chromadb = "*"
 docker = "*"
 duckduckgo_search = "*"
 fastapi = "*"
@@ -49,6 +51,7 @@ EdgeGPT = "*"
 google-generativeai = "*"
 google-cloud-aiplatform = "*"
 streamlit = "*"
+protobuf = "3.20.*"
 docx2txt = "*"
 pdfplumber = "*"
 ffmpeg = "*"
@@ -59,10 +62,8 @@ random-password-generator = "*"
 cryptography = "38.0.4"
 
 
-#### This block includes dependencies for local providers
-[tool.poetry.group.localprovider.dependencies]
+#### For local providers
 torch = { version = "*", source = "pytorch.org" }
-chromadb = "*" 
 transformers = { git = "https://github.com/huggingface/transformers", tag = "v4.29.2" }
 sentence-transformers = "*"
 llama-cpp-python = "*"
