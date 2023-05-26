@@ -1236,13 +1236,13 @@ Flask = "*"
 
 [[package]]
 name = "flatbuffers"
-version = "23.5.9"
+version = "23.5.26"
 description = "The FlatBuffers serialization format for Python"
 optional = false
 python-versions = "*"
 files = [
-    {file = "flatbuffers-23.5.9-py2.py3-none-any.whl", hash = "sha256:a02eb8c2d61cba153cd211937de8f8f7764b6a7510971b2c4684ed8b02e6e571"},
-    {file = "flatbuffers-23.5.9.tar.gz", hash = "sha256:93a506b6ab771c79ce816e7b35a93ed08ec5b4c9edb811101a22c44a4152f018"},
+    {file = "flatbuffers-23.5.26-py2.py3-none-any.whl", hash = "sha256:c0ff356da363087b915fde4b8b45bdda73432fc17cddb3c8157472eab1422ad1"},
+    {file = "flatbuffers-23.5.26.tar.gz", hash = "sha256:9ea1144cac05ce5d86e2859f431c6cd5e66cd9c78c558317c7955fb8d4c78d89"},
 ]
 
 [[package]]
@@ -1873,7 +1873,7 @@ websocket-client = "^1.5.1"
 
 [package.source]
 type = "git"
-url = "https://github.com/xtekky/gpt4free"
+url = "https://github.com/xtekky/gpt4free.git"
 reference = "e35264d"
 resolved_reference = "e35264d3db5dcc6a0e5ff5a4626e658aa9cb9251"
 
@@ -6240,4 +6240,8 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "2d8998ad8ffc06b1f9b07e5b0530c64e7fad005022755526b7584e022370a673"
+<<<<<<< HEAD
+content-hash = "e97383d49abd98eb15c7cf43b2b047bc21923aee2654023bae73d2ad39165457"
+=======
+content-hash = "c03734d59f15f53ceb5f6615fbee2fedd30e1470258bcac61a9bad4e3a50398a"
+>>>>>>> 116c941 (add gpt4free as optional)
