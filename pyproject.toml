@@ -86,7 +86,7 @@ nomic = "*"
 optional = true
 
 [tool.poetry.group.gpt4free.dependencies]
-gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "e35264d" }
+gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "6598265e2bf46ce1054736cd64db9ff42a358331" }
 
 
 [[tool.poetry.source]]

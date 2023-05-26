@@ -757,13 +757,13 @@ superset = ["apache-superset (>=1.4.1)"]
 
 [[package]]
 name = "cohere"
-version = "4.5.1"
+version = "4.6.0"
 description = ""
 optional = false
 python-versions = ">=3.7,<4.0"
 files = [
-    {file = "cohere-4.5.1-py3-none-any.whl", hash = "sha256:46e777d5b76c69f93c2f589b574786599c9a8f13c1bbc9a969e68c194ba7da29"},
-    {file = "cohere-4.5.1.tar.gz", hash = "sha256:fbfa1e6696320ab41abdad2512de6e2e549ceb95da042c88fc6fe5c00c5f0530"},
+    {file = "cohere-4.6.0-py3-none-any.whl", hash = "sha256:fc60fa73a2d96bdb9f70da4a290d3ede320b74ac01a24c229011049d7cb3511f"},
+    {file = "cohere-4.6.0.tar.gz", hash = "sha256:43218a0a40f6fc023e068732994fb631ce5d160a0bc9f9a3a22524b5932f34ea"},
 ]
 
 [package.dependencies]
@@ -1874,8 +1874,8 @@ websocket-client = "^1.5.1"
 [package.source]
 type = "git"
 url = "https://github.com/xtekky/gpt4free.git"
-reference = "e35264d"
-resolved_reference = "e35264d3db5dcc6a0e5ff5a4626e658aa9cb9251"
+reference = "6598265e2bf46ce1054736cd64db9ff42a358331"
+resolved_reference = "6598265e2bf46ce1054736cd64db9ff42a358331"
 
 [[package]]
 name = "greenlet"
@@ -4989,7 +4989,7 @@ snowflake = ["snowflake-snowpark-python"]
 [[package]]
 name = "streamlit-chat"
 version = "0.0.2.2"
-description = "A streamlit component, to make chatbots"
+description = ""
 optional = false
 python-versions = ">=3.8"
 files = []
@@ -6236,4 +6236,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "c03734d59f15f53ceb5f6615fbee2fedd30e1470258bcac61a9bad4e3a50398a"
+content-hash = "b6febd04bfe7359413e781249955b393baa2ae2fdfd41b53d21fe653b8104a8e"
