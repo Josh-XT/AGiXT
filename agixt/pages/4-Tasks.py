@@ -9,9 +9,6 @@ check_auth_status()
 agent_name, agent = agent_selector()
 st.title("Manage Tasks")
 
-# initialize session state for stop events and agent status if not exist
-if "agent_status" not in st.session_state:
-    st.session_state.agent_status = {}
 
 if agent_name:
     smart_task_toggle = st.checkbox("Enable Smart Task")
@@ -39,14 +36,12 @@ if agent_name:
                     smart=smart_task_toggle,
                     load_task=load_task,
                 )
-                st.session_state.agent_status[agent_name] = "Running"
                 st.experimental_rerun()
             else:
                 columns[0].error("Agent name and task objective are required.")
 
         if st.button("Stop Task", key=f"stop_{agent_name}"):
             task_agent.stop_tasks()
-            st.session_state.agent_status[agent_name] = "Not Running"
             st.experimental_rerun()
 
     with col2:
