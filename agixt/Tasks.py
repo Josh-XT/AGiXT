@@ -18,8 +18,8 @@ class Tasks:
         if not os.path.exists(f"agents/{self.agent_name}/tasks"):
             os.makedirs(f"agents/{self.agent_name}/tasks")
 
-    def load_task(self):
-        out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
+    def load_task(self, task):
+        out_file = re.sub(r"[^\w\s]", "", task)
         out_file = out_file[:25]
         try:
             with open(f"agents/{self.agent_name}/{out_file}.json", "r") as f:
