@@ -1,4 +1,5 @@
 import re
+import os
 import asyncio
 import regex
 import json
@@ -48,6 +49,14 @@ class AGiXT:
         result = re.sub(pattern, replace, string)
         return result
 
+    def get_step_response(self, chain_name, step_number):
+        try:
+            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+                responses = json.load(f)
+            return responses.get(str(step_number))
+        except:
+            return ""
+
     def format_prompt(
         self,
         task: str = "",
@@ -65,21 +74,6 @@ class AGiXT:
                 prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
             except:
                 prompt = prompt
-        if "{STEP" in prompt_content:
-            # get the step number from the prompt content
-            step_number = int(
-                prompt_content[
-                    prompt_content.find("{STEP") + 5 : prompt_content.find("}")
-                ]
-            )
-            # get the response from the step number
-            step_response = self.get_step_response(
-                chain_name=chain_name, step_number=step_number
-            )
-            # replace the {STEPx} with the response
-            prompt_content = prompt_content.replace(
-                f"{{STEP{step_number}}}", step_response
-            )
         if top_results == 0:
             context = "None"
         else:
@@ -100,6 +94,15 @@ class AGiXT:
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
+        if "{STEP" in formatted_prompt:
+            # get the response from the step number
+            step_response = self.get_step_response(
+                chain_name=chain_name, step_number=step_number
+            )
+            # replace the {STEPx} with the response
+            formatted_prompt = formatted_prompt.replace(
+                f"{{STEP{step_number}}}", step_response
+            )
         if not self.nlp:
             self.load_spacy_model()
         tokens = len(self.nlp(formatted_prompt))
