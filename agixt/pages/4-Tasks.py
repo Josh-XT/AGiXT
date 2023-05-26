@@ -20,7 +20,8 @@ if agent_name:
     task_list_dir = Path(f"agents/{agent_name}")
     task_list_dir.mkdir(parents=True, exist_ok=True)
     existing_tasks = task_agent.get_tasks_files()
-
+    status = task_agent.get_status()
+    agent_status = "Not Running" if status == False else "Running"
     load_task = st.selectbox(
         "Load Task",
         options=[""] + existing_tasks,
@@ -30,8 +31,6 @@ if agent_name:
     col1, col2 = st.columns([3, 1])
     with col1:
         columns = st.columns([3, 2])
-        agent_status = st.session_state.agent_status.get(agent_name, "Not Running")
-
         if st.button("Start Task", key=f"start_{agent_name}"):
             if agent_name and (task_objective or load_task):
                 task_agent.run_task(
@@ -51,6 +50,4 @@ if agent_name:
             st.experimental_rerun()
 
     with col2:
-        st.markdown(
-            f"**Status:** {st.session_state.agent_status.get(agent_name, 'Not Running')}"
-        )
+        st.markdown(f"**Status:** {agent_status}")
