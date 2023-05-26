@@ -74,12 +74,12 @@ cryptography = "38.0.4"
 
 
 #### For local providers
-torch = { version = "*", source = "pytorch.org" }
-transformers = "^4.29.2"
-sentence-transformers = "*"
-llama-cpp-python = "*"
-accelerate = "*"
-nomic = "*"
+torch = { version = "*", source = "pytorch.org", optional = true}
+transformers = { version = "^4.29.2", optional = true }
+sentence-transformers = { version = "^2.2.2", optional = true }
+llama-cpp-python = { version = "^0.1.55", optional = true }
+accelerate = { version = "^0.19.0", optional = true } 
+nomic = { version = "^1.1.0", optional = true } 
 
 
 [tool.poetry.group.gpt4free]
@@ -87,6 +87,10 @@ optional = true
 
 [tool.poetry.group.gpt4free.dependencies]
 gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "6598265e2bf46ce1054736cd64db9ff42a358331" }
+
+
+[tool.poetry.extras]
+brainz = ["torch", "transformers", "sentence-transformers", "llama-cpp-python", "accelerate", "nomic"]
 
 
 [[tool.poetry.source]]
