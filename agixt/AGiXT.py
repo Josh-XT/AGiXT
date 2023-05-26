@@ -490,7 +490,9 @@ class AGiXT:
                                         if not pick_a_link.startswith("None"):
                                             await resursive_browsing(task, pick_a_link)
                                     except:
-                                        logging.info(f"Issues reading {url}. Moving on...")
+                                        logging.info(
+                                            f"Issues reading {url}. Moving on..."
+                                        )
 
         results = self.run(task=task, prompt="WebSearch")
         results = results.split("\n")
