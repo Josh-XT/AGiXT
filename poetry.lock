@@ -6236,12 +6236,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-<<<<<<< HEAD
-<<<<<<< HEAD
-content-hash = "e97383d49abd98eb15c7cf43b2b047bc21923aee2654023bae73d2ad39165457"
-=======
 content-hash = "c03734d59f15f53ceb5f6615fbee2fedd30e1470258bcac61a9bad4e3a50398a"
->>>>>>> 116c941 (add gpt4free as optional)
-=======
-content-hash = "d03d0b7835b99fd805a6ad34596889ccb351cfd58d09ab97cfe84d4a55804d5b"
->>>>>>> a5825eb (use package version for transformers)
