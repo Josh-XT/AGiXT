@@ -4,6 +4,7 @@ import os
 import subprocess
 import docker
 from docker.errors import ImageNotFound
+import logging
 
 CFG = Config()
 
@@ -16,7 +17,7 @@ class execute_code(Commands):
         }
 
     def execute_python_file(self, file: str):
-        print(f"Executing file '{file}' in workspace '{CFG.WORKING_DIRECTORY}'")
+        logging.info(f"Executing file '{file}' in workspace '{CFG.WORKING_DIRECTORY}'")
 
         if not file.endswith(".py"):
             return "Error: Invalid file type. Only .py files are allowed."
@@ -41,9 +42,9 @@ class execute_code(Commands):
             image_name = "python:3.10"
             try:
                 client.images.get(image_name)
-                print(f"Image '{image_name}' found locally")
+                logging.info(f"Image '{image_name}' found locally")
             except ImageNotFound:
-                print(
+                logging.info(
                     f"Image '{image_name}' not found locally, pulling from Docker Hub"
                 )
                 low_level_client = docker.APIClient()
@@ -51,9 +52,9 @@ class execute_code(Commands):
                     status = line.get("status")
                     progress = line.get("progress")
                     if status and progress:
-                        print(f"{status}: {progress}")
+                        logging.info(f"{status}: {progress}")
                     elif status:
-                        print(status)
+                        logging.info(status)
 
             container = client.containers.run(
                 image_name,
@@ -82,7 +83,7 @@ class execute_code(Commands):
     def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
         os.chdir(current_dir)
-        print(
+        logging.info(
             f"Executing command '{command_line}' in working directory '{os.getcwd()}'"
         )
         result = subprocess.run(command_line, capture_output=True, shell=True)

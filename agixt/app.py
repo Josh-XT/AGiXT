@@ -13,6 +13,7 @@ from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
 import os
+import logging
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
@@ -245,7 +246,7 @@ async def toggle_command(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
             )
     except Exception as e:
-        print(e)
+        logging.info(e)
         raise HTTPException(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
