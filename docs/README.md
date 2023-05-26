@@ -96,7 +96,7 @@ Clone the repository for the AGiXT back end and start it.
 ```
 git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 pip install poetry
-poetry install
+poetry install --with gpt4free
 playwright install
 cd agixt && streamlit run Main.py
 ```
