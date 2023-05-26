@@ -26,9 +26,9 @@ class searxng_commands(Commands):
             searx = self.searx_servers()
             # Pick a random searx server to use since one was not defined.
             random_index = random.randint(0, len(searx) - 1)
-            searx_url = searx[random_index].rstrip("/")
+            self.SEARXNG_INSTANCE_URL = searx[random_index].rstrip("/")
         else:
-            searx_url = self.SEARXNG_INSTANCE_URL.rstrip("/")
+            self.SEARXNG_INSTANCE_URL = self.SEARXNG_INSTANCE_URL.rstrip("/")
         payload = {
             "q": query,
             "categories": category,
@@ -36,7 +36,7 @@ class searxng_commands(Commands):
             "safesearch": 1,
             "format": "json",
         }
-        response = requests.get(f"{searx_url}/search", params=payload)
+        response = requests.get(f"{self.SEARXNG_INSTANCE_URL}/search", params=payload)
         results = response.json()
         summaries = [
             result["title"] + " - " + result["url"] for result in results["results"]
