@@ -75,7 +75,7 @@ cryptography = "38.0.4"
 
 #### For local providers
 torch = { version = "*", source = "pytorch.org" }
-transformers = { git = "https://github.com/huggingface/transformers", tag = "v4.29.2" }
+transformers = "^4.29.2"
 sentence-transformers = "*"
 llama-cpp-python = "*"
 accelerate = "*"
