@@ -11,7 +11,7 @@ class searxng_commands(Commands):
         self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
         self.commands = {"Use The Search Engine": self.search_searx}
 
-    def searx_servers():
+    def searx_servers(self):
         try:  # SearXNG - List of these at https://searx.space/
             url = "https://searx.space/data/instances.json"
             response = requests.get(url)
