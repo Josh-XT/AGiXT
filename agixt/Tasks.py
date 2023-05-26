@@ -36,7 +36,7 @@ class Tasks:
             print(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
-        if self.task_list:
+        if self.task_list != deque([]) and self.output_list != []:
             return True
         else:
             return False
