@@ -1,4 +1,5 @@
 import re
+import os
 import asyncio
 import regex
 import json
@@ -7,8 +8,10 @@ import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from duckduckgo_search import ddg
+from duckduckgo_search import DDGS
 from urllib.parse import urlparse
+
+ddgs = DDGS()
 
 
 class AGiXT:
@@ -46,18 +49,31 @@ class AGiXT:
         result = re.sub(pattern, replace, string)
         return result
 
+    def get_step_response(self, chain_name, step_number):
+        try:
+            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+                responses = json.load(f)
+            return responses.get(str(step_number))
+        except:
+            return ""
+
     def format_prompt(
         self,
-        task: str,
+        task: str = "",
         top_results: int = 5,
         prompt="",
+        chain_name="",
+        step_number=0,
         **kwargs,
     ):
         cp = CustomPrompt()
         if prompt == "":
             prompt = task
         else:
-            prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
+            try:
+                prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
+            except:
+                prompt = prompt
         if top_results == 0:
             context = "None"
         else:
@@ -78,9 +94,19 @@ class AGiXT:
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
+        if "{STEP" in formatted_prompt:
+            # get the response from the step number
+            step_response = self.get_step_response(
+                chain_name=chain_name, step_number=step_number
+            )
+            # replace the {STEPx} with the response
+            formatted_prompt = formatted_prompt.replace(
+                f"{{STEP{step_number}}}", step_response
+            )
         if not self.nlp:
             self.load_spacy_model()
         tokens = len(self.nlp(formatted_prompt))
+        print(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
 
     def run(
@@ -92,8 +118,11 @@ class AGiXT:
         websearch_depth: int = 3,
         async_exec: bool = False,
         learn_file: str = "",
+        chain_name: str = "",
+        step_number: int = 0,
         **kwargs,
     ):
+        print(f"KWARGS: {kwargs}")
         if learn_file != "":
             learning_file = self.agent.memories.read_file(file_path=learn_file)
             if learning_file == False:
@@ -102,6 +131,8 @@ class AGiXT:
             task=task,
             top_results=context_results,
             prompt=prompt,
+            chain_name=chain_name,
+            step_number=step_number,
             **kwargs,
         )
         if websearch:
@@ -464,6 +495,14 @@ class AGiXT:
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")
-            links = ddg(search_string, max_results=depth)
+            try:
+                links = ddgs.text(search_string)
+                if len(links) > depth:
+                    links = links[:depth]
+            except:
+                print(
+                    "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
+                )
+                links = None
             if links is not None:
                 await resursive_browsing(task, links)
