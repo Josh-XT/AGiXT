@@ -1097,13 +1097,13 @@ requests = ">=2.31.0"
 
 [[package]]
 name = "edgegpt"
-version = "0.6.4"
+version = "0.6.5"
 description = "Reverse engineered Edge Chat API"
 optional = false
 python-versions = "*"
 files = [
-    {file = "EdgeGPT-0.6.4-py3-none-any.whl", hash = "sha256:a4277d8166982f40bdfc06968dbb125538fe8deb4790221a6abb8999ce5b205d"},
-    {file = "EdgeGPT-0.6.4.tar.gz", hash = "sha256:fd2e6990a80b078a67886cfca4f4b9d54c2b934b01d9f98a2cd2d62ece4f9e5c"},
+    {file = "EdgeGPT-0.6.5-py3-none-any.whl", hash = "sha256:87aaae84219a56bfd642ec9d3d2235cee0109f8403df974fd0d009071052b732"},
+    {file = "EdgeGPT-0.6.5.tar.gz", hash = "sha256:2350c338c1e453862efff1102e4425f621067ae072e8d758251f536800308726"},
 ]
 
 [package.dependencies]
@@ -1505,19 +1505,19 @@ requests = ["requests (>=2.20.0,<3.0.0dev)"]
 
 [[package]]
 name = "google-auth"
-version = "2.18.1"
+version = "2.19.0"
 description = "Google Authentication Library"
 optional = false
-python-versions = ">=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*"
+python-versions = ">=3.6"
 files = [
-    {file = "google-auth-2.18.1.tar.gz", hash = "sha256:d7a3249027e7f464fbbfd7ee8319a08ad09d2eea51578575c4bd360ffa049ccb"},
-    {file = "google_auth-2.18.1-py2.py3-none-any.whl", hash = "sha256:55a395cdfd3f3dd3f649131d41f97c17b4ed8a2aac1be3502090c716314e8a37"},
+    {file = "google-auth-2.19.0.tar.gz", hash = "sha256:f39d528077ac540793dd3c22a8706178f157642a67d874db25c640b7fead277e"},
+    {file = "google_auth-2.19.0-py2.py3-none-any.whl", hash = "sha256:be617bfaf77774008e9d177573f782e109188c8a64ae6e744285df5cea3e7df6"},
 ]
 
 [package.dependencies]
 cachetools = ">=2.0.0,<6.0"
 pyasn1-modules = ">=0.2.1"
-rsa = {version = ">=3.1.4,<5", markers = "python_version >= \"3.6\""}
+rsa = ">=3.1.4,<5"
 six = ">=1.9.0"
 urllib3 = "<2.0"
 
@@ -1827,13 +1827,13 @@ grpc = ["grpcio (>=1.44.0,<2.0.0dev)"]
 
 [[package]]
 name = "googlebard"
-version = "1.1.1"
+version = "1.1.3"
 description = "Reverse engineering of Google's Bard chatbot"
 optional = false
 python-versions = "*"
 files = [
-    {file = "GoogleBard-1.1.1-py3-none-any.whl", hash = "sha256:b668213848b30571a09a64f65d90338359bba3b0697f278fa4fc8998f833fc43"},
-    {file = "GoogleBard-1.1.1.tar.gz", hash = "sha256:7f0334d213f7bb4926e604030ba70fc1aadd73811821a87a138f01b5653bdb00"},
+    {file = "GoogleBard-1.1.3-py3-none-any.whl", hash = "sha256:287e2d923f183c44e0ef2533daa0825e1072acc49ecd917b16e4524ccbfeb8fe"},
+    {file = "GoogleBard-1.1.3.tar.gz", hash = "sha256:29d6f151b071cc566f1730dbbc0adac091f71bec147a69a077d53e23c2fe848d"},
 ]
 
 [package.dependencies]
@@ -1873,9 +1873,9 @@ websocket-client = "^1.5.1"
 
 [package.source]
 type = "git"
-url = "https://github.com/localagi/gpt4free"
-reference = "patch-1"
-resolved_reference = "64e88c5090d326123a1bce2ea56d9fb2ef513b30"
+url = "https://github.com/xtekky/gpt4free"
+reference = "e35264d"
+resolved_reference = "e35264d3db5dcc6a0e5ff5a4626e658aa9cb9251"
 
 [[package]]
 name = "greenlet"
@@ -2300,13 +2300,13 @@ testing = ["flake8 (<5)", "flufl.flake8", "importlib-resources (>=1.3)", "packag
 
 [[package]]
 name = "instructorembedding"
-version = "1.0.0"
+version = "1.0.1"
 description = "Text embedding tool"
 optional = false
 python-versions = "*"
 files = [
-    {file = "InstructorEmbedding-1.0.0-py2.py3-none-any.whl", hash = "sha256:f73e0f1fa3649329a70f29fc5abe7d03bac96429c4e2704df8c77d6970b4bc32"},
-    {file = "InstructorEmbedding-1.0.0.tar.gz", hash = "sha256:d68f51bcfcc98afd556ba40249790eccaf928440f8a002a178fb6bf31858eb02"},
+    {file = "InstructorEmbedding-1.0.1-py2.py3-none-any.whl", hash = "sha256:c8d0c11d0bab3ede023104e1f3de6a3471bf71208cc272d1ef72bae771e7d1a3"},
+    {file = "InstructorEmbedding-1.0.1.tar.gz", hash = "sha256:886495ddd561bad57e8e7d5e8ee44c4243b1d80b538a25d32d37350f6082ee62"},
 ]
 
 [[package]]
@@ -4348,13 +4348,13 @@ six = ">=1.7.0"
 
 [[package]]
 name = "revchatgpt"
-version = "5.1.2"
+version = "5.1.3"
 description = "ChatGPT is a reverse engineering of OpenAI's ChatGPT API"
 optional = false
 python-versions = "*"
 files = [
-    {file = "revChatGPT-5.1.2-py3-none-any.whl", hash = "sha256:5e00be7369b555668ea402cc94438efbc68f0db2794d41f62cfc9ec715a55bec"},
-    {file = "revChatGPT-5.1.2.tar.gz", hash = "sha256:b1be19ea6f0abb265a2eab8e32f497bc36e7ce921ea1ef40490829d9c7ba6b64"},
+    {file = "revChatGPT-5.1.3-py3-none-any.whl", hash = "sha256:5cd059edec58b383c5e8403b4cce87c0aaa15ac1ed0424d8c502d20e5686caba"},
+    {file = "revChatGPT-5.1.3.tar.gz", hash = "sha256:c04972297b2b76b4558a21d17053dfcadb236f17517a93eedbca62336331e55b"},
 ]
 
 [package.dependencies]
@@ -4989,7 +4989,7 @@ snowflake = ["snowflake-snowpark-python"]
 [[package]]
 name = "streamlit-chat"
 version = "0.0.2.2"
-description = ""
+description = "A streamlit component, to make chatbots"
 optional = false
 python-versions = ">=3.8"
 files = []
@@ -6240,4 +6240,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "4f2401dcbce35288f186dd7ce8e958a1e6c5fd5fe32467a7bedbce328e3bc4fd"
+content-hash = "2d8998ad8ffc06b1f9b07e5b0530c64e7fad005022755526b7584e022370a673"

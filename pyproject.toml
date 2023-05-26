@@ -56,7 +56,7 @@ tweepy = "*"
 webdriver_manager = "*"
 spacy = "*"
 discord = "*"
-gpt4free = { git = "https://github.com/localagi/gpt4free", branch = "patch-1" }
+gpt4free = { git = "https://github.com/xtekky/gpt4free", rev = "e35264d" }
 EdgeGPT = "*"
 google-generativeai = "*"
 google-cloud-aiplatform = "*"
