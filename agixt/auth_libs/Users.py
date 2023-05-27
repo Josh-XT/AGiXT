@@ -4,6 +4,7 @@ import bcrypt
 import streamlit as st
 from auth_libs.Cfig import Cfig
 import auth_libs.Redirect as redir
+import logging
 
 CFIG = Cfig()
 
@@ -103,8 +104,8 @@ def check_auth_status():
     ):
         # Redirect to the login page if not
         # redir.nav_page("Login")
-        print("Not logged in")
+        logging.info("Not logged in")
     else:
         if CFIG.load_config()["auth_setup"] == "True":
-            print("Logged in")
+            logging.info("Logged in")
             # logout_button()

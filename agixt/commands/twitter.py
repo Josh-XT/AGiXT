@@ -1,5 +1,6 @@
 import tweepy
 from Commands import Commands
+import logging
 
 
 class twitter(Commands):
@@ -29,6 +30,6 @@ class twitter(Commands):
         # Send tweet
         try:
             api.update_status(tweet_text)
-            print("Tweet sent successfully!")
+            logging.info("Tweet sent successfully!")
         except tweepy.TweepyException as e:
-            print("Error sending tweet: {}".format(e.reason))
+            logging.info("Error sending tweet: {}".format(e.reason))

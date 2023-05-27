@@ -11,6 +11,7 @@ import docx2txt
 import pdfplumber
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
+import logging
 
 
 class Memories:
@@ -56,7 +57,7 @@ class Memories:
                 name="memories", embedding_function=self.embedding_function
             )
         except ValueError:
-            print(f"Memories for {self.agent_name} do not exist. Creating...")
+            logging.info(f"Memories for {self.agent_name} do not exist. Creating...")
             return self.chroma_client.create_collection(
                 name="memories", embedding_function=self.embedding_function
             )
@@ -75,7 +76,7 @@ class Memories:
                 metadatas=metadatas,
             )
         except Exception as e:
-            print(f"Failed to store memory: {e}")
+            logging.info(f"Failed to store memory: {e}")
 
     def store_result(self, task_name: str, result: str):
         if not self.chroma_client:
@@ -124,7 +125,7 @@ class Memories:
         # Need to research to find out how to do this locally instead of sending more shots to the AI.
         context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
-        print(f"CONTEXT: {trimmed_context}")
+        logging.info(f"CONTEXT: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
         response = f"Context: {context_str}\n\n"
         return response

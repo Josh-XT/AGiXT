@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import logging
 
 try:
     from llama_cpp import Llama
@@ -49,7 +50,7 @@ class LlamacppProvider:
                 n_ctx=max_tokens,
             )
         else:
-            print("Unable to find model path.")
+            logging.info("Unable to find model path.")
             return None
         response = self.model(
             prompt,

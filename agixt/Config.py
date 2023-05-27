@@ -1,5 +1,11 @@
 import os
 import glob
+import logging
+
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 
 class Config:

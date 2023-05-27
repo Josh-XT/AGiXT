@@ -4,6 +4,7 @@ from AGiXT import AGiXT
 import argparse
 from CustomPrompt import CustomPrompt
 from Commands import Commands
+import logging
 
 
 class Chain:
@@ -77,11 +78,11 @@ class Chain:
 
     def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name)
-        print(f"Running chain '{chain_name}'")
+        logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
-                print(f"Running step {step_data['step']}")
+                logging.info(f"Running step {step_data['step']}")
                 step_response = self.run_chain_step(
                     step_data, chain_name
                 )  # Get the response of the current step.
@@ -118,7 +119,7 @@ class Chain:
         return prompt_content
 
     def run_chain_step(self, step, chain_name):
-        print(step)
+        logging.info(step)
         if step:
             if "prompt_type" in step:
                 prompt_type = step["prompt_type"]
