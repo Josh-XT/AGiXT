@@ -235,6 +235,7 @@ async def toggle_command(
                 message=f"All commands enabled for agent '{agent_name}'."
             )
         else:
+            logging.info(f"patching single command {payload.command_name} to {payload.enable}")
             commands = Commands(agent_name)
             commands.agent_config["commands"][payload.command_name] = payload.enable
             agent.update_agent_config(commands.agent_config["commands"], "commands")
