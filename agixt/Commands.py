@@ -2,6 +2,7 @@ import importlib
 import os
 import glob
 from inspect import signature, Parameter
+import logging
 
 
 class Commands:
@@ -86,6 +87,7 @@ class Commands:
                             )
                         )
         # Return the commands list
+        logging.debug(f"loaded commands: {commands}")
         return commands
 
     def get_extension_settings(self):
