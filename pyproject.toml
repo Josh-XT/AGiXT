@@ -74,7 +74,7 @@ cryptography = "38.0.4"
 
 
 #### For local providers
-torch = { version = "*", source = "pytorch.org" }
+torch = "2.0.1"
 transformers = "^4.29.2"
 sentence-transformers = "*"
 llama-cpp-python = "*"
@@ -87,10 +87,4 @@ optional = true
 
 [tool.poetry.group.gpt4free.dependencies]
 gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "6598265e2bf46ce1054736cd64db9ff42a358331" }
-
-
-[[tool.poetry.source]]
-name = "pytorch.org"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
 
