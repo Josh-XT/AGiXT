@@ -215,9 +215,8 @@ async def smartchat(agent_name: str, shots: int, prompt: Prompt):
 
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
 async def get_commands(agent_name: str):
-    commands = Commands(agent_name)
-    available_commands = commands.get_available_commands()
-    return {"commands": available_commands}
+    agent = Agent(agent_name)
+    return {"commands": agent.agent_config["commands"]}
 
 
 @app.patch("/api/agent/{agent_name}/command", tags=["Agent"])
@@ -225,19 +224,19 @@ async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
     agent = Agent(agent_name)
+    print(payload)
     try:
         if payload.command_name == "*":
-            commands = Commands(agent_name)
-            for each_command_name in commands.agent_config["commands"]:
-                commands.agent_config["commands"][each_command_name] = payload.enable
-            agent.update_agent_config(commands.agent_config["commands"], "commands")
+            for each_command_name in agent.agent_config["commands"]:
+                agent.agent_config["commands"][each_command_name] = payload.enable
+
+            agent.update_agent_config(agent.agent_config["commands"], "commands")
             return ResponseMessage(
                 message=f"All commands enabled for agent '{agent_name}'."
             )
         else:
-            commands = Commands(agent_name)
-            commands.agent_config["commands"][payload.command_name] = payload.enable
-            agent.update_agent_config(commands.agent_config["commands"], "commands")
+            agent.agent_config["commands"][payload.command_name] = payload.enable
+            agent.update_agent_config(agent.agent_config["commands"], "commands")
             return ResponseMessage(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
             )
