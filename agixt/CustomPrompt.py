@@ -10,8 +10,6 @@ class CustomPrompt:
         if not os.path.exists(os.path.join("prompts", f"{prompt_name}.txt")):
             with open(os.path.join("prompts", f"{prompt_name}.txt"), "w") as f:
                 f.write(prompt)
-        else:
-            raise Exception("Prompt already exists")
 
     def get_prompt(self, prompt_name, model="default"):
         try:
