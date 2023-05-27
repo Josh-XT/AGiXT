@@ -12,14 +12,17 @@ from CustomPrompt import CustomPrompt
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
-import os
+import importlib.metadata
 import logging
+
+def get_version():
+  importlib.metadata.version('AGiXT')
 
 CFG = Config()
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
-    version="1.0.0",  # API version according to https://restfulapi.net/versioning/
+    version=get_version(),
     docs_url="/",
 )
 agent_threads = {}
