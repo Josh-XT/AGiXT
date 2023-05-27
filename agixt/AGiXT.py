@@ -110,7 +110,7 @@ class AGiXT:
 
     def run(
         self,
-        task: str,
+        task: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
@@ -500,7 +500,13 @@ class AGiXT:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             try:
-                links = searxng_commands().search_searx(search_string)
+                searx_server = self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+            except:
+                searx_server = ""
+            try:
+                links = searxng_commands(
+                    SEARXNG_INSTANCE_URL=searx_server
+                ).search_searx(search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:

@@ -63,8 +63,6 @@ class file_operations(Commands):
             return f"Error: {str(e)}"
 
     def write_to_file(self, filename: str, text: str) -> str:
-        if file_operations.check_duplicate_operation("write", filename):
-            return "Error: File has already been updated."
         try:
             filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
             directory = os.path.dirname(filepath)
@@ -86,8 +84,6 @@ class file_operations(Commands):
             return f"Error: {str(e)}"
 
     def delete_file(self, filename: str) -> str:
-        if file_operations.check_duplicate_operation("delete", filename):
-            return "Error: File has already been deleted."
         try:
             filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
             os.remove(filepath)
