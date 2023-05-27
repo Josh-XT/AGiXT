@@ -15,16 +15,14 @@ on:
 
 jobs:
   build-agixt:
-    uses: localagi/ai-pipeline/.github/workflows/operation-docker-build-publish.yml@main
+    uses: localagi/AI-pipeline/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-repo-name: AGiXT
-      context-repository: Josh-XT/AGiXT
-      context-repository-ref: ${{ github.ref }}
       registry-readme: ./docs/README.md
       tags: |
         type=schedule
         type=ref,event=branch
         type=semver,pattern={{version}}
-      platforms: linux/amd64,linux/arm64/v8
+      #platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
