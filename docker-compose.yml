@@ -1,35 +1,12 @@
 version: "3.8"
 services:
-  frontend:
-    image: ghcr.io/jamesonrgrieve/agent-llm-frontend:main
-    init: true
-    environment:
-      NEXT_PUBLIC_API_URI: ${NEXT_PUBLIC_API_URI:-http://backend:7437}
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    profiles: [ "all", "frontend" ]
-
-  backend:
-    image: joshxt/agixt:main
-    init: true
-    ports:
-      - "7437:7437"
-    volumes:
-      - ./xtagi/agents:/xtagi/agents:rw
-      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
-      - ./xtagi/models:/xtagi/model:rw
-    profiles: [ "all", "backend", "frontend" ]
-
-  backend-streamlit:
-    image: joshxt/agixt:main
-    entrypoint: [ "streamlit", "run", "Main.py" ]
+  agixt:
+    image: joshxt/agixt:${AGIXT_VERSION:-main}
+    entrypoint: [ "poetry", "run", "streamlit", "run", "Main.py" ]
     init: true
     ports:
       - "8501:8501"
     volumes:
-      - ./xtagi/agents:/xtagi/agents:rw
-      - ./xtagi/workspace:/xtagi/WORKSPACE:rw
-      - ./xtagi/models:/xtagi/model:rw
-    profiles: [ "all", "streamlit" ]
+      - ./agixt/agixt/agents:/agixt/agixt/agents:rw
+      - ./agixt/agixt/workspace:/agixt/agix/WORKSPACE:rw
+      - ./models:/model:rw

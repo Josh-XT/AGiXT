@@ -8,11 +8,9 @@ import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from duckduckgo_search import DDGS
+from commands.searxng_commands import searxng_commands
 from urllib.parse import urlparse
 import logging
-
-ddgs = DDGS()
 
 
 class AGiXT:
@@ -112,7 +110,7 @@ class AGiXT:
 
     def run(
         self,
-        task: str,
+        task: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
@@ -464,7 +462,10 @@ class AGiXT:
             if links is not None:
                 for link in links:
                     if "href" in link:
-                        url = link["href"]
+                        try:
+                            url = link["href"]
+                        except:
+                            url = link
                     else:
                         url = link
                     url = re.sub(r"^.*?(http)", r"http", url)
@@ -499,13 +500,16 @@ class AGiXT:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             try:
-                links = ddgs.text(search_string)
+                searx_server = self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+            except:
+                searx_server = ""
+            try:
+                links = searxng_commands(
+                    SEARXNG_INSTANCE_URL=searx_server
+                ).search_searx(search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:
-                logging.info(
-                    "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
-                )
                 links = None
             if links is not None:
                 await resursive_browsing(task, links)
