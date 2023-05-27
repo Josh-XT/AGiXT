@@ -74,7 +74,12 @@ cryptography = "38.0.4"
 
 
 #### For local providers
-torch = { version = "*", source = "pytorch.org" }
+## see https://pytorch.org/get-started/locally/ for weird torch combinations
+## this installs all cpu versions for pytorch on lin, win, mac/arm64
+torch = [
+  { markers = "platform_machine == 'x86_64' and sys_platform == 'linux'", version = "2.0.1", source = "pytorch.org" },
+  { markers = "platform_machine == 'arm64' or sys_platform == 'win32'", version = "2.0.1" }
+]
 transformers = "^4.29.2"
 sentence-transformers = "*"
 llama-cpp-python = "*"
