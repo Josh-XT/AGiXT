@@ -110,7 +110,7 @@ class AGiXT:
 
     def run(
         self,
-        task: str,
+        task: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
