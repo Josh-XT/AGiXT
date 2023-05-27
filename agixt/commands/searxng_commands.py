@@ -1,4 +1,3 @@
-# pip install searx
 import json
 import random
 import requests
@@ -21,7 +20,7 @@ class searxng_commands(Commands):
         except:
             return ["https://searx.work"]
 
-    def search_searx(self, query: str, category: str = "general") -> List[str]:
+    def search_searx(self, query: str) -> List[str]:
         if self.SEARXNG_INSTANCE_URL == "":
             searx = self.searx_servers()
             # Pick a random searx server to use since one was not defined.
@@ -31,7 +30,6 @@ class searxng_commands(Commands):
             self.SEARXNG_INSTANCE_URL = self.SEARXNG_INSTANCE_URL.rstrip("/")
         payload = {
             "q": query,
-            "categories": category,
             "language": "en",
             "safesearch": 1,
             "format": "json",
