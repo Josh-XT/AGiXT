@@ -99,8 +99,14 @@ pip install poetry
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 poetry install --with gpt4free
 playwright install
-cd agixt && streamlit run Main.py
+cd agixt
 ```
+#### Run Streamlit 
+`poetry run streamlit run Main.py`
+
+#### Run REST
+`poetry run uvicorn app:app --port 7437`
+
 
 Access the web interface at http://localhost:8501
 
