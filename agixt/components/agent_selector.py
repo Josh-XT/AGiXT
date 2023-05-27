@@ -2,6 +2,7 @@ import streamlit as st
 from Config import Config
 from Agent import Agent
 import os
+import logging
 
 
 def agent_selector():
@@ -40,7 +41,7 @@ def agent_selector():
             try:
                 st.experimental_rerun()
             except Exception as e:
-                print(e)
+                logging.info(e)
         if selected_agent != "":
             agent = Agent(selected_agent)
         else:

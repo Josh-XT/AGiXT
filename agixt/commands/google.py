@@ -2,6 +2,7 @@ from typing import Union, List
 import json
 from duckduckgo_search import DDGS
 from Commands import Commands
+import logging
 
 ddgs = DDGS()
 
@@ -25,7 +26,7 @@ class google(Commands):
             if len(results) > num_results:
                 results = results[:num_results]
         except:
-            print(
+            logging.info(
                 "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
             )
             results = None

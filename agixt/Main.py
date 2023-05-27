@@ -2,7 +2,6 @@
 import streamlit as st
 from components.agent_selector import agent_selector
 
-
 st.set_page_config(
     page_title="AGiXT",
     page_icon=":robot:",

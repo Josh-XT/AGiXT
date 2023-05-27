@@ -71,7 +71,7 @@ class web_selenium(Commands):
                 )
                 submit_button.click()
         except:
-            print("No captcha found")
+            logging.info("No captcha found")
         page_source = driver.execute_script("return document.body.outerHTML;")
         soup = BeautifulSoup(page_source, "html.parser")
 

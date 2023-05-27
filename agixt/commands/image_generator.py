@@ -6,6 +6,7 @@ import openai
 import requests
 from PIL import Image
 from Commands import Commands
+import logging
 
 
 class image_generator(Commands):
@@ -42,7 +43,7 @@ class image_generator(Commands):
         )
 
         image = Image.open(BytesIO(response.content))
-        print(f"Image Generated for prompt:{prompt}")
+        logging.info(f"Image Generated for prompt:{prompt}")
 
         image.save(os.path.join(self.WORKING_DIRECTORY, filename))
 
@@ -58,7 +59,7 @@ class image_generator(Commands):
             response_format="b64_json",
         )
 
-        print(f"Image Generated for prompt:{prompt}")
+        logging.info(f"Image Generated for prompt:{prompt}")
 
         image_data = b64decode(response["data"][0]["b64_json"])
 

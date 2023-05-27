@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 from Commands import Commands
 from Config import Config
+import logging
 
 CFG = Config()
 
@@ -38,7 +39,7 @@ class discord_commands(Commands):
 
                 @self.bot.event
                 async def on_ready():
-                    print(f"{self.bot.user.name} is ready")
+                    logging.info(f"{self.bot.user.name} is ready")
 
                 @self.bot.event
                 async def on_command_error(ctx, error):
