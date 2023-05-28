@@ -2,7 +2,7 @@ import streamlit as st
 import auth_libs.Redirect as redir
 from Config import Config
 from Chain import Chain
-from Commands import Commands
+from Extensions import Extensions
 from Agent import Agent
 from CustomPrompt import CustomPrompt
 from auth_libs.Users import check_auth_status
@@ -105,7 +105,7 @@ if selected_chain_name:
         if modify_prompt_type == "Command":
             available_commands = [
                 cmd["friendly_name"]
-                for cmd in Commands(agent_config).get_enabled_commands()
+                for cmd in Extensions(agent_config).get_enabled_commands()
             ]
             command_name = st.selectbox(
                 "Select Command",
@@ -117,7 +117,7 @@ if selected_chain_name:
             )
 
             if command_name:
-                command_args = Commands(agent_config).get_command_args(command_name)
+                command_args = Extensions(agent_config).get_command_args(command_name)
                 formatted_command_args = ", ".join(
                     [
                         f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
@@ -200,7 +200,7 @@ if selected_chain_name:
         agent_config = Agent(agent_name).agent_config
         available_commands = [
             cmd["friendly_name"]
-            for cmd in Commands(agent_config).get_enabled_commands()
+            for cmd in Extensions(agent_config).get_enabled_commands()
         ]
         command_name = st.selectbox(
             "Select Command",
@@ -209,7 +209,7 @@ if selected_chain_name:
         )
 
         if command_name:
-            command_args = Commands(agent_config).get_command_args(command_name)
+            command_args = Extensions(agent_config).get_command_args(command_name)
             formatted_command_args = ", ".join(
                 [
                     f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
