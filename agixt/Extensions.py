@@ -122,7 +122,7 @@ class Extensions:
 
     def find_command(self, command_name: str):
         for name, module, function_name, params in self.commands:
-            if function_name == command_name:
+            if name == command_name:
                 command_function = getattr(module, function_name)
                 return command_function, module, params  # Updated return statement
         return None, None, None  # Updated return statement
@@ -133,7 +133,7 @@ class Extensions:
         return commands_list
 
     def execute_command(self, command_name: str, command_args: dict = None):
-        command_function, module, params = self.find_command(command_name)
+        command_function, module, params = self.find_command(command_name=command_name)
         if command_function is None:
             logging.info("|")
             logging.info(
