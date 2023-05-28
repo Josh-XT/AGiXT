@@ -14,8 +14,22 @@ on:
   workflow_dispatch:
 
 jobs:
+
+  select-platforms:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.platform-selector.outputs.platforms }}
+    steps:
+      - id: platform-selector
+        run: |
+          if  ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }} ; then
+            echo "platforms=linux/amd64,linux/arm64/v8" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
+        
   build-agixt:
-    uses: localagi/AI-pipeline/.github/workflows/operation-docker-build-publish.yml@v4
+    uses: localagi/AI-pipeline/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-dockerhub-enable: ${{ github.event_name != 'pull_request' }}
       registry-repo-name: AGiXT
@@ -24,9 +38,11 @@ jobs:
         type=schedule
         type=ref,event=branch
         type=semver,pattern={{version}}
-      platforms: linux/amd64,linux/arm64/v8
+        type=ref,event=pr
+      platforms: ${{ needs.select-platforms.outputs.platforms }}
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    needs: select-platforms
 
   test-agixt:
     uses: localagi/AI-pipeline/.github/workflows/operation-test-with-jupyter.yml@v4
