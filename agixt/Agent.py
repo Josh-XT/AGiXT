@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
     "LOG_REQUESTS": False,
 }
 
+
 class Agent:
     def __init__(self, agent_name=None):
         # General Configuration
@@ -68,12 +69,16 @@ class Agent:
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
         if self.LOG_REQUESTS:
-            Path(os.path.join(
-                "agents", self.agent_name, "requests",
-            )).mkdir(parents=True, exist_ok=True)
+            Path(
+                os.path.join(
+                    "agents",
+                    self.agent_name,
+                    "requests",
+                )
+            ).mkdir(parents=True, exist_ok=True)
 
     def instruct(self, prompt, tokens):
-        if (not prompt):
+        if not prompt:
             return ""
         answer = self.PROVIDER.instruct(prompt, tokens)
         if self.LOG_REQUESTS:
@@ -87,7 +92,7 @@ class Agent:
             ) as f:
                 f.write(f"{prompt}\n{answer}")
         return answer
-    
+
     def _load_agent_config_keys(self, keys):
         for key in keys:
             if key in self.AGENT_CONFIG:
@@ -172,10 +177,12 @@ class Agent:
             or provider_settings == {}
         ):
             provider_settings = DEFAULT_SETTINGS
-        settings = json.dumps({
-            "commands": commands,
-            "settings": provider_settings,
-        })
+        settings = json.dumps(
+            {
+                "commands": commands,
+                "settings": provider_settings,
+            }
+        )
 
         # Check and create agent directory if it doesn't exist
         if not os.path.exists(agent_dir):
@@ -229,16 +236,16 @@ class Agent:
     def add_agent(self, agent_name, provider_settings):
         if not agent_name:
             return "Agent name cannot be empty."
-        provider_settings = DEFAULT_SETTINGS if not provider_settings else provider_settings
+        provider_settings = (
+            DEFAULT_SETTINGS if not provider_settings else provider_settings
+        )
         self.create_agent_folder(agent_name)
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
-        self.create_agent_config_file(
-            agent_name, provider_settings, command_dict
-        )
+        self.create_agent_config_file(agent_name, provider_settings, command_dict)
         with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
             f.write("")
         return {"agent_file": f"{agent_name}.yaml"}
