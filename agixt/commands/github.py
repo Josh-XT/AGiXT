@@ -4,9 +4,16 @@ from Commands import Commands
 
 
 class github(Commands):
-    def __init__(self, GITHUB_USERNAME: str = "", GITHUB_API_KEY: str = "", **kwargs):
+    def __init__(
+        self,
+        GITHUB_USERNAME: str = "",
+        GITHUB_API_KEY: str = "",
+        WORKING_DIRECTORY: str = "./WORKSPACE",
+        **kwargs,
+    ):
         self.GITHUB_USERNAME = GITHUB_USERNAME
         self.GITHUB_API_KEY = GITHUB_API_KEY
+        self.WORKING_DIRECTORY = WORKING_DIRECTORY
         self.commands = {"Clone Github Repository": self.clone_repo}
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo
@@ -20,8 +27,8 @@ class github(Commands):
         else:
             auth_repo_url = "//".join(split_url)
         try:
-            git.Repo.clone_from(auth_repo_url, clone_path)
-            return f"""Cloned {repo_url} to {clone_path}"""
+            git.Repo.clone_from(auth_repo_url, self.WORKING_DIRECTORY + clone_path)
+            return f"""Cloned {repo_url} to {self.WORKING_DIRECTORY + clone_path}"""
         except Exception as e:
             return f"Error: {str(e)}"
 
