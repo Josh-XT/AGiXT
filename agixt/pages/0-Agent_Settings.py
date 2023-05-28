@@ -39,6 +39,14 @@ def render_provider_settings(agent_settings, provider_name: str):
         user_val = st.text_input(key, value=default_value)
         rendered_settings[key] = user_val
 
+    if "LOG_REQUESTS" in agent_settings:
+        value = agent_settings["LOG_REQUESTS"]
+    else:
+        value = False
+    rendered_settings["LOG_REQUESTS"] = st.checkbox(
+        "Log requests to files", key="LOG_REQUESTS", value=value
+    )
+
     return rendered_settings
 
 
