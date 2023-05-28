@@ -55,7 +55,9 @@ class file_operations(Commands):
 
     def read_file(self, filename: str) -> str:
         try:
-            filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(
+                self=self, base=self.WORKING_DIRECTORY, paths=filename
+            )
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
@@ -64,7 +66,9 @@ class file_operations(Commands):
 
     def write_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(
+                self=self, base=self.WORKING_DIRECTORY, paths=filename
+            )
             directory = os.path.dirname(filepath)
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -76,7 +80,9 @@ class file_operations(Commands):
 
     def append_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(
+                self=self, base=self.WORKING_DIRECTORY, paths=filename
+            )
             with open(filepath, "a") as f:
                 f.write(text)
             return "Text appended successfully."
@@ -85,7 +91,9 @@ class file_operations(Commands):
 
     def delete_file(self, filename: str) -> str:
         try:
-            filepath = file_operations.safe_join(self.WORKING_DIRECTORY, filename)
+            filepath = file_operations.safe_join(
+                self=self, base=self.WORKING_DIRECTORY, paths=filename
+            )
             os.remove(filepath)
             return "File deleted successfully."
         except Exception as e:
@@ -98,7 +106,7 @@ class file_operations(Commands):
             search_directory = self.WORKING_DIRECTORY
         else:
             search_directory = file_operations.safe_join(
-                self.WORKING_DIRECTORY, directory
+                self=self, base=self.WORKING_DIRECTORY, paths=directory
             )
 
         for root, _, files in os.walk(search_directory):
