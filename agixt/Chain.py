@@ -31,7 +31,7 @@ class Chain:
         )
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         chain_data["steps"].append(
             {
                 "step": step_number,
@@ -44,7 +44,7 @@ class Chain:
             json.dump(chain_data, f)
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         for step in chain_data["steps"]:
             if step["step"] == step_number:
                 step["agent_name"] = agent_name
@@ -55,7 +55,7 @@ class Chain:
             json.dump(chain_data, f)
 
     def delete_step(self, chain_name, step_number):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         chain_data["steps"] = [
             step for step in chain_data["steps"] if step["step"] != step_number
         ]
@@ -66,37 +66,41 @@ class Chain:
         os.remove(os.path.join("chains", f"{chain_name}.json"))
 
     def get_step(self, chain_name, step_number):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         for step in chain_data["steps"]:
             if step["step"] == step_number:
                 return step
         return None
 
     def get_steps(self, chain_name):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         return chain_data["steps"]
 
     def run_chain(self, chain_name):
-        chain_data = self.get_chain(chain_name)
+        chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
                 step_response = self.run_chain_step(
-                    step_data, chain_name
+                    step=step_data, chain_name=chain_name
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
+                logging.info(f"Response: {step_response}")
         # Write the responses to the json file.
         with open(os.path.join("chains", f"{chain_name}_responses.json"), "w") as f:
             json.dump(responses, f)
         return responses
 
-    def get_step_response(self, chain_name, step_number):
+    def get_step_response(self, chain_name, step_number="all"):
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(os.path.join("chains", f"{chain_name}.json"), "r") as f:
                 responses = json.load(f)
-            return responses.get(str(step_number))
+            if step_number == "all":
+                return responses
+            else:
+                return responses.get(str(step_number))
         except:
             return ""
 
@@ -136,8 +140,8 @@ class Chain:
                         commands_args[prompt_content] = self.get_step_content(
                             chain_name, step_number, prompt_content
                         )
-                    return Commands(agent_name=agent_name).execute_command(
-                        command_name, commands_args
+                    return Commands(agent_config=agent_name).execute_command(
+                        command_name=command_name, command_args=commands_args
                     )
                 try:
                     prompt_content = CustomPrompt().get_prompt(
@@ -175,4 +179,4 @@ if __name__ == "__main__":
     parser.add_argument("--chain", type=str, default="")
     args = parser.parse_args()
     chain_name = args.chain
-    Chain().run_chain(chain_name)
+    Chain().run_chain(chain_name=chain_name)
