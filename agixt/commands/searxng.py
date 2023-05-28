@@ -8,25 +8,22 @@ from Commands import Commands
 class searxng(Commands):
     def __init__(self, SEARXNG_INSTANCE_URL: str = "", **kwargs):
         self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
-        self.SEARXNG_INSTANCE_URL, self.SEARXNG_ENDPOINT = self.find_server()
+        self.SEARXNG_ENDPOINT = self.get_server()
         self.commands = {"Use The Search Engine": self.search}
 
-    def find_server(self):
+    def get_server(self):
         if self.SEARXNG_INSTANCE_URL == "":
             try:  # SearXNG - List of these at https://searx.space/
-                url = "https://searx.space/data/instances.json"
-                response = requests.get(url)
+                response = requests.get("https://searx.space/data/instances.json")
                 data = json.loads(response.text)
                 servers = list(data["instances"].keys())
-            except:
-                servers = ["https://search.us.projectsegfau.lt"]
-            # Pick a random searx server to use since one was not defined.
-            random_index = random.randint(0, len(servers) - 1)
-            server = servers[random_index].rstrip("/")
-        else:
-            server = self.SEARXNG_INSTANCE_URL.rstrip("/")
+                random_index = random.randint(0, len(servers) - 1)
+                self.SEARXNG_INSTANCE_URL = servers[random_index]
+            except:  # Select default remote server that typically works if unable to get list.
+                self.SEARXNG_INSTANCE_URL = "https://search.us.projectsegfau.lt"
+        server = self.SEARXNG_INSTANCE_URL.rstrip("/")
         endpoint = f"{server}/search"
-        return server, endpoint
+        return endpoint
 
     def search(self, query: str) -> List[str]:
         payload = {
@@ -39,7 +36,7 @@ class searxng(Commands):
             response = requests.get(self.SEARXNG_ENDPOINT, params=payload)
             results = response.json()
         except:
-            # The searxng server is down, so we will use the default one.
+            # The SearXNG server is down or refusing connection, so we will use the default one.
             self.SEARXNG_ENDPOINT = "https://search.us.projectsegfau.lt/search"
             return self.search(query)
         summaries = [
