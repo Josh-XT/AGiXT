@@ -80,8 +80,8 @@ webdriver_manager = "^3.8.6"
 ## see https://pytorch.org/get-started/locally/ for weird torch combinations
 ## this installs all cpu versions for pytorch on lin, win, mac/arm64
 torch = [
-  { markers = "platform_machine == 'x86_64' and sys_platform == 'linux'", version = "2.0.1", source = "pytorch.org" },
-  { markers = "platform_machine == 'arm64' or sys_platform == 'win32'", version = "2.0.1" }
+  { markers = "platform_machine == 'x86_64' and sys_platform == 'linux'", version = "^2.0.1", source = "pytorch.org"},
+  { markers = "platform_machine == 'aarch64' or sys_platform == 'win32'", version = "^2.0.1", source = "PyPI"}
 ]
 transformers = { version = "^4.29.2", extras = ["accelerate"] }
 sentence-transformers = "^2.2.2"
@@ -99,4 +99,9 @@ gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "6598265e2bf4
 name = "pytorch.org"
 url = "https://download.pytorch.org/whl/cpu"
 priority = "explicit"
+
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
 
