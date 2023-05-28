@@ -3,7 +3,7 @@ import json
 from AGiXT import AGiXT
 import argparse
 from CustomPrompt import CustomPrompt
-from Commands import Commands
+from Extensions import Extensions
 import logging
 
 
@@ -140,7 +140,7 @@ class Chain:
                         commands_args[prompt_content] = self.get_step_content(
                             chain_name, step_number, prompt_content
                         )
-                    return Commands(agent_config=agent_name).execute_command(
+                    return Extensions(agent_config=agent_name).execute_command(
                         command_name=command_name, command_args=commands_args
                     )
                 try:

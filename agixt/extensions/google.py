@@ -1,9 +1,9 @@
 from typing import Union, List
 import json
-from Commands import Commands
+from Extensions import Extensions
 
 
-class google(Commands):
+class google(Extensions):
     def __init__(self, GOOGLE_API_KEY: str = "", **kwargs):
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         if self.GOOGLE_API_KEY:

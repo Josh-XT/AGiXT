@@ -1,10 +1,10 @@
 from typing import List
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-from Commands import Commands
+from Extensions import Extensions
 
 
-class sendgrid_email(Commands):
+class sendgrid_email(Extensions):
     def __init__(self, SENDGRID_API_KEY: str = "", SENDGRID_EMAIL: str = "", **kwargs):
         self.SENDGRID_API_KEY = SENDGRID_API_KEY
         self.SENDGRID_EMAIL = SENDGRID_EMAIL

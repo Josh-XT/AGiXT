@@ -3,10 +3,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from Commands import Commands
+from Extensions import Extensions
 
 
-class microsoft_365_email(Commands):
+class microsoft_365(Extensions):
     def __init__(
         self,
         MICROSOFT_365_CLIENT_ID: str = "",

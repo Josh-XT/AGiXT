@@ -1,8 +1,8 @@
 from datetime import datetime
-from Commands import Commands
+from Extensions import Extensions
 
 
-class times(Commands):
+class times(Extensions):
     def __init__(self, **kwargs):
         self.commands = {"Get Datetime": self.get_datetime}
 

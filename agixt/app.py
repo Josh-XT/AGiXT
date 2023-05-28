@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
 from Agent import Agent
-from Commands import Commands
 from Chain import Chain
 from Tasks import Tasks
 from CustomPrompt import CustomPrompt

@@ -1,11 +1,11 @@
 from typing import List, Union
 from requests.compat import urljoin
 from bs4 import BeautifulSoup
-from Commands import Commands
+from Extensions import Extensions
 from playwright.sync_api import sync_playwright
 
 
-class web_playwright(Commands):
+class web_playwright(Extensions):
     def __init__(self, **kwargs):
         self.commands = {
             "Scrape Text with Playwright": self.scrape_text_with_playwright,
