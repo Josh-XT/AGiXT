@@ -17,13 +17,14 @@ jobs:
   build-agixt:
     uses: localagi/AI-pipeline/.github/workflows/operation-docker-build-publish.yml@v4
     with:
+      registry-dockerhub-enable: ${{ github.event_name != 'pull_request' }}
       registry-repo-name: AGiXT
       registry-readme: ./docs/README.md
       tags: |
         type=schedule
         type=ref,event=branch
         type=semver,pattern={{version}}
-      #platforms: linux/amd64,linux/arm64/v8
+      platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
