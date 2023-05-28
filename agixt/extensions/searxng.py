@@ -2,10 +2,10 @@ import json
 import random
 import requests
 from typing import List
-from Commands import Commands
+from Extensions import Extensions
 
 
-class searxng(Commands):
+class searxng(Extensions):
     def __init__(self, SEARXNG_INSTANCE_URL: str = "", **kwargs):
         self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
         self.SEARXNG_ENDPOINT = self.get_server()

@@ -1,9 +1,9 @@
 import git
 from github import Github
-from Commands import Commands
+from Extensions import Extensions
 
 
-class github(Commands):
+class github(Extensions):
     def __init__(
         self,
         GITHUB_USERNAME: str = "",

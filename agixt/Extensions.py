@@ -5,7 +5,7 @@ from inspect import signature, Parameter
 import logging
 
 
-class Commands:
+class Extensions:
     def __init__(self, agent_config, load_commands_flag: bool = True, agent_name=""):
         self.agent_config = agent_config
         if load_commands_flag:
@@ -65,11 +65,11 @@ class Commands:
         except:
             settings = {}
         commands = []
-        command_files = glob.glob("commands/*.py")
+        command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"commands.{module_name}")
-            if issubclass(getattr(module, module_name), Commands):
+            module = importlib.import_module(f"extensions.{module_name}")
+            if issubclass(getattr(module, module_name), Extensions):
                 command_class = getattr(module, module_name)(**settings)
                 if hasattr(command_class, "commands"):
                     for (
@@ -92,11 +92,11 @@ class Commands:
 
     def get_extension_settings(self):
         settings = {}
-        command_files = glob.glob("commands/*.py")
+        command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"commands.{module_name}")
-            if issubclass(getattr(module, module_name), Commands):
+            module = importlib.import_module(f"extensions.{module_name}")
+            if issubclass(getattr(module, module_name), Extensions):
                 command_class = getattr(module, module_name)()
                 params = self.get_command_params(command_class.__init__)
                 # Remove self and kwargs from params

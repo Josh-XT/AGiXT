@@ -1,14 +1,11 @@
 # pip install discord.py
-import discord
+import discord as dc
 from discord.ext import commands
-from Commands import Commands
-from Config import Config
+from Extensions import Extensions
 import logging
 
-CFG = Config()
 
-
-class discord_commands(Commands):
+class discord(Extensions):
     def __init__(
         self,
         DISCORD_API_KEY: str = "",
@@ -28,7 +25,7 @@ class discord_commands(Commands):
             }
 
             try:
-                intents = discord.Intents.default()
+                intents = dc.Intents.default()
                 intents.typing = False
                 intents.presences = False
                 if self.DISCORD_API_KEY != "None" and self.DISCORD_API_KEY != "":

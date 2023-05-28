@@ -1,11 +1,16 @@
-import json
-from typing import List, Optional
-from Commands import Commands
+from Extensions import Extensions
+from Config import Config
+from Chain import Chain
 from AGiXT import AGiXT
+import json
+import os
+from typing import List, Optional
 
 
-class cicd(Commands):
+class agent(Extensions):
     def __init__(self, **kwargs):
+        agents = Config().get_agents()
+        self.chains = Chain().get_chains()
         self.commands = {
             "Evaluate Code": self.evaluate_code,
             "Analyze Pull Request": self.analyze_pull_request,
@@ -13,7 +18,41 @@ class cicd(Commands):
             "Run CI-CD Pipeline": self.run_ci_cd_pipeline,
             "Improve Code": self.improve_code,
             "Write Tests": self.write_tests,
+            "Create a new command": self.create_command,
         }
+        if agents != None:
+            for agent in agents:
+                if "name" in agent:
+                    name = f" AI Agent {agent['name']}"
+                    self.commands.update(
+                        {f"Ask{name}": self.ask, f"Instruct{name}": self.instruct}
+                    )
+        if self.chains != None:
+            for chain in self.chains:
+                if "name" in chain:
+                    self.commands.update(
+                        {f"Run Chain: {chain['name']}": self.run_chain}
+                    )
+
+    def command_exists(self, file_name: str) -> bool:
+        return os.path.exists(f"commands/{file_name}.py")
+
+    def create_command(
+        self, function_description: str, agent_name: str = "AGiXT"
+    ) -> List[str]:
+        with open(f"prompts/Create New Command.txt", "r") as f:
+            prompt = f.read()
+        prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
+        response = AGiXT(agent_name).run(prompt)
+        file_name = response.split("class ")[1].split("(")[0]
+        code = code.replace("```", "")
+
+        if not self.command_exists(file_name):
+            with open(f"commands/{file_name}.py", "w") as f:
+                f.write(code)
+            return f"Created new command: {file_name}."
+        else:
+            return f"Command {file_name} already exists. No changes were made."
 
     def evaluate_code(self, code: str, agent_name: str = "AGiXT") -> List[str]:
         args = [code]
@@ -69,3 +108,19 @@ class cicd(Commands):
         )
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
         return AGiXT(agent_name).run(prompt)
+
+    def run_chain(self, chain_name):
+        Chain().run_chain(chain_name)
+        return "Chain started successfully."
+
+    def ask(self, prompt: str, agent_name: str = "AGiXT") -> str:
+        response = AGiXT(agent_name).run(
+            prompt, prompt="chat", websearch=True, websearch_depth=4
+        )
+        return response
+
+    def instruct(self, prompt: str, agent_name: str = "AGiXT") -> str:
+        response = AGiXT(agent_name).run(
+            task=prompt, prompt="instruct", websearch=True, websearch_depth=8
+        )
+        return response

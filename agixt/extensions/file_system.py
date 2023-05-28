@@ -1,10 +1,15 @@
 import os
 import os.path
-from typing import Generator, List
-from Commands import Commands
+from typing import List
+from Extensions import Extensions
+import os
+import subprocess
+import docker
+from docker.errors import ImageNotFound
+import logging
 
 
-class file_operations(Commands):
+class file_system(Extensions):
     def __init__(
         self,
         WORKING_DIRECTORY: str = "./WORKSPACE",
@@ -21,7 +26,91 @@ class file_operations(Commands):
             "Append to File": self.append_to_file,
             "Delete File": self.delete_file,
             "Search Files": self.search_files,
+            "Execute Python File": self.execute_python_file,
+            "Execute Shell": self.execute_shell,
         }
+        self.WORKING_DIRECTORY = WORKING_DIRECTORY
+
+    def execute_python_file(self, file: str):
+        logging.info(f"Executing file '{file}' in workspace '{self.WORKING_DIRECTORY}'")
+
+        if not file.endswith(".py"):
+            return "Error: Invalid file type. Only .py files are allowed."
+
+        file_path = os.path.join(self.WORKING_DIRECTORY, file)
+
+        if not os.path.isfile(file_path):
+            return f"Error: File '{file}' does not exist."
+
+        if self.we_are_running_in_a_docker_container():
+            result = subprocess.run(
+                f"python {file_path}", capture_output=True, encoding="utf8", shell=True
+            )
+            if result.returncode == 0:
+                return result.stdout
+            else:
+                return f"Error: {result.stderr}"
+
+        try:
+            client = docker.from_env()
+
+            image_name = "python:3.10"
+            try:
+                client.images.get(image_name)
+                logging.info(f"Image '{image_name}' found locally")
+            except ImageNotFound:
+                logging.info(
+                    f"Image '{image_name}' not found locally, pulling from Docker Hub"
+                )
+                low_level_client = docker.APIClient()
+                for line in low_level_client.pull(image_name, stream=True, decode=True):
+                    status = line.get("status")
+                    progress = line.get("progress")
+                    if status and progress:
+                        logging.info(f"{status}: {progress}")
+                    elif status:
+                        logging.info(status)
+
+            container = client.containers.run(
+                image_name,
+                f"python {file}",
+                volumes={
+                    os.path.abspath(self.WORKING_DIRECTORY): {
+                        "bind": "/workspace",
+                        "mode": "ro",
+                    }
+                },
+                working_dir="/workspace",
+                stderr=True,
+                stdout=True,
+                detach=True,
+            )
+
+            container.wait()
+            logs = container.logs().decode("utf-8")
+            container.remove()
+
+            return logs
+
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    def execute_shell(self, command_line: str) -> str:
+        current_dir = os.getcwd()
+        os.chdir(current_dir)
+        logging.info(
+            f"Executing command '{command_line}' in working directory '{os.getcwd()}'"
+        )
+        result = subprocess.run(command_line, capture_output=True, shell=True)
+        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+
+        os.chdir(current_dir)
+
+        return output
+
+    @staticmethod
+    def we_are_running_in_a_docker_container() -> bool:
+        return os.path.exists("/.dockerenv")
 
     def safe_join(self, base: str, paths) -> str:
         if "/path/to/" in paths:
@@ -37,25 +126,9 @@ class file_operations(Commands):
                 os.makedirs(new_path)
         return new_path
 
-    @staticmethod
-    def split_file(
-        content: str, max_length: int = 4000, overlap: int = 0
-    ) -> Generator[str, None, None]:
-        start = 0
-        content_length = len(content)
-
-        while start < content_length:
-            end = start + max_length
-            if end + overlap < content_length:
-                chunk = content[start : end + overlap]
-            else:
-                chunk = content[start:content_length]
-            yield chunk
-            start += max_length - overlap
-
     def read_file(self, filename: str) -> str:
         try:
-            filepath = file_operations.safe_join(
+            filepath = self.safe_join(
                 self=self, base=self.WORKING_DIRECTORY, paths=filename
             )
             with open(filepath, "r", encoding="utf-8") as f:
@@ -66,7 +139,7 @@ class file_operations(Commands):
 
     def write_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = file_operations.safe_join(
+            filepath = self.safe_join(
                 self=self, base=self.WORKING_DIRECTORY, paths=filename
             )
             directory = os.path.dirname(filepath)
@@ -80,7 +153,7 @@ class file_operations(Commands):
 
     def append_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = file_operations.safe_join(
+            filepath = self.safe_join(
                 self=self, base=self.WORKING_DIRECTORY, paths=filename
             )
             with open(filepath, "a") as f:
@@ -91,7 +164,7 @@ class file_operations(Commands):
 
     def delete_file(self, filename: str) -> str:
         try:
-            filepath = file_operations.safe_join(
+            filepath = self.safe_join(
                 self=self, base=self.WORKING_DIRECTORY, paths=filename
             )
             os.remove(filepath)
@@ -105,7 +178,7 @@ class file_operations(Commands):
         if directory in {"", "/"}:
             search_directory = self.WORKING_DIRECTORY
         else:
-            search_directory = file_operations.safe_join(
+            search_directory = self.safe_join(
                 self=self, base=self.WORKING_DIRECTORY, paths=directory
             )
 
