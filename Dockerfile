@@ -23,6 +23,7 @@ RUN mkdir /agixt
 WORKDIR /agixt
 COPY pyproject.toml poetry.lock .
 
+ARG HNSWLIB_NO_NATIVE=1
 RUN poetry install --no-root --with gpt4free
 COPY --link . .
 
