@@ -8,7 +8,7 @@ import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from commands.searxng_commands import searxng_commands
+from commands.searxng import searxng
 from urllib.parse import urlparse
 import logging
 
@@ -504,9 +504,7 @@ class AGiXT:
             except:
                 searx_server = ""
             try:
-                links = searxng_commands(
-                    SEARXNG_INSTANCE_URL=searx_server
-                ).search_searx(search_string)
+                links = searxng(SEARXNG_INSTANCE_URL=searx_server).search(search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:
