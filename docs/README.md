@@ -93,6 +93,15 @@ docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 
 Clone the repository for the AGiXT back end and start it.
 
+#### Install poetry
+`pip install poetry==1.5.0`
+Check if poetry is available via
+`poetry --version`
+or
+`python3 -m poetry --version`
+Adapt the following commands accordingly.
+
+#### Setup AGiXT
 ```
 git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 pip install poetry==1.5.0
@@ -101,6 +110,7 @@ poetry install --with gpt4free
 playwright install
 cd agixt
 ```
+
 #### Run Streamlit 
 `poetry run streamlit run Main.py`
 
