@@ -26,14 +26,16 @@ class searxng(Commands):
         return endpoint
 
     def search(self, query: str) -> List[str]:
-        payload = {
-            "q": query,
-            "language": "en",
-            "safesearch": 1,
-            "format": "json",
-        }
         try:
-            response = requests.get(self.SEARXNG_ENDPOINT, params=payload)
+            response = requests.get(
+                self.SEARXNG_ENDPOINT,
+                params={
+                    "q": query,
+                    "language": "en",
+                    "safesearch": 1,
+                    "format": "json",
+                },
+            )
             results = response.json()
             summaries = [
                 result["title"] + " - " + result["url"] for result in results["results"]
