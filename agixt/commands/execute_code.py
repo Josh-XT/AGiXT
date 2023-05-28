@@ -1,28 +1,27 @@
 from Commands import Commands
-from Config import Config
 import os
 import subprocess
 import docker
 from docker.errors import ImageNotFound
 import logging
 
-CFG = Config()
 
 
 class execute_code(Commands):
-    def __init__(self, **kwargs):
+    def __init__(self, WORKING_DIRECTORY: str = "./WORKSPACE", **kwargs):
         self.commands = {
             "Execute Python File": self.execute_python_file,
             "Execute Shell": self.execute_shell,
         }
+        self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
     def execute_python_file(self, file: str):
-        logging.info(f"Executing file '{file}' in workspace '{CFG.WORKING_DIRECTORY}'")
+        logging.info(f"Executing file '{file}' in workspace '{self.WORKING_DIRECTORY}'")
 
         if not file.endswith(".py"):
             return "Error: Invalid file type. Only .py files are allowed."
 
-        file_path = os.path.join(CFG.WORKING_DIRECTORY, file)
+        file_path = os.path.join(self.WORKING_DIRECTORY, file)
 
         if not os.path.isfile(file_path):
             return f"Error: File '{file}' does not exist."
@@ -60,7 +59,7 @@ class execute_code(Commands):
                 image_name,
                 f"python {file}",
                 volumes={
-                    os.path.abspath(CFG.WORKING_DIRECTORY): {
+                    os.path.abspath(self.WORKING_DIRECTORY): {
                         "bind": "/workspace",
                         "mode": "ro",
                     }
