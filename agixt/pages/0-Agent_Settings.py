@@ -2,7 +2,7 @@ import os
 import streamlit as st
 from Config import Config
 from Agent import Agent
-from Commands import Commands
+from Extensions import Extensions
 from Embedding import get_embedding_providers
 from provider import get_provider_options
 from auth_libs.Users import check_auth_status
@@ -139,7 +139,7 @@ if agent_name and not new_agent:
             return rendered_settings
 
         st.subheader("Extension Settings")
-        extension_setting_keys = Commands(agent_config).get_extension_settings()
+        extension_setting_keys = Extensions(agent_config).get_extension_settings()
         extension_settings = render_extension_settings(
             extension_setting_keys, agent_settings
         )
@@ -200,7 +200,7 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        available_commands = Commands(agent_config).get_available_commands()
+        available_commands = Extensions(agent_config).get_available_commands()
 
         # Save the existing command state to prevent duplication
         existing_command_states = {

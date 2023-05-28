@@ -9,7 +9,7 @@ from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
 from Memories import Memories
-from Commands import Commands
+from Extensions import Extensions
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
@@ -28,9 +28,9 @@ class Agent:
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
         self.commands = self.load_commands()
-        self.available_commands = Commands(self.AGENT_CONFIG).get_available_commands()
+        self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
         self.clean_agent_config_commands()
-        self.execute = Commands(self.AGENT_CONFIG).execute_command
+        self.execute = Extensions(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
