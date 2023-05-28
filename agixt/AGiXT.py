@@ -420,24 +420,12 @@ class AGiXT:
                                     **kwargs,
                                 )
 
-                            if validate_command.startswith("Y"):
-                                logging.info(
-                                    f"Command {command_name} executed successfully with args {command_args}."
-                                )
-                                response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                                return response
-                            else:
-                                revalidate = self.run(
-                                    task=task,
-                                    prompt="ValidationFailed",
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                    command_output=command_output,
-                                    **kwargs,
-                                )
-                                return self.execution_agent(
-                                    execution_response, task, context_results, **kwargs
-                                )
+                            logging.info(
+                                f"Command {command_name} executed successfully with args {command_args}."
+                            )
+                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                            return response
+
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
