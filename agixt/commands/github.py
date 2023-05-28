@@ -4,10 +4,13 @@ from Commands import Commands
 
 
 class github(Commands):
-    def __init__(self, GITHUB_USERNAME: str = "",
-                 GITHUB_API_KEY: str = "",
-                 WORKING_DIRECTORY: str = "./WORKSPACE",
-                 **kwargs):
+    def __init__(
+        self,
+        GITHUB_USERNAME: str = "",
+        GITHUB_API_KEY: str = "",
+        WORKING_DIRECTORY: str = "./WORKSPACE",
+        **kwargs,
+    ):
         self.GITHUB_USERNAME = GITHUB_USERNAME
         self.GITHUB_API_KEY = GITHUB_API_KEY
         self.WORKING_DIRECTORY = WORKING_DIRECTORY

@@ -11,10 +11,11 @@ import logging
 
 class image_generator(Commands):
     def __init__(
-        self, HUGGINGFACE_API_KEY: str = "",
-            OPENAI_API_KEY: str = "",
-            WORKING_DIRECTORY: str = "./WORKSPACE",
-            **kwargs
+        self,
+        HUGGINGFACE_API_KEY: str = "",
+        OPENAI_API_KEY: str = "",
+        WORKING_DIRECTORY: str = "./WORKSPACE",
+        **kwargs,
     ):
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.OPENAI_API_KEY = OPENAI_API_KEY

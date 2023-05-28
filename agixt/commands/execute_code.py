@@ -6,7 +6,6 @@ from docker.errors import ImageNotFound
 import logging
 
 
-
 class execute_code(Commands):
     def __init__(self, WORKING_DIRECTORY: str = "./WORKSPACE", **kwargs):
         self.commands = {
