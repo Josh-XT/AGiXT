@@ -9,11 +9,12 @@ class audio_text(Commands):
         self,
         HUGGINGFACE_API_KEY: str = "",
         HUGGINGFACE_AUDIO_TO_TEXT_MODEL: str = "facebook/wav2vec2-large-960h-lv60-self",
+        WORKING_DIRECTORY: str = "./WORKSPACE",
         **kwargs,
     ):
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = HUGGINGFACE_AUDIO_TO_TEXT_MODEL
-
+        self.WORKING_DIRECTORY = WORKING_DIRECTORY
         if self.HUGGINGFACE_API_KEY is not None:
             self.commands = {
                 "Read Audio from File": self.read_audio_from_file,
