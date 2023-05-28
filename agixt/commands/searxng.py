@@ -35,11 +35,11 @@ class searxng(Commands):
         try:
             response = requests.get(self.SEARXNG_ENDPOINT, params=payload)
             results = response.json()
+            summaries = [
+                result["title"] + " - " + result["url"] for result in results["results"]
+            ]
+            return summaries
         except:
             # The SearXNG server is down or refusing connection, so we will use the default one.
             self.SEARXNG_ENDPOINT = "https://search.us.projectsegfau.lt/search"
             return self.search(query)
-        summaries = [
-            result["title"] + " - " + result["url"] for result in results["results"]
-        ]
-        return summaries
