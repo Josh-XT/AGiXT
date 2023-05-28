@@ -6,9 +6,11 @@ from Commands import Commands
 from Agent import Agent
 from CustomPrompt import CustomPrompt
 from auth_libs.Users import check_auth_status
+from components.agent_selector import agent_selector
 
 check_auth_status()
 
+agent_name, agent = agent_selector()
 CFG = Config()
 
 st.header("Manage Chains")
@@ -24,32 +26,51 @@ st.markdown(
 - `{STEPx}` will cause the step `x` response from a chain to be injected. For example, `{STEP1}` will inject the first step's response in a chain.
 """
 )
-chain_name = st.text_input("Chain Name")
+
 chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
+if chain_action == "Create Chain":
+    chain_name = st.text_input("Chain Name")
+else:
+    chain_name = st.selectbox("Chains", Chain().get_chains())
 
 if st.button("Perform Action"):
     if chain_name:
         if chain_action == "Create Chain":
-            Chain().add_chain(chain_name)
+            Chain().add_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' created.")
             st.experimental_rerun()
         elif chain_action == "Delete Chain":
-            Chain().delete_chain(chain_name)
+            Chain().delete_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            Chain().run_chain(chain_name)
+            Chain().run_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")
 
-st.header("Manage Chain Steps")
+st.header("Manage Chain Steps & View Responses")
 
 chain_names = Chain().get_chains()
 selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
 
 if selected_chain_name:
-    chain = Chain().get_steps(selected_chain_name)
+    try:
+        chain = Chain().get_steps(chain_name=selected_chain_name)
+    except:
+        st.write(selected_chain_name + " Responses: ")
+        try:
+            chain_response = Chain().get_step_response(
+                chain_name=selected_chain_name,
+            )
+            if chain_response:
+                st.write(chain_response)
+            else:
+                raise ValueError("End of responses!", "None Found!")
+        except ValueError as err:
+            st.write(err.args)
+            loop = False
+        st.stop()
 
     st.subheader(f"Selected Chain: {selected_chain_name}")
 

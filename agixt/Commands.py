@@ -6,7 +6,7 @@ import logging
 
 
 class Commands:
-    def __init__(self, agent_config, load_commands_flag: bool = True):
+    def __init__(self, agent_config, load_commands_flag: bool = True, agent_name=""):
         self.agent_config = agent_config
         if load_commands_flag:
             self.commands = self.load_commands()
@@ -135,6 +135,16 @@ class Commands:
     def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name)
         if command_function is None:
+            logging.info("|")
+            logging.info(
+                "Command Name: "
+                + str(command_name)
+                + " Args: "
+                + str(command_args)
+                + " Command Function: "
+                + str(command_function)
+            )
+            logging.info("|")
             return False
 
         if command_args is None:
