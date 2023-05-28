@@ -41,13 +41,13 @@ class web_requests(Commands):
         self, url: str, timeout: int = 10
     ) -> Union[Tuple[None, str], Tuple[requests.Response, None]]:
         try:
-            if self.check_local_file_access(url):
+            if self.check_local_file_access(self=self, url=url):
                 raise ValueError("Access to local files is restricted")
 
             if not url.startswith("http://") and not url.startswith("https://"):
                 raise ValueError("Invalid URL format")
 
-            sanitized_url = self.sanitize_url(url)
+            sanitized_url = self.sanitize_url(self=self, url=url)
 
             response = self.session.get(sanitized_url, timeout=timeout)
 
@@ -62,7 +62,7 @@ class web_requests(Commands):
             return None, f"Error: {str(re)}"
 
     def scrape_text(self, url: str) -> str:
-        response, error_message = self.get_response(url)
+        response, error_message = self.get_response(self=self, url=url)
         if error_message:
             return error_message
         if not response:
@@ -81,7 +81,7 @@ class web_requests(Commands):
         return text
 
     def scrape_links(self, url: str) -> Union[str, List[str]]:
-        response, error_message = self.get_response(url)
+        response, error_message = self.get_response(self=self, url=url)
         if error_message:
             return error_message
         if not response:
