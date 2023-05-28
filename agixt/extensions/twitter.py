@@ -1,9 +1,9 @@
 import tweepy
-from Commands import Commands
+from Extensions import Extensions
 import logging
 
 
-class twitter(Commands):
+class twitter(Extensions):
     def __init__(
         self,
         TW_CONSUMER_KEY: str = "",

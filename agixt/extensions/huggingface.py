@@ -1,10 +1,14 @@
 import requests
 import json
 import os
-from Commands import Commands
+from Extensions import Extensions
+from io import BytesIO
+import requests
+from PIL import Image
+import logging
 
 
-class audio_text(Commands):
+class huggingface(Extensions):
     def __init__(
         self,
         HUGGINGFACE_API_KEY: str = "",
@@ -19,7 +23,29 @@ class audio_text(Commands):
             self.commands = {
                 "Read Audio from File": self.read_audio_from_file,
                 "Read Audio": self.read_audio,
+                "Generate Image with Stable Diffusion": self.generate_image_with_hf,
             }
+
+    def generate_image_with_hf(self, prompt: str, filename: str) -> str:
+        API_URL = (
+            "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
+        )
+        headers = {"Authorization": f"Bearer {self.HUGGINGFACE_API_TOKEN}"}
+
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={
+                "inputs": prompt,
+            },
+        )
+
+        image = Image.open(BytesIO(response.content))
+        logging.info(f"Image Generated for prompt:{prompt}")
+
+        image.save(os.path.join(self.WORKING_DIRECTORY, filename))
+
+        return f"Saved to disk:{filename}"
 
     def read_audio_from_file(self, audio_path: str):
         audio_path = os.path.join(self.WORKING_DIRECTORY, audio_path)

@@ -8,7 +8,7 @@ import spacy
 from datetime import datetime
 from Agent import Agent
 from CustomPrompt import CustomPrompt
-from commands.searxng import searxng
+from extensions.searxng import searxng
 from urllib.parse import urlparse
 import logging
 
