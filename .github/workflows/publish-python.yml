@@ -9,6 +9,6 @@ permissions:
 
 jobs:
   build-agixt-pypi:
-    uses: localagi/AI-pipeline/.github/workflows/operation-python-build-publish.yml@main
+    uses: localagi/AI-pipeline/.github/workflows/operation-python-build-publish.yml@v4
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

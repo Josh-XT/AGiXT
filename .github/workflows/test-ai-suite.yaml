@@ -1,0 +1,19 @@
+name: AI Testsuite
+
+permissions:
+  contents: read
+  
+on:
+  workflow_dispatch:
+  
+jobs:
+
+  run-ai-testsuite:
+    uses: localagi/AI-pipeline/.github/workflows/operation-test-with-jupyter.yml@v4
+    with:
+      notebook: tests/ai-testsuite.ipynb
+      image: localagi/agixt:main
+      port: "7437" 
+      additional-python-dependencies: requests
+    secrets:
+      api-key: ${{ secrets.OPENAI_API_KEY }}
