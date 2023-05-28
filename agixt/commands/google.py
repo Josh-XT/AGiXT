@@ -1,40 +1,15 @@
 from typing import Union, List
 import json
-from duckduckgo_search import DDGS
 from Commands import Commands
-import logging
-
-ddgs = DDGS()
 
 
 class google(Commands):
     def __init__(self, GOOGLE_API_KEY: str = "", **kwargs):
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
-        self.commands = {
-            "Google Search": self.google_search,
-        }
         if self.GOOGLE_API_KEY:
-            self.commands["Google Official Search"] = self.google_official_search
-
-    @staticmethod
-    def google_search(query: str, num_results: int = 8) -> str:
-        search_results = []
-        if not query:
-            return json.dumps(search_results)
-        try:
-            results = ddgs.text(query)
-            if len(results) > num_results:
-                results = results[:num_results]
-        except:
-            logging.info(
-                "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
-            )
-            results = None
-        if not results:
-            return json.dumps(search_results)
-        for j in results:
-            search_results.append(j)
-        return json.dumps(search_results, ensure_ascii=False, indent=4)
+            self.commands = {
+                "Google Search": self.google_official_search,
+            }
 
     def google_official_search(
         self, query: str, num_results: int = 8
