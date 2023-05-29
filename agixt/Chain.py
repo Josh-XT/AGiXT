@@ -2,7 +2,7 @@ import os
 import json
 from AGiXT import AGiXT
 import argparse
-from CustomPrompt import CustomPrompt
+from Prompts import Prompts
 from Extensions import Extensions
 import logging
 
@@ -144,7 +144,7 @@ class Chain:
                         command_name=command_name, command_args=commands_args
                     )
                 try:
-                    prompt_content = CustomPrompt().get_prompt(
+                    prompt_content = Prompts().get_prompt(
                         prompt_name=prompt["prompt_name"]
                     )
                     prompt_content = self.get_step_content(

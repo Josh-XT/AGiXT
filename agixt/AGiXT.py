@@ -7,7 +7,7 @@ import time
 import spacy
 from datetime import datetime
 from Agent import Agent
-from CustomPrompt import CustomPrompt
+from Prompts import Prompts
 from extensions.searxng import searxng
 from urllib.parse import urlparse
 import logging
@@ -65,7 +65,7 @@ class AGiXT:
         step_number=0,
         **kwargs,
     ):
-        cp = CustomPrompt()
+        cp = Prompts()
         if prompt == "":
             prompt = task
         else:
