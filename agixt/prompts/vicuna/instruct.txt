@@ -5,10 +5,10 @@
 Recall by considering similar events.
 No user assistance.
 
-RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
-
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands, simply make the commands section an empty object like {}.
+```JSON
 {
-    "response": "Your response to the task",
+    "response": "Your response to the task.",
     "commands": {
         "command_name": {
             "arg1": "val1",
@@ -21,6 +21,7 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BR
         }
     }
 }
+```
 
 Task: {task}
 ###Assistant:
