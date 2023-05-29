@@ -13,7 +13,7 @@ class CustomPrompt:
 
     def get_prompt(self, prompt_name, model="default"):
         try:
-            with open(f"model-prompts/{model}/{prompt_name}.txt", "r") as f:
+            with open(f"prompts/{model}/{prompt_name}.txt", "r") as f:
                 return f.read()
         except:
             try:
@@ -48,5 +48,5 @@ class CustomPrompt:
             f.write(prompt)
 
     def get_model_prompt(self, prompt_name, model="default"):
-        with open(f"model-prompts/{model}/{prompt_name}.txt", "r") as f:
+        with open(f"prompts/{model}/{prompt_name}.txt", "r") as f:
             return f.read()
