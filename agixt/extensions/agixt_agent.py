@@ -7,7 +7,7 @@ import os
 from typing import List, Optional
 
 
-class agent(Extensions):
+class agixt_agent(Extensions):
     def __init__(self, **kwargs):
         agents = Config().get_agents()
         self.chains = Chain().get_chains()
