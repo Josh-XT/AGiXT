@@ -67,7 +67,7 @@ This project is under active development and may still have issues. We appreciat
 ## Quickstart with Docker
 Clone the repository and run the AGiXT Streamlit Web App.
 ```
-git clone https://github.com/Josh-XT/AGiXT
+git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 docker compose streamlit up
 ```
 
@@ -85,7 +85,7 @@ docker compose all up
 
 ### Development using docker
 ```
-git clone https://github.com/Josh-XT/AGiXT
+git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
