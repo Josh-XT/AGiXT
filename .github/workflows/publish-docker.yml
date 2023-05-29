@@ -40,6 +40,7 @@ jobs:
         type=semver,pattern={{version}}
         type=ref,event=pr
       platforms: ${{ needs.select-platforms.outputs.platforms }}
+      buildkitd-flags: --debug
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     needs: select-platforms
