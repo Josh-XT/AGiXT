@@ -15,8 +15,9 @@ We received the following output:
 
 The validation for running the command has failed.  The goal of this validation is to assist in completing the task.  Review the command output and correct the issue. Respond with the corrected command to usage to get the proper intended output.
 
-RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
+If there are no commands, respond only with empty Json like {}. If there are commands to use from the Task Response, format them as follows in your response:
 
+```
 {
     "commands": {
         "command_name": {
@@ -30,3 +31,4 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BR
         }
     }
 }
+```
