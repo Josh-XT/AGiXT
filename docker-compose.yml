@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   agixt:
-    image: joshxt/agixt:${AGIXT_VERSION:-main}
+    image: joshxt/agixt:main
     entrypoint: [ "poetry", "run", "streamlit", "run", "Main.py" ]
     init: true
     ports:
