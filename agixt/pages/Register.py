@@ -1,6 +1,7 @@
 import streamlit as st
 import auth_libs.Redirect as redir
 import bcrypt
+import logging
 from auth_libs.Cfig import Cfig
 from auth_libs.Users import load_users, save_user_data
 
@@ -13,10 +14,10 @@ if st.session_state.get("logged_in"):
     redir.nav_page("Profile")
 
 
-def registration_form():
+def registration_form(auth):
     user_data = load_users()
 
-    if conf["auth_setup"] == "True" and not conf["auth_setup_config"] == "No Login":
+    if auth and not conf["auth_setup_config"] == "No Login":
         st.write("Registration Form")
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
@@ -47,10 +48,10 @@ def registration_form():
         st.write("Registration Is Not Enabled!")
 
 
-if "allow_reg" in CFIG.load_config():
-    if CFIG.load_config()["allow_reg"] == "True":
-        registration_form()
-    else:
-        st.write("Registration Is Not Enabled!")
+setup_CFIG = CFIG.load_config()
+config = setup_CFIG["config"]
+logging.info(config[0])
+if config[0]:
+    registration_form(auth=config[0])
 else:
-    st.write("Registration Not Enabled")
+    st.write("Registration Is Not Enabled!")
