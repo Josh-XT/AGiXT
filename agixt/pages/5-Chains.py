@@ -4,7 +4,7 @@ from Config import Config
 from Chain import Chain
 from Extensions import Extensions
 from Agent import Agent
-from CustomPrompt import CustomPrompt
+from Prompts import Prompts
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
@@ -129,7 +129,7 @@ if selected_chain_name:
                 )
                 modify_prompt = f"{command_name}({formatted_command_args})"
         elif modify_prompt_type == "Prompt":
-            available_prompts = CustomPrompt().get_prompts()
+            available_prompts = Prompts().get_prompts()
             modify_prompt_name = st.selectbox(
                 "Select Custom Prompt",
                 [""] + available_prompts,
@@ -140,7 +140,7 @@ if selected_chain_name:
             )
 
             if modify_prompt_name:
-                prompt_args = CustomPrompt().get_prompt_args(modify_prompt_name)
+                prompt_args = Prompts().get_prompt_args(modify_prompt_name)
                 formatted_prompt_args = ", ".join(
                     [
                         f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
@@ -219,7 +219,7 @@ if selected_chain_name:
             )
             prompt = f"{command_name}({formatted_command_args})"
     elif prompt_type == "Prompt":
-        available_prompts = CustomPrompt().get_prompts()
+        available_prompts = Prompts().get_prompts()
         prompt_name = st.selectbox(
             "Select Custom Prompt",
             [""] + available_prompts,
@@ -227,7 +227,7 @@ if selected_chain_name:
         )
 
         if prompt_name:
-            prompt_args = CustomPrompt().get_prompt_args(prompt_name)
+            prompt_args = Prompts().get_prompt_args(prompt_name)
             formatted_prompt_args = ", ".join(
                 [
                     f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "

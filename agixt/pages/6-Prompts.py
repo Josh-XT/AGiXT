@@ -1,10 +1,10 @@
 import streamlit as st
-from CustomPrompt import CustomPrompt
+from Prompts import Prompts
 from auth_libs.Users import check_auth_status
 
 check_auth_status()
 
-st.header("Manage Custom Prompts")
+st.header("Manage Prompts")
 st.markdown("### Usage Instructions")
 st.markdown(
     """
@@ -29,7 +29,7 @@ st.markdown(
 """
 )
 
-custom_prompt = CustomPrompt()
+custom_prompt = Prompts()
 prompt_list = custom_prompt.get_prompts()
 
 if st.checkbox("Add New Prompt"):
