@@ -55,3 +55,10 @@ class Cfig:
         config["auth_setup_config"] = setup_config
         config["auth_setup"] = True
         self.save_config(config)
+
+    def get_admin_email(self):
+        config = self.load_config()
+        if "admin_email" in config:
+            return config["admin_email"]
+        else:
+            return False
