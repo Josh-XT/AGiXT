@@ -1,5 +1,6 @@
 import streamlit as st
 import bcrypt
+import time
 from auth_libs.Cfig import Cfig
 from auth_libs.Users import (
     load_users,
@@ -9,6 +10,9 @@ from auth_libs.Users import (
 )
 from auth_libs.Users import check_auth_status
 
+logged = st.session_state.get("logged_in")
+if logged:
+    st.session_state["login_page"] = True
 check_auth_status()
 CFIG = Cfig()
 
@@ -33,16 +37,20 @@ def login_form():
     if st.button("Login"):
         for user in user_data["users"]:
             if user["email"] == email:
+                # st.write("Email: " + str(user["email"]))
+                # st.write(" Input Pass: " + str(bcrypt.hashpw(password.encode(),user["password_hash"].encode(),)))
+                # st.write(" Saved Pass: " + str(user["password_hash"].encode("utf-8")))
                 if bcrypt.checkpw(
                     password.encode("utf-8"), user["password_hash"].encode("utf-8")
                 ):
                     st.success("Login successful!")
                     st.session_state["logged_in"] = True
                     st.session_state["email"] = email
+                    time.sleep(1)
                     st.experimental_rerun()  # Redirect to UI
-                    break
         else:
             st.error("Incorrect email or password.")
+        st.stop()
 
 
 # Check if admin configuration is needed
