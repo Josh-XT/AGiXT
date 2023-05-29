@@ -24,14 +24,14 @@ if agent_name:
             os.makedirs(os.path.dirname(learn_file_path))
         with open(learn_file_path, "wb") as f:
             f.write(learn_file_upload.getbuffer())
-        agent.memories.read_file(learn_file_path)
+        await agent.memories.read_file(learn_file_path)
         st.success(f"Agent '{agent_name}' has learned from the uploaded file.")
 
     st.markdown("## Learn from a URL")
     learn_url = st.text_input("Enter a URL for the agent to learn from..")
     if st.button("Learn from URL"):
         if learn_url:
-            _, _ = agent.memories.read_website(learn_url)
+            _, _ = await agent.memories.read_website(learn_url)
             st.success(f"Agent '{agent_name}' has learned from the URL.")
     st.markdown("## Wipe Agent Memory")
     st.markdown(
