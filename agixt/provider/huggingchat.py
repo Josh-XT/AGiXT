@@ -1,4 +1,5 @@
 from hugchat import hugchat
+import logging
 
 
 class HuggingchatProvider:
@@ -26,5 +27,5 @@ class HuggingchatProvider:
             )
             return response
         except Exception as e:
-            print(e)
+            logging.info(e)
             return f"HuggingChat Provider Failure: {e}."

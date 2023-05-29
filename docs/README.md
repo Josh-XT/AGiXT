@@ -93,13 +93,30 @@ docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
 
 Clone the repository for the AGiXT back end and start it.
 
+#### Install poetry
+`pip install poetry==1.5.0`
+Check if poetry is available via
+`poetry --version`
+or
+`python3 -m poetry --version`
+Adapt the following commands accordingly.
+
+#### Setup AGiXT
 ```
-git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT/agixt
-pip install -r requirements.txt
+git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
+pip install poetry==1.5.0
+export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
+poetry install --with gpt4free
 playwright install
-streamlit run Main.py
+cd agixt
 ```
+
+#### Run Streamlit 
+`poetry run streamlit run Main.py`
+
+#### Run REST
+`poetry run uvicorn app:app --port 7437`
+
 
 Access the web interface at http://localhost:8501
 

@@ -3,6 +3,7 @@ import inspect
 import openai
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+import logging
 
 
 class GooglePalmEmbeddingFunction(EmbeddingFunction):
@@ -127,7 +128,7 @@ class Embedding:
             self.embed, self.chunk_size = self.__getattribute__(embedder)()
         except:
             self.embed, self.chunk_size = self.default()
-            print("Embedder not found, using default embedder")
+            logging.info("Embedder not found, using default embedder")
 
     def default(self):
         chunk_size = 128

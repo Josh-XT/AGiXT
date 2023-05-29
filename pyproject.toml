@@ -1,2 +1,107 @@
+[tool.poetry]
+name = "AGiXT"
+version = "v1.1.74-beta"
+description = "An Artificial Intelligence Automation Platform. AI Instruction management from various providers, has an adaptive memory, and a versatile plugin system with many commands including web browsing. Supports many AI providers and models and growing support every day."
+homepage = "https://AGiXT.com"
+documentation = "https://AGiXT.com"
+keywords = ["AI", "AGI", "Agent", "skynet"]
+license = "MIT"
+authors = ["Josh XT <josh@devxt.com>"]
+maintainers = [
+    "localAGI <132956819+localagi@users.noreply.github.com>"
+]
+readme = "docs/README.md"
+packages = [
+    { include = "agixt" },
+]
+
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["poetry-core", "setuptools", "wheel"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+# argparse = "*"
+anthropic = "^0.2.9"
+bcrypt = "^4.0.1"
+beautifulsoup4 = "^4.12.2"
+captcha-solver = "^0.1.5"
+chromadb = "^0.3.25"
+cryptography = "38.0.4"
+discord = "^2.2.3"
+docker = "^6.1.2"
+docx2txt = "^0.8"
+duckduckgo_search = "3.3.0"
+EdgeGPT = "^0.6.7"
+fastapi = "^0.95.2"
+# ffmpeg = "*"
+# flask-bcrypt = "*"
+GitPython = "^3.1.31"
+google-api-python-client = "^2.87.0"
+# google-auth = "*"
+# google-auth-httplib2 = "*"
+google-auth-oauthlib = "^1.0.0"
+# google-cloud-aiplatform = "*"
+# google-generativeai = "*"
+GoogleBard = "^1.1.3"
+gTTS = "^2.3.2"
+hugchat = "^0.0.6.2"
+InstructorEmbedding = "*"
+# jsonschema = "*"
+openai = "^0.27.7"
+pandas = "^2.0.1"
+pdfplumber = "^0.9.0"
+playwright = "^1.33.0"
+playsound = "1.2.2"
+PyYAML = "^6.0"
+# pre-commit = "*"
+# pytz = "*"
+# pynacl = "*"
+# python-git = "*"
+PyGithub = "^1.58.2"
+random-password-generator = "^2.2.0"
+revChatGPT = "^5.2.0"
+requests = "^2.31.0"
+selenium = "^4.9.1"
+sendgrid = "^6.10.0"
+spacy = "^3.5.3"
+####
+streamlit = "^1.22.0"
+protobuf = "3.20.*"
+####
+# tiktoken = "*"
+tweepy = "^4.14.0"
+uvicorn = "^0.22.0"
+webdriver_manager = "^3.8.6"
+
+
+## see https://pytorch.org/get-started/locally/ for weird torch combinations
+## this installs all cpu versions for pytorch on lin, win, mac/arm64
+torch = [
+  { markers = "platform_machine == 'x86_64' and sys_platform == 'linux'", version = "^2.0.1", source = "pytorch.org"},
+  { markers = "platform_machine == 'aarch64' or sys_platform == 'win32'", version = "^2.0.1", source = "PyPI"}
+]
+transformers = { version = "^4.29.2", extras = ["accelerate"] }
+sentence-transformers = "^2.2.2"
+llama-cpp-python = "^0.1.55"
+nomic = "^1.1.6"
+
+[tool.poetry.group.gpt4free]
+optional = true
+
+[tool.poetry.group.gpt4free.dependencies]
+gpt4free = { git = "https://github.com/xtekky/gpt4free.git", rev = "6598265e2bf46ce1054736cd64db9ff42a358331" }
+
+
+[[tool.poetry.source]]
+name = "pytorch.org"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+

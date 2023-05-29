@@ -7,11 +7,10 @@ import time
 import spacy
 from datetime import datetime
 from Agent import Agent
-from CustomPrompt import CustomPrompt
-from duckduckgo_search import DDGS
+from Prompts import Prompts
+from extensions.searxng import searxng
 from urllib.parse import urlparse
-
-ddgs = DDGS()
+import logging
 
 
 class AGiXT:
@@ -66,7 +65,7 @@ class AGiXT:
         step_number=0,
         **kwargs,
     ):
-        cp = CustomPrompt()
+        cp = Prompts()
         if prompt == "":
             prompt = task
         else:
@@ -106,12 +105,12 @@ class AGiXT:
         if not self.nlp:
             self.load_spacy_model()
         tokens = len(self.nlp(formatted_prompt))
-        print(f"FORMATTED PROMPT: {formatted_prompt}")
+        logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
 
     def run(
         self,
-        task: str,
+        task: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
@@ -122,9 +121,9 @@ class AGiXT:
         step_number: int = 0,
         **kwargs,
     ):
-        print(f"KWARGS: {kwargs}")
+        logging.info(f"KWARGS: {kwargs}")
         if learn_file != "":
-            learning_file = self.agent.memories.read_file(file_path=learn_file)
+            learning_file = self.agent.memories.mem_read_file(file_path=learn_file)
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
@@ -147,15 +146,15 @@ class AGiXT:
         try:
             self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
         except Exception as e:
-            print(f"Error: {e}")
-            print(f"PROMPT CONTENT: {formatted_prompt}")
-            print(f"TOKENS: {tokens}")
+            logging.info(f"Error: {e}")
+            logging.info(f"PROMPT CONTENT: {formatted_prompt}")
+            logging.info(f"TOKENS: {tokens}")
             self.failures += 1
             if self.failures == 5:
                 self.failures == 0
-                print("Failed to get a response 5 times in a row.")
+                logging.info("Failed to get a response 5 times in a row.")
                 return None
-            print(f"Retrying in 10 seconds...")
+            logging.info(f"Retrying in 10 seconds...")
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
@@ -193,7 +192,7 @@ class AGiXT:
             except:
                 return_response = self.response
             self.response = return_response
-        print(f"Response: {self.response}")
+        logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
                 self.agent.memories.store_result(task, self.response)
@@ -348,9 +347,9 @@ class AGiXT:
             response = json.loads(cleaned_json)
             return response
         except:
-            print("INVALID JSON RESPONSE")
-            print(execution_response)
-            print("... Trying again.")
+            logging.info("INVALID JSON RESPONSE")
+            logging.info(execution_response)
+            logging.info("... Trying again.")
             if context_results != 0:
                 context_results = context_results - 1
             else:
@@ -371,7 +370,7 @@ class AGiXT:
         context_results,
         **kwargs,
     ):
-        print(
+        logging.info(
             f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
         )
         revalidate = self.run(
@@ -403,7 +402,7 @@ class AGiXT:
                                 command_output = self.agent.execute(
                                     command_name, command_args
                                 )
-                                print("Running Command Execution Validation...")
+                                logging.info("Running Command Execution Validation...")
                                 validate_command = self.run(
                                     task=task,
                                     prompt="Validation",
@@ -421,32 +420,20 @@ class AGiXT:
                                     **kwargs,
                                 )
 
-                            if validate_command.startswith("Y"):
-                                print(
-                                    f"Command {command_name} executed successfully with args {command_args}."
-                                )
-                                response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                                return response
-                            else:
-                                revalidate = self.run(
-                                    task=task,
-                                    prompt="ValidationFailed",
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                    command_output=command_output,
-                                    **kwargs,
-                                )
-                                return self.execution_agent(
-                                    execution_response, task, context_results, **kwargs
-                                )
+                            logging.info(
+                                f"Command {command_name} executed successfully with args {command_args}."
+                            )
+                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                            return response
+
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
                     else:
                         return f"\Command not recognized: {command_name} ."
         except:
-            print("\nERROR IN EXECUTION_AGENT, validated_response:\n")
-            print(validated_response)
+            logging.info("\nERROR IN EXECUTION_AGENT, validated_response:\n")
+            logging.info(validated_response)
             return "\nNo commands were executed.\n"
 
     async def websearch_agent(
@@ -463,13 +450,16 @@ class AGiXT:
             if links is not None:
                 for link in links:
                     if "href" in link:
-                        url = link["href"]
+                        try:
+                            url = link["href"]
+                        except:
+                            url = link
                     else:
                         url = link
                     url = re.sub(r"^.*?(http)", r"http", url)
                     # Check if url is an actual url
                     if url.startswith("http"):
-                        print(f"Scraping: {url}")
+                        logging.info(f"Scraping: {url}")
                         if url not in self.browsed_links:
                             self.browsed_links.append(url)
                             (
@@ -489,20 +479,23 @@ class AGiXT:
                                         if not pick_a_link.startswith("None"):
                                             await resursive_browsing(task, pick_a_link)
                                     except:
-                                        print(f"Issues reading {url}. Moving on...")
+                                        logging.info(
+                                            f"Issues reading {url}. Moving on..."
+                                        )
 
         results = self.run(task=task, prompt="WebSearch")
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")
             try:
-                links = ddgs.text(search_string)
+                searx_server = self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+            except:
+                searx_server = ""
+            try:
+                links = searxng(SEARXNG_INSTANCE_URL=searx_server).search(search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:
-                print(
-                    "Duck Duck Go Search module broke. You may need to try to do `pip install duckduckgo_search --upgrade` to fix this."
-                )
                 links = None
             if links is not None:
                 await resursive_browsing(task, links)

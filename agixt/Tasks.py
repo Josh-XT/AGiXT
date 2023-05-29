@@ -5,6 +5,7 @@ import json
 import yaml
 from Agent import Agent
 from collections import deque
+import logging
 
 
 class Tasks:
@@ -18,8 +19,8 @@ class Tasks:
         if not os.path.exists(f"agents/{self.agent_name}/tasks"):
             os.makedirs(f"agents/{self.agent_name}/tasks")
 
-    def load_task(self):
-        out_file = re.sub(r"[^\w\s]", "", self.primary_objective)
+    def load_task(self, task):
+        out_file = re.sub(r"[^\w\s]", "", task)
         out_file = out_file[:25]
         try:
             with open(f"agents/{self.agent_name}/{out_file}.json", "r") as f:
@@ -28,15 +29,15 @@ class Tasks:
             self.task_list = deque(task_state["task_list"])
             self.output_list = task_state["tasks"]
             self.primary_objective = task_state["primary_objective"]
-            print(f"Successfully loaded task '{out_file}'.")
+            logging.info(f"Successfully loaded task '{out_file}'.")
 
         except FileNotFoundError:
-            print(f"No saved task found with the name '{out_file}'.")
+            logging.info(f"No saved task found with the name '{out_file}'.")
         except Exception as e:
-            print(f"An error occurred while loading the task: {e}")
+            logging.info(f"An error occurred while loading the task: {e}")
 
     def get_status(self):
-        if self.task_list:
+        if self.task_list != deque([]) and self.output_list != []:
             return True
         else:
             return False
@@ -80,14 +81,14 @@ class Tasks:
             with open(f"agents/{self.agent_name}/tasks/{out_file}.json", "r") as f:
                 task_output = json.load(f)
 
-            print(f"Successfully loaded task output for '{out_file}'.")
+            logging.info(f"Successfully loaded task output for '{out_file}'.")
             return task_output
 
         except FileNotFoundError:
-            print(f"No saved task output found with the name '{out_file}'.")
+            logging.info(f"No saved task output found with the name '{out_file}'.")
             return None
         except Exception as e:
-            print(f"An error occurred while loading the task output: {e}")
+            logging.info(f"An error occurred while loading the task output: {e}")
             return None
 
     def get_tasks_files(self):
@@ -139,7 +140,7 @@ class Tasks:
         initial_task = "Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective."
         if load_task != "":
             self.load_task(load_task)
-            print(f"Loaded task '{load_task}'.\n\n")
+            logging.info(f"Loaded task '{load_task}'.\n\n")
         else:
             self.primary_objective = objective
             self.task_list = deque(
@@ -150,14 +151,14 @@ class Tasks:
                     }
                 ]
             )
-            print(f"Starting task with objective: {self.primary_objective}.\n\n")
+            logging.info(f"Starting task with objective: {self.primary_objective}.\n\n")
 
         while not self.stop_running_event and self.task_list != deque([]):
             task = self.task_list.popleft()
             if task["task_name"] in ["None", "None.", ""]:
                 self.stop_tasks()
                 continue
-            print(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
+            logging.info(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
             if smart != True:
                 result = self.instruction_agent(task=task["task_name"], **kwargs)
             else:
@@ -169,7 +170,7 @@ class Tasks:
                     **kwargs,
                 )
             self.update_task(task["task_id"], task["task_name"], result)
-            print(f"\nTask Result:\n\n{result}\n")
+            logging.info(f"\nTask Result:\n\n{result}\n")
             if task["task_name"] == initial_task:
                 lines = result.split("\n") if "\n" in result else [result]
                 new_tasks = []
@@ -183,4 +184,4 @@ class Tasks:
                 self.task_list = deque(new_tasks)
         if not self.task_list:
             self.stop_tasks()
-        print("All tasks completed or stopped.")
+        logging.info("All tasks completed or stopped.")

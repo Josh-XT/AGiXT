@@ -1,6 +1,7 @@
 from time import time
 from openai.error import RateLimitError
 import openai
+import logging
 
 
 class AzureProvider:
@@ -41,6 +42,6 @@ class AzureProvider:
                 return resp
 
             except RateLimitError:
-                print("Rate limit exceeded. Retrying after 20 seconds.")
+                logging.info("Rate limit exceeded. Retrying after 20 seconds.")
                 time.sleep(20)
                 continue
