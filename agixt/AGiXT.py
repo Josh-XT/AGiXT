@@ -412,7 +412,7 @@ class AGiXT:
                                     **kwargs,
                                 )
                             except:
-                                return self.revalidation_agent(
+                                validate_command = self.revalidation_agent(
                                     task,
                                     command_name,
                                     command_args,
