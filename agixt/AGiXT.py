@@ -411,21 +411,32 @@ class AGiXT:
                                     command_output=command_output,
                                     **kwargs,
                                 )
+                                if validate_command.startswith("Yes"):
+                                    # Failed command execution
+                                    return self.revalidation_agent(
+                                        task=task,
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                        command_output=command_output,
+                                        context_results=context_results,
+                                        **kwargs,
+                                    )
+                                else:
+                                    # Successful command execution
+                                    logging.info(
+                                        f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                                    )
+                                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                                    return response
                             except:
-                                validate_command = self.revalidation_agent(
-                                    task,
-                                    command_name,
-                                    command_args,
-                                    command_output,
+                                return self.revalidation_agent(
+                                    task=task,
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                    command_output=command_output,
+                                    context_results=context_results,
                                     **kwargs,
                                 )
-
-                            logging.info(
-                                f"Command {command_name} executed successfully with args {command_args}."
-                            )
-                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                            return response
-
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
