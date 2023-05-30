@@ -138,11 +138,11 @@ class Extensions:
         logging.info(
             f"Command Name: {command_name}, Args: {command_args}, Function: {command_function}"
         )
+        if command_function is None:
+            return False
         for param in params:
             if param not in command_args:
                 command_args[param] = None
-        if command_function is None:
-            return False
         try:
             output = getattr(module(), command_function.__name__)(**command_args)
         except Exception as e:
