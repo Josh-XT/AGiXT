@@ -11,8 +11,8 @@ You have the following resources:
 3. GPT-3.5 powered Agents for delegation of simple tasks.
 4. File output.
 
-RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BREAKING THIS RULE!
-
+RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands, simply make the commands section an empty object like {}.
+```JSON
 {
     "response": "Your response to the task.",
     "commands": {
@@ -27,5 +27,6 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! THERE ARE SERIOUS CONSEQUENCES FOR BR
         }
     }
 }
+```
 
 Your task: {task}
