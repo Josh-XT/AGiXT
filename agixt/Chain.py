@@ -122,7 +122,7 @@ class Chain:
             )
         return prompt_content
 
-    def run_chain_step(self, step, chain_name):
+    def run_chain_step(self, step: dict = {}, chain_name=""):
         logging.info(step)
         if step:
             if "prompt_type" in step:
@@ -135,10 +135,10 @@ class Chain:
                 except:
                     command_name = ""
                 if prompt_type == "Command":
-                    commands_args = prompt
-                    for prompt_content in prompt:
-                        commands_args[prompt_content] = self.get_step_content(
-                            chain_name, step_number, prompt_content
+                    commands_args = prompt.copy()
+                    for arg in commands_args:
+                        commands_args[arg] = self.get_step_content(
+                            chain_name, step_number, commands_args[arg]
                         )
                     return Extensions(agent_config=agent_name).execute_command(
                         command_name=command_name, command_args=commands_args

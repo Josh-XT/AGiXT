@@ -142,13 +142,15 @@ class Extensions:
             logging.error(f"Command {command_name} not found")
             return False
         for param in params:
-            if param not in command_args and param != "self" and param != "kwargs":
-                command_args[param] = None
+            if param not in command_args:
+                if param != "self" and param != "kwargs":
+                    command_args[param] = None
+        args = command_args.copy()
         for param in command_args:
             if param not in params:
-                del command_args[param]
+                del args[param]
         try:
-            output = getattr(module(), command_function.__name__)(**command_args)
+            output = getattr(module(), command_function.__name__)(**args)
         except Exception as e:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
