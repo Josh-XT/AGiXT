@@ -142,15 +142,10 @@ class Extensions:
             logging.error(f"Command {command_name} not found")
             return False
         for param in params:
-            if (
-                param not in command_args
-                and param != "self"
-                and param != "kwargs"
-                and param != "agent_name"
-                and param != "command_name"
-                and param != "prompt_name"
-            ):
+            if param not in command_args and param != "self" and param != "kwargs":
                 command_args[param] = None
+        if "command_name" in command_args:
+            del command_args["command_name"]
         try:
             output = getattr(module(), command_function.__name__)(**command_args)
         except Exception as e:
