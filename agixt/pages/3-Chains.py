@@ -5,6 +5,7 @@ from Chain import Chain
 from Extensions import Extensions
 from Agent import Agent
 from Prompts import Prompts
+import logging
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
@@ -60,10 +61,22 @@ if selected_chain_name:
     except:
         st.write(selected_chain_name + " Responses: ")
         try:
+            if "_responses" in selected_chain_name:
+                chain_commands_executed = Chain().get_step_response(
+                    chain_name=selected_chain_name.replace("_responses", "")
+                )
+            else:
+                chain_commands_executed = False
             chain_response = Chain().get_step_response(
                 chain_name=selected_chain_name,
             )
-            if chain_response:
+            if chain_response and chain_commands_executed:
+                for exec in chain_commands_executed["steps"]:
+                    logging.info("----------exec: " + str(exec["step"]))
+                    logging.info("----------Chain_Response " + str(chain_response["1"]))
+                    st.write(exec)
+                    st.write(chain_response[str(exec["step"])])
+            elif chain_response:
                 st.write(chain_response)
             else:
                 raise ValueError("End of responses!", "None Found!")
