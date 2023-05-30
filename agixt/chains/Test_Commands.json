@@ -1,0 +1,43 @@
+{
+    "chain_name": "Test_Commands",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "Testing",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Write to File",
+                "filename": "test.txt",
+                "text": "Test"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "Testing",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Append to File",
+                "filename": "test.txt",
+                "text": "-ing"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "Testing",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Read File",
+                "filename": "test.txt"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "Testing",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Delete File",
+                "filename": "tester.txt"
+            }
+        }
+    ]
+}
