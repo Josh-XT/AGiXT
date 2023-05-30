@@ -144,8 +144,9 @@ class Extensions:
         for param in params:
             if param not in command_args and param != "self" and param != "kwargs":
                 command_args[param] = None
-        if "command_name" in command_args:
-            del command_args["command_name"]
+        for param in command_args:
+            if param not in params:
+                del command_args[param]
         try:
             output = getattr(module(), command_function.__name__)(**command_args)
         except Exception as e:
