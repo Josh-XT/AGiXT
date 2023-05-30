@@ -142,8 +142,9 @@ class Extensions:
             logging.error(f"Command {command_name} not found")
             return False
         for param in params:
-            if param not in command_args and param != "self" and param != "kwargs":
-                command_args[param] = None
+            if param not in command_args:
+                if param != "self" and param != "kwargs":
+                    command_args[param] = None
         args = command_args.copy()
         for param in command_args:
             if param not in params:
