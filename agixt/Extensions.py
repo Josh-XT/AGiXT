@@ -141,7 +141,7 @@ class Extensions:
         if command_function is None:
             return False
         for param in params:
-            if param not in command_args:
+            if param not in command_args and param != "self" and param != "kwargs":
                 command_args[param] = None
         try:
             output = getattr(module(), command_function.__name__)(**command_args)
