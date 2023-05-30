@@ -128,9 +128,7 @@ class file_system(Extensions):
 
     def read_file(self, filename: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
@@ -139,9 +137,7 @@ class file_system(Extensions):
 
     def write_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             directory = os.path.dirname(filepath)
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -153,9 +149,7 @@ class file_system(Extensions):
 
     def append_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "a") as f:
                 f.write(text)
             return "Text appended successfully."
@@ -164,9 +158,7 @@ class file_system(Extensions):
 
     def delete_file(self, filename: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             os.remove(filepath)
             return "File deleted successfully."
         except Exception as e:
@@ -179,7 +171,7 @@ class file_system(Extensions):
             search_directory = self.WORKING_DIRECTORY
         else:
             search_directory = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=directory
+                base=self.WORKING_DIRECTORY, paths=directory
             )
 
         for root, _, files in os.walk(search_directory):
