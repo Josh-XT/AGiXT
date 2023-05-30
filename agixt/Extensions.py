@@ -136,15 +136,24 @@ class Extensions:
     def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
-            f"Command Name: {command_name}, Args: {command_args}, Function: {command_function}"
+            f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
         )
         if command_function is None:
+            logging.error(f"Command {command_name} not found")
             return False
         for param in params:
-            if param not in command_args and param != "self" and param != "kwargs":
+            if (
+                param not in command_args
+                and param != "self"
+                and param != "kwargs"
+                and param != "agent_name"
+                and param != "command_name"
+                and param != "prompt_name"
+            ):
                 command_args[param] = None
         try:
             output = getattr(module(), command_function.__name__)(**command_args)
         except Exception as e:
             output = f"Error: {str(e)}"
+        logging.info(f"Command Output: {output}")
         return output
