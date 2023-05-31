@@ -78,8 +78,10 @@ class AGiXT:
             context = "None"
         else:
             try:
-                context = self.agent.memories.context_agent(
-                    query=task, top_results_num=top_results
+                context = asyncio.run(
+                    self.agent.memories.context_agent(
+                        query=task, top_results_num=top_results
+                    )
                 )
             except:
                 context = "None."

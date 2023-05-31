@@ -117,17 +117,12 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return []
-        try:
-            results = await self.chroma_client.get_nearest_matches_async(
-                collection_name="memories",
-                embedding=await embedder(query),
-                limit=top_results_num,
-                min_relevance_score=0.1,
-            )
-        except Exception as e:
-            logging.info(f"Failed to get context: {e}")
-            return []
-        # Each result is as results._text
+        results = await self.chroma_client.get_nearest_matches_async(
+            collection_name="memories",
+            embedding=await embedder(query),
+            limit=top_results_num,
+            min_relevance_score=0.1,
+        )
         context = []
         for memory, score in results:
             context.append(memory._text)
