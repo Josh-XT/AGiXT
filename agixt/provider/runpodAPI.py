@@ -49,7 +49,7 @@ class RunpodAPIProvider:
             if int(self.MAX_TOKENS) > tokens
             else self.MAX_TOKENS
         )
-        
+
         logging.info("Instructing Agent with %s", prompt)
 
         run_response = requests.post(
@@ -82,7 +82,7 @@ class RunpodAPIProvider:
                 #     f"{self.AI_PROVIDER_URI}/status/{jobId}", headers=headers
                 # )
                 # logging.info("Result: %s", result_response.json())
-                output = status_response.json()['output']
+                output = status_response.json()["output"]
                 logging.info("Output: %s", output)
                 return output
             elif status == "FAILED":
