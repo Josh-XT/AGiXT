@@ -17,9 +17,6 @@ import logging
 import asyncio
 import sys
 
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
 
 class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
@@ -41,7 +38,7 @@ class Memories:
 
     async def get_embedder(self):
         embedder, chunk_size = await Embedding(
-            AGENT_CONFIG=self.AGENT_CONFIG
+            AGENT_CONFIG=self.agent_config
         ).get_embedder()
         return embedder, chunk_size
 
