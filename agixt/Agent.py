@@ -10,6 +10,7 @@ from inspect import signature, Parameter
 from provider import Provider
 from Memories import Memories
 from Extensions import Extensions
+from Embedding import Embedding
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
@@ -76,6 +77,12 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
+
+    async def get_embedder(self):
+        embedder, chunk_size = await Embedding(
+            AGENT_CONFIG=self.AGENT_CONFIG
+        ).get_embedder()
+        return embedder, chunk_size
 
     def instruct(self, prompt, tokens):
         if not prompt:

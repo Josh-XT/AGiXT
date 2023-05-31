@@ -11,6 +11,7 @@ import pdfplumber
 from playwright.async_api import async_playwright
 from semantic_kernel.connectors.memory.chroma import ChromaMemoryStore
 from semantic_kernel.memory.memory_record import MemoryRecord
+from chromadb.config import Settings
 from bs4 import BeautifulSoup
 import logging
 import asyncio
@@ -27,11 +28,7 @@ class Memories:
         self.chroma_client = None
         self.collection = None
         self.nlp = None
-        self.embedder = None
         self.chunk_size = 128
-        self.chroma_persist_dir = f"agents/{self.agent_name}/memories"
-        if not os.path.exists(self.chroma_persist_dir):
-            os.makedirs(self.chroma_persist_dir)
 
     def load_spacy_model(self):
         if not self.nlp:
@@ -42,40 +39,43 @@ class Memories:
                 self.nlp = spacy.load("en_core_web_sm")
         self.nlp.max_length = 99999999999999999999999
 
-    async def get_memories(self):
-        self.embedder, self.chunk_size = await Embedding(
-            AGENT_CONFIG=self.agent_config
+    async def get_embedder(self):
+        embedder, chunk_size = await Embedding(
+            AGENT_CONFIG=self.AGENT_CONFIG
         ).get_embedder()
+        return embedder, chunk_size
+
+    async def get_collection(self):
         try:
-            self.chroma_client = ChromaMemoryStore(
-                persist_directory=self.chroma_persist_dir,
+            memories_dir = f"{os.getcwd()}/agents/{self.agent_name}/memories"
+            chroma_client = ChromaMemoryStore(
+                persist_directory=memories_dir,
+                client_settings=Settings(
+                    chroma_db_impl="duckdb",
+                    persist_directory=memories_dir,
+                    anonymized_telemetry=False,
+                ),
             )
-            memories_exist = await self.chroma_client.does_collection_exist_async(
-                "memories"
-            )
-            if memories_exist is True:
-                return await self.chroma_client.get_collection_async(
+            memories_exist = await chroma_client.does_collection_exist_async("memories")
+            if not memories_exist:
+                await chroma_client.create_collection_async(collection_name="memories")
+                memories = await chroma_client.get_collection_async(
                     collection_name="memories"
                 )
             else:
-                logging.info(
-                    f"Memories for {self.agent_name} do not exist. Creating..."
-                )
-                await self.chroma_client.create_collection_async(
+                memories = await chroma_client.get_collection_async(
                     collection_name="memories"
                 )
-                return await self.chroma_client.get_collection_async(
-                    collection_name="memories"
-                )
+            self.chroma_client = chroma_client
+            return memories
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
 
     async def store_memory(
         self, content: str, description: str = None, external_source_name: str = None
     ):
-        if self.chroma_client == None:
-            await self.get_memories()
-
+        embedder, chunk_size = await self.get_embedder()
+        collection = await self.get_collection()
         record = MemoryRecord(
             is_reference=False,
             id=sha256((content + datetime.now().isoformat()).encode()).hexdigest(),
@@ -83,7 +83,7 @@ class Memories:
             timestamp=datetime.now().isoformat(),
             description=description,
             external_source_name=external_source_name,  # URL or File path
-            embedding=await self.embedder(content),
+            embedding=await embedder(content),
         )
 
         try:
@@ -97,12 +97,10 @@ class Memories:
     async def store_result(
         self, task_name: str, result: str, external_source_name: str = None
     ):
-        if not self.chroma_client:
-            await self.get_memories()
         if result:
             if not isinstance(result, str):
                 result = str(result)
-            chunks = self.chunk_content(result, task_name)
+            chunks = await self.chunk_content(result, task_name)
             for chunk in chunks:
                 await self.store_memory(
                     content=chunk,
@@ -111,35 +109,39 @@ class Memories:
                 )
 
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
-        if not self.chroma_client:
-            collection = await self.get_memories()
+        embedder, chunk_size = await self.get_embedder()
+        collection = await self.get_collection()
         if collection == None:
             return []
-        if len(collection) == 0:
+        try:
+            results = await self.chroma_client.get_nearest_matches_async(
+                collection_name="memories",
+                embedding=await embedder(query),
+                limit=top_results_num,
+                min_relevance_score=0.1,
+            )
+        except Exception as e:
+            logging.info(f"Failed to get context: {e}")
             return []
-
-        results = await self.chroma_client.get_nearest_matches_async(
-            collection_name="memories",
-            embedding=await self.embedder(query),
-            limit=top_results_num,
-            min_relevance_score=0.1,
-        )
-        # context = [item["result"] for item in sorted_results]
-        context = [item["text"] for item in results]
-        trimmed_context = self.trim_context(context)
+        # Each result is as results._text
+        context = []
+        for memory, score in results:
+            context.append(memory._text)
+        trimmed_context = await self.trim_context(context)
         logging.info(f"CONTEXT: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
         response = f"Context: {context_str}\n\n"
         return response
 
-    def trim_context(self, context: List[str]) -> List[str]:
+    async def trim_context(self, context: List[str]) -> List[str]:
+        embedder, chunk_size = await self.get_embedder()
         if not self.nlp:
             self.load_spacy_model()
         trimmed_context = []
         total_tokens = 0
         for item in context:
             item_tokens = len(self.nlp(item))
-            if total_tokens + item_tokens <= self.chunk_size:
+            if total_tokens + item_tokens <= chunk_size:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
             else:
@@ -162,7 +164,10 @@ class Memories:
         score = sum(chunk_counter[keyword] for keyword in keywords)
         return score
 
-    def chunk_content(self, content: str, query: str, overlap: int = 2) -> List[str]:
+    async def chunk_content(
+        self, content: str, query: str, overlap: int = 2
+    ) -> List[str]:
+        embedder, chunk_size = await self.get_embedder()
         if not self.nlp:
             self.load_spacy_model()
         doc = self.nlp(content)
@@ -174,7 +179,7 @@ class Memories:
 
         for i, sentence in enumerate(sentences):
             sentence_tokens = len(sentence)
-            if chunk_len + sentence_tokens > self.chunk_size and chunk:
+            if chunk_len + sentence_tokens > chunk_size and chunk:
                 chunk_text = " ".join(token.text for token in chunk)
                 content_chunks.append(
                     (self.score_chunk(chunk_text, keywords), chunk_text)
