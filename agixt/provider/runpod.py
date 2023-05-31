@@ -65,7 +65,6 @@ class RunpodProvider:
         logging.info("Run Response: %s", run_response.json())
         jobId = run_response.json()["id"]
         logging.info("Job ID: %s", jobId)
-        time.sleep(2)
         while True:
             status_url = f"{self.AI_PROVIDER_URI}/status/{jobId}"
             logging.info("Requesting status url: %s", status_url)
