@@ -24,7 +24,7 @@ def threaded(fn):
 import requests
 
 
-class RunpodProvider:
+class RunpodAPIProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",
@@ -49,6 +49,8 @@ class RunpodProvider:
             if int(self.MAX_TOKENS) > tokens
             else self.MAX_TOKENS
         )
+        
+        logging.info("Instructing Agent with %s", prompt)
 
         run_response = requests.post(
             f"{self.AI_PROVIDER_URI}/run",
