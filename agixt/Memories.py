@@ -12,6 +12,11 @@ import pdfplumber
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 import logging
+import asyncio
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 class Memories:
@@ -190,7 +195,7 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    def read_file(self, file_path: str):
+    def mem_read_file(self, file_path: str):
         try:
             # If file extension is pdf, convert to text
             if file_path.endswith(".pdf"):

@@ -4,11 +4,21 @@ import glob
 import shutil
 import importlib
 import yaml
+import time
 from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
 from Memories import Memories
-from Commands import Commands
+from Extensions import Extensions
+
+DEFAULT_SETTINGS = {
+    "provider": "gpt4free",
+    "AI_MODEL": "gpt-4",
+    "AI_TEMPERATURE": "0.7",
+    "MAX_TOKENS": "4000",
+    "embedder": "default",
+    "LOG_REQUESTS": False,
+}
 
 
 class Agent:
@@ -18,16 +28,15 @@ class Agent:
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
         self.commands = self.load_commands()
-        self.available_commands = Commands(self.AGENT_CONFIG).get_available_commands()
+        self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
         self.clean_agent_config_commands()
-        self.execute = Commands(self.AGENT_CONFIG).execute_command
+        self.execute = Extensions(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-                self.instruct = self.PROVIDER.instruct
             self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -46,6 +55,10 @@ class Agent:
                 self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
             else:
                 self.MAX_TOKENS = 4000
+            if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
+                self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
+            else:
+                self.LOG_REQUESTS = True
 
         # Yaml Memory
         self.memory_file = f"agents/{self.agent_name}.yaml"
@@ -55,6 +68,30 @@ class Agent:
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
+        if self.LOG_REQUESTS:
+            Path(
+                os.path.join(
+                    "agents",
+                    self.agent_name,
+                    "requests",
+                )
+            ).mkdir(parents=True, exist_ok=True)
+
+    def instruct(self, prompt, tokens):
+        if not prompt:
+            return ""
+        answer = self.PROVIDER.instruct(prompt, tokens)
+        if self.LOG_REQUESTS:
+            log_file = os.path.join(
+                "agents", self.agent_name, "requests", f"{time.time()}.txt"
+            )
+            with open(
+                log_file,
+                "a" if os.path.exists(log_file) else "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(f"{prompt}\n{answer}")
+        return answer
 
     def _load_agent_config_keys(self, keys):
         for key in keys:
@@ -120,10 +157,10 @@ class Agent:
 
     def load_commands(self):
         commands = []
-        command_files = glob.glob("commands/*.py")
+        command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"commands.{module_name}")
+            module = importlib.import_module(f"extensions.{module_name}")
             command_class = getattr(module, module_name.lower())()
             if hasattr(command_class, "commands"):
                 for command_name, command_function in command_class.commands.items():
@@ -139,13 +176,7 @@ class Agent:
             or provider_settings == ""
             or provider_settings == {}
         ):
-            provider_settings = {
-                "provider": "gpt4free",
-                "AI_MODEL": "gpt-4",
-                "AI_TEMPERATURE": "0.7",
-                "MAX_TOKENS": "4000",
-                "embedder": "default",
-            }
+            provider_settings = DEFAULT_SETTINGS
         settings = json.dumps(
             {
                 "commands": commands,
@@ -178,13 +209,7 @@ class Agent:
                         command_name: "false"
                         for command_name, _, _ in self.load_commands(agent_name)
                     }
-                    agent_config_data["settings"] = {
-                        "provider": "gpt4free",
-                        "AI_MODEL": "gpt-4",
-                        "AI_TEMPERATURE": "0.7",
-                        "MAX_TOKENS": "4000",
-                        "embedder": "default",
-                    }
+                    agent_config_data["settings"] = DEFAULT_SETTINGS
                     # Save the updated agent_config to the file
                     with open(
                         os.path.join("agents", agent_name, "config.json"), "w"
@@ -202,13 +227,7 @@ class Agent:
                                 command_name: "false"
                                 for command_name, _, _ in self.load_commands()
                             },
-                            "settings": {
-                                "provider": "gpt4free",
-                                "AI_MODEL": "gpt-4",
-                                "AI_TEMPERATURE": "0.7",
-                                "MAX_TOKENS": "4000",
-                                "embedder": "default",
-                            },
+                            "settings": DEFAULT_SETTINGS,
                         }
                     )
                 )
@@ -218,25 +237,15 @@ class Agent:
         if not agent_name:
             return "Agent name cannot be empty."
         provider_settings = (
-            {
-                "provider": "gpt4free",
-                "AI_MODEL": "gpt-3.5-turbo",
-                "AI_TEMPERATURE": "0.4",
-                "MAX_TOKENS": "4000",
-                "embedder": "default",
-            }
-            if not provider_settings
-            else provider_settings
+            DEFAULT_SETTINGS if not provider_settings else provider_settings
         )
-        agent_folder = self.create_agent_folder(agent_name)
+        self.create_agent_folder(agent_name)
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
-        agent_config = self.create_agent_config_file(
-            agent_name, provider_settings, command_dict
-        )
+        self.create_agent_config_file(agent_name, provider_settings, command_dict)
         with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
             f.write("")
         return {"agent_file": f"{agent_name}.yaml"}
@@ -271,16 +280,15 @@ class Agent:
         while True:
             agent_file = os.path.abspath(f"agents/{self.agent_name}/config.json")
             if os.path.exists(agent_file):
-                with open(agent_file, "r") as f:
-                    file_content = f.read().strip()
-                    if file_content:
-                        return json.loads(file_content)
-                    else:
-                        self.add_agent(self.agent_name, {})
-                        return self.get_agent_config()
-            else:
-                self.add_agent(self.agent_name, {})
-                return self.get_agent_config()
+                try:
+                    with open(agent_file, "r") as f:
+                        file_content = f.read().strip()
+                        if file_content:
+                            return json.loads(file_content)
+                except:
+                    None
+            self.add_agent(self.agent_name, {})
+            return self.get_agent_config()
 
     def update_agent_config(self, new_config, config_key):
         agent_name = self.agent_name

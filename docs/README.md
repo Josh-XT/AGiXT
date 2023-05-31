@@ -67,8 +67,8 @@ This project is under active development and may still have issues. We appreciat
 ## Quickstart with Docker
 Clone the repository and run the AGiXT Streamlit Web App.
 ```
-git clone https://github.com/Josh-XT/AGiXT
-docker compose --profile streamlit up
+git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
+docker compose streamlit up
 ```
 
 - Web Interface http://localhost:8501
@@ -80,27 +80,37 @@ docker compose --profile streamlit up
 
 Run all available services, this includes the FastAPI back end (Port 7437) and NextJS front end (Port 3000).
 ```
-docker compose --profile all up
+docker compose all up
 ```
 
 ### Development using docker
 ```
-git clone https://github.com/Josh-XT/AGiXT
-docker compose --profile all -f docker-compose.yml -f docker-compose.dev.yaml up
+git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
+docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
 ## Local Development
 
 Clone the repository for the AGiXT back end and start it.
 
+#### Install poetry
+`pip install poetry==1.5.0`
+Check if poetry is available via
+`poetry --version`
+or
+`python3 -m poetry --version`
+Adapt the following commands accordingly.
+
+#### Setup AGiXT
 ```
 git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
-pip install poetry
+pip install poetry==1.5.0
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 poetry install --with gpt4free
 playwright install
 cd agixt
 ```
+
 #### Run Streamlit 
 `poetry run streamlit run Main.py`
 
