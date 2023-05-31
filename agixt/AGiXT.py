@@ -202,7 +202,7 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                self.agent.memories.store_result(task, self.response)
+                asyncio.run(self.agent.memories.store_result(task, self.response))
             except:
                 pass
             self.agent.log_interaction("USER", task)
