@@ -1,4 +1,3 @@
-import chromadb
 from typing import List
 import spacy
 import os
@@ -16,7 +15,6 @@ from bs4 import BeautifulSoup
 import logging
 import asyncio
 import sys
-from numpy import ndarray
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -29,6 +27,8 @@ class Memories:
         self.chroma_client = None
         self.collection = None
         self.nlp = None
+        self.embedder = None
+        self.chunk_size = 128
         self.chroma_persist_dir = f"agents/{self.agent_name}/memories"
         if not os.path.exists(self.chroma_persist_dir):
             os.makedirs(self.chroma_persist_dir)
@@ -43,14 +43,17 @@ class Memories:
         self.nlp.max_length = 99999999999999999999999
 
     async def get_memories(self):
+        self.embedder, self.chunk_size = await Embedding(
+            AGENT_CONFIG=self.agent_config
+        ).get_embedder()
         try:
             self.chroma_client = ChromaMemoryStore(
-                persist_directory=self.chroma_persist_dir
+                persist_directory=self.chroma_persist_dir,
             )
             memories_exist = await self.chroma_client.does_collection_exist_async(
                 "memories"
             )
-            if memories_exist == True:
+            if memories_exist is True:
                 return await self.chroma_client.get_collection_async(
                     collection_name="memories"
                 )
@@ -58,29 +61,29 @@ class Memories:
                 logging.info(
                     f"Memories for {self.agent_name} do not exist. Creating..."
                 )
-                return await self.chroma_client.create_collection_async(
+                await self.chroma_client.create_collection_async(
+                    collection_name="memories"
+                )
+                return await self.chroma_client.get_collection_async(
                     collection_name="memories"
                 )
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
 
-    def generate_id(self, content: str, timestamp: str):
-        return sha256((content + timestamp).encode()).hexdigest()
-
     async def store_memory(
         self, content: str, description: str = None, external_source_name: str = None
     ):
-        if not self.chroma_client:
+        if self.chroma_client == None:
             await self.get_memories()
-        embedding = Embedding(AGENT_CONFIG=self.agent_config).embed(content)
+
         record = MemoryRecord(
-            id=self.generate_id(content, datetime.now().isoformat()),
+            is_reference=False,
+            id=sha256((content + datetime.now().isoformat()).encode()).hexdigest(),
             text=content,
             timestamp=datetime.now().isoformat(),
             description=description,
             external_source_name=external_source_name,  # URL or File path
-            is_reference=False,
-            embedding=embedding,
+            embedding=await self.embedder(content),
         )
 
         try:
@@ -109,21 +112,20 @@ class Memories:
 
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
         if not self.chroma_client:
-            await self.get_memories()
-        embedding = Embedding(AGENT_CONFIG=self.agent_config).embed(query)
+            collection = await self.get_memories()
+        if collection == None:
+            return []
+        if len(collection) == 0:
+            return []
+
         results = await self.chroma_client.get_nearest_matches_async(
             collection_name="memories",
-            embedding=embedding,
+            embedding=await self.embedder(query),
             limit=top_results_num,
             min_relevance_score=0.1,
         )
+        # context = [item["result"] for item in sorted_results]
         context = [item["text"] for item in results]
-        return results
-        # TODO: Before sending results, ask AI if each chunk it is relevant to the task-
-        #   so that we're only injecting relevant memories into the context.
-        # This will ensure we aren't injecting memories that aren't relevant.
-        # Need to research to find out how to do this locally instead of sending more shots to the AI.
-        context = [item["result"] for item in sorted_results]
         trimmed_context = self.trim_context(context)
         logging.info(f"CONTEXT: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
