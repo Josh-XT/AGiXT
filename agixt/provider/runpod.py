@@ -72,15 +72,17 @@ class RunpodProvider:
             logging.info("Status Response: %s", status_response.json())
             status = status_response.json()["status"]
             logging.info("Status: %s", status)
-            # IN_QUEUE, RUNNING, DONE, FAILED
-            if status == "DONE":
-                url = response.json()["results"]["url"]
-                logging.debug("URL: %s", status)
-                result = requests.get(
-                    f"{self.AI_PROVIDER_URI}/status/{jobId}", headers=headers
-                )
-                logging.debug("Result: %s", result.json())
-                return result["output"]
+            # IN_QUEUE, RUNNING, COMPLETED, FAILED
+            if status == "COMPLETED":
+                # url = response.json()["results"]["url"]
+                # logging.info("Result URL: %s", status)
+                # result_response = requests.get(
+                #     f"{self.AI_PROVIDER_URI}/status/{jobId}", headers=headers
+                # )
+                # logging.info("Result: %s", result_response.json())
+                output = status_response.json()['output']
+                logging.info("Output: %s", output)
+                return output
             elif status == "FAILED":
                 logging.info("JOB FAILD - NEEDS HANDLING")
                 return None
