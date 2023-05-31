@@ -11,6 +11,7 @@ from Prompts import Prompts
 from extensions.searxng import searxng
 from urllib.parse import urlparse
 import logging
+from concurrent.futures import Future
 
 
 class AGiXT:
@@ -144,7 +145,13 @@ class AGiXT:
             else:
                 self.websearch_agent(task=task, depth=websearch_depth)
         try:
-            self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            # Workaround for non-threaded providers
+            run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            self.response = (
+                run_response.result()
+                if isinstance(run_response, Future)
+                else run_response
+            )
         except Exception as e:
             logging.info(f"Error: {e}")
             logging.info(f"PROMPT CONTENT: {formatted_prompt}")
