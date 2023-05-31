@@ -122,7 +122,7 @@ class Chain:
             )
         return prompt_content
 
-    def run_chain_step(self, step: dict = {}, chain_name=""):
+    async def run_chain_step(self, step: dict = {}, chain_name=""):
         logging.info(step)
         if step:
             if "prompt_type" in step:
@@ -154,7 +154,7 @@ class Chain:
                 except:
                     return None
                 if prompt_type == "Prompt":
-                    result = agent.run(
+                    result = await agent.run(
                         prompt=prompt["prompt_name"],
                         chain_name=chain_name,
                         step_number=step_number,
@@ -163,11 +163,11 @@ class Chain:
                 elif prompt_type == "Chain":
                     result = self.run_chain(prompt["chain_name"])
                 elif prompt_type == "Smart Instruct":
-                    result = agent.smart_instruct(task=prompt_content, **prompt)
+                    result = await agent.smart_instruct(task=prompt_content, **prompt)
                 elif prompt_type == "Smart Chat":
-                    result = agent.smart_chat(task=prompt_content, **prompt)
+                    result = await agent.smart_chat(task=prompt_content, **prompt)
                 elif prompt_type == "Task":
-                    result = agent.run_task(objective=prompt_content, **prompt)
+                    result = await agent.run_task(objective=prompt_content, **prompt)
         if result:
             return result
         else:
