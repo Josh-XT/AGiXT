@@ -17,6 +17,9 @@ import logging
 import asyncio
 import sys
 
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 
 class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
@@ -44,11 +47,13 @@ class Memories:
 
     async def get_collection(self):
         try:
-            memories_dir = f"{os.getcwd()}/agents/{self.agent_name}/memories"
+            memories_dir = os.path.join(
+                os.getcwd(), "agents", self.agent_name, "memories"
+            )
             chroma_client = ChromaMemoryStore(
                 persist_directory=memories_dir,
                 client_settings=Settings(
-                    chroma_db_impl="duckdb",
+                    chroma_db_impl="chromadb.db.duckdb.PersistentDuckDB",
                     persist_directory=memories_dir,
                     anonymized_telemetry=False,
                 ),
@@ -194,7 +199,7 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    def mem_read_file(self, file_path: str):
+    async def mem_read_file(self, file_path: str):
         try:
             # If file extension is pdf, convert to text
             if file_path.endswith(".pdf"):
@@ -211,7 +216,7 @@ class Memories:
             else:
                 with open(file_path, "r") as f:
                     content = f.read()
-            self.store_result(task_name=file_path, result=content)
+            await self.store_result(task_name=file_path, result=content)
             return True
         except:
             return False
@@ -238,7 +243,7 @@ class Memories:
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
                 if text_content:
-                    self.store_result(url, text_content)
+                    await self.store_result(url, text_content)
                 return text_content, link_list
         except:
             return None, None
