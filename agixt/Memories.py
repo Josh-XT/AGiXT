@@ -10,10 +10,13 @@ import pandas as pd
 import docx2txt
 import pdfplumber
 from playwright.async_api import async_playwright
+from semantic_kernel.connectors.memory.chroma import ChromaMemoryStore
+from semantic_kernel.memory.memory_record import MemoryRecord
 from bs4 import BeautifulSoup
 import logging
 import asyncio
 import sys
+from numpy import ndarray
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -39,91 +42,83 @@ class Memories:
                 self.nlp = spacy.load("en_core_web_sm")
         self.nlp.max_length = 99999999999999999999999
 
-    def initialize_chroma_client(self):
+    async def get_memories(self):
         try:
-            return chromadb.Client(
-                settings=chromadb.config.Settings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=self.chroma_persist_dir,
-                    anonymized_telemetry=False,
-                )
+            self.chroma_client = ChromaMemoryStore(
+                persist_directory=self.chroma_persist_dir
             )
+            memories_exist = await self.chroma_client.does_collection_exist_async(
+                "memories"
+            )
+            if memories_exist == True:
+                return await self.chroma_client.get_collection_async(
+                    collection_name="memories"
+                )
+            else:
+                logging.info(
+                    f"Memories for {self.agent_name} do not exist. Creating..."
+                )
+                return await self.chroma_client.create_collection_async(
+                    collection_name="memories"
+                )
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
-
-    def get_or_create_collection(self):
-        if not self.chroma_client:
-            self.chroma_client = self.initialize_chroma_client()
-        embedder = Embedding(self.agent_config)
-        self.embedding_function = embedder.embed
-        self.chunk_size = embedder.chunk_size
-        try:
-            return self.chroma_client.get_collection(
-                name="memories", embedding_function=self.embedding_function
-            )
-        except ValueError:
-            logging.info(f"Memories for {self.agent_name} do not exist. Creating...")
-            return self.chroma_client.create_collection(
-                name="memories", embedding_function=self.embedding_function
-            )
 
     def generate_id(self, content: str, timestamp: str):
         return sha256((content + timestamp).encode()).hexdigest()
 
-    def store_memory(self, id: str, content: str, metadatas: dict):
+    async def store_memory(
+        self, content: str, description: str = None, external_source_name: str = None
+    ):
         if not self.chroma_client:
-            self.chroma_client = self.initialize_chroma_client()
-            self.collection = self.get_or_create_collection()
+            await self.get_memories()
+        embedding = Embedding(AGENT_CONFIG=self.agent_config).embed(content)
+        record = MemoryRecord(
+            id=self.generate_id(content, datetime.now().isoformat()),
+            text=content,
+            timestamp=datetime.now().isoformat(),
+            description=description,
+            external_source_name=external_source_name,  # URL or File path
+            is_reference=False,
+            embedding=embedding,
+        )
+
         try:
-            self.collection.add(
-                ids=id,
-                documents=content,
-                metadatas=metadatas,
+            await self.chroma_client.upsert_async(
+                collection_name="memories",
+                record=record,
             )
         except Exception as e:
             logging.info(f"Failed to store memory: {e}")
 
-    def store_result(self, task_name: str, result: str):
+    async def store_result(
+        self, task_name: str, result: str, external_source_name: str = None
+    ):
         if not self.chroma_client:
-            self.chroma_client = self.initialize_chroma_client()
-            self.collection = self.get_or_create_collection()
+            await self.get_memories()
         if result:
-            timestamp = datetime.now()  # current time as datetime object
             if not isinstance(result, str):
                 result = str(result)
             chunks = self.chunk_content(result, task_name)
             for chunk in chunks:
-                result_id = self.generate_id(chunk, timestamp.isoformat())
-                self.store_memory(
-                    result_id,
-                    chunk,
-                    {
-                        "task": task_name,
-                        "result": chunk,
-                        "timestamp": timestamp.isoformat(),
-                    },
+                await self.store_memory(
+                    content=chunk,
+                    description=task_name,
+                    external_source_name=external_source_name,
                 )
 
-    def context_agent(self, query: str, top_results_num: int) -> List[str]:
+    async def context_agent(self, query: str, top_results_num: int) -> List[str]:
         if not self.chroma_client:
-            self.chroma_client = self.initialize_chroma_client()
-            self.collection = self.get_or_create_collection()
-        count = self.collection.count()
-        if count == 0:
-            return []
-        results = self.collection.query(
-            query_texts=query,
-            n_results=min(top_results_num, count),
-            include=["metadatas"],
+            await self.get_memories()
+        embedding = Embedding(AGENT_CONFIG=self.agent_config).embed(query)
+        results = await self.chroma_client.get_nearest_matches_async(
+            collection_name="memories",
+            embedding=embedding,
+            limit=top_results_num,
+            min_relevance_score=0.1,
         )
-        sorted_results = sorted(
-            results["metadatas"][0],
-            key=lambda item: datetime.strptime(
-                item.get("timestamp") or "1970-01-01T00:00:00.000",
-                "%Y-%m-%dT%H:%M:%S.%f",
-            ),
-            reverse=True,
-        )
+        context = [item["text"] for item in results]
+        return results
         # TODO: Before sending results, ask AI if each chunk it is relevant to the task-
         #   so that we're only injecting relevant memories into the context.
         # This will ensure we aren't injecting memories that aren't relevant.
