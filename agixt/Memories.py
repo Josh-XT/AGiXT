@@ -29,6 +29,15 @@ class Memories:
         self.collection = None
         self.nlp = None
         self.chunk_size = 128
+        memories_dir = os.path.join(os.getcwd(), "agents", self.agent_name, "memories")
+        self.chroma_client = ChromaMemoryStore(
+            persist_directory=memories_dir,
+            client_settings=Settings(
+                chroma_db_impl="chromadb.db.duckdb.PersistentDuckDB",
+                persist_directory=memories_dir,
+                anonymized_telemetry=False,
+            ),
+        )
 
     def load_spacy_model(self):
         if not self.nlp:
@@ -47,28 +56,20 @@ class Memories:
 
     async def get_collection(self):
         try:
-            memories_dir = os.path.join(
-                os.getcwd(), "agents", self.agent_name, "memories"
+            memories_exist = await self.chroma_client.does_collection_exist_async(
+                "memories"
             )
-            chroma_client = ChromaMemoryStore(
-                persist_directory=memories_dir,
-                client_settings=Settings(
-                    chroma_db_impl="chromadb.db.duckdb.PersistentDuckDB",
-                    persist_directory=memories_dir,
-                    anonymized_telemetry=False,
-                ),
-            )
-            memories_exist = await chroma_client.does_collection_exist_async("memories")
             if not memories_exist:
-                await chroma_client.create_collection_async(collection_name="memories")
-                memories = await chroma_client.get_collection_async(
+                await self.chroma_client.create_collection_async(
+                    collection_name="memories"
+                )
+                memories = await self.chroma_client.get_collection_async(
                     collection_name="memories"
                 )
             else:
-                memories = await chroma_client.get_collection_async(
+                memories = await self.chroma_client.get_collection_async(
                     collection_name="memories"
                 )
-            self.chroma_client = chroma_client
             return memories
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
