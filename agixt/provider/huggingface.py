@@ -30,13 +30,14 @@ class HuggingfaceProvider:
         for _ in range(num_retries):
             try:
                 response = requests.post(
-                    f"{self.HUGGINGFACE_API_URL}/models/{self.AI_MODEL}",
+                    self.HUGGINGFACE_API_URL,
                     headers=headers,
                     json=payload,
                 )
                 response.raise_for_status()
                 return response.json()[0]["generated_text"]
-            except:
+            except requests.exceptions.RequestException as e:
+                logging.error(e)
                 logging.info("Rate limit exceeded. Retrying after 20 seconds.")
                 time.sleep(20)
                 continue
