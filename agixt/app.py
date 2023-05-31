@@ -5,10 +5,9 @@ from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
 from Agent import Agent
-from Commands import Commands
 from Chain import Chain
 from Tasks import Tasks
-from CustomPrompt import CustomPrompt
+from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
@@ -373,7 +372,7 @@ async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
 @app.post("/api/prompt", tags=["Prompt"])
 async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        CustomPrompt().add_prompt(prompt.prompt_name, prompt.prompt)
+        Prompts().add_prompt(prompt.prompt_name, prompt.prompt)
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -382,7 +381,7 @@ async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
 @app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=CustomPromptModel)
 async def get_prompt(prompt_name: str):
     try:
-        prompt_content = CustomPrompt().get_prompt(prompt_name)
+        prompt_content = Prompts().get_prompt(prompt_name)
         return {"prompt_name": prompt_name, "prompt": prompt_content}
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -390,14 +389,14 @@ async def get_prompt(prompt_name: str):
 
 @app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
 async def get_prompts():
-    prompts = CustomPrompt().get_prompts()
+    prompts = Prompts().get_prompts()
     return {"prompts": prompts}
 
 
 @app.delete("/api/prompt/{prompt_name}", tags=["Prompt"])
 async def delete_prompt(prompt_name: str) -> ResponseMessage:
     try:
-        CustomPrompt().delete_prompt(prompt_name)
+        Prompts().delete_prompt(prompt_name)
         return ResponseMessage(message=f"Prompt '{prompt_name}' deleted.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -406,7 +405,7 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
 @app.put("/api/prompt/{prompt_name}", tags=["Prompt"])
 async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        CustomPrompt().update_prompt(prompt.prompt_name, prompt.prompt)
+        Prompts().update_prompt(prompt.prompt_name, prompt.prompt)
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))

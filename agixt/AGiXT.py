@@ -7,8 +7,8 @@ import time
 import spacy
 from datetime import datetime
 from Agent import Agent
-from CustomPrompt import CustomPrompt
-from commands.searxng_commands import searxng_commands
+from Prompts import Prompts
+from extensions.searxng import searxng
 from urllib.parse import urlparse
 import logging
 
@@ -65,7 +65,7 @@ class AGiXT:
         step_number=0,
         **kwargs,
     ):
-        cp = CustomPrompt()
+        cp = Prompts()
         if prompt == "":
             prompt = task
         else:
@@ -411,32 +411,31 @@ class AGiXT:
                                     command_output=command_output,
                                     **kwargs,
                                 )
+                                if validate_command.startswith("Yes"):
+                                    # Failed command execution
+                                    return self.revalidation_agent(
+                                        task=task,
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                        command_output=command_output,
+                                        context_results=context_results,
+                                        **kwargs,
+                                    )
+                                else:
+                                    # Successful command execution
+                                    logging.info(
+                                        f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                                    )
+                                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                                    return response
                             except:
                                 return self.revalidation_agent(
-                                    task,
-                                    command_name,
-                                    command_args,
-                                    command_output,
-                                    **kwargs,
-                                )
-
-                            if validate_command.startswith("Y"):
-                                logging.info(
-                                    f"Command {command_name} executed successfully with args {command_args}."
-                                )
-                                response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                                return response
-                            else:
-                                revalidate = self.run(
                                     task=task,
-                                    prompt="ValidationFailed",
                                     command_name=command_name,
                                     command_args=command_args,
                                     command_output=command_output,
+                                    context_results=context_results,
                                     **kwargs,
-                                )
-                                return self.execution_agent(
-                                    execution_response, task, context_results, **kwargs
                                 )
                 else:
                     if command_name == "None.":
@@ -504,9 +503,7 @@ class AGiXT:
             except:
                 searx_server = ""
             try:
-                links = searxng_commands(
-                    SEARXNG_INSTANCE_URL=searx_server
-                ).search_searx(search_string)
+                links = searxng(SEARXNG_INSTANCE_URL=searx_server).search(search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:

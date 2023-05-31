@@ -16,16 +16,24 @@ if "agent_status" not in st.session_state:
 if agent_name:
     st.markdown("## Learn from a file")
     learn_file_upload = st.file_uploader(
-        "Upload a file for the agent to learn from.",
+        "Upload a file for the agent to learn from.", accept_multiple_files=True
     )
     if learn_file_upload is not None:
-        learn_file_path = os.path.join("data", "uploaded_files", learn_file_upload.name)
-        if not os.path.exists(os.path.dirname(learn_file_path)):
-            os.makedirs(os.path.dirname(learn_file_path))
-        with open(learn_file_path, "wb") as f:
-            f.write(learn_file_upload.getbuffer())
-        agent.memories.read_file(learn_file_path)
-        st.success(f"Agent '{agent_name}' has learned from the uploaded file.")
+        for learn_file_upload in learn_file_upload.copy():
+            learn_file_path = os.path.join(
+                "data", "uploaded_files", learn_file_upload.name
+            )
+            if not os.path.exists(os.path.dirname(learn_file_path)):
+                os.makedirs(os.path.dirname(learn_file_path))
+            with open(learn_file_path, "wb") as f:
+                f.write(learn_file_upload.getbuffer())
+            agent.memories.mem_read_file(learn_file_path)
+            st.success(
+                "Agent '"
+                + agent_name
+                + "' has learned from file: "
+                + learn_file_upload.name
+            )
 
     st.markdown("## Learn from a URL")
     learn_url = st.text_input("Enter a URL for the agent to learn from..")
