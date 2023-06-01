@@ -34,7 +34,6 @@ if agent_name:
                 asyncio.run(
                     task_agent.run_task(
                         objective=task_objective,
-                        async_exec=True,
                         smart=smart_task_toggle,
                         load_task=load_task,
                     )
