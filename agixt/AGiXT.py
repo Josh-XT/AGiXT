@@ -205,7 +205,6 @@ class AGiXT:
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
-        async_exec: bool = False,
         learn_file: str = "",
         objective: str = None,
         **kwargs,
@@ -222,7 +221,6 @@ class AGiXT:
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
-                async_exec=async_exec,
                 learn_file=learn_file,
                 objective=objective,
                 **kwargs,
@@ -279,7 +277,6 @@ class AGiXT:
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
-        async_exec: bool = False,
         learn_file: str = "",
         **kwargs,
     ):
@@ -292,7 +289,6 @@ class AGiXT:
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
-                async_exec=async_exec,
                 learn_file=learn_file,
                 **kwargs,
             )
@@ -402,7 +398,7 @@ class AGiXT:
                             command_name = available_command["friendly_name"]
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
-                                command_output = self.agent.execute(
+                                command_output = await self.agent.execute(
                                     command_name, command_args
                                 )
                                 logging.info("Running Command Execution Validation...")

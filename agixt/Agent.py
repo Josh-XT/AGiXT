@@ -30,7 +30,6 @@ class Agent:
         self.commands = self.load_commands()
         self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
         self.clean_agent_config_commands()
-        self.execute = Extensions(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -76,6 +75,11 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
+
+    async def execute(self, command_name, command_args):
+        return await Extensions(self.AGENT_CONFIG).execute_command(
+            command_name=command_name, command_args=command_args, agent=self
+        )
 
     def instruct(self, prompt, tokens):
         if not prompt:

@@ -129,6 +129,7 @@ class Chain:
                 prompt_type = step["prompt_type"]
                 prompt = step["prompt"]
                 agent_name = step["agent_name"]
+                agent = AGiXT(agent_name)
                 step_number = step["step"]
                 try:
                     command_name = prompt["command_name"]
@@ -140,7 +141,9 @@ class Chain:
                         commands_args[arg] = self.get_step_content(
                             chain_name, step_number, commands_args[arg]
                         )
-                    return Extensions(agent_config=agent_name).execute_command(
+                    return await Extensions(
+                        agent_config=agent.agent.agent_config
+                    ).execute_command(
                         command_name=command_name, command_args=commands_args
                     )
                 try:
@@ -150,7 +153,6 @@ class Chain:
                     prompt_content = self.get_step_content(
                         chain_name, step_number, prompt_content
                     )
-                    agent = AGiXT(agent_name)
                 except:
                     return None
                 if prompt_type == "Prompt":

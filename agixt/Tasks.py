@@ -101,11 +101,11 @@ class Tasks:
             self.stop_running_event = True
         self.task_list.clear()
 
-    def instruction_agent(self, task, **kwargs):
+    async def instruction_agent(self, task, **kwargs):
         if "task_name" in task:
             task = task["task_name"]
 
-        resolver = self.ai.run(
+        resolver = await self.ai.run(
             task=task,
             prompt="SmartInstruct-StepByStep"
             if self.primary_objective is None
@@ -116,7 +116,7 @@ class Tasks:
         )
         # Check if agent has commands before trying to run execution agent
         if Agent(self.agent_name).get_commands_string() != None:
-            execution_response = self.ai.run(
+            execution_response = await self.ai.run(
                 task=task,
                 prompt="SmartInstruct-Execution"
                 if self.primary_objective is None
@@ -129,10 +129,9 @@ class Tasks:
         else:
             return f"RESPONSE:\n{resolver}"
 
-    def run_task(
+    async def run_task(
         self,
         objective: str = "",
-        async_exec: bool = False,
         smart: bool = False,
         load_task: str = "",
         **kwargs,
@@ -160,12 +159,11 @@ class Tasks:
                 continue
             logging.info(f"\nExecuting task {task['task_id']}: {task['task_name']}\n")
             if smart != True:
-                result = self.instruction_agent(task=task["task_name"], **kwargs)
+                result = await self.instruction_agent(task=task["task_name"], **kwargs)
             else:
-                result = self.ai.smart_instruct(
+                result = await self.ai.smart_instruct(
                     task=task["task_name"],
                     shots=3,
-                    async_exec=async_exec,
                     objective=self.primary_objective,
                     **kwargs,
                 )
