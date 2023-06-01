@@ -112,7 +112,7 @@ class agixt_agent(Extensions):
         return await AGiXT(agent_name).run(prompt)
 
     async def run_chain(self, chain_name):
-        Chain().run_chain(chain_name)
+        await Chain().run_chain(chain_name)
         return "Chain started successfully."
 
     async def ask(self, prompt: str, agent_name: str = "AGiXT") -> str:
