@@ -11,6 +11,7 @@ from Prompts import Prompts
 from extensions.searxng import searxng
 from urllib.parse import urlparse
 import logging
+from concurrent.futures import Future
 
 
 class AGiXT:
@@ -77,8 +78,10 @@ class AGiXT:
             context = "None"
         else:
             try:
-                context = self.agent.memories.context_agent(
-                    query=task, top_results_num=top_results
+                context = asyncio.run(
+                    self.agent.memories.context_agent(
+                        query=task, top_results_num=top_results
+                    )
                 )
             except:
                 context = "None."
@@ -144,7 +147,13 @@ class AGiXT:
             else:
                 self.websearch_agent(task=task, depth=websearch_depth)
         try:
-            self.response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            # Workaround for non-threaded providers
+            run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            self.response = (
+                run_response.result()
+                if isinstance(run_response, Future)
+                else run_response
+            )
         except Exception as e:
             logging.info(f"Error: {e}")
             logging.info(f"PROMPT CONTENT: {formatted_prompt}")
@@ -195,7 +204,7 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                self.agent.memories.store_result(task, self.response)
+                asyncio.run(self.agent.memories.store_result(task, self.response))
             except:
                 pass
             self.agent.log_interaction("USER", task)
@@ -396,7 +405,7 @@ class AGiXT:
                             available_command["friendly_name"],
                             available_command["name"],
                         ]:
-                            command_name = available_command["name"]
+                            command_name = available_command["friendly_name"]
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = self.agent.execute(
