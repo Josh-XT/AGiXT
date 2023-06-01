@@ -2,7 +2,9 @@
 
 #### Prereqs
 `docker --version` should say something like
+
 `Docker version 24.0.2, build cb74dfc`
+
 Version `23.x` should work also, but we recommend using the version mentioned above.
 
 #### Run AGiXT
