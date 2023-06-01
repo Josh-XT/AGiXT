@@ -70,7 +70,8 @@ see [Quick Start](https://github.com/Josh-XT/AGiXT/edit/main/docs/1-Getting%20st
 
 ## Development using docker
 ```
-git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
+git clone https://github.com/Josh-XT/AGiXT
+cd AGiXT
 docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
@@ -88,18 +89,19 @@ Adapt the following commands accordingly.
 
 #### Setup AGiXT
 ```
-git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
+git clone https://github.com/Josh-XT/AGiXT
 pip install poetry==1.5.0
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
+cd AGiXT
 poetry install --with gpt4free
 playwright install # TODO needs clearification if correct
 ```
 
 #### Run Streamlit 
-`cd agixt && poetry run streamlit run Main.py`
+`poetry run streamlit run Main.py`
 
 #### Run REST
-`cd agixt && poetry run uvicorn app:app --port 7437`
+`poetry run uvicorn app:app --port 7437`
 
 
 Access the web interface at http://localhost:8501
