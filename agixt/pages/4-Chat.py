@@ -61,7 +61,7 @@ if agent_name:
     if send_button:
         if agent_name and chat_prompt:
             with spinner("Thinking, please wait..."):
-                agent = AGiXT(agent_name)
+                agent = AGiXT(agent_name=agent_name)
                 if smart_chat_toggle:
                     response = asyncio.run(
                         agent.smart_chat(

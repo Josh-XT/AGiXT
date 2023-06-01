@@ -288,11 +288,11 @@ if selected_chain_name:
                             prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
                 Chain().add_chain_step(
-                    selected_chain_name,
-                    step_number,
-                    agent_name,
-                    prompt_type,
-                    prompt_data,
+                    chain_name=selected_chain_name,
+                    step_number=step_number,
+                    agent_name=agent_name,
+                    prompt_type=prompt_type,
+                    prompt=prompt_data,
                 )
                 st.success(
                     f"Step {step_number} added to chain '{selected_chain_name}'."
