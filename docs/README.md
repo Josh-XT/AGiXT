@@ -68,20 +68,13 @@ This project is under active development and may still have issues. We appreciat
 Clone the repository and run the AGiXT Streamlit Web App.
 ```
 git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
-docker compose streamlit up
+docker compose up
 ```
 
 - Web Interface http://localhost:8501
 ### Windows Docker Desktop (streamlit only example)
 - Container Name: AGiXT
 - Host Port: 8501:8501/tcp
-
-### Alternative Docker Compose Profiles
-
-Run all available services, this includes the FastAPI back end (Port 7437) and NextJS front end (Port 3000).
-```
-docker compose all up
-```
 
 ### Development using docker
 ```
