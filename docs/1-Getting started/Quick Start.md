@@ -2,7 +2,7 @@
 Clone the repository and run the AGiXT Streamlit Web App.
 ```
 git clone https://github.com/Josh-XT/AGiXT
-docker compose up
+cd AGiXT && docker compose up
 ```
 - Web Interface http://localhost:8501
 
