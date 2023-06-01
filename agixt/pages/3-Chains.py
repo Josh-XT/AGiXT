@@ -225,7 +225,7 @@ if selected_chain_name:
             command_args = Extensions(agent_config).get_command_args(command_name)
             formatted_command_args = ", ".join(
                 [
-                    f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                    f"{arg}: {st.text_input(arg, key=f'add_step_{step_number}_{arg}')} "
                     for arg in command_args
                     if arg != "context" and arg != "command_list" and arg != "COMMANDS"
                 ]
@@ -243,7 +243,7 @@ if selected_chain_name:
             prompt_args = Prompts().get_prompt_args(prompt_name)
             formatted_prompt_args = ", ".join(
                 [
-                    f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                    f"{arg}: {st.text_input(arg, key=f'add_step_{step_number}_{arg}')} "
                     for arg in prompt_args
                     if arg != "context" and arg != "command_list" and arg != "COMMANDS"
                 ]
