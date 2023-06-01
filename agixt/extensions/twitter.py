@@ -19,7 +19,7 @@ class twitter(Extensions):
         if self.TW_CONSUMER_KEY and self.TW_ACCESS_TOKEN:
             self.commands = {"Send Tweet": self.send_tweet}
 
-    def send_tweet(self, tweet_text):
+    async def send_tweet(self, tweet_text):
         # Authenticate to Twitter
         auth = tweepy.OAuthHandler(self.TW_CONSUMER_KEY, self.TW_CONSUMER_SECRET)
         auth.set_access_token(self.TW_ACCESS_TOKEN, self.TW_ACCESS_TOKEN_SECRET)

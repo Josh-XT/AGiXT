@@ -36,7 +36,7 @@ class microsoft_365(Extensions):
             except:
                 pass
 
-    def get_credentials(self) -> Credentials:
+    async def get_credentials(self) -> Credentials:
         flow = InstalledAppFlow.from_client_config(
             {
                 "installed": {
@@ -52,7 +52,7 @@ class microsoft_365(Extensions):
 
         return flow.run_local_server(port=0)
 
-    def send_email(
+    async def send_email(
         self, from_email: str, to_email: str, subject: str, content: str
     ) -> List[str]:
         try:
@@ -75,7 +75,7 @@ class microsoft_365(Extensions):
         except HttpError as error:
             return [f"Error sending email: {error}"]
 
-    def check_email(self) -> List[str]:
+    async def check_email(self) -> List[str]:
         try:
             service = build("graph.microsoft.com", "v1.0", credentials=self.credentials)
             response = service.users().messages().list(userId="me").execute()
@@ -90,7 +90,9 @@ class microsoft_365(Extensions):
         except HttpError as error:
             return [f"Error checking email: {error}"]
 
-    def move_email(self, message_id: str, destination_folder_id: str) -> List[str]:
+    async def move_email(
+        self, message_id: str, destination_folder_id: str
+    ) -> List[str]:
         try:
             service = build("graph.microsoft.com", "v1.0", credentials=self.credentials)
             response = (

@@ -25,7 +25,7 @@ class searxng(Extensions):
         endpoint = f"{server}/search"
         return endpoint
 
-    def search(self, query: str) -> List[str]:
+    async def search(self, query: str) -> List[str]:
         try:
             response = requests.get(
                 self.SEARXNG_ENDPOINT,

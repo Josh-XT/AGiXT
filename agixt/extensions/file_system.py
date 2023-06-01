@@ -31,7 +31,7 @@ class file_system(Extensions):
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
-    def execute_python_file(self, file: str):
+    async def execute_python_file(self, file: str):
         logging.info(f"Executing file '{file}' in workspace '{self.WORKING_DIRECTORY}'")
 
         if not file.endswith(".py"):
@@ -95,7 +95,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def execute_shell(self, command_line: str) -> str:
+    async def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
         os.chdir(current_dir)
         logging.info(
@@ -126,7 +126,7 @@ class file_system(Extensions):
                 os.makedirs(new_path)
         return new_path
 
-    def read_file(self, filename: str) -> str:
+    async def read_file(self, filename: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "r", encoding="utf-8") as f:
@@ -135,7 +135,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def write_to_file(self, filename: str, text: str) -> str:
+    async def write_to_file(self, filename: str, text: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             directory = os.path.dirname(filepath)
@@ -147,7 +147,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def append_to_file(self, filename: str, text: str) -> str:
+    async def append_to_file(self, filename: str, text: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "a") as f:
@@ -156,7 +156,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def delete_file(self, filename: str) -> str:
+    async def delete_file(self, filename: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             os.remove(filepath)
@@ -164,7 +164,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def search_files(self, directory: str) -> List[str]:
+    async def search_files(self, directory: str) -> List[str]:
         found_files = []
 
         if directory in {"", "/"}:

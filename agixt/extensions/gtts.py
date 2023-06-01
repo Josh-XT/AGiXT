@@ -14,7 +14,7 @@ class gtts(Extensions):
         if USE_GTTS:
             self.commands = {"Speak with GTTS": self.speak_with_gtts}
 
-    def speak_with_gtts(self, text: str) -> bool:
+    async def speak_with_gtts(self, text: str) -> bool:
         tts = ts.gTTS(text)
         tts.save("speech.mp3")
         playsound("speech.mp3", True)
