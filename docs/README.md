@@ -64,32 +64,17 @@ This project is under active development and may still have issues. We appreciat
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
-## Quickstart with Docker
-Clone the repository and run the AGiXT Streamlit Web App.
-```
-git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
-docker compose streamlit up
-```
+## Quickstart using docker
 
-- Web Interface http://localhost:8501
-### Windows Docker Desktop (streamlit only example)
-- Container Name: AGiXT
-- Host Port: 8501:8501/tcp
+see [Quick Start](https://github.com/Josh-XT/AGiXT/edit/main/docs/1-Getting%20started/Quick%20Start.md)
 
-### Alternative Docker Compose Profiles
-
-Run all available services, this includes the FastAPI back end (Port 7437) and NextJS front end (Port 3000).
-```
-docker compose all up
-```
-
-### Development using docker
+## Development using docker
 ```
 git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
-## Local Development
+## Development using poetry
 
 Clone the repository for the AGiXT back end and start it.
 
@@ -107,15 +92,14 @@ git clone https://github.com/Josh-XT/AGiXT && cd AGiXT
 pip install poetry==1.5.0
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 poetry install --with gpt4free
-playwright install
-cd agixt
+playwright install # TODO needs clearification if correct
 ```
 
 #### Run Streamlit 
-`poetry run streamlit run Main.py`
+`cd agixt && poetry run streamlit run Main.py`
 
 #### Run REST
-`poetry run uvicorn app:app --port 7437`
+`cd agixt && poetry run uvicorn app:app --port 7437`
 
 
 Access the web interface at http://localhost:8501
