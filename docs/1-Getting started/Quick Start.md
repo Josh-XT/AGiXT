@@ -1,4 +1,12 @@
 ## Quickstart with Docker
+
+#### Prereqs
+`docker --version` should say something like
+`Docker version 24.0.2, build cb74dfc`
+Version `23.x` should work also, but we recommend using the version mentioned above.
+
+#### Run AGiXT
+
 Clone the repository and run the AGiXT Streamlit Web App.
 ```
 git clone https://github.com/Josh-XT/AGiXT
