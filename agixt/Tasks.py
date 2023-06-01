@@ -115,7 +115,8 @@ class Tasks:
             **kwargs,
         )
         # Check if agent has commands before trying to run execution agent
-        if Agent(self.agent_name).get_commands_string() != None:
+
+        if Agent(agent_name=self.agent_name).get_commands_string() != None:
             execution_response = await self.ai.run(
                 task=task,
                 prompt="SmartInstruct-Execution"
