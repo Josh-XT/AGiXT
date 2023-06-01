@@ -76,14 +76,14 @@ class Chain:
         chain_data = self.get_chain(chain_name=chain_name)
         return chain_data["steps"]
 
-    def run_chain(self, chain_name):
+    async def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
-                step_response = self.run_chain_step(
+                step_response = await self.run_chain_step(
                     step=step_data, chain_name=chain_name
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
@@ -163,7 +163,7 @@ class Chain:
                         **prompt,
                     )
                 elif prompt_type == "Chain":
-                    result = self.run_chain(prompt["chain_name"])
+                    result = await self.run_chain(prompt["chain_name"])
                 elif prompt_type == "Smart Instruct":
                     result = await agent.smart_instruct(task=prompt_content, **prompt)
                 elif prompt_type == "Smart Chat":
@@ -181,4 +181,6 @@ if __name__ == "__main__":
     parser.add_argument("--chain", type=str, default="")
     args = parser.parse_args()
     chain_name = args.chain
-    Chain().run_chain(chain_name=chain_name)
+    import asyncio
+
+    asyncio.run(Chain().run_chain(chain_name=chain_name))

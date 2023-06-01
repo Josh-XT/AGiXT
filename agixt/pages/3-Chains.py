@@ -6,6 +6,7 @@ from Extensions import Extensions
 from Agent import Agent
 from Prompts import Prompts
 import logging
+import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
@@ -45,7 +46,7 @@ if st.button("Perform Action"):
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            Chain().run_chain(chain_name=chain_name)
+            asyncio.run(Chain().run_chain(chain_name=chain_name))
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")

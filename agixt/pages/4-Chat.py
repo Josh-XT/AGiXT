@@ -11,7 +11,7 @@ from streamlit import (
     error,
     warning,
 )
-
+import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
@@ -63,16 +63,19 @@ if agent_name:
             with spinner("Thinking, please wait..."):
                 agent = AGiXT(agent_name)
                 if smart_chat_toggle:
-                    response = agent.smart_chat(
-                        chat_prompt,
-                        shots=3,
-                        async_exec=True,
+                    response = asyncio.run(
+                        agent.smart_chat(
+                            chat_prompt,
+                            shots=3,
+                        )
                     )
                 else:
-                    response = agent.run(
-                        chat_prompt,
-                        prompt="Chat",
-                        context_results=6,
+                    response = asyncio.run(
+                        agent.run(
+                            chat_prompt,
+                            prompt="Chat",
+                            context_results=6,
+                        )
                     )
             chat_entry = [
                 {"sender": "User", "message": chat_prompt},
