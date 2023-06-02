@@ -33,7 +33,7 @@ class Memories:
         self.chroma_client = ChromaMemoryStore(
             persist_directory=memories_dir,
             client_settings=Settings(
-                chroma_db_impl="chromadb.db.duckdb.PersistentDuckDB",
+                chroma_db_impl="duckdb+parquet",
                 persist_directory=memories_dir,
                 anonymized_telemetry=False,
             ),

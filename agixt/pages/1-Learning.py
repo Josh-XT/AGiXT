@@ -16,6 +16,7 @@ if "agent_status" not in st.session_state:
 
 if agent_name:
     st.markdown("## Learn from a file")
+    memories = agent.get_memories()
     learn_file_upload = st.file_uploader(
         "Upload a file for the agent to learn from.", accept_multiple_files=True
     )
@@ -28,7 +29,7 @@ if agent_name:
                 os.makedirs(os.path.dirname(learn_file_path))
             with open(learn_file_path, "wb") as f:
                 f.write(learn_file_upload.getbuffer())
-            asyncio.run(agent.memories.mem_read_file(learn_file_path))
+            asyncio.run(memories.mem_read_file(learn_file_path))
             st.success(
                 "Agent '"
                 + agent_name
@@ -40,7 +41,7 @@ if agent_name:
     learn_url = st.text_input("Enter a URL for the agent to learn from..")
     if st.button("Learn from URL"):
         if learn_url:
-            _, _ = asyncio.run(agent.memories.read_website(learn_url))
+            _, _ = asyncio.run(memories.read_website(learn_url))
             st.success(f"Agent '{agent_name}' has learned from the URL.")
     st.markdown("## Wipe Agent Memory")
     st.markdown(

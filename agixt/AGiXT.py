@@ -1,6 +1,5 @@
 import re
 import os
-import asyncio
 import regex
 import json
 import time
@@ -57,13 +56,14 @@ class AGiXT:
         except:
             return ""
 
-    def format_prompt(
+    async def format_prompt(
         self,
         task: str = "",
         top_results: int = 5,
         prompt="",
         chain_name="",
         step_number=0,
+        memories=None,
         **kwargs,
     ):
         cp = Prompts()
@@ -78,10 +78,8 @@ class AGiXT:
             context = "None"
         else:
             try:
-                context = asyncio.run(
-                    self.agent.memories.context_agent(
-                        query=task, top_results_num=top_results
-                    )
+                context = await memories.context_agent(
+                    query=task, top_results_num=top_results
                 )
             except:
                 context = "None."
@@ -111,41 +109,35 @@ class AGiXT:
         logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
 
-    def run(
+    async def run(
         self,
         task: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
         websearch_depth: int = 3,
-        async_exec: bool = False,
         learn_file: str = "",
         chain_name: str = "",
         step_number: int = 0,
         **kwargs,
     ):
         logging.info(f"KWARGS: {kwargs}")
+        memories = self.agent.get_memories()
         if learn_file != "":
-            learning_file = self.agent.memories.mem_read_file(file_path=learn_file)
+            learning_file = await memories.mem_read_file(file_path=learn_file)
             if learning_file == False:
                 return "Failed to read file."
-        formatted_prompt, unformatted_prompt, tokens = self.format_prompt(
+        formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             task=task,
             top_results=context_results,
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
+            memories=memories,
             **kwargs,
         )
         if websearch:
-            if async_exec:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(
-                    self.websearch_agent(task=task, depth=websearch_depth)
-                )
-            else:
-                self.websearch_agent(task=task, depth=websearch_depth)
+            await self.websearch_agent(task=task, depth=websearch_depth)
         try:
             # Workaround for non-threaded providers
             run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
@@ -167,18 +159,17 @@ class AGiXT:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            self.response = self.run(
+            self.response = await self.run(
                 task=task,
                 prompt=prompt,
                 context_results=context_results,
-                async_exec=async_exec,
                 **kwargs,
             )
 
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            execution_response = self.execution_agent(
+            execution_response = await self.execution_agent(
                 execution_response=self.response,
                 task=task,
                 context_results=context_results,
@@ -204,18 +195,17 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                asyncio.run(self.agent.memories.store_result(task, self.response))
+                await memories.store_result(task, self.response)
             except:
                 pass
             self.agent.log_interaction("USER", task)
             self.agent.log_interaction(self.agent_name, self.response)
         return self.response
 
-    def smart_instruct(
+    async def smart_instruct(
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
-        async_exec: bool = False,
         learn_file: str = "",
         objective: str = None,
         **kwargs,
@@ -223,7 +213,7 @@ class AGiXT:
         answers = []
         # Do multi shots of prompt to get N different answers to be validated
         answers.append(
-            self.run(
+            await self.run(
                 task=task,
                 prompt="SmartInstruct-StepByStep"
                 if objective == None
@@ -232,7 +222,6 @@ class AGiXT:
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
-                async_exec=async_exec,
                 learn_file=learn_file,
                 objective=objective,
                 **kwargs,
@@ -241,7 +230,7 @@ class AGiXT:
         if shots > 1:
             for i in range(shots - 1):
                 answers.append(
-                    self.run(
+                    await self.run(
                         task=task,
                         prompt="SmartInstruct-StepByStep"
                         if objective == None
@@ -255,25 +244,25 @@ class AGiXT:
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
-        researcher = self.run(
+        researcher = await self.run(
             task=answer_str,
             prompt="SmartInstruct-Researcher",
             shots=shots,
             **kwargs,
         )
-        resolver = self.run(
+        resolver = await self.run(
             task=researcher,
             prompt="SmartInstruct-Resolver",
             shots=shots,
             **kwargs,
         )
-        execution_response = self.run(
+        execution_response = await self.run(
             task=task,
             prompt="SmartInstruct-Execution",
             previous_response=resolver,
             **kwargs,
         )
-        clean_response_agent = self.run(
+        clean_response_agent = await self.run(
             task=task,
             prompt="SmartInstruct-CleanResponse"
             if objective == None
@@ -285,24 +274,22 @@ class AGiXT:
         )
         return clean_response_agent
 
-    def smart_chat(
+    async def smart_chat(
         self,
         task: str = "Write a tweet about AI.",
         shots: int = 3,
-        async_exec: bool = False,
         learn_file: str = "",
         **kwargs,
     ):
         answers = []
         answers.append(
-            self.run(
+            await self.run(
                 task=task,
                 prompt="SmartChat-StepByStep",
                 context_results=6,
                 websearch=True,
                 websearch_depth=3,
                 shots=shots,
-                async_exec=async_exec,
                 learn_file=learn_file,
                 **kwargs,
             )
@@ -311,7 +298,7 @@ class AGiXT:
         if shots > 1:
             for i in range(shots - 1):
                 answers.append(
-                    self.run(
+                    await self.run(
                         task=task,
                         prompt="SmartChat-StepByStep",
                         context_results=6,
@@ -322,21 +309,21 @@ class AGiXT:
         answer_str = ""
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
-        researcher = self.run(
+        researcher = await self.run(
             task=answer_str,
             prompt="SmartChat-Researcher",
             context_results=6,
             shots=shots,
             **kwargs,
         )
-        resolver = self.run(
+        resolver = await self.run(
             task=researcher,
             prompt="SmartChat-Resolver",
             context_results=6,
             shots=shots,
             **kwargs,
         )
-        clean_response_agent = self.run(
+        clean_response_agent = await self.run(
             task=task,
             prompt="SmartChat-CleanResponse",
             resolver_response=resolver,
@@ -345,7 +332,9 @@ class AGiXT:
         return clean_response_agent
 
     # Worker Sub-Agents
-    def validation_agent(self, task, execution_response, context_results, **kwargs):
+    async def validation_agent(
+        self, task, execution_response, context_results, **kwargs
+    ):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(execution_response)
@@ -363,14 +352,14 @@ class AGiXT:
                 context_results = context_results - 1
             else:
                 context_results = 0
-            execution_response = self.run(
+            execution_response = await self.run(
                 task=task, context_results=context_results, **kwargs
             )
-            return self.validation_agent(
+            return await self.validation_agent(
                 task, execution_response, context_results, **kwargs
             )
 
-    def revalidation_agent(
+    async def revalidation_agent(
         self,
         task,
         command_name,
@@ -382,7 +371,7 @@ class AGiXT:
         logging.info(
             f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
         )
-        revalidate = self.run(
+        revalidate = await self.run(
             task=task,
             prompt="ValidationFailed",
             command_name=command_name,
@@ -390,10 +379,12 @@ class AGiXT:
             command_output=command_output,
             **kwargs,
         )
-        return self.execution_agent(revalidate, task, context_results, **kwargs)
+        return await self.execution_agent(revalidate, task, context_results, **kwargs)
 
-    def execution_agent(self, execution_response, task, context_results, **kwargs):
-        validated_response = self.validation_agent(
+    async def execution_agent(
+        self, execution_response, task, context_results, **kwargs
+    ):
+        validated_response = await self.validation_agent(
             task, execution_response, context_results, **kwargs
         )
         try:
@@ -408,11 +399,11 @@ class AGiXT:
                             command_name = available_command["friendly_name"]
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
-                                command_output = self.agent.execute(
+                                command_output = await self.agent.execute(
                                     command_name, command_args
                                 )
                                 logging.info("Running Command Execution Validation...")
-                                validate_command = self.run(
+                                validate_command = await self.run(
                                     task=task,
                                     prompt="Validation",
                                     command_name=command_name,
@@ -422,7 +413,7 @@ class AGiXT:
                                 )
                                 if validate_command.startswith("Yes"):
                                     # Failed command execution
-                                    return self.revalidation_agent(
+                                    return await self.revalidation_agent(
                                         task=task,
                                         command_name=command_name,
                                         command_args=command_args,
@@ -438,7 +429,7 @@ class AGiXT:
                                     response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
                                     return response
                             except:
-                                return self.revalidation_agent(
+                                return await self.revalidation_agent(
                                     task=task,
                                     command_name=command_name,
                                     command_args=command_args,
@@ -459,6 +450,8 @@ class AGiXT:
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
+        memories = self.agent.get_memories()
+
         async def resursive_browsing(task, links):
             try:
                 words = links.split()
@@ -485,13 +478,13 @@ class AGiXT:
                             (
                                 collected_data,
                                 link_list,
-                            ) = await self.agent.memories.read_website(url)
+                            ) = await memories.read_website(url)
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:
                                         link_list = link_list[:3]
                                     try:
-                                        pick_a_link = self.run(
+                                        pick_a_link = await self.run(
                                             task=task,
                                             prompt="Pick-a-Link",
                                             links=link_list,
@@ -503,7 +496,7 @@ class AGiXT:
                                             f"Issues reading {url}. Moving on..."
                                         )
 
-        results = self.run(task=task, prompt="WebSearch")
+        results = await self.run(task=task, prompt="WebSearch")
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")

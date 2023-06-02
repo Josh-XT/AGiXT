@@ -133,7 +133,7 @@ class Extensions:
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
 
-    def execute_command(self, command_name: str, command_args: dict = None):
+    async def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
@@ -150,7 +150,7 @@ class Extensions:
             if param not in params:
                 del args[param]
         try:
-            output = getattr(module(), command_function.__name__)(**args)
+            output = await getattr(module(), command_function.__name__)(**args)
         except Exception as e:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")

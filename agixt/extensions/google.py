@@ -11,7 +11,7 @@ class google(Extensions):
                 "Google Search": self.google_official_search,
             }
 
-    def google_official_search(
+    async def google_official_search(
         self, query: str, num_results: int = 8
     ) -> Union[str, List[str]]:
         from googleapiclient.discovery import build

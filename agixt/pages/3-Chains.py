@@ -6,12 +6,12 @@ from Extensions import Extensions
 from Agent import Agent
 from Prompts import Prompts
 import logging
+import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
 check_auth_status()
 
-agent_name, agent = agent_selector()
 CFG = Config()
 
 st.header("Manage Chains")
@@ -45,7 +45,7 @@ if st.button("Perform Action"):
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            Chain().run_chain(chain_name=chain_name)
+            asyncio.run(Chain().run_chain(chain_name=chain_name))
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")
@@ -225,7 +225,7 @@ if selected_chain_name:
             command_args = Extensions(agent_config).get_command_args(command_name)
             formatted_command_args = ", ".join(
                 [
-                    f"{arg}: {st.text_input(arg, key=f'add_step_{step_number}_{arg}')} "
+                    f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
                     for arg in command_args
                     if arg != "context" and arg != "command_list" and arg != "COMMANDS"
                 ]
@@ -243,7 +243,7 @@ if selected_chain_name:
             prompt_args = Prompts().get_prompt_args(prompt_name)
             formatted_prompt_args = ", ".join(
                 [
-                    f"{arg}: {st.text_input(arg, key=f'add_step_{step_number}_{arg}')} "
+                    f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
                     for arg in prompt_args
                     if arg != "context" and arg != "command_list" and arg != "COMMANDS"
                 ]
