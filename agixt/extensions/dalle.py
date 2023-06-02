@@ -20,7 +20,7 @@ class dalle(Extensions):
                 "Generate Image with DALLE": self.generate_image_with_dalle
             }
 
-    def generate_image_with_dalle(self, prompt: str, filename: str) -> str:
+    async def generate_image_with_dalle(self, prompt: str, filename: str) -> str:
         openai.api_key = self.OPENAI_API_KEY
 
         response = openai.Image.create(

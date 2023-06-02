@@ -184,7 +184,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 @app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
 async def instruct(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name)
-    response = agent.run(
+    response = await agent.run(
         task=prompt.prompt,
         prompt="instruct",
     )
@@ -194,21 +194,21 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name)
-    response = agent.smart_instruct(task=prompt.prompt, shots=int(shots))
+    response = await agent.smart_instruct(task=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name)
-    response = agent.run(prompt.prompt, prompt="Chat", context_results=6)
+    response = await agent.run(prompt.prompt, prompt="Chat", context_results=6)
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name)
-    response = agent.smart_chat(prompt.prompt, shots=shots)
+    response = await agent.smart_chat(prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
@@ -294,7 +294,7 @@ async def get_chain(chain_name: str):
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str) -> ResponseMessage:
-    Chain().run_chain(chain_name)
+    await Chain().run_chain(chain_name)
     return {"message": f"Chain '{chain_name}' started."}
 
 

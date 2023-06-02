@@ -15,7 +15,7 @@ class elevenlabs(Extensions):
         self.ELEVENLABS_VOICE = ELEVENLABS_VOICE
         self.commands = {"Speak with TTS Using Elevenlabs": self.speak_with_elevenlabs}
 
-    def speak_with_elevenlabs(self, text: str, voice_index: int = 0) -> bool:
+    async def speak_with_elevenlabs(self, text: str, voice_index: int = 0) -> bool:
         voices = ["ErXwobaYiN019PkySvjV", "EXAVITQu4vr4xnSDxMaL"]
         headers = {
             "Content-Type": "application/json",

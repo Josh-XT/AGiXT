@@ -6,12 +6,12 @@ from Extensions import Extensions
 from Agent import Agent
 from Prompts import Prompts
 import logging
+import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
 check_auth_status()
 
-agent_name, agent = agent_selector()
 CFG = Config()
 
 st.header("Manage Chains")
@@ -45,7 +45,7 @@ if st.button("Perform Action"):
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            Chain().run_chain(chain_name=chain_name)
+            asyncio.run(Chain().run_chain(chain_name=chain_name))
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")
@@ -154,35 +154,37 @@ if selected_chain_name:
 
             if modify_prompt_name:
                 prompt_args = Prompts().get_prompt_args(modify_prompt_name)
-                formatted_prompt_args = ", ".join(
-                    [
-                        f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
-                        for arg in prompt_args
-                        if arg != "context"
-                        and arg != "command_list"
-                        and arg != "COMMANDS"
-                    ]
-                )
+                if prompt_args:
+                    if isinstance(prompt_args, str):
+                        prompt_args = [prompt_args]
+                    try:
+                        formatted_prompt_args = ", ".join(
+                            [
+                                f"{arg}: {st.text_input(arg, value=prompt.get(arg, '') if arg in prompt else '', key=f'{arg}_{step_number}')} "
+                                for arg in prompt_args
+                                if arg != "context"
+                                and arg != "command_list"
+                                and arg != "COMMANDS"
+                            ]
+                        )
+                    except:
+                        formatted_prompt_args = ""
+                else:
+                    formatted_prompt_args = ""
                 modify_prompt = f"{modify_prompt_name}({formatted_prompt_args})"
         else:
             modify_prompt = ""
 
         if st.button("Modify Step", key=f"modify_{step_number}"):
             Chain().update_step(
-                selected_chain_name,
-                step_number,
-                modify_agent_name,
-                modify_prompt_type,
-                modify_prompt,
+                chain_name=selected_chain_name,
+                step_number=step_number,
+                agent_name=modify_agent_name,
+                prompt_type=modify_prompt_type,
+                prompt=modify_prompt,
             )
             st.success(f"Step {step_number} updated in chain '{selected_chain_name}'.")
             st.experimental_rerun()
-            return {
-                "step": modify_step_number,
-                "agent_name": modify_agent_name,
-                "prompt_type": modify_prompt_type,
-                "prompt": modify_prompt,
-            }
         return step
 
     st.write("Existing Steps:")
@@ -287,11 +289,11 @@ if selected_chain_name:
                             prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
                 Chain().add_chain_step(
-                    selected_chain_name,
-                    step_number,
-                    agent_name,
-                    prompt_type,
-                    prompt_data,
+                    chain_name=selected_chain_name,
+                    step_number=step_number,
+                    agent_name=agent_name,
+                    prompt_type=prompt_type,
+                    prompt=prompt_data,
                 )
                 st.success(
                     f"Step {step_number} added to chain '{selected_chain_name}'."
@@ -318,11 +320,11 @@ if selected_chain_name:
                             prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
                 Chain().update_step(
-                    selected_chain_name,
-                    step_number,
-                    agent_name,
-                    prompt_type,
-                    prompt_data,
+                    chain_name=selected_chain_name,
+                    step_number=step_number,
+                    agent_name=agent_name,
+                    prompt_type=prompt_type,
+                    prompt=prompt_data,
                 )
                 st.success(
                     f"Step {step_number} updated in chain '{selected_chain_name}'."

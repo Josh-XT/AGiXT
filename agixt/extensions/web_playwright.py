@@ -12,7 +12,7 @@ class web_playwright(Extensions):
             "Scrape Links with Playwright": self.scrape_links_with_playwright,
         }
 
-    def scrape_text_with_playwright(self, url: str) -> str:
+    async def scrape_text_with_playwright(self, url: str) -> str:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
@@ -40,7 +40,7 @@ class web_playwright(Extensions):
 
         return text
 
-    def scrape_links_with_playwright(self, url: str) -> Union[str, List[str]]:
+    async def scrape_links_with_playwright(self, url: str) -> Union[str, List[str]]:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()

@@ -11,7 +11,7 @@ class sendgrid_email(Extensions):
         if self.SENDGRID_API_KEY:
             self.commands = {"Send Email with Sendgrid": self.send_email}
 
-    def send_email(self, to_email: str, subject: str, content: str) -> List[str]:
+    async def send_email(self, to_email: str, subject: str, content: str) -> List[str]:
         message = Mail(
             from_email=self.SENDGRID_EMAIL,
             to_emails=to_email,

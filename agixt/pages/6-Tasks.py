@@ -3,6 +3,7 @@ from Tasks import Tasks
 from auth_libs.Users import check_auth_status
 from pathlib import Path
 from components.agent_selector import agent_selector
+import asyncio
 
 check_auth_status()
 
@@ -30,11 +31,12 @@ if agent_name:
         columns = st.columns([3, 2])
         if st.button("Start Task", key=f"start_{agent_name}"):
             if agent_name and (task_objective or load_task):
-                task_agent.run_task(
-                    objective=task_objective,
-                    async_exec=True,
-                    smart=smart_task_toggle,
-                    load_task=load_task,
+                asyncio.run(
+                    task_agent.run_task(
+                        objective=task_objective,
+                        smart=smart_task_toggle,
+                        load_task=load_task,
+                    )
                 )
                 st.experimental_rerun()
             else:
