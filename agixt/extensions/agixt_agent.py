@@ -38,12 +38,12 @@ class agixt_agent(Extensions):
         return os.path.exists(f"commands/{file_name}.py")
 
     async def create_command(
-        self, function_description: str, agent_name: str = "AGiXT"
+        self, function_description: str, agent: str = "AGiXT"
     ) -> List[str]:
         with open(f"prompts/Create New Command.txt", "r") as f:
             prompt = f.read()
         prompt = prompt.replace("{{NEW_FUNCTION_DESCRIPTION}}", function_description)
-        response = await AGiXT(agent_name).run(prompt)
+        response = await AGiXT(agent).run(prompt)
         file_name = response.split("class ")[1].split("(")[0]
         code = code.replace("```", "")
 
@@ -54,33 +54,33 @@ class agixt_agent(Extensions):
         else:
             return f"Command {file_name} already exists. No changes were made."
 
-    async def evaluate_code(self, code: str, agent_name: str = "AGiXT") -> List[str]:
+    async def evaluate_code(self, code: str, agent: str = "AGiXT") -> List[str]:
         args = [code]
         function_string = "def analyze_code(code: str) -> List[str]:"
         description_string = "Analyzes the given code and returns a list of suggestions for improvements."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
     async def analyze_pull_request(
-        self, pr_url: str, agent_name: str = "AGiXT"
+        self, pr_url: str, agent: str = "AGiXT"
     ) -> List[str]:
         args = [pr_url]
         function_string = "def analyze_pr(pr_url: str) -> List[str]:"
         description_string = "Analyzes the given pull request and returns a list of suggestions for improvements."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
     async def perform_automated_testing(
-        self, test_url: str, agent_name: str = "AGiXT"
+        self, test_url: str, agent: str = "AGiXT"
     ) -> List[str]:
         args = [test_url]
         function_string = "def perform_testing(test_url: str) -> List[str]:"
         description_string = "Performs automated testing using AI-driven tools and returns a list of test results."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
     async def improve_code(
-        self, suggestions: List[str], code: str, agent_name: str = "AGiXT"
+        self, suggestions: List[str], code: str, agent: str = "AGiXT"
     ) -> str:
         args = [json.dumps(suggestions), code]
         function_string = (
@@ -88,41 +88,41 @@ class agixt_agent(Extensions):
         )
         description_string = "Improves the provided code based on the suggestions provided, making no other changes."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
     async def write_tests(
         self,
         code: str,
         focus: Optional[List[str]] = None,
-        agent_name: str = "AGiXT",
+        agent: str = "AGiXT",
     ) -> str:
         args = [code, json.dumps(focus) if focus else "None"]
         function_string = "def create_test_cases(code: str, focus: Optional[List[str]] = None) -> str:"
         description_string = "Generates test cases for the existing code, focusing on specific areas if required."
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
-    async def run_ci_cd_pipeline(self, repo_url: str, agent_name: str = "AGiXT") -> str:
+    async def run_ci_cd_pipeline(self, repo_url: str, agent: str = "AGiXT") -> str:
         args = [repo_url]
         function_string = "def run_pipeline(repo_url: str) -> str:"
         description_string = (
             "Runs the entire CI/CD pipeline for the given repository URL."
         )
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
-        return await AGiXT(agent_name).run(prompt)
+        return await AGiXT(agent).run(prompt)
 
     async def run_chain(self, chain_name):
         await Chain().run_chain(chain_name)
         return "Chain started successfully."
 
-    async def ask(self, prompt: str, agent_name: str = "AGiXT") -> str:
-        response = await AGiXT(agent_name).run(
+    async def ask(self, prompt: str, agent: str = "AGiXT") -> str:
+        response = await AGiXT(agent).run(
             prompt, prompt="chat", websearch=True, websearch_depth=4
         )
         return response
 
-    async def instruct(self, prompt: str, agent_name: str = "AGiXT") -> str:
-        response = await AGiXT(agent_name).run(
+    async def instruct(self, prompt: str, agent: str = "AGiXT") -> str:
+        response = await AGiXT(agent).run(
             task=prompt, prompt="instruct", websearch=True, websearch_depth=8
         )
         return response
