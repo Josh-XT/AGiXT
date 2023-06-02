@@ -169,20 +169,14 @@ if selected_chain_name:
 
         if st.button("Modify Step", key=f"modify_{step_number}"):
             Chain().update_step(
-                selected_chain_name,
-                step_number,
-                modify_agent_name,
-                modify_prompt_type,
-                modify_prompt,
+                chain_name=selected_chain_name,
+                step_number=step_number,
+                agent_name=modify_agent_name,
+                prompt_type=modify_prompt_type,
+                prompt=modify_prompt,
             )
             st.success(f"Step {step_number} updated in chain '{selected_chain_name}'.")
             st.experimental_rerun()
-            return {
-                "step": modify_step_number,
-                "agent_name": modify_agent_name,
-                "prompt_type": modify_prompt_type,
-                "prompt": modify_prompt,
-            }
         return step
 
     st.write("Existing Steps:")
