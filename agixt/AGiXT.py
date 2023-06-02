@@ -505,7 +505,9 @@ class AGiXT:
             except:
                 searx_server = ""
             try:
-                links = searxng(SEARXNG_INSTANCE_URL=searx_server).search(search_string)
+                links = await searxng(SEARXNG_INSTANCE_URL=searx_server).search(
+                    search_string
+                )
                 if len(links) > depth:
                     links = links[:depth]
             except:
