@@ -44,4 +44,4 @@ class searxng(Extensions):
         except:
             # The SearXNG server is down or refusing connection, so we will use the default one.
             self.SEARXNG_ENDPOINT = "https://search.us.projectsegfau.lt/search"
-            return self.search(query)
+            return await self.search(query)
