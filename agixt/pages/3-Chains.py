@@ -154,15 +154,20 @@ if selected_chain_name:
 
             if modify_prompt_name:
                 prompt_args = Prompts().get_prompt_args(modify_prompt_name)
-                formatted_prompt_args = ", ".join(
-                    [
-                        f"{arg}: {st.text_input(arg, value=prompt.get(arg, '') if arg in prompt else '', key=f'{arg}_{step_number}')} "
-                        for arg in prompt_args
-                        if arg != "context"
-                        and arg != "command_list"
-                        and arg != "COMMANDS"
-                    ]
-                )
+                if prompt_args:
+                    if isinstance(prompt_args, str):
+                        prompt_args = [prompt_args]
+                    formatted_prompt_args = ", ".join(
+                        [
+                            f"{arg}: {st.text_input(arg, value=prompt.get(arg, '') if arg in prompt else '', key=f'{arg}_{step_number}')} "
+                            for arg in prompt_args
+                            if arg != "context"
+                            and arg != "command_list"
+                            and arg != "COMMANDS"
+                        ]
+                    )
+                else:
+                    formatted_prompt_args = ""
                 modify_prompt = f"{modify_prompt_name}({formatted_prompt_args})"
         else:
             modify_prompt = ""
