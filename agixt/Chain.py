@@ -88,9 +88,11 @@ class Chain:
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
                 logging.info(f"Response: {step_response}")
-        # Write the responses to the json file.
-        with open(os.path.join("chains", f"{chain_name}_responses.json"), "w") as f:
-            json.dump(responses, f)
+                # Write the responses to the json file.
+                with open(
+                    os.path.join("chains", f"{chain_name}_responses.json"), "w"
+                ) as f:
+                    json.dump(responses, f)
         return responses
 
     def get_step_response(self, chain_name, step_number="all"):
@@ -109,12 +111,14 @@ class Chain:
         new_prompt_content = {}
         for arg, value in prompt_content.items():
             if "{STEP" in value:
+                # Get the step number from value between {STEP and }
+                new_step_number = int(value.split("{STEP")[1].split("}")[0])
                 # get the response from the step number
                 step_response = self.get_step_response(
-                    chain_name=chain_name, step_number=step_number
+                    chain_name=chain_name, step_number=new_step_number
                 )
                 # replace the {STEPx} with the response
-                value = value.replace(f"{{STEP{step_number}}}", step_response)
+                value = value.replace(f"{{STEP{new_step_number}}}", step_response)
             new_prompt_content[arg] = value
         return new_prompt_content
 
@@ -122,49 +126,36 @@ class Chain:
         logging.info(step)
         if step:
             if "prompt_type" in step:
-                prompt_type = step["prompt_type"]
-                prompt = step["prompt"]
                 agent_name = step["agent_name"]
                 agent = AGiXT(agent_name)
+                prompt_type = step["prompt_type"]
                 step_number = step["step"]
-                try:
-                    command_name = prompt["command_name"]
-                except:
-                    command_name = ""
+                if "prompt_name" in step["prompt"]:
+                    prompt_name = step["prompt"]["prompt_name"]
+                else:
+                    prompt_name = ""
+                args = self.get_step_content(chain_name, step_number, step["prompt"])
                 if prompt_type == "Command":
-                    commands_args = prompt.copy()
-                    commands_args = self.get_step_content(
-                        chain_name, step_number, commands_args
-                    )
                     return await Extensions(
                         agent_config=agent.agent.agent_config
                     ).execute_command(
-                        command_name=command_name, command_args=commands_args
+                        command_name=args["command_name"], command_args=args
                     )
-                try:
-                    prompt_content = Prompts().get_prompt(
-                        prompt_name=prompt["prompt_name"]
-                    )
-                    prompt_content = self.get_step_content(
-                        chain_name, step_number, prompt_content
-                    )
-                except:
-                    return None
-                if prompt_type == "Prompt":
+                elif prompt_type == "Prompt":
                     result = await agent.run(
-                        prompt=prompt["prompt_name"],
+                        prompt=prompt_name,
                         chain_name=chain_name,
                         step_number=step_number,
-                        **prompt,
+                        **args,
                     )
                 elif prompt_type == "Chain":
-                    result = await self.run_chain(prompt["chain_name"])
+                    result = await self.run_chain(step["prompt"]["chain_name"])
                 elif prompt_type == "Smart Instruct":
-                    result = await agent.smart_instruct(task=prompt_content, **prompt)
+                    result = await agent.smart_instruct(**args)
                 elif prompt_type == "Smart Chat":
-                    result = await agent.smart_chat(task=prompt_content, **prompt)
+                    result = await agent.smart_chat(**args)
                 elif prompt_type == "Task":
-                    result = await agent.run_task(objective=prompt_content, **prompt)
+                    result = await agent.run_task(**args)
         if result:
             return result
         else:

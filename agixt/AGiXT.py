@@ -56,6 +56,19 @@ class AGiXT:
         except:
             return ""
 
+    def get_step_content(self, chain_name, step_number, prompt_content):
+        new_prompt_content = {}
+        for arg, value in prompt_content.items():
+            if "{STEP" in value:
+                # get the response from the step number
+                step_response = self.get_step_response(
+                    chain_name=chain_name, step_number=step_number
+                )
+                # replace the {STEPx} with the response
+                value = value.replace(f"{{STEP{step_number}}}", step_response)
+            new_prompt_content[arg] = value
+        return new_prompt_content
+
     async def format_prompt(
         self,
         task: str = "",
@@ -84,8 +97,31 @@ class AGiXT:
             except:
                 context = "None."
         command_list = self.agent.get_commands_string()
+        if chain_name != "":
+            try:
+                for arg, value in kwargs.items():
+                    if "{STEP" in value:
+                        # get the response from the step number
+                        step_response = self.get_step_response(
+                            chain_name=chain_name, step_number=step_number
+                        )
+                        # replace the {STEPx} with the response
+                        value = value.replace(f"{{STEP{step_number}}}", step_response)
+                        kwargs[arg] = value
+            except:
+                logging.info("No args to replace.")
+            if "{STEP" in prompt:
+                step_response = self.get_step_response(
+                    chain_name=chain_name, step_number=step_number
+                )
+                prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
+            if "{STEP" in task:
+                step_response = self.get_step_response(
+                    chain_name=chain_name, step_number=step_number
+                )
+                task = task.replace(f"{{STEP{step_number}}}", step_response)
         formatted_prompt = self.custom_format(
-            prompt,
+            string=prompt,
             task=task,
             agent_name=self.agent_name,
             COMMANDS=self.agent_commands,
@@ -94,15 +130,7 @@ class AGiXT:
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             **kwargs,
         )
-        if "{STEP" in formatted_prompt:
-            # get the response from the step number
-            step_response = self.get_step_response(
-                chain_name=chain_name, step_number=step_number
-            )
-            # replace the {STEPx} with the response
-            formatted_prompt = formatted_prompt.replace(
-                f"{{STEP{step_number}}}", step_response
-            )
+
         if not self.nlp:
             self.load_spacy_model()
         tokens = len(self.nlp(formatted_prompt))
