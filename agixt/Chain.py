@@ -76,14 +76,14 @@ class Chain:
         chain_data = self.get_chain(chain_name=chain_name)
         return chain_data["steps"]
 
-    def run_chain(self, chain_name):
+    async def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
-                step_response = self.run_chain_step(
+                step_response = await self.run_chain_step(
                     step=step_data, chain_name=chain_name
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
@@ -122,13 +122,14 @@ class Chain:
             )
         return prompt_content
 
-    def run_chain_step(self, step: dict = {}, chain_name=""):
+    async def run_chain_step(self, step: dict = {}, chain_name=""):
         logging.info(step)
         if step:
             if "prompt_type" in step:
                 prompt_type = step["prompt_type"]
                 prompt = step["prompt"]
                 agent_name = step["agent_name"]
+                agent = AGiXT(agent_name)
                 step_number = step["step"]
                 try:
                     command_name = prompt["command_name"]
@@ -140,7 +141,9 @@ class Chain:
                         commands_args[arg] = self.get_step_content(
                             chain_name, step_number, commands_args[arg]
                         )
-                    return Extensions(agent_config=agent_name).execute_command(
+                    return await Extensions(
+                        agent_config=agent.agent.agent_config
+                    ).execute_command(
                         command_name=command_name, command_args=commands_args
                     )
                 try:
@@ -150,24 +153,23 @@ class Chain:
                     prompt_content = self.get_step_content(
                         chain_name, step_number, prompt_content
                     )
-                    agent = AGiXT(agent_name)
                 except:
                     return None
                 if prompt_type == "Prompt":
-                    result = agent.run(
+                    result = await agent.run(
                         prompt=prompt["prompt_name"],
                         chain_name=chain_name,
                         step_number=step_number,
                         **prompt,
                     )
                 elif prompt_type == "Chain":
-                    result = self.run_chain(prompt["chain_name"])
+                    result = await self.run_chain(prompt["chain_name"])
                 elif prompt_type == "Smart Instruct":
-                    result = agent.smart_instruct(task=prompt_content, **prompt)
+                    result = await agent.smart_instruct(task=prompt_content, **prompt)
                 elif prompt_type == "Smart Chat":
-                    result = agent.smart_chat(task=prompt_content, **prompt)
+                    result = await agent.smart_chat(task=prompt_content, **prompt)
                 elif prompt_type == "Task":
-                    result = agent.run_task(objective=prompt_content, **prompt)
+                    result = await agent.run_task(objective=prompt_content, **prompt)
         if result:
             return result
         else:
@@ -179,4 +181,6 @@ if __name__ == "__main__":
     parser.add_argument("--chain", type=str, default="")
     args = parser.parse_args()
     chain_name = args.chain
-    Chain().run_chain(chain_name=chain_name)
+    import asyncio
+
+    asyncio.run(Chain().run_chain(chain_name=chain_name))

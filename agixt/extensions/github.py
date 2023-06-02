@@ -18,7 +18,7 @@ class github(Extensions):
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo
 
-    def clone_repo(self, repo_url: str, clone_path: str) -> str:
+    async def clone_repo(self, repo_url: str, clone_path: str) -> str:
         split_url = repo_url.split("//")
         if self.GITHUB_USERNAME is not None and self.GITHUB_API_KEY is not None:
             auth_repo_url = f"//{self.GITHUB_USERNAME}:{self.GITHUB_API_KEY}@".join(
@@ -32,7 +32,7 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def create_repo(self, repo_name: str, readme: str) -> str:
+    async def create_repo(self, repo_name: str, readme: str) -> str:
         g = Github(self.GITHUB_API_KEY)
         user = g.get_user(self.GITHUB_USERNAME)
         repo = user.create_repo(repo_name, private=True)

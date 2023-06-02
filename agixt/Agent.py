@@ -41,7 +41,6 @@ class Agent:
         self.commands = self.load_commands()
         self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
         self.clean_agent_config_commands()
-        self.execute = Extensions(self.AGENT_CONFIG).execute_command
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -75,7 +74,6 @@ class Agent:
         self.memory_file = f"agents/{self.agent_name}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
-        self.memories = Memories(self.agent_name, self.AGENT_CONFIG)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -87,6 +85,14 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
+
+    def get_memories(self):
+        return Memories(self.agent_name, self.AGENT_CONFIG)
+
+    async def execute(self, command_name, command_args):
+        return await Extensions(self.AGENT_CONFIG).execute_command(
+            command_name=command_name, command_args=command_args, agent=self
+        )
 
     def instruct(self, prompt, tokens):
         """
