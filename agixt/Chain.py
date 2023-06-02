@@ -95,8 +95,9 @@ class Chain:
 
     def get_step_response(self, chain_name, step_number="all"):
         try:
-            with open(os.path.join("chains", f"{chain_name}.json"), "r") as f:
+            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
                 responses = json.load(f)
+            print(responses)
             if step_number == "all":
                 return responses
             else:
@@ -105,22 +106,17 @@ class Chain:
             return ""
 
     def get_step_content(self, chain_name, step_number, prompt_content):
-        if "{STEP" in prompt_content:
-            # get the step number from the prompt content
-            step_number = int(
-                prompt_content[
-                    prompt_content.find("{STEP") + 5 : prompt_content.find("}")
-                ]
-            )
-            # get the response from the step number
-            step_response = self.get_step_response(
-                chain_name=chain_name, step_number=step_number
-            )
-            # replace the {STEPx} with the response
-            prompt_content = prompt_content.replace(
-                f"{{STEP{step_number}}}", step_response
-            )
-        return prompt_content
+        new_prompt_content = {}
+        for arg, value in prompt_content.items():
+            if "{STEP" in value:
+                # get the response from the step number
+                step_response = self.get_step_response(
+                    chain_name=chain_name, step_number=step_number
+                )
+                # replace the {STEPx} with the response
+                value = value.replace(f"{{STEP{step_number}}}", step_response)
+            new_prompt_content[arg] = value
+        return new_prompt_content
 
     async def run_chain_step(self, step: dict = {}, chain_name=""):
         logging.info(step)
