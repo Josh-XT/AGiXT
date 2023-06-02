@@ -63,6 +63,7 @@ class AGiXT:
         prompt="",
         chain_name="",
         step_number=0,
+        memories=None,
         **kwargs,
     ):
         cp = Prompts()
@@ -77,7 +78,7 @@ class AGiXT:
             context = "None"
         else:
             try:
-                context = await self.agent.memories.context_agent(
+                context = await memories.context_agent(
                     query=task, top_results_num=top_results
                 )
             except:
@@ -121,10 +122,9 @@ class AGiXT:
         **kwargs,
     ):
         logging.info(f"KWARGS: {kwargs}")
+        memories = self.agent.get_memories()
         if learn_file != "":
-            learning_file = await self.agent.memories.mem_read_file(
-                file_path=learn_file
-            )
+            learning_file = await memories.mem_read_file(file_path=learn_file)
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
@@ -133,6 +133,7 @@ class AGiXT:
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
+            memories=memories,
             **kwargs,
         )
         if websearch:
@@ -194,7 +195,7 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                await self.agent.memories.store_result(task, self.response)
+                await memories.store_result(task, self.response)
             except:
                 pass
             self.agent.log_interaction("USER", task)
@@ -449,6 +450,8 @@ class AGiXT:
     async def websearch_agent(
         self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
     ):
+        memories = self.agent.get_memories()
+
         async def resursive_browsing(task, links):
             try:
                 words = links.split()
@@ -475,7 +478,7 @@ class AGiXT:
                             (
                                 collected_data,
                                 link_list,
-                            ) = await self.agent.memories.read_website(url)
+                            ) = await memories.read_website(url)
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:

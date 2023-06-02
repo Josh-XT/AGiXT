@@ -74,7 +74,6 @@ class Agent:
         self.memory_file = f"agents/{self.agent_name}.yaml"
         self._create_parent_directories(self.memory_file)
         self.memory = self.load_memory()
-        self.memories = Memories(self.agent_name, self.AGENT_CONFIG)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -86,6 +85,9 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
+
+    def get_memories(self):
+        return Memories(self.agent_name, self.AGENT_CONFIG)
 
     async def execute(self, command_name, command_args):
         return await Extensions(self.AGENT_CONFIG).execute_command(
