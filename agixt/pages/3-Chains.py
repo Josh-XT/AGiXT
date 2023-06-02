@@ -20,7 +20,7 @@ st.markdown(
     """
     Any of these variables can be used in command arguments or prompt arguments to inject data into the prompt. These can also be used inside of any Custom Prompt.
 - `{agent_name}` will cause the agent name to be injected.
-- `{context}` will cause the current context from memory to be injected.
+- `{context}` will cause the current context from memory to be injected. (Only applies to prompts but is still a reserved variable name.)
 - `{date}` will cause the current date and timestamp to be injected.
 - `{COMMANDS}` will cause the available commands list to be injected and for automatic commands execution from the agent based on its suggestions.
 - `{command_list}` will cause the available commands list to be injected, but will not execute any commands the AI chooses. Useful on validation steps.
