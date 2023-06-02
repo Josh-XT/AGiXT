@@ -152,11 +152,11 @@ if selected_chain_name:
                 else 0,
             )
 
-            if modify_prompt_name and arg in prompt:
+            if modify_prompt_name:
                 prompt_args = Prompts().get_prompt_args(modify_prompt_name)
                 formatted_prompt_args = ", ".join(
                     [
-                        f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
+                        f"{arg}: {st.text_input(arg, value=prompt.get(arg, '') if arg in prompt else '', key=f'{arg}_{step_number}')} "
                         for arg in prompt_args
                         if arg != "context"
                         and arg != "command_list"
