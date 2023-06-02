@@ -12,7 +12,6 @@ from components.agent_selector import agent_selector
 
 check_auth_status()
 
-agent_name, agent = agent_selector()
 CFG = Config()
 
 st.header("Manage Chains")
