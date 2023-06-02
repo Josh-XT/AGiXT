@@ -157,7 +157,7 @@ if selected_chain_name:
                 if "arg" in prompt:
                     val = prompt.get("arg", "")
                 else:
-                    val = ""
+                    val = prompt if prompt else ""
                 formatted_prompt_args = ", ".join(
                     [
                         f"{arg}: {st.text_input(arg, value=val, key=f'{arg}_{step_number}')} "
