@@ -133,10 +133,9 @@ class Chain:
                     command_name = ""
                 if prompt_type == "Command":
                     commands_args = prompt.copy()
-                    for arg in commands_args:
-                        commands_args[arg] = self.get_step_content(
-                            chain_name, step_number, commands_args[arg]
-                        )
+                    commands_args = self.get_step_content(
+                        chain_name, step_number, commands_args
+                    )
                     return await Extensions(
                         agent_config=agent.agent.agent_config
                     ).execute_command(
