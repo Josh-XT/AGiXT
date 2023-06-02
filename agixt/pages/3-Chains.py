@@ -158,24 +158,36 @@ if selected_chain_name:
                     if isinstance(prompt_args, str):
                         prompt_args = [prompt_args]
                     try:
-                        formatted_prompt_args = ", ".join(
-                            [
-                                f"{arg}: {st.text_input(arg, value=prompt.get(arg, '') if arg in prompt else '', key=f'{arg}_{step_number}')} "
-                                for arg in prompt_args
-                                if arg != "context"
+                        modify_prompt["prompt_name"] = modify_prompt_name
+                        for arg in prompt_args:
+                            if (
+                                arg != "context"
                                 and arg != "command_list"
                                 and arg != "COMMANDS"
-                            ]
-                        )
+                            ):
+                                modify_prompt[arg] = st.text_input(
+                                    arg,
+                                    value=prompt.get(arg, "") if arg in prompt else "",
+                                    key=f"{arg}_{step_number}",
+                                )
                     except:
-                        formatted_prompt_args = ""
-                else:
-                    formatted_prompt_args = ""
-                modify_prompt = f"{modify_prompt_name}({formatted_prompt_args})"
+                        pass
         else:
             modify_prompt = ""
 
         if st.button("Modify Step", key=f"modify_{step_number}"):
+            modify_prompt = {}
+            if modify_prompt_type == "Command":
+                modify_prompt["command_name"] = command_name
+                for arg in command_args:
+                    if arg != "context" and arg != "command_list" and arg != "COMMANDS":
+                        modify_prompt[arg] = st.session_state[f"{arg}_{step_number}"]
+            elif modify_prompt_type == "Prompt":
+                modify_prompt["prompt_name"] = modify_prompt_name
+                for arg in prompt_args:
+                    if arg != "context" and arg != "command_list" and arg != "COMMANDS":
+                        modify_prompt[arg] = st.session_state[f"{arg}_{step_number}"]
+
             Chain().update_step(
                 chain_name=selected_chain_name,
                 step_number=step_number,
@@ -268,37 +280,17 @@ if selected_chain_name:
             and prompt_type
             and prompt
         ):
-            if step_action == "Add Step":
-                if prompt_type == "Command":
-                    prompt_data = {"command_name": command_name}
-                    for arg in command_args:
-                        if (
-                            arg != "context"
-                            and arg != "command_list"
-                            and arg != "COMMANDS"
-                        ):
-                            prompt_data[arg] = st.session_state[f"add_step_{arg}"]
-                elif prompt_type == "Prompt":
-                    prompt_data = {"prompt_name": prompt_name}
-                    for arg in prompt_args:
-                        if (
-                            arg != "context"
-                            and arg != "command_list"
-                            and arg != "COMMANDS"
-                        ):
-                            prompt_data[arg] = st.session_state[f"add_step_{arg}"]
-
-                Chain().add_chain_step(
-                    chain_name=selected_chain_name,
-                    step_number=step_number,
-                    agent_name=agent_name,
-                    prompt_type=prompt_type,
-                    prompt=prompt_data,
-                )
-                st.success(
-                    f"Step {step_number} added to chain '{selected_chain_name}'."
-                )
-                st.experimental_rerun()
+            prompt_data = {}
+            if prompt_type == "Command":
+                prompt_data["command_name"] = command_name
+                for arg in command_args:
+                    if arg != "context" and arg != "command_list" and arg != "COMMANDS":
+                        prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+            elif prompt_type == "Prompt":
+                prompt_data["prompt_name"] = prompt_name
+                for arg in prompt_args:
+                    if arg != "context" and arg != "command_list" and arg != "COMMANDS":
+                        prompt_data[arg] = st.session_state[f"add_step_{arg}"]
             elif step_action == "Update Step":
                 if prompt_type == "Command":
                     prompt_data = {"command_name": command_name}
