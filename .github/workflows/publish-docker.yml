@@ -41,6 +41,8 @@ jobs:
         type=ref,event=pr
       platforms: ${{ needs.select-platforms.outputs.platforms }}
       buildkitd-flags: --debug
+      build-args: |
+        BUILDKIT_NO_CLIENT_TOKEN=true
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     needs: select-platforms
