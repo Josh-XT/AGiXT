@@ -76,6 +76,32 @@ class Chain:
         chain_data = self.get_chain(chain_name=chain_name)
         return chain_data["steps"]
 
+    def move_step(self, chain_name, current_step_number, new_step_number):
+        chain_data = self.get_chain(chain_name=chain_name)
+        if not 1 <= new_step_number <= len(
+            chain_data["steps"]
+        ) or current_step_number not in [step["step"] for step in chain_data["steps"]]:
+            print(f"Error: Invalid step numbers.")
+            return
+        moved_step = None
+        for step in chain_data["steps"]:
+            if step["step"] == current_step_number:
+                moved_step = step
+                chain_data["steps"].remove(step)
+                break
+        for step in chain_data["steps"]:
+            if new_step_number < current_step_number:
+                if new_step_number <= step["step"] < current_step_number:
+                    step["step"] += 1
+            else:
+                if current_step_number < step["step"] <= new_step_number:
+                    step["step"] -= 1
+        moved_step["step"] = new_step_number
+        chain_data["steps"].append(moved_step)
+        chain_data["steps"] = sorted(chain_data["steps"], key=lambda x: x["step"])
+        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+            json.dump(chain_data, f)
+
     async def run_chain(self, chain_name):
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
