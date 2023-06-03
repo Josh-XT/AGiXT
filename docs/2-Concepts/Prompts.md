@@ -14,3 +14,11 @@ Any prompt in the `prompts` folder can be copied to a `model-prompts\{model_name
 - `{COMMANDS}` will cause the available commands list to be injected and for automatic commands execution from the agent based on its suggestions.
 - `{command_list}` will cause the available commands list to be injected, but will not execute any commands the AI chooses. Useful on validation steps.
 - `{STEPx}` will cause the step `x` response from a chain to be injected. For example, `{STEP1}` will inject the first step's response in a chain.
+
+## Specific Model Prompts
+
+Inside of the `agixt\prompts` folder, you can add a folder with the name you set in your agent settings for `AI_MODEL` and it will use those prompts instead of the default ones. This allows you to have different prompts for different models that essentially do the same thing but with different wording that might be more optimized for that model.
+
+For example, `GPT-4` has an 8K token limit, so we over ride the `instruct` prompt to let it know that it has a `4000 word limit` instead of the default prompt that says `500 word limit.`
+
+There is currently not an interface for this other than your folder structure.
