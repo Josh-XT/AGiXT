@@ -22,7 +22,6 @@ class LlamacppapiProvider:
     def instruct(self, prompt, tokens: int = 0):
         params = {
             "prompt": prompt,
-            "batch_size": int(self.BATCH_SIZE),
             "temperature": float(self.AI_TEMPERATURE),
             "stop": self.STOP_SEQUENCE,
             "seed": random.randint(1, 1000000000),
