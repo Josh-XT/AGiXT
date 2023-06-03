@@ -301,8 +301,11 @@ async def get_chains():
 
 @app.get("/api/chain/{chain_name}", tags=["Chain"])
 async def get_chain(chain_name: str):
-    chain_data = Chain().get_chain(chain_name=chain_name)
-    return {"chain": chain_data}
+    try:
+        chain_data = Chain().get_chain(chain_name=chain_name)
+        return {"chain": chain_data}
+    except:
+        raise HTTPException(status_code=404, detail="Chain not found")
 
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
