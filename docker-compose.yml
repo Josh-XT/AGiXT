@@ -8,5 +8,5 @@ services:
       - "8501:8501"
     volumes:
       - ./agixt/agents:/agixt/agixt/agents:rw
-      - ./agixt/workspace:/agixt/agix/WORKSPACE:rw
+      - ./agixt/workspace:/agixt/agixt/WORKSPACE:rw
       - ./models:/model:rw
