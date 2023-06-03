@@ -321,11 +321,11 @@ async def delete_chain(chain_name: str) -> ResponseMessage:
 @app.post("/api/chain/{chain_name}/step", tags=["Chain"])
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     Chain().add_chain_step(
-        chain_name,
-        step_info.step_number,
-        step_info.prompt_type,
-        step_info.prompt,
-        step_info.agent_name,
+        chain_name=chain_name,
+        step_number=step_info.step_number,
+        prompt_type=step_info.prompt_type,
+        prompt=step_info.prompt,
+        agent_name=step_info.agent_name,
     )
     return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
@@ -335,11 +335,11 @@ async def update_step(
     chain_name: str, step_number: int, chain_step: ChainStep
 ) -> ResponseMessage:
     Chain().update_step(
-        chain_name,
-        chain_step.step_number,
-        chain_step.prompt_type,
-        chain_step.prompt,
-        chain_step.agent_name,
+        chain_name=chain_name,
+        step_number=chain_step.step_number,
+        prompt_type=chain_step.prompt_type,
+        prompt=chain_step.prompt,
+        agent_name=chain_step.agent_name,
     )
     return {
         "message": f"Step {chain_step.step_number} updated for chain '{chain_name}'."
@@ -351,9 +351,9 @@ async def move_step(
     chain_name: str, chain_step_new_info: ChainStepNewInfo
 ) -> ResponseMessage:
     Chain().move_step(
-        chain_name,
-        chain_step_new_info.old_step_number,
-        chain_step_new_info.new_step_number,
+        chain_name=chain_name,
+        current_step_number=chain_step_new_info.old_step_number,
+        new_step_number=chain_step_new_info.new_step_number,
     )
     return {
         "message": f"Step {chain_step_new_info.old_step_number} moved to {chain_step_new_info.new_step_number} in chain '{chain_name}'."
