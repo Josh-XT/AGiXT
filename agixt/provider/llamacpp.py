@@ -2,6 +2,7 @@ import subprocess
 import sys
 import os
 import logging
+import random
 
 try:
     from llama_cpp import Llama
@@ -14,11 +15,11 @@ class LlamacppProvider:
     def __init__(
         self,
         MODEL_PATH: str = "",
-        MAX_TOKENS: int = 2000,
+        MAX_TOKENS: int = 2048,
         AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
         GPU_LAYERS: int = 0,
-        BATCH_SIZE: int = 512,
+        BATCH_SIZE: int = 2048,
         THREADS: int = 0,
         STOP_SEQUENCE: str = "</s>",
         **kwargs,
@@ -36,18 +37,17 @@ class LlamacppProvider:
             try:
                 self.MAX_TOKENS = int(self.MAX_TOKENS)
             except:
-                self.MAX_TOKENS = 2000
+                self.MAX_TOKENS = 2048
 
     def instruct(self, prompt, tokens: int = 0):
-        max_tokens = int(self.MAX_TOKENS) - tokens
-        if max_tokens < 1:
-            max_tokens = int(self.MAX_TOKENS)
         if os.path.isfile(self.MODEL_PATH):
             self.model = Llama(
                 model_path=self.MODEL_PATH,
                 n_gpu_layers=int(self.GPU_LAYERS),
                 n_threads=int(self.THREADS),
-                n_ctx=max_tokens,
+                n_batch=int(self.BATCH_SIZE),
+                n_ctx=int(self.MAX_TOKENS),
+                seed=random.randint(1, 1000000000),
             )
         else:
             logging.info("Unable to find model path.")
@@ -61,4 +61,8 @@ class LlamacppProvider:
         data = response["choices"][0]["text"]
         data = data.replace(prompt, "")
         data = data.lstrip("\n")
+        try:
+            self.model.reset()
+        except:
+            print("Unable to reset model.")
         return data
