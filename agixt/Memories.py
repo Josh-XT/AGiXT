@@ -97,10 +97,6 @@ class Memories:
             self.chroma_client._client.persist()
         except Exception as e:
             logging.info(f"Failed to store memory: {e}")
-        try:
-            self.chroma_client._client.close()
-        except Exception as e:
-            logging.info(f"Failed to close chroma client: {e}")
 
     async def store_result(
         self, task_name: str, result: str, external_source_name: str = None

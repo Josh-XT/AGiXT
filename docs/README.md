@@ -26,11 +26,13 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Monitor Your Usage!](#monitor-your-usage)
     - [Under Development!](#under-development)
   - [Key Features 🗝️](#key-features-️)
-  - [Quickstart with Docker](#quickstart-with-docker)
-    - [Windows Docker Desktop (streamlit only example)](#windows-docker-desktop-streamlit-only-example)
-    - [Alternative Docker Compose Profiles](#alternative-docker-compose-profiles)
-    - [Development using docker](#development-using-docker)
-  - [Local Development](#local-development)
+  - [Quickstart using docker](#quickstart-using-docker)
+  - [Development using docker](#development-using-docker)
+  - [Development using poetry](#development-using-poetry)
+      - [Install poetry](#install-poetry)
+      - [Setup AGiXT](#setup-agixt)
+      - [Run Streamlit](#run-streamlit)
+      - [Run REST](#run-rest)
     - [API Endpoints](#api-endpoints)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
@@ -66,7 +68,7 @@ This project is under active development and may still have issues. We appreciat
 
 ## Quickstart using docker
 
-see [Quick Start](https://github.com/Josh-XT/AGiXT/edit/main/docs/1-Getting%20started/Quick%20Start.md)
+Visit our [Quick Start](https://josh-xt.github.io/AGiXT/1-Getting%20started/Quick%20Start.html) documentation.
 
 ## Development using docker
 ```
