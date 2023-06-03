@@ -1,23 +1,12 @@
 import requests
-
-# Llamacpp API Server
-# ./server --model "/path/to/ggml-model.bin" --ctx_size 2048 --ngl 32 -port 7171
-# Embedding server
-# ./server --model "/path/to/ggml-model.bin" --ctx_size 2048 --ngl 32 -port 7172 --embedding
-
-# ctx_size is max tokens
-# ngl is is GPU Layers.  Supposedly this works well for an RTX 3080.
-
-# If using the settings above, use the following in your agent settings:
-# AI_PROVIDER_URI = "http://localhost:7171"
-# EMBEDDING_URI = "http://localhost:7172"
+import random
 
 
 class LlamacppapiProvider:
     def __init__(
         self,
-        AI_PROVIDER_URI: str = "http://localhost:7171",
-        EMBEDDING_URI: str = "http://localhost:7172",
+        AI_PROVIDER_URI: str = "http://localhost:8000",
+        EMBEDDING_URI: str = "http://localhost:8001",
         MAX_TOKENS: int = 2000,
         AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
@@ -45,18 +34,15 @@ class LlamacppapiProvider:
             "batch_size": int(self.BATCH_SIZE),
             "temperature": float(self.AI_TEMPERATURE),
             "stop": self.STOP_SEQUENCE,
-            "exclude": self.EXCLUDE_STRING,
-            "n_predict": new_tokens,
-            "threads": int(self.THREADS),
-            "interactive": False,
+            "seed": random.randint(1, 1000000000),
         }
-        response = requests.post(f"{self.AI_PROVIDER_URI}/completion", json=params)
+        response = requests.post(f"{self.AI_PROVIDER_URI}/v1/completion", json=params)
         data = response.json()
         return data["content"]
 
     def embeddding(self, prompt):
         data = requests.post(
-            f"{self.EMBEDDING_URI}/embeddding",
-            json={"content": prompt, "threads": int(self.THREADS)},
+            f"{self.EMBEDDING_URI}/v1/embeddding",
+            json={"input": prompt},
         )
         return data["embedding"]
