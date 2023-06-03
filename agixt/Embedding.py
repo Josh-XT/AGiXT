@@ -101,14 +101,14 @@ class Embedding:
     async def default(self):
         chunk_size = 128
         embed = HuggingFaceTextEmbedding(
-            model_name="all-mpnet-base-v2", log=logging
+            model_id="all-mpnet-base-v2", log=logging
         ).generate_embeddings_async
         return embed, chunk_size
 
     async def large_local(self):
         chunk_size = 500
         embed = HuggingFaceTextEmbedding(
-            model_name="gtr-t5-large", log=logging
+            model_id="gtr-t5-large", log=logging
         ).generate_embeddings_async
         return embed, chunk_size
 
