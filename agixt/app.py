@@ -153,15 +153,20 @@ async def add_agent(agent: AgentSettings):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class AgentNewName(BaseModel):
+    new_name: str
+
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
-async def rename_agent(agent_name: str, new_name: str) -> ResponseMessage:
+async def rename_agent(agent_name: str, agentNewName: AgentNewName):
     try:
         Agent(agent_name=agent_name).rename_agent(
-            agent_name=agent_name, new_name=new_name
+            agent_name=agent_name, new_name=agentNewName.new_name
         )
-        return ResponseMessage(
-            message=f"Agent {agent_name} renamed to {new_name.new_name}."
-        )
+        return {
+            "name": agentNewName.new_name,
+            "settings": Agent(agent_name=agentNewName.new_name).get_agent_config(),
+        }
+        return agent_info
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
