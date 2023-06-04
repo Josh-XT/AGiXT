@@ -285,3 +285,21 @@ class ApiClient:
     def get_extension_settings(agent_name: str) -> Dict[str, Any]:
         response = requests.get(f"{base_uri}/api/agent/{agent_name}/extension_settings")
         return response.json()
+
+    @staticmethod
+    def learn_url(agent_name: str, url: str) -> Dict[str, str]:
+        response = requests.post(
+            f"{base_uri}/api/agent/{agent_name}/learn/url",
+            json={"url": url},
+        )
+        return response.json()
+
+    @staticmethod
+    def learn_file(
+        agent_name: str, file_name: str, file_content: str
+    ) -> Dict[str, str]:
+        response = requests.post(
+            f"{base_uri}/api/agent/{agent_name}/learn/file",
+            json={"file_name": file_name, "file_content": file_content},
+        )
+        return response.json()

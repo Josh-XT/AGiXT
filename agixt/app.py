@@ -14,6 +14,7 @@ from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
 import logging
+import uuid
 
 CFG = Config()
 app = FastAPI(
@@ -89,6 +90,15 @@ class ResponseMessage(BaseModel):
     message: str
 
 
+class UrlInput(BaseModel):
+    url: str
+
+
+class FileInput(BaseModel):
+    file_name: str
+    file_content: str
+
+
 class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
@@ -158,6 +168,37 @@ async def update_agent_settings(
         new_config=settings.settings, config_key="settings"
     )
     return ResponseMessage(message=update_config)
+
+
+@app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
+async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
+    file_path = os.path.join(os.getcwd(), file.file_name)
+    with open(file_path, "w") as f:
+        f.write(file.file_content)
+    try:
+        memories = Agent(agent_name=agent_name).get_memories()
+        await memories.mem_read_file(file_path=file.file_content)
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        return ResponseMessage(message="Agent learned the content from the file.")
+    except Exception as e:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent/{agent_name}/learn/url", tags=["Agent"])
+async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
+    try:
+        memories = Agent(agent_name=agent_name).get_memories()
+        await memories.read_website(url=url.url)
+        return ResponseMessage(message="Agent learned the content from the url.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/agent/{agent_name}/commands", tags=["Agent"])
