@@ -268,13 +268,16 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
         task.stop_tasks()
         return ResponseMessage(message="Task agent stopped")
     # If it's not running start it.
-    task.run_task(objective=objective.objective)
+    await task.run_task(objective=objective.objective)
     return ResponseMessage(message="Task agent started")
 
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
-    task_output = Tasks(agent_name=agent_name).get_task_output()
+    try:
+        task_output = Tasks(agent_name=agent_name).get_task_output()
+    except:
+        task_output = False
     if task_output != False:
         return TaskOutput(
             output=task_output,
@@ -303,6 +306,15 @@ async def get_chains():
 async def get_chain(chain_name: str):
     try:
         chain_data = Chain().get_chain(chain_name=chain_name)
+        return {"chain": chain_data}
+    except:
+        raise HTTPException(status_code=404, detail="Chain not found")
+
+
+@app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
+async def get_chain(chain_name: str):
+    try:
+        chain_data = Chain().get_step_response(chain_name=chain_name, step_number="all")
         return {"chain": chain_data}
     except:
         raise HTTPException(status_code=404, detail="Chain not found")

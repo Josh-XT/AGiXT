@@ -150,6 +150,11 @@ class ApiClient:
         return response.json()
 
     @staticmethod
+    def get_chain_responses(chain_name: str) -> Dict[str, Any]:
+        response = requests.get(f"{base_uri}/api/chain/{chain_name}/responses")
+        return response.json()
+
+    @staticmethod
     def run_chain(chain_name: str) -> Dict[str, str]:
         response = requests.post(f"{base_uri}/api/chain/{chain_name}/run")
         return response.json()
