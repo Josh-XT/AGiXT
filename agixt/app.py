@@ -329,6 +329,13 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
     return ResponseMessage(message="Task agent started")
 
 
+# Get tasks Tasks(agent_name=agent_name).get_tasks()
+@app.get("/api/agent/{agent_name}/tasks", tags=["Agent"])
+async def get_tasks(agent_name: str) -> Dict[str, List[str]]:
+    tasks = Tasks(agent_name=agent_name).get_tasks()
+    return {"tasks": tasks}
+
+
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
     try:

@@ -140,6 +140,11 @@ class ApiClient:
         return response.json()
 
     @staticmethod
+    def get_tasks() -> Dict[str, List[str]]:
+        response = requests.get(f"{base_uri}/api/tasks")
+        return response.json()
+
+    @staticmethod
     def get_task_output(agent_name: str) -> Dict[str, Union[str, Optional[str]]]:
         response = requests.get(f"{base_uri}/api/agent/{agent_name}/task")
         return response.json()
