@@ -94,7 +94,9 @@ class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
 
-
+class AgentNewName(BaseModel):
+    new_name: str
+    
 class AgentSettings(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
@@ -153,18 +155,14 @@ async def add_agent(agent: AgentSettings):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class AgentNewName(BaseModel):
-    new_name: str
-
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, agentNewName: AgentNewName):
     try:
-        Agent(agent_name=agent_name).rename_agent(
-            agent_name=agent_name, new_name=agentNewName.new_name
-        )
+        agent = Agent(agent_name=agent_name)
+        agent.rename_agent( new_name=agentNewName.new_name )
         return {
-            "name": agentNewName.new_name,
-            "settings": Agent(agent_name=agentNewName.new_name).get_agent_config(),
+            "name": agent.agent_name,
+            "settings": agent.get_agent_config(),
         }
         return agent_info
     except FileNotFoundError as e:

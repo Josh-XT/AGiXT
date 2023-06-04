@@ -361,7 +361,7 @@ class Agent:
             "settings": Agent(agent_name=agent_name).get_agent_config(),
         }
 
-    def rename_agent(self, agent_name, new_name):
+    def rename(self, new_name):
         """
         This function renames an agent by updating the agent's name in a YAML file and renaming the agent's
         folder.
@@ -371,7 +371,7 @@ class Agent:
         """
         logging.info(
             "Renaming folder %s to folder %s",
-            get_agent_folder(agent_name),
+            get_agent_folder(self.agent_name),
             get_agent_folder(new_name),
         )
         os.rename(get_agent_folder(agent_name), get_agent_folder(new_name))
