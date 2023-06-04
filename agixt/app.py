@@ -304,8 +304,10 @@ async def get_chain(chain_name: str):
     try:
         chain_data = Chain().get_chain(chain_name=chain_name)
         return {"chain": chain_data}
-    except:
-        raise HTTPException(status_code=404, detail="Chain not found")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
