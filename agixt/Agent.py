@@ -242,6 +242,9 @@ class Agent:
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
+    def exists(self, agent_name):
+        return os.path.isfile(get_config_file(agent_name))
+
     def create_agent_config_file(self, agent_name, provider_settings, commands):
         """
         This function creates a configuration file for a given agent with specified provider settings and
