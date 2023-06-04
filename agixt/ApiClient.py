@@ -181,7 +181,7 @@ class ApiClient:
         step_number: int,
         agent_name: str,
         prompt_type: str,
-        prompt: str,
+        prompt: dict,
     ) -> Dict[str, str]:
         response = requests.post(
             f"{base_uri}/api/chain/{chain_name}/step",
@@ -262,6 +262,6 @@ class ApiClient:
     def update_prompt(prompt_name: str, prompt: str) -> Dict[str, str]:
         response = requests.put(
             f"{base_uri}/api/prompt/{prompt_name}",
-            json={"prompt": prompt},
+            json={"prompt": prompt, "prompt_name": prompt_name},
         )
         return response.json()

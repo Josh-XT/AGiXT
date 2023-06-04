@@ -69,14 +69,14 @@ class StepInfo(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: str
+    prompt: dict
 
 
 class ChainStep(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: str
+    prompt: dict
 
 
 class ChainStepNewInfo(BaseModel):
@@ -311,7 +311,7 @@ async def get_chain(chain_name: str):
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str) -> ResponseMessage:
     await Chain().run_chain(chain_name=chain_name)
-    return {"message": f"Chain '{chain_name}' started."}
+    return {"message": f"Chain '{chain_name}' completed."}
 
 
 @app.post("/api/chain", tags=["Chain"])
