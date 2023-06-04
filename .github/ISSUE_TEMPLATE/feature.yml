@@ -1,6 +1,6 @@
 name: Feature Request / Enhancement
 description: Suggest a new feature or feature enhancement for the project.
-labels: ['needs triage']
+labels: ['needs triage', 'new feature']
 body:
   - type: markdown
     attributes:
@@ -9,49 +9,30 @@ body:
     attributes:
       value: |
         * Ask questions in [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/vfXjyuKZ).
-        * Before you file an issue read the [Contributing guide](./CONTRIBUTING.md).
-        * Check to make sure someone hasn't already opened a [similar issue](https://github.com/Josh-XT/AGiXT/issues).
+        * Check to make sure someone hasn't already opened a [similar request](https://github.com/Josh-XT/AGiXT/issues).
   - type: textarea
     id: problem
     attributes:
-      label: 'Problem Description'
-      description: 'Describe the problem you are trying to solve or the limitation you are facing.'
-      placeholder: 'I often work at night and find the bright interface hard on my eyes.'
+      label: 'Feature/Improvement Description'
+      description: 'Describe the feature you need, where and why'
+      placeholder: 'I often work at night and find the bright interface hard on my eyes. Please add a dark mode to the frontend I can activate in the settings.'
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
       label: 'Proposed Solution'
-      description: 'Describe the solution you would like to see implemented.'
-      placeholder: 'Add a "Dark Mode" theme option in the settings that applies a dark color scheme to the interface.'
+      description: 'Describe the solution you would like to see.'
+      placeholder: 'In the settings, there should be a button. On the top right, there should be a switch. The color palette should be...'
     validations:
       required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: 'Alternatives Considered'
-      description: 'List any alternative solutions or features you have considered.'
-      placeholder: 'I have tried using browser extensions to apply a dark theme, but they do not work well with this application.'
-    validations:
-      required: false
-  - type: textarea
-    id: additional-context
-    attributes:
-      label: 'Additional Context'
-      description: 'Provide any additional context or information about the feature request (e.g., screenshots, mockups, etc.)'
-      placeholder: 'Here is a link to a sample "Dark Mode" color scheme I found online: https://example.com/dark-theme.'
-    validations:
-      required: false
   - type: checkboxes
     id: acknowledgements
     attributes:
       label: 'Acknowledgements'
       description: 'Please confirm the following:'
       options:
-        - label: 'My issue title is concise, descriptive, and in title casing.'
-          required: true
         - label: 'I have searched the existing issues to make sure this feature has not been requested yet.'
           required: true
-        - label: 'I have provided enough information for the maintainers to understand and evaluate this request.'
+        - label: 'I have provided enough information for everyone to understand why this feature request is needed in AGiXT.'
           required: true
