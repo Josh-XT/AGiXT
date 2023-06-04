@@ -396,8 +396,10 @@ async def get_prompt(prompt_name: str):
     try:
         prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
         return {"prompt_name": prompt_name, "prompt": prompt_content}
-    except Exception as e:
+    except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
