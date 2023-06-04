@@ -1,5 +1,5 @@
 import streamlit as st
-from Prompts import Prompts
+from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 
 check_auth_status()
@@ -29,8 +29,7 @@ st.markdown(
 """
 )
 
-custom_prompt = Prompts()
-prompt_list = custom_prompt.get_prompts()
+prompt_list = ApiClient.get_prompts()
 
 if st.checkbox("Add New Prompt"):
     action = "Add Prompt"
@@ -41,20 +40,20 @@ else:
     prompt_name = st.selectbox("Existing Prompts", prompt_list)
     prompt_content = st.text_area(
         "Prompt Content",
-        custom_prompt.get_prompt(prompt_name) if prompt_name else "",
+        ApiClient.get_prompt(prompt_name) if prompt_name else "",
         height=300,
     )
 
 if st.button("Perform Action"):
     if prompt_name and (prompt_content or action == "Delete Prompt"):
         if action == "Add Prompt":
-            custom_prompt.add_prompt(prompt_name, prompt_content)
+            ApiClient.add_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' added.")
         elif action == "Update Prompt":
-            custom_prompt.update_prompt(prompt_name, prompt_content)
+            ApiClient.update_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' updated.")
         elif action == "Delete Prompt":
-            custom_prompt.delete_prompt(prompt_name)
+            ApiClient.delete_prompt(prompt_name)
             st.success(f"Prompt '{prompt_name}' deleted.")
     else:
         st.error("Prompt name and content are required.")

@@ -1,5 +1,4 @@
 import streamlit as st
-from AGiXT import AGiXT
 from streamlit import (
     markdown,
     header,
@@ -11,12 +10,12 @@ from streamlit import (
     error,
     warning,
 )
-import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
+from ApiClient import ApiClient
 
 check_auth_status()
-agent_name, agent = agent_selector()
+agent_name = agent_selector()
 
 
 def render_history(instruct_container, chat_history):
@@ -47,7 +46,9 @@ instruct_container = container()
 
 if agent_name:
     try:
-        st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
+        st.session_state.chat_history[agent_name] = ApiClient.get_chat_history(
+            agent_name
+        )
     except:
         st.session_state.chat_history[
             agent_name
@@ -61,22 +62,18 @@ if agent_name:
     if send_button:
         if agent_name and instruct_prompt:
             with spinner("Thinking, please wait..."):
-                agent = AGiXT(agent_name)
                 if smart_instruct_toggle:
-                    response = asyncio.run(
-                        agent.smart_instruct(
-                            instruct_prompt,
-                            shots=3,
-                        )
+                    response = ApiClient.smartinstruct(
+                        agent_name=agent_name,
+                        prompt=instruct_prompt,
+                        shots=3,
                     )
                 else:
-                    response = asyncio.run(
-                        agent.run(
-                            instruct_prompt,
-                            prompt="instruct",
-                            context_results=6,
-                        )
+                    response = ApiClient.instruct(
+                        agent_name=agent_name,
+                        prompt=instruct_prompt,
                     )
+
             instruct_entry = [
                 {"sender": "User", "message": instruct_prompt},
                 {"sender": "Agent", "message": response},

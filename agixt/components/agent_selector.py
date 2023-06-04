@@ -1,6 +1,5 @@
 import streamlit as st
-from Config import Config
-from Agent import Agent
+from ApiClient import ApiClient
 import os
 import logging
 
@@ -17,7 +16,7 @@ def agent_selector():
             previously_selected_agent = None
 
         # Get the list of agent names
-        agent_names = [agent["name"] for agent in Config().get_agents()]
+        agent_names = [agent["name"] for agent in ApiClient.get_agents()]
 
         # If the previously selected agent is in the list, use it as the default
         if previously_selected_agent in agent_names:
@@ -42,8 +41,4 @@ def agent_selector():
                 st.experimental_rerun()
             except Exception as e:
                 logging.info(e)
-        if selected_agent != "":
-            agent = Agent(selected_agent)
-        else:
-            agent = None
-        return selected_agent, agent
+        return selected_agent

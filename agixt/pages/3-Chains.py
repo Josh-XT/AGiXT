@@ -1,18 +1,10 @@
 import streamlit as st
-import auth_libs.Redirect as redir
-from Config import Config
-from Chain import Chain
-from Extensions import Extensions
-from Agent import Agent
-from Prompts import Prompts
+from ApiClient import ApiClient
 import logging
-import asyncio
 from auth_libs.Users import check_auth_status
-from components.agent_selector import agent_selector
 
 check_auth_status()
 
-CFG = Config()
 
 st.header("Manage Chains")
 st.markdown("### Predefined Injection Variables")
@@ -27,47 +19,48 @@ st.markdown(
 - `{STEPx}` will cause the step `x` response from a chain to be injected. For example, `{STEP1}` will inject the first step's response in a chain.
 """
 )
-
+chain_names = ApiClient.get_chains()
+agents = ApiClient.get_agents()
 chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
 else:
-    chain_name = st.selectbox("Chains", Chain().get_chains())
+    chain_name = st.selectbox("Chains", chain_names)
 
 if st.button("Perform Action"):
     if chain_name:
         if chain_action == "Create Chain":
-            Chain().add_chain(chain_name=chain_name)
+            ApiClient.add_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' created.")
             st.experimental_rerun()
         elif chain_action == "Delete Chain":
-            Chain().delete_chain(chain_name=chain_name)
+            ApiClient.delete_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            asyncio.run(Chain().run_chain(chain_name=chain_name))
+            ApiClient.run_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")
 
 st.header("Manage Chain Steps & View Responses")
 
-chain_names = Chain().get_chains()
+
 selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
 
 if selected_chain_name:
     try:
-        chain = Chain().get_steps(chain_name=selected_chain_name)
+        chain = ApiClient.get_chain(chain_name=selected_chain_name)
     except:
         st.write(selected_chain_name + " Responses: ")
         try:
             if "_responses" in selected_chain_name:
-                chain_commands_executed = Chain().get_step_response(
+                chain_commands_executed = ApiClient.get_chain_responses(
                     chain_name=selected_chain_name.replace("_responses", "")
                 )
             else:
                 chain_commands_executed = False
-            chain_response = Chain().get_step_response(
+            chain_response = ApiClient.get_chain_responses(
                 chain_name=selected_chain_name,
             )
             if chain_response and chain_commands_executed:
@@ -92,7 +85,6 @@ if selected_chain_name:
         agent_name = step["agent_name"]
         prompt_type = step["prompt_type"]
         prompt = step.get("prompt", "")
-        agent_config = Agent(agent_name).agent_config
         modify_step_number = st.number_input(
             "Step Number",
             min_value=1,
@@ -102,9 +94,9 @@ if selected_chain_name:
         )
         modify_agent_name = st.selectbox(
             "Select Agent",
-            options=[""] + [agent["name"] for agent in CFG.get_agents()],
-            index=([agent["name"] for agent in CFG.get_agents()].index(agent_name) + 1)
-            if agent_name in [agent["name"] for agent in CFG.get_agents()]
+            options=[""] + [agent["name"] for agent in agents],
+            index=([agent["name"] for agent in agents].index(agent_name) + 1)
+            if agent_name in [agent["name"] for agent in agents]
             else 0,
             key=f"agent_name_{step_number}",
         )
@@ -118,7 +110,7 @@ if selected_chain_name:
         if modify_prompt_type == "Command":
             available_commands = [
                 cmd["friendly_name"]
-                for cmd in Extensions(agent_config).get_enabled_commands()
+                for cmd in ApiClient.get_commands(agent_name=modify_agent_name)
             ]
             command_name = st.selectbox(
                 "Select Command",
@@ -130,7 +122,7 @@ if selected_chain_name:
             )
 
             if command_name:
-                command_args = Extensions(agent_config).get_command_args(command_name)
+                command_args = ApiClient.get_command_args(command_name)
                 formatted_command_args = ", ".join(
                     [
                         f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
@@ -142,7 +134,7 @@ if selected_chain_name:
                 )
                 modify_prompt = f"{command_name}({formatted_command_args})"
         elif modify_prompt_type == "Prompt":
-            available_prompts = Prompts().get_prompts()
+            available_prompts = ApiClient.get_prompts()
             modify_prompt_name = st.selectbox(
                 "Select Custom Prompt",
                 [""] + available_prompts,
@@ -153,7 +145,7 @@ if selected_chain_name:
             )
 
             if modify_prompt_name:
-                prompt_args = Prompts().get_prompt_args(modify_prompt_name)
+                prompt_args = ApiClient.get_prompt_args(modify_prompt_name)
                 if prompt_args:
                     if isinstance(prompt_args, str):
                         prompt_args = [prompt_args]
@@ -188,7 +180,7 @@ if selected_chain_name:
                     if arg != "context" and arg != "command_list" and arg != "COMMANDS":
                         modify_prompt[arg] = st.session_state[f"{arg}_{step_number}"]
 
-            Chain().update_step(
+            ApiClient.update_step(
                 chain_name=selected_chain_name,
                 step_number=step_number,
                 agent_name=modify_agent_name,
@@ -213,7 +205,7 @@ if selected_chain_name:
     step_number = max([s["step"] for s in chain]) + 1 if chain else 1
     agent_name = st.selectbox(
         "Select Agent",
-        options=[""] + [agent["name"] for agent in CFG.get_agents()],
+        options=[""] + [agent["name"] for agent in agents],
         index=0,
         key="add_step_agent_name",
     )
@@ -222,13 +214,9 @@ if selected_chain_name:
         [""] + ["Command", "Prompt"],
         key="add_step_prompt_type",
     )
-
+    agent_commands = ApiClient.get_commands(agent_name=agent_name)
     if prompt_type == "Command":
-        agent_config = Agent(agent_name).agent_config
-        available_commands = [
-            cmd["friendly_name"]
-            for cmd in Extensions(agent_config).get_enabled_commands()
-        ]
+        available_commands = [cmd["friendly_name"] for cmd in agent_commands]
         command_name = st.selectbox(
             "Select Command",
             [""] + available_commands,
@@ -236,7 +224,7 @@ if selected_chain_name:
         )
 
         if command_name:
-            command_args = Extensions(agent_config).get_command_args(command_name)
+            command_args = ApiClient.get_command_args(command_name=command_name)
             formatted_command_args = ", ".join(
                 [
                     f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
@@ -246,7 +234,7 @@ if selected_chain_name:
             )
             prompt = f"{command_name}({formatted_command_args})"
     elif prompt_type == "Prompt":
-        available_prompts = Prompts().get_prompts()
+        available_prompts = ApiClient.get_prompts()
         prompt_name = st.selectbox(
             "Select Custom Prompt",
             [""] + available_prompts,
@@ -254,7 +242,7 @@ if selected_chain_name:
         )
 
         if prompt_name:
-            prompt_args = Prompts().get_prompt_args(prompt_name)
+            prompt_args = ApiClient.get_prompt_args(prompt_name)
             formatted_prompt_args = ", ".join(
                 [
                     f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
@@ -311,7 +299,7 @@ if selected_chain_name:
                         ):
                             prompt_data[arg] = st.session_state[f"add_step_{arg}"]
 
-                Chain().update_step(
+                ApiClient.update_step(
                     chain_name=selected_chain_name,
                     step_number=step_number,
                     agent_name=agent_name,
@@ -323,7 +311,7 @@ if selected_chain_name:
                 )
                 st.experimental_rerun()
             elif step_action == "Delete Step":
-                Chain().delete_step(selected_chain_name, step_number)
+                ApiClient.delete_step(selected_chain_name, step_number)
                 st.success(
                     f"Step {step_number} deleted from chain '{selected_chain_name}'."
                 )
