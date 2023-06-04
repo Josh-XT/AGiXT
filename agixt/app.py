@@ -11,6 +11,7 @@ from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
+from Extensions import Extensions
 import os
 import logging
 
@@ -108,6 +109,11 @@ class AgentSettings(BaseModel):
     settings: Dict[str, Any]
 
 
+class AgentCommands(BaseModel):
+    agent_name: str
+    commands: Dict[str, Any]
+
+
 @app.get("/api/provider", tags=["Provider"])
 async def get_providers():
     providers = CFG.get_providers()
@@ -150,6 +156,16 @@ async def update_agent_settings(
 ) -> ResponseMessage:
     update_config = Agent(agent_name=agent_name).update_agent_config(
         new_config=settings.settings, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.put("/api/agent/{agent_name}/commands", tags=["Agent"])
+async def update_agent_commands(
+    agent_name: str, commands: AgentCommands
+) -> ResponseMessage:
+    update_config = Agent(agent_name=agent_name).update_agent_config(
+        new_config=commands.commands, config_key="commands"
     )
     return ResponseMessage(message=update_config)
 
@@ -218,6 +234,22 @@ async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
     response = await agent.smart_chat(task=prompt.prompt, shots=shots)
     return {"response": str(response)}
+
+
+@app.get("/api/agent/{agent_name}/extension_settings", tags=["Agent"])
+async def get_extension_settings(agent_name: str):
+    # Get agent config from agent name
+    try:
+        agent_config = Agent(agent_name=agent_name).get_agent_config()
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Unable to retrieve agent configuration."
+        )
+    try:
+        extension_settings = Extensions(agent_config).get_extension_settings()
+        return {"extension_settings": extension_settings}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
 
 
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])

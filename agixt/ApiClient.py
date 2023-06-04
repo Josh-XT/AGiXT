@@ -50,6 +50,16 @@ class ApiClient:
         return response.json()
 
     @staticmethod
+    def update_agent_commands(
+        agent_name: str, commands: Dict[str, Any]
+    ) -> Dict[str, str]:
+        response = requests.put(
+            f"{base_uri}/api/agent/{agent_name}/commands",
+            json={"commands": commands, "agent_name": agent_name},
+        )
+        return response.json()
+
+    @staticmethod
     def delete_agent(agent_name: str) -> Dict[str, str]:
         response = requests.delete(f"{base_uri}/api/agent/{agent_name}")
         return response.json()
@@ -269,4 +279,9 @@ class ApiClient:
             f"{base_uri}/api/prompt/{prompt_name}",
             json={"prompt": prompt, "prompt_name": prompt_name},
         )
+        return response.json()
+
+    @staticmethod
+    def get_extension_settings(agent_name: str) -> Dict[str, Any]:
+        response = requests.get(f"{base_uri}/api/agent/{agent_name}/extension_settings")
         return response.json()
