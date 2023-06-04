@@ -14,8 +14,8 @@ body:
     id: problem
     attributes:
       label: 'Feature/Improvement Description'
-      description: 'Describe the feature you need and why'
-      placeholder: 'I often work at night and find the bright interface hard on my eyes. Please add a dark mode I can activate in the settings.'
+      description: 'Describe the feature you need, where and why'
+      placeholder: 'I often work at night and find the bright interface hard on my eyes. Please add a dark mode to the frontend I can activate in the settings.'
     validations:
       required: true
   - type: textarea
