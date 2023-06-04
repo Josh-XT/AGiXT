@@ -53,6 +53,114 @@ def get_history_file(agent_name):
     return os.path.join(get_agent_folder(agent_name), "history.yaml")
 
 
+def load_commands():
+    """
+    This function loads commands from Python files in a specific directory and returns a list of tuples
+    containing information about each command.
+    :return: The function `load_commands` returns a list of tuples, where each tuple contains the name
+    of a command, the name of the function that implements the command, and a list of parameters that
+    the command function takes.
+    """
+    commands = []
+    command_files = glob.glob("extensions/*.py")
+    for command_file in command_files:
+        module_name = os.path.splitext(os.path.basename(command_file))[0]
+        module = importlib.import_module(f"extensions.{module_name}")
+        command_class = getattr(module, module_name.lower())()
+        if hasattr(command_class, "commands"):
+            for command_name, command_function in command_class.commands.items():
+                params = get_command_params(command_function)
+                commands.append((command_name, command_function.__name__, params))
+    return commands
+
+
+def get_command_params(func):
+    """
+    This function retrieves the parameters and default values of a given function.
+
+    :param func: a function object for which we want to retrieve the parameters and their default values
+    :return: The function `get_command_params` returns a dictionary containing the parameters of a given
+    function `func`. The keys of the dictionary are the parameter names, and the values are either
+    `None` if the parameter has no default value, or the default value of the parameter if it has one.
+    """
+    params = {}
+    sig = signature(func)
+    for name, param in sig.parameters.items():
+        if param.default == Parameter.empty:
+            params[name] = None
+        else:
+            params[name] = param.default
+    return params
+
+
+def add_agent(agent_name, provider_settings):
+    """
+    This function adds a new agent with default or provided settings and creates a configuration file
+    for the agent.
+
+    :param agent_name: A string representing the name of the agent being added
+    :param provider_settings: A dictionary containing settings for the agent's provider. If no settings
+    are provided, the function will use default settings
+    :return: A dictionary with the key "agent_file" and the value being the name of the agent's YAML
+    file.
+    """
+    if not agent_name:
+        return "Agent name cannot be empty."
+
+    provider_settings = DEFAULT_SETTINGS if not provider_settings else provider_settings
+
+    commands_list = load_commands()
+    command_dict = {}
+    for command in commands_list:
+        friendly_name, command_name, command_args = command
+        command_dict[friendly_name] = False
+
+    create_agent_config_file(agent_name, provider_settings, command_dict)
+
+    agent = Agent(agent_name)
+
+    return {
+        "name": agent.agent_name,
+        "settings": agent.get_agent_config(),
+    }
+
+
+def create_agent_config_file(agent_name, provider_settings, commands):
+    """
+    This function creates a configuration file for a given agent with specified provider settings and
+    commands.
+
+    :param agent_name: a string representing the name of the agent being created
+    :param provider_settings: A dictionary containing the settings for the agent's provider. If it is
+    None, an empty string, or an empty dictionary, the default settings will be used
+    :param commands: a list of commands that the agent can execute
+    :return: the path of the agent config file that was created.
+    """
+
+    agent_config_file = get_config_file(agent_name)
+
+    if provider_settings is None or provider_settings == "" or provider_settings == {}:
+        provider_settings = DEFAULT_SETTINGS
+
+    settings = json.dumps(
+        {
+            "commands": commands,
+            "settings": provider_settings,
+        }
+    )
+
+    agent_dir = get_agent_folder(agent_name)
+    # Check and create agent directory if it doesn't exist
+    if not os.path.exists(agent_dir):
+        os.makedirs(agent_dir)
+
+    # Write the settings to the agent config file
+    with open(agent_config_file, "w") as f:
+        f.write(settings)
+
+    return agent_config_file
+
+
 class Agent:
     def __init__(self, agent_name=None):
         """
@@ -66,7 +174,7 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
-        self.commands = self.load_commands()
+        self.commands = load_commands()
         self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
         self.clean_agent_config_commands()
         # AI Configuration
@@ -102,7 +210,7 @@ class Agent:
         create_agent_folder(self.agent_name)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
-        self.commands = self.load_commands()
+        self.commands = load_commands()
         if self.LOG_REQUESTS:
             Path(
                 os.path.join(
@@ -208,84 +316,8 @@ class Agent:
         else:
             return "openai"
 
-    def get_command_params(self, func):
-        """
-        This function retrieves the parameters and default values of a given function.
-
-        :param func: a function object for which we want to retrieve the parameters and their default values
-        :return: The function `get_command_params` returns a dictionary containing the parameters of a given
-        function `func`. The keys of the dictionary are the parameter names, and the values are either
-        `None` if the parameter has no default value, or the default value of the parameter if it has one.
-        """
-        params = {}
-        sig = signature(func)
-        for name, param in sig.parameters.items():
-            if param.default == Parameter.empty:
-                params[name] = None
-            else:
-                params[name] = param.default
-        return params
-
-    def load_commands(self):
-        """
-        This function loads commands from Python files in a specific directory and returns a list of tuples
-        containing information about each command.
-        :return: The function `load_commands` returns a list of tuples, where each tuple contains the name
-        of a command, the name of the function that implements the command, and a list of parameters that
-        the command function takes.
-        """
-        commands = []
-        command_files = glob.glob("extensions/*.py")
-        for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"extensions.{module_name}")
-            command_class = getattr(module, module_name.lower())()
-            if hasattr(command_class, "commands"):
-                for command_name, command_function in command_class.commands.items():
-                    params = self.get_command_params(command_function)
-                    commands.append((command_name, command_function.__name__, params))
-        return commands
-
     def exists(agent_name):
         return os.path.isfile(get_config_file(agent_name))
-
-    def create_agent_config_file(self, agent_name, provider_settings, commands):
-        """
-        This function creates a configuration file for a given agent with specified provider settings and
-        commands.
-
-        :param agent_name: a string representing the name of the agent being created
-        :param provider_settings: A dictionary containing the settings for the agent's provider. If it is
-        None, an empty string, or an empty dictionary, the default settings will be used
-        :param commands: a list of commands that the agent can execute
-        :return: the path of the agent config file that was created.
-        """
-
-        agent_config_file = get_config_file(agent_name)
-
-        if (
-            provider_settings is None
-            or provider_settings == ""
-            or provider_settings == {}
-        ):
-            provider_settings = DEFAULT_SETTINGS
-        settings = json.dumps(
-            {
-                "commands": commands,
-                "settings": provider_settings,
-            }
-        )
-
-        agent_dir = get_agent_folder(agent_name)
-        # Check and create agent directory if it doesn't exist
-        if not os.path.exists(agent_dir):
-            os.makedirs(agent_dir)
-
-        # Write the settings to the agent config file
-        with open(agent_config_file, "w") as f:
-            f.write(settings)
-
-        return agent_config_file
 
     def load_agent_config(self, agent_name):
         """
@@ -324,42 +356,13 @@ class Agent:
                         {
                             "commands": {
                                 command_name: "false"
-                                for command_name, _, _ in self.load_commands()
+                                for command_name, _, _ in load_commands()
                             },
                             "settings": DEFAULT_SETTINGS,
                         }
                     )
                 )
         return agent_config_data
-
-    def add_agent(self, agent_name, provider_settings):
-        """
-        This function adds a new agent with default or provided settings and creates a configuration file
-        for the agent.
-
-        :param agent_name: A string representing the name of the agent being added
-        :param provider_settings: A dictionary containing settings for the agent's provider. If no settings
-        are provided, the function will use default settings
-        :return: A dictionary with the key "agent_file" and the value being the name of the agent's YAML
-        file.
-        """
-        if not agent_name:
-            return "Agent name cannot be empty."
-        provider_settings = (
-            DEFAULT_SETTINGS if not provider_settings else provider_settings
-        )
-        create_agent_folder(agent_name)
-        commands_list = self.load_commands()
-        command_dict = {}
-        for command in commands_list:
-            friendly_name, command_name, command_args = command
-            command_dict[friendly_name] = False
-        self.create_agent_config_file(agent_name, provider_settings, command_dict)
-
-        return {
-            "name": agent_name,
-            "settings": Agent(agent_name=agent_name).get_agent_config(),
-        }
 
     def rename(self, new_name):
         """
@@ -523,6 +526,6 @@ class Agent:
         the interaction
         :type message: str
         """
-        history = load_history()
+        history = self.load_history()
         history["interactions"].append({"role": role, "message": message})
-        save_history(history)
+        self.save_history(history)

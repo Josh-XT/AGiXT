@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent
+from Agent import Agent, add_agent
 from Chain import Chain
 from Tasks import Tasks
 from Prompts import Prompts
@@ -94,9 +94,11 @@ class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
 
+
 class AgentNewName(BaseModel):
     new_name: str
-    
+
+
 class AgentSettings(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
@@ -143,9 +145,10 @@ async def get_agentconfig(agent_name: str):
 
 
 @app.post("/api/agent", tags=["Agent"])
-async def add_agent(agent: AgentSettings):
+async def agent_create(agent: AgentSettings):
     try:
-        agent_info = Agent(agent.agent_name).add_agent(
+        print(agent)
+        agent_info = add_agent(
             agent_name=agent.agent_name, provider_settings=agent.settings
         )
         return agent_info
@@ -159,7 +162,7 @@ async def add_agent(agent: AgentSettings):
 async def rename_agent(agent_name: str, agentNewName: AgentNewName):
     try:
         agent = Agent(agent_name=agent_name)
-        agent.rename_agent( new_name=agentNewName.new_name )
+        agent.rename_agent(new_name=agentNewName.new_name)
         return {
             "name": agent.agent_name,
             "settings": agent.get_agent_config(),
