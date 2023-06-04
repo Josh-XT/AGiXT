@@ -47,44 +47,38 @@ class Agent:
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-            if "AI_MODEL" in self.PROVIDER_SETTINGS:
-                self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
-                if self.AI_MODEL == "":
-                    self.AI_MODEL = "default"
-            else:
-                self.AI_MODEL = "openassistant"
-            if "embedder" in self.PROVIDER_SETTINGS:
-                self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
-            else:
-                if self.AI_PROVIDER == "openai":
-                    self.EMBEDDER = "openai"
-                else:
-                    self.EMBEDDER = "default"
-            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
-                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
-            else:
-                self.MAX_TOKENS = 4000
-            if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
-                self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
-            else:
-                self.LOG_REQUESTS = True
-
-        # Yaml Memory
-        self.memory_file = f"agents/{self.agent_name}.yaml"
-        self._create_parent_directories(self.memory_file)
-        self.memory = self.load_memory()
-        self.agent_instances = {}
-        self.agent_config = self.load_agent_config(self.agent_name)
-        self.commands = self.load_commands()
-        if self.LOG_REQUESTS:
-            Path(
-                os.path.join(
-                    "agents",
-                    self.agent_name,
-                    "requests",
+                self._load_agent_config_keys(
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
                 )
-            ).mkdir(parents=True, exist_ok=True)
+                if "AI_MODEL" in self.PROVIDER_SETTINGS:
+                    self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+                    if self.AI_MODEL == "":
+                        self.AI_MODEL = "default"
+                else:
+                    self.AI_MODEL = "openassistant"
+                if "embedder" in self.PROVIDER_SETTINGS:
+                    self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
+                else:
+                    if self.AI_PROVIDER == "openai":
+                        self.EMBEDDER = "openai"
+                    else:
+                        self.EMBEDDER = "default"
+                if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
+                    self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
+                else:
+                    self.MAX_TOKENS = 4000
+                if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
+                    self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
+                else:
+                    self.LOG_REQUESTS = True
+
+            # Yaml Memory
+            self.memory_file = f"agents/{self.agent_name}.yaml"
+            self._create_parent_directories(self.memory_file)
+            self.memory = self.load_memory()
+            self.agent_instances = {}
+            self.agent_config = self.load_agent_config(self.agent_name)
+            self.commands = self.load_commands()
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)

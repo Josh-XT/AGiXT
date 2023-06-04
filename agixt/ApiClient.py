@@ -45,7 +45,7 @@ class ApiClient:
     ) -> Dict[str, str]:
         response = requests.put(
             f"{base_uri}/api/agent/{agent_name}",
-            json={"settings": settings},
+            json={"settings": settings, "agent_name": agent_name},
         )
         return response.json()
 
