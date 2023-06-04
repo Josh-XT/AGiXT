@@ -25,6 +25,18 @@ DEFAULT_SETTINGS = {
 }
 
 
+def get_agent_folder(agent_name):
+    return os.path.abspath(f"agents/{agent_name}/")
+
+
+def get_config_file(agent_name):
+    return os.path.join(get_agent_folder(agent_name), "config.json")
+
+
+def get_history_file(agent_name):
+    return os.path.join(get_agent_folder(agent_name), "history.yaml")
+
+
 class Agent:
     def __init__(self, agent_name=None):
         """
@@ -83,15 +95,6 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
-
-    def get_agent_folder(self, agent_name):
-        return os.path.abspath(f"agents/{agent_name}/")
-
-    def get_config_file(self, agent_name):
-        return os.path.join(get_agent_folder(agent_name), "config.json")
-
-    def get_history_file(self, agent_name):
-        return os.path.join(get_agent_folder(agent_name), "history.yaml")
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -242,7 +245,7 @@ class Agent:
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
-    def exists(self, agent_name):
+    def exists(agent_name):
         return os.path.isfile(get_config_file(agent_name))
 
     def create_agent_config_file(self, agent_name, provider_settings, commands):
@@ -272,6 +275,7 @@ class Agent:
             }
         )
 
+        agent_dir = get_agent_folder(agent_name)
         # Check and create agent directory if it doesn't exist
         if not os.path.exists(agent_dir):
             os.makedirs(agent_dir)
@@ -417,7 +421,7 @@ class Agent:
         {agent_name} configuration not found."
         """
         agent_name = self.agent_name
-        agent_config_file = get_agent_config_file(agent_name)
+        agent_config_file = get_config_file(agent_name)
         if os.path.exists(agent_config_file):
             with open(agent_config_file, "r") as f:
                 current_config = json.load(f)
