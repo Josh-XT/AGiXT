@@ -150,7 +150,7 @@ async def rename_agent(agent_name: str, new_name: str) -> ResponseMessage:
         return ResponseMessage(
             message=f"Agent {agent_name} renamed to {new_name.new_name}."
         )
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

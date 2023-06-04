@@ -27,7 +27,16 @@ DEFAULT_SETTINGS = {
 
 def get_agent_folder(agent_name):
     return os.path.abspath(f"agents/{agent_name}/")
+    
+def create_agent_folder(agent_name):
+    """
+    This function creates a folder for a given agent name in the "agents" directory if it does not
+    already exist.
 
+    :param agent_name: The name of the agent for which a folder needs to be created
+    :return: the path of the agent folder that was created or already exists.
+    """
+    Path(get_agent_folder(self.agent_name)).mkdir(parents=True, exist_ok=True)
 
 def get_config_file(agent_name):
     return os.path.join(get_agent_folder(agent_name), "config.json")
@@ -83,7 +92,7 @@ class Agent:
                 self.LOG_REQUESTS = True
 
         # Create paths
-        Path(get_agent_folder(self.agent_name)).mkdir(parents=True, exist_ok=True)
+        create_agent_folder(self.agent_name)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -191,21 +200,6 @@ class Agent:
             return config_file["provider"]
         else:
             return "openai"
-
-    def create_agent_folder(self, agent_name):
-        """
-        This function creates a folder for a given agent name in the "agents" directory if it does not
-        already exist.
-
-        :param agent_name: The name of the agent for which a folder needs to be created
-        :return: the path of the agent folder that was created or already exists.
-        """
-        agent_folder = f"agents/{agent_name}"
-        if not os.path.exists("agents"):
-            os.makedirs("agents")
-        if not os.path.exists(agent_folder):
-            os.makedirs(agent_folder)
-        return agent_folder
 
     def get_command_params(self, func):
         """
@@ -354,8 +348,6 @@ class Agent:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
         self.create_agent_config_file(agent_name, provider_settings, command_dict)
-        with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
-            f.write("")
         return {"agent_file": f"{agent_name}.yaml"}
 
     def rename_agent(self, agent_name, new_name):
@@ -366,7 +358,7 @@ class Agent:
         :param agent_name: The current name of the agent that needs to be renamed
         :param new_name: The new name that the agent will be renamed to
         """
-        os.rename(agent_folder, new_agent_folder)
+        os.rename(get_agent_folder(agent_name), get_agent_folder(new_name))
         self.agent_name = new_name
 
     def delete_agent(self, agent_name):
