@@ -70,10 +70,8 @@ class Agent:
             else:
                 self.LOG_REQUESTS = True
 
-        # Yaml Memory
-        self.memory_file = f"agents/{self.agent_name}.yaml"
-        self._create_parent_directories(self.memory_file)
-        self.memory = self.load_memory()
+        # Create paths
+        Path(get_agent_folder(self.agent_name)).mkdir(parents=True, exist_ok=True)
         self.agent_instances = {}
         self.agent_config = self.load_agent_config(self.agent_name)
         self.commands = self.load_commands()
@@ -85,6 +83,15 @@ class Agent:
                     "requests",
                 )
             ).mkdir(parents=True, exist_ok=True)
+
+    def get_agent_folder(self, agent_name):
+        return os.path.abspath(f"agents/{agent_name}/")
+
+    def get_config_file(self, agent_name):
+        return os.path.join(get_agent_folder(agent_name), "config.json")
+
+    def get_history_file(self, agent_name):
+        return os.path.join(get_agent_folder(agent_name), "history.yaml")
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -129,18 +136,6 @@ class Agent:
         for key in keys:
             if key in self.AGENT_CONFIG:
                 setattr(self, key, self.AGENT_CONFIG[key])
-
-    def _create_parent_directories(self, file_path):
-        """
-        This function creates parent directories for a given file path if they do not already exist.
-
-        :param file_path: The file path is a string that represents the location of a file on the file
-        system. It includes the directory path and the file name. For example,
-        "/home/user/documents/myfile.txt" is a file path where "/home/user/documents" is the directory path
-        and "myfile.txt" is the
-        """
-        path = Path(file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
 
     def clean_agent_config_commands(self):
         """
@@ -258,8 +253,9 @@ class Agent:
         :param commands: a list of commands that the agent can execute
         :return: the path of the agent config file that was created.
         """
-        agent_dir = os.path.join("agents", agent_name)
-        agent_config_file = os.path.join(agent_dir, "config.json")
+
+        agent_config_file = get_config_file(agent_name)
+
         if (
             provider_settings is None
             or provider_settings == ""
@@ -294,10 +290,9 @@ class Agent:
         returns the new configuration data. If there is an error while creating the new configuration file,
         it returns an empty dictionary.
         """
+        agent_config_file = get_config_file(agent_name)
         try:
-            with open(
-                os.path.join("agents", agent_name, "config.json")
-            ) as agent_config:
+            with open(agent_config_file) as agent_config:
                 try:
                     agent_config_data = json.load(agent_config)
                     return agent_config_data
@@ -310,14 +305,11 @@ class Agent:
                     }
                     agent_config_data["settings"] = DEFAULT_SETTINGS
                     # Save the updated agent_config to the file
-                    with open(
-                        os.path.join("agents", agent_name, "config.json"), "w"
-                    ) as agent_config_file:
-                        json.dump(agent_config_data, agent_config_file)
+                    with open(agent_config_file, "w") as agent_config_file2:
+                        json.dump(agent_config_data, agent_config_file2)
                     return agent_config_data
         except:
             # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "false"}
-            agent_config_file = os.path.join("agents", agent_name, "config.json")
             with open(agent_config_file, "w") as f:
                 f.write(
                     json.dumps(
@@ -367,15 +359,8 @@ class Agent:
         :param agent_name: The current name of the agent that needs to be renamed
         :param new_name: The new name that the agent will be renamed to
         """
+        os.rename(agent_folder, new_agent_folder)
         self.agent_name = new_name
-        agent_file = f"agents/{agent_name}.yaml"
-        agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
-        agent_folder = os.path.abspath(agent_folder)
-        if os.path.exists(agent_file):
-            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
-        if os.path.exists(agent_folder):
-            os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
 
     def delete_agent(self, agent_name):
         """
@@ -385,15 +370,7 @@ class Agent:
         :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
         returned.
         """
-        agent_file = f"agents/{agent_name}.yaml"
-        agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
-        agent_folder = os.path.abspath(agent_folder)
-        try:
-            os.remove(agent_file)
-        except FileNotFoundError:
-            return {"message": f"Agent file {agent_file} not found."}, 404
-
+        agent_folder = get_agent_folder(agent_name)
         if os.path.exists(agent_folder):
             shutil.rmtree(agent_folder)
 
@@ -437,7 +414,7 @@ class Agent:
         {agent_name} configuration not found."
         """
         agent_name = self.agent_name
-        agent_config_file = os.path.join("agents", agent_name, "config.json")
+        agent_config_file = get_agent_config_file(agent_name)
         if os.path.exists(agent_config_file):
             with open(agent_config_file, "r") as f:
                 current_config = json.load(f)
@@ -467,13 +444,14 @@ class Agent:
         history file does not exist, an empty list is returned. If there is an error while reading the file,
         an empty list is also returned.
         """
+        history_file = get_history_file(agent_name)
         # If it doesn't exist, create it
-        if not os.path.exists(f"agents/{agent_name}.yaml"):
-            with open(f"agents/{agent_name}.yaml", "w") as f:
+        if not os.path.exists(history_file):
+            with open(history_file, "w") as f:
                 f.write("")
             return []
         try:
-            with open(f"agents/{agent_name}.yaml", "r") as f:
+            with open(history_file, "r") as f:
                 yaml_history = yaml.safe_load(f)
             chat_history = []
             for interaction in yaml_history["interactions"]:
@@ -490,34 +468,37 @@ class Agent:
 
         :param agent_name: The name of the agent whose memories need to be wiped
         """
-        agent_folder = f"agents/{agent_name}/"
-        agent_folder = os.path.abspath(agent_folder)
+        agent_folder = get_agent_folder(agent_name)
         memories_folder = os.path.join(agent_folder, "memories")
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
 
-    def load_memory(self):
+    def load_history(self):
         """
         This function loads a YAML file containing memory data and returns it, or creates a new file with
         default data if the file does not exist.
         :return: a dictionary object called `memory` which contains a list of interactions. The interactions
         are loaded from a YAML file if it exists, otherwise an empty list is created and saved to the file.
         """
-        if os.path.exists(self.memory_file):
-            with open(self.memory_file, "r") as file:
-                memory = yaml.safe_load(file)
-        else:
-            with open(self.memory_file, "w") as file:
-                yaml.safe_dump({"interactions": []}, file)
-            memory = {"interactions": []}
-        return memory
 
-    def save_memory(self):
+        history_file = get_history_file(self.agent_name)
+
+        if os.path.exists(history_file):
+            with open(history_file, "r") as file:
+                history = yaml.safe_load(file)
+        else:
+            with open(history_file, "w") as file:
+                yaml.safe_dump({"interactions": []}, file)
+            history = {"interactions": []}
+        return history
+
+    def save_history(self, history):
         """
         This Python function saves the memory of an object to a YAML file.
         """
-        with open(self.memory_file, "w") as file:
-            yaml.safe_dump(self.memory, file)
+        history_file = get_history_file(self.agent_name)
+        with open(history_file, "w") as file:
+            yaml.safe_dump(history, file)
 
     def log_interaction(self, role: str, message: str):
         """
@@ -532,7 +513,6 @@ class Agent:
         the interaction
         :type message: str
         """
-        if self.memory is None:
-            self.memory = {"interactions": []}
-        self.memory["interactions"].append({"role": role, "message": message})
-        self.save_memory()
+        history = load_history()
+        history["interactions"].append({"role": role, "message": message})
+        save_history(history)
