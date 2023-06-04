@@ -1,5 +1,4 @@
 import streamlit as st
-from AGiXT import AGiXT
 from streamlit import (
     markdown,
     header,
@@ -11,12 +10,12 @@ from streamlit import (
     error,
     warning,
 )
-import asyncio
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
+from ApiClient import ApiClient
 
 check_auth_status()
-agent_name, agent = agent_selector()
+agent_name = agent_selector()
 
 
 def render_chat_history(chat_container, chat_history):
@@ -47,7 +46,9 @@ chat_container = container()
 
 if agent_name:
     try:
-        st.session_state.chat_history[agent_name] = agent.get_chat_history(agent_name)
+        st.session_state.chat_history[agent_name] = ApiClient.get_chat_history(
+            agent_name
+        )
     except:
         st.session_state.chat_history[
             agent_name
@@ -61,22 +62,14 @@ if agent_name:
     if send_button:
         if agent_name and chat_prompt:
             with spinner("Thinking, please wait..."):
-                agent = AGiXT(agent_name=agent_name)
                 if smart_chat_toggle:
-                    response = asyncio.run(
-                        agent.smart_chat(
-                            chat_prompt,
-                            shots=3,
-                        )
+                    response = ApiClient.smartchat(
+                        agent_name=agent_name,
+                        prompt=chat_prompt,
+                        shots=3,
                     )
                 else:
-                    response = asyncio.run(
-                        agent.run(
-                            chat_prompt,
-                            prompt="Chat",
-                            context_results=6,
-                        )
-                    )
+                    response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
             chat_entry = [
                 {"sender": "User", "message": chat_prompt},
                 {"sender": "Agent", "message": response},
