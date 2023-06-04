@@ -350,7 +350,8 @@ class Agent:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
         self.create_agent_config_file(agent_name, provider_settings, command_dict)
-        return {"agent_file": get_config_file(agent_name)}
+        
+        return { "name": agent_name, "settings": Agent(agent_name=agent_name).get_agent_config()}
 
     def rename_agent(self, agent_name, new_name):
         """
@@ -389,17 +390,12 @@ class Agent:
         successfully read the configuration file or create a new one
         """
         while True:
-            agent_file = os.path.abspath(f"agents/{self.agent_name}/config.json")
+            agent_file = get_config_file(self.agent_name)
             if os.path.exists(agent_file):
-                try:
-                    with open(agent_file, "r") as f:
-                        file_content = f.read().strip()
-                        if file_content:
-                            return json.loads(file_content)
-                except:
-                    None
-            self.add_agent(self.agent_name, {})
-            return self.get_agent_config()
+                with open(agent_file, "r") as f:
+                    file_content = f.read().strip()
+                    if file_content:
+                        return json.loads(file_content)
 
     def update_agent_config(self, new_config, config_key):
         """
