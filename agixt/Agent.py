@@ -24,9 +24,11 @@ DEFAULT_SETTINGS = {
     "LOG_REQUESTS": False,
 }
 
+def get_agents_basefolder():
+    return os.path.abspath(f"agents/")
 
 def get_agent_folder(agent_name):
-    return os.path.abspath(f"agents/{agent_name}/")
+    return os.path.join(get_agents_basefolder(), f"{agent_name}/")
     
 def create_agent_folder(agent_name):
     """
@@ -36,7 +38,7 @@ def create_agent_folder(agent_name):
     :param agent_name: The name of the agent for which a folder needs to be created
     :return: the path of the agent folder that was created or already exists.
     """
-    Path(get_agent_folder(self.agent_name)).mkdir(parents=True, exist_ok=True)
+    Path(get_agent_folder(agent_name)).mkdir(parents=True, exist_ok=True)
 
 def get_config_file(agent_name):
     return os.path.join(get_agent_folder(agent_name), "config.json")
@@ -341,7 +343,7 @@ class Agent:
         provider_settings = (
             DEFAULT_SETTINGS if not provider_settings else provider_settings
         )
-        self.create_agent_folder(agent_name)
+        create_agent_folder(agent_name)
         commands_list = self.load_commands()
         command_dict = {}
         for command in commands_list:
