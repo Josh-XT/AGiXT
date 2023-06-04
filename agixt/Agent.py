@@ -377,7 +377,7 @@ class Agent:
             get_agent_folder(self.agent_name),
             get_agent_folder(new_name),
         )
-        os.rename(get_agent_folder(agent_name), get_agent_folder(new_name))
+        os.rename(get_agent_folder(self.agent_name), get_agent_folder(new_name))
         self.agent_name = new_name
 
     def delete_agent(self, agent_name):

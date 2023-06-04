@@ -137,17 +137,16 @@ async def get_agentconfig(agent_name: str):
                 "settings": Agent(agent_name=agent_name).get_agent_config(),
             }
         else:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(
+                status_code=404, detail=str(f"Agent {agent_name} not found")
+            )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/agent", tags=["Agent"])
 async def agent_create(agent: AgentSettings):
     try:
-        print(agent)
         agent_info = add_agent(
             agent_name=agent.agent_name, provider_settings=agent.settings
         )
@@ -162,7 +161,7 @@ async def agent_create(agent: AgentSettings):
 async def rename_agent(agent_name: str, agentNewName: AgentNewName):
     try:
         agent = Agent(agent_name=agent_name)
-        agent.rename_agent(new_name=agentNewName.new_name)
+        agent.rename(new_name=agentNewName.new_name)
         return {
             "name": agent.agent_name,
             "settings": agent.get_agent_config(),
@@ -249,7 +248,6 @@ async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
     agent = Agent(agent_name=agent_name)
-    print(payload)
     try:
         if payload.command_name == "*":
             for each_command_name in agent.agent_config["commands"]:
