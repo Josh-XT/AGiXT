@@ -24,12 +24,15 @@ DEFAULT_SETTINGS = {
     "LOG_REQUESTS": False,
 }
 
+
 def get_agents_basefolder():
     return os.path.abspath(f"agents/")
 
+
 def get_agent_folder(agent_name):
     return os.path.join(get_agents_basefolder(), f"{agent_name}/")
-    
+
+
 def create_agent_folder(agent_name):
     """
     This function creates a folder for a given agent name in the "agents" directory if it does not
@@ -39,6 +42,7 @@ def create_agent_folder(agent_name):
     :return: the path of the agent folder that was created or already exists.
     """
     Path(get_agent_folder(agent_name)).mkdir(parents=True, exist_ok=True)
+
 
 def get_config_file(agent_name):
     return os.path.join(get_agent_folder(agent_name), "config.json")
@@ -350,8 +354,11 @@ class Agent:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
         self.create_agent_config_file(agent_name, provider_settings, command_dict)
-        
-        return { "name": agent_name, "settings": Agent(agent_name=agent_name).get_agent_config()}
+
+        return {
+            "name": agent_name,
+            "settings": Agent(agent_name=agent_name).get_agent_config(),
+        }
 
     def rename_agent(self, agent_name, new_name):
         """
@@ -361,7 +368,11 @@ class Agent:
         :param agent_name: The current name of the agent that needs to be renamed
         :param new_name: The new name that the agent will be renamed to
         """
-        logging.info("Renaming folder %s to folder %s", get_agent_folder(agent_name), get_agent_folder(new_name))
+        logging.info(
+            "Renaming folder %s to folder %s",
+            get_agent_folder(agent_name),
+            get_agent_folder(new_name),
+        )
         os.rename(get_agent_folder(agent_name), get_agent_folder(new_name))
         self.agent_name = new_name
 

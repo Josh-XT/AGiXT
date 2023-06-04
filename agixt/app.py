@@ -126,9 +126,12 @@ async def get_agents():
 
 @app.get("/api/agent/{agent_name}", tags=["Agent"])
 async def get_agentconfig(agent_name: str):
-    try: 
+    try:
         if Agent.exists(agent_name):
-           return { "name": agent_name, "settings": Agent(agent_name=agent_name).get_agent_config()}
+            return {
+                "name": agent_name,
+                "settings": Agent(agent_name=agent_name).get_agent_config(),
+            }
         else:
             raise HTTPException(status_code=404, detail=str(e))
     except FileNotFoundError as e:
@@ -143,12 +146,12 @@ async def add_agent(agent: AgentSettings):
         agent_info = Agent(agent.agent_name).add_agent(
             agent_name=agent.agent_name, provider_settings=agent.settings
         )
-        print(agent_info)
         return agent_info
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, new_name: str) -> ResponseMessage:
