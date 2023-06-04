@@ -26,8 +26,8 @@ class Config:
         agents = []
         for item in os.listdir(agents_dir):
             if os.path.isdir(os.path.join(agents_dir, item)):
-              agents.append(item)
-              
+                agents.append(item)
+
         output = []
         if agents:
             for agent in agents:
