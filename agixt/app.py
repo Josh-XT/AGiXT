@@ -277,22 +277,6 @@ async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     return {"response": str(response)}
 
 
-@app.get("/api/agent/{agent_name}/extension_settings", tags=["Agent"])
-async def get_extension_settings(agent_name: str):
-    # Get agent config from agent name
-    try:
-        agent_config = Agent(agent_name=agent_name).get_agent_config()
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Unable to retrieve agent configuration."
-        )
-    try:
-        extension_settings = Extensions(agent_config).get_extension_settings()
-        return {"extension_settings": extension_settings}
-    except Exception:
-        raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
-
-
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
 async def get_commands(agent_name: str):
     agent = Agent(agent_name=agent_name)
@@ -507,6 +491,24 @@ async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/prompt/{prompt_name}/args", tags=["Prompt"])
+async def get_prompt_arg(prompt_name: str):
+    return {"prompt_args": Prompts().get_prompt_args(prompt_name)}
+
+
+@app.get("/api/extensions/settings", tags=["Extensions"])
+async def get_extension_settings():
+    try:
+        return {"extension_settings": Extensions().get_extension_settings()}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
+
+
+@app.get("/api/extensions/{command_name}/args", tags=["Extension"])
+async def get_command_args(command_name: str):
+    return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
 if __name__ == "__main__":

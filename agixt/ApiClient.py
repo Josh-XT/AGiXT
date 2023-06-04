@@ -269,6 +269,11 @@ class ApiClient:
         return response.json()
 
     @staticmethod
+    def get_prompt_args(prompt_name: str) -> Dict[str, Any]:
+        response = requests.get(f"{base_uri}/api/prompt/{prompt_name}/args")
+        return response.json()
+
+    @staticmethod
     def delete_prompt(prompt_name: str) -> Dict[str, str]:
         response = requests.delete(f"{base_uri}/api/prompt/{prompt_name}")
         return response.json()
@@ -282,8 +287,13 @@ class ApiClient:
         return response.json()
 
     @staticmethod
-    def get_extension_settings(agent_name: str) -> Dict[str, Any]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/extension_settings")
+    def get_extension_settings() -> Dict[str, Any]:
+        response = requests.get(f"{base_uri}/api/extensions/settings")
+        return response.json()
+
+    @staticmethod
+    def get_command_args(command_name: str) -> Dict[str, Any]:
+        response = requests.get(f"{base_uri}/api/extensions/{command_name}/args")
         return response.json()
 
     @staticmethod
