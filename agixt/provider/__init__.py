@@ -16,7 +16,7 @@ def get_provider_options(provider_name):
         for name, param in signature.parameters.items()
         if name != "self" and name != "kwargs"
     }
-    options["provider_name"] = provider_name
+    options["provider"] = provider_name
     return options
 
 
