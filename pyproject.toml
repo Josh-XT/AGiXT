@@ -81,7 +81,7 @@ webdriver_manager = "^3.8.6"
 ## this installs all cpu versions for pytorch on lin, win, mac/arm64
 torch = [
   { markers = "platform_machine == 'x86_64' and sys_platform == 'linux'", version = "^2.0.1", source = "pytorch.org"},
-  { version = "^2.0.1", source = "PyPI" }
+  { markers = "platform_machine == 'aarch64' or sys_platform == 'win32'", version = "^2.0.1", source = "PyPI"}
 ]
 transformers = { version = "^4.29.2", extras = ["accelerate"] }
 sentence-transformers = "^2.2.2"
