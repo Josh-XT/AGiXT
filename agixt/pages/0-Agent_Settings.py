@@ -214,14 +214,9 @@ if agent_name and not new_agent:
             )
             available_commands[command_name] = toggle_status
 
-        reduced_commands = {
-            cmd_name: cmd_status
-            for cmd_name, cmd_status in available_commands.items()
-            if cmd_name in existing_command_states
-        }
         # Update the available commands back to the agent config
         ApiClient.update_agent_commands(
-            agent_name=agent_name, commands=reduced_commands
+            agent_name=agent_name, commands=available_commands
         )
 
     except Exception as e:
@@ -242,12 +237,8 @@ if not new_agent:
     if update_agent_settings_button:
         if agent_name:
             try:
-                # Save commands in the desired format
-                reduced_commands = {
-                    cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
-                }
                 ApiClient.update_agent_commands(
-                    agent_name=agent_name, commands=reduced_commands
+                    agent_name=agent_name, commands=available_commands
                 )
                 ApiClient.update_agent_settings(
                     agent_name=agent_name, settings=agent_settings
