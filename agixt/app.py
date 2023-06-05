@@ -63,14 +63,14 @@ class StepInfo(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: dict
+    prompt: str
 
 
 class ChainStep(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: dict
+    prompt: str
 
 
 class ChainStepNewInfo(BaseModel):
