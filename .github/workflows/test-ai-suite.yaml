@@ -10,9 +10,7 @@ jobs:
   run-ai-testsuite:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/ai-testsuite.ipynb
+      notebook: agixt/tests.ipynb
       image: josh-xt/agixt:main
       port: "7437"
       additional-python-dependencies: requests
-    secrets:
-      api-key: ${{ secrets.OPENAI_API_KEY }}
