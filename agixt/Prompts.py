@@ -12,16 +12,18 @@ class Prompts:
                 f.write(prompt)
 
     def get_prompt(self, prompt_name, model="default"):
-        try:
-            with open(f"prompts/{model}/{prompt_name}.txt", "r") as f:
-                return f.read()
-        except:
-            try:
-                with open(os.path.join("prompts", f"{prompt_name}.txt"), "r") as f:
-                    prompt = f.read()
-                return prompt
-            except:
-                return ""
+
+        model_prompt_file = f"prompts/{model}/{prompt_name}.txt"
+        default_prompt_file = os.path.join("prompts", f"{prompt_name}.txt")
+
+        prompt_file = (
+            model_prompt_path
+            if os.path.isfile(model_prompt_file)
+            else default_prompt_file
+        )
+        with open(prompt_file, "r") as f:
+            prompt = f.read()
+            return prompt
 
     def get_prompts(self):
         # Get all files in prompts folder that end in .txt and replace .txt with empty string
