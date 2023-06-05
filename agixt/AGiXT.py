@@ -290,17 +290,8 @@ class AGiXT:
             previous_response=resolver,
             **kwargs,
         )
-        clean_response_agent = await self.run(
-            task=task,
-            prompt="SmartInstruct-CleanResponse"
-            if objective == None
-            else "SmartTask-CleanResponse",
-            resolver_response=resolver,
-            execution_response=execution_response,
-            objective=objective,
-            **kwargs,
-        )
-        return clean_response_agent
+        response = f"{resolver}\n\n{execution_response}"
+        return response
 
     async def smart_chat(
         self,
