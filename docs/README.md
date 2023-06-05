@@ -107,7 +107,7 @@ pip install poetry==1.5.1
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 cd AGiXT
 poetry install --with gpt4free
-playwright install
+poetry run playwright install
 ```
 
 #### Run AGiXT Locally
@@ -115,7 +115,7 @@ You will need to run two different terminals, one for the back end, one for the 
 
 First terminal will be the back end:
 ```
-poetry run uvicorn app:app --port 7437
+poetry run app.py
 ```
 
 Second terminal will be the front end:
