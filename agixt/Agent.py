@@ -24,84 +24,6 @@ DEFAULT_SETTINGS = {
 }
 
 
-def create_agent_config_file(agent_name, provider_settings, commands):
-    """
-    This function creates a configuration file for a given agent with specified provider settings and
-    commands.
-
-    :param agent_name: a string representing the name of the agent being created
-    :param provider_settings: A dictionary containing the settings for the agent's provider. If it is
-    None, an empty string, or an empty dictionary, the default settings will be used
-    :param commands: a list of commands that the agent can execute
-    :return: the path of the agent config file that was created.
-    """
-    agent_dir = os.path.join("agents", agent_name)
-    agent_config_file = os.path.join(agent_dir, "config.json")
-    if provider_settings is None or provider_settings == "" or provider_settings == {}:
-        provider_settings = DEFAULT_SETTINGS
-    settings = json.dumps(
-        {
-            "commands": commands,
-            "settings": provider_settings,
-        }
-    )
-
-    # Check and create agent directory if it doesn't exist
-    if not os.path.exists(agent_dir):
-        os.makedirs(agent_dir)
-
-    # Write the settings to the agent config file
-    with open(agent_config_file, "w") as f:
-        f.write(settings)
-
-    return agent_config_file
-
-
-def add_agent(agent_name, provider_settings):
-    """
-    This function adds a new agent with default or provided settings and creates a configuration file
-    for the agent.
-
-    :param agent_name: A string representing the name of the agent being added
-    :param provider_settings: A dictionary containing settings for the agent's provider. If no settings
-    are provided, the function will use default settings
-    :return: A dictionary with the key "agent_file" and the value being the name of the agent's YAML
-    file.
-    """
-    if not agent_name:
-        return "Agent name cannot be empty."
-    provider_settings = DEFAULT_SETTINGS if not provider_settings else provider_settings
-    agent_folder = f"agents/{agent_name}"
-    if not os.path.exists("agents"):
-        os.makedirs("agents")
-    if not os.path.exists(agent_folder):
-        os.makedirs(agent_folder)
-    commands_list = Extensions().load_commands()
-    command_dict = {}
-    for command in commands_list:
-        friendly_name, command_name, command_args = command
-        command_dict[friendly_name] = False
-    create_agent_config_file(agent_name, provider_settings, command_dict)
-    with open(os.path.join("agents", agent_name, "history.yaml"), "w") as f:
-        f.write("")
-    return {"agent_file": f"agents/{agent_name}/history.yaml"}
-
-
-def delete_agent(agent_name):
-    """
-    This function deletes an agent's YAML file and returns an error message if the file is not found.
-
-    :param agent_name: The name of the agent that needs to be deleted
-    :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
-    returned.
-    """
-    agent_folder = os.path.abspath(f"agents/{agent_name}/")
-    if os.path.exists(agent_folder):
-        shutil.rmtree(agent_folder)
-
-    return {"message": f"Agent {agent_name} deleted."}, 200
-
-
 class Agent:
     def __init__(self, agent_name=None):
         """
@@ -147,9 +69,12 @@ class Agent:
                 agent_config=self.AGENT_CONFIG, agent_name=self.agent_name
             ).get_available_commands()
             self.clean_agent_config_commands()
-            self.memory_file = f"agents/{self.agent_name}/history.yaml"
+
+            # Yaml Memory
+            self.memory_file = f"agents/{self.agent_name}.yaml"
             self._create_parent_directories(self.memory_file)
             self.memory = self.load_memory()
+            self.agent_instances = {}
             self.agent_config = self.load_agent_config(self.agent_name)
 
     def get_memories(self):
@@ -303,6 +228,42 @@ class Agent:
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
+    def create_agent_config_file(self, agent_name, provider_settings, commands):
+        """
+        This function creates a configuration file for a given agent with specified provider settings and
+        commands.
+
+        :param agent_name: a string representing the name of the agent being created
+        :param provider_settings: A dictionary containing the settings for the agent's provider. If it is
+        None, an empty string, or an empty dictionary, the default settings will be used
+        :param commands: a list of commands that the agent can execute
+        :return: the path of the agent config file that was created.
+        """
+        agent_dir = os.path.join("agents", agent_name)
+        agent_config_file = os.path.join(agent_dir, "config.json")
+        if (
+            provider_settings is None
+            or provider_settings == ""
+            or provider_settings == {}
+        ):
+            provider_settings = DEFAULT_SETTINGS
+        settings = json.dumps(
+            {
+                "commands": commands,
+                "settings": provider_settings,
+            }
+        )
+
+        # Check and create agent directory if it doesn't exist
+        if not os.path.exists(agent_dir):
+            os.makedirs(agent_dir)
+
+        # Write the settings to the agent config file
+        with open(agent_config_file, "w") as f:
+            f.write(settings)
+
+        return agent_config_file
+
     def load_agent_config(self, agent_name):
         """
         This function loads the configuration data for a given agent, and if the configuration file is
@@ -352,7 +313,34 @@ class Agent:
                 )
         return agent_config_data
 
-    def rename(self, new_name):
+    def add_agent(self, agent_name, provider_settings):
+        """
+        This function adds a new agent with default or provided settings and creates a configuration file
+        for the agent.
+
+        :param agent_name: A string representing the name of the agent being added
+        :param provider_settings: A dictionary containing settings for the agent's provider. If no settings
+        are provided, the function will use default settings
+        :return: A dictionary with the key "agent_file" and the value being the name of the agent's YAML
+        file.
+        """
+        if not agent_name:
+            return "Agent name cannot be empty."
+        provider_settings = (
+            DEFAULT_SETTINGS if not provider_settings else provider_settings
+        )
+        self.create_agent_folder(agent_name)
+        commands_list = self.load_commands()
+        command_dict = {}
+        for command in commands_list:
+            friendly_name, command_name, command_args = command
+            command_dict[friendly_name] = False
+        self.create_agent_config_file(agent_name, provider_settings, command_dict)
+        with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
+            f.write("")
+        return {"agent_file": f"{agent_name}.yaml"}
+
+    def rename_agent(self, agent_name, new_name):
         """
         This function renames an agent by updating the agent's name in a YAML file and renaming the agent's
         folder.
@@ -360,10 +348,37 @@ class Agent:
         :param agent_name: The current name of the agent that needs to be renamed
         :param new_name: The new name that the agent will be renamed to
         """
-        agent_folder = os.path.abspath(f"agents/{self.agent_name}/")
+        self.agent_name = new_name
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
+        agent_file = os.path.abspath(agent_file)
+        agent_folder = os.path.abspath(agent_folder)
+        if os.path.exists(agent_file):
+            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
         if os.path.exists(agent_folder):
             os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
-        self.agent_name = new_name
+
+    def delete_agent(self, agent_name):
+        """
+        This function deletes an agent's YAML file and returns an error message if the file is not found.
+
+        :param agent_name: The name of the agent that needs to be deleted
+        :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
+        returned.
+        """
+        agent_file = f"agents/{agent_name}.yaml"
+        agent_folder = f"agents/{agent_name}/"
+        agent_file = os.path.abspath(agent_file)
+        agent_folder = os.path.abspath(agent_folder)
+        try:
+            os.remove(agent_file)
+        except FileNotFoundError:
+            return {"message": f"Agent file {agent_file} not found."}, 404
+
+        if os.path.exists(agent_folder):
+            shutil.rmtree(agent_folder)
+
+        return {"message": f"Agent {agent_name} deleted."}, 200
 
     def get_agent_config(self):
         """
