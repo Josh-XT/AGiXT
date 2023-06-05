@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent, add_agent
+from Agent import Agent
 from Chain import Chain
 from Tasks import Tasks
 from Prompts import Prompts
@@ -33,6 +33,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class AgentName(BaseModel):
+    agent_name: str
+
+
+class AgentNewName(BaseModel):
+    new_name: str
 
 
 class Objective(BaseModel):
@@ -106,10 +114,6 @@ class CustomPromptModel(BaseModel):
     prompt: str
 
 
-class AgentNewName(BaseModel):
-    new_name: str
-
-
 class AgentSettings(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
@@ -138,55 +142,22 @@ async def get_embed_providers():
     return {"providers": providers}
 
 
-@app.get("/api/agent", tags=["Agent"])
-async def get_agents():
-    agents = CFG.get_agents()
-    return {"agents": agents}
-
-
-@app.get("/api/agent/{agent_name}", tags=["Agent"])
-async def get_agentconfig(agent_name: str):
-    try:
-        if Agent.exists(agent_name):
-            return {
-                "name": agent_name,
-                "settings": Agent(agent_name=agent_name).get_agent_config(),
-            }
-        else:
-            raise HTTPException(
-                status_code=404, detail=str(f"Agent {agent_name} not found")
-            )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
 @app.post("/api/agent", tags=["Agent"])
-async def agent_create(agent: AgentSettings):
-    try:
-        agent_info = add_agent(
-            agent_name=agent.agent_name, provider_settings=agent.settings
-        )
-        return agent_info
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def add_agent(agent: AgentSettings) -> Dict[str, str]:
+    agent_info = Agent(agent.agent_name).add_agent(
+        agent_name=agent.agent_name, provider_settings=agent.settings
+    )
+    return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
 
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
-async def rename_agent(agent_name: str, agentNewName: AgentNewName):
-    try:
-        agent = Agent(agent_name=agent_name)
-        agent.rename(new_name=agentNewName.new_name)
-        return {
-            "name": agent.agent_name,
-            "settings": agent.get_agent_config(),
-        }
-        return agent_info
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
+    Agent(agent_name=agent_name).rename_agent(
+        agent_name=agent_name, new_name=new_name.new_name
+    )
+    return ResponseMessage(
+        message=f"Agent {agent_name} renamed to {new_name.new_name}."
+    )
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
@@ -251,6 +222,18 @@ async def delete_agent(agent_name: str) -> ResponseMessage:
         raise HTTPException(status_code=status_code, detail=result["message"])
 
 
+@app.get("/api/agent", tags=["Agent"])
+async def get_agents():
+    agents = CFG.get_agents()
+    return {"agents": agents}
+
+
+@app.get("/api/agent/{agent_name}", tags=["Agent"])
+async def get_agentconfig(agent_name: str):
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    return {"agent": agent_config}
+
+
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
     chat_history = Agent(agent_name=agent_name).get_chat_history(agent_name=agent_name)
@@ -305,6 +288,7 @@ async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
     agent = Agent(agent_name=agent_name)
+    print(payload)
     try:
         if payload.command_name == "*":
             for each_command_name in agent.agent_config["commands"]:
@@ -387,10 +371,8 @@ async def get_chain(chain_name: str):
     try:
         chain_data = Chain().get_chain(chain_name=chain_name)
         return {"chain": chain_data}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except:
+        raise HTTPException(status_code=404, detail="Chain not found")
 
 
 @app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
@@ -490,10 +472,8 @@ async def get_prompt(prompt_name: str):
     try:
         prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
         return {"prompt_name": prompt_name, "prompt": prompt_content}
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
