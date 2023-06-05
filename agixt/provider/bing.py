@@ -31,12 +31,7 @@ class BingProvider:
     def instruct(self, prompt, tokens: int = 0):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-        async def _ask_and_set_result():
-            result = await self.ask(prompt, tokens)
-            return result
-
-        response = loop.run_until_complete(_ask_and_set_result())
+        response = loop.run_until_complete(self.ask(prompt, tokens))
 
         # Closing the loop after use
         loop.close()
