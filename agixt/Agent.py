@@ -205,12 +205,6 @@ class Agent:
                 agent_config=self.AGENT_CONFIG, agent_name=self.agent_name
             ).get_available_commands()
             self.clean_agent_config_commands()
-
-            # Yaml Memory
-            self.memory_file = f"agents/{self.agent_name}.yaml"
-            self._create_parent_directories(self.memory_file)
-            self.memory = self.load_memory()
-            self.agent_instances = {}
             self.agent_config = self.load_agent_config(self.agent_name)
 
     def get_memories(self):
