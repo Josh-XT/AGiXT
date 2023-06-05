@@ -29,6 +29,10 @@ class Chain:
             os.path.join("chains", f"{chain_name}.json"),
             os.path.join("chains", f"{new_name}.json"),
         )
+        chain_data = self.get_chain(chain_name=new_name)
+        chain_data["chain_name"] = new_name
+        with open(os.path.join("chains", f"{new_name}.json"), "w") as f:
+            json.dump(chain_data, f)
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain_data = self.get_chain(chain_name=chain_name)
