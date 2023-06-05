@@ -7,13 +7,16 @@ import logging
 
 
 class Extensions:
-    def __init__(self, agent_config, load_commands_flag: bool = True, agent_name=""):
+    def __init__(
+        self, agent_config=None, load_commands_flag: bool = True, agent_name=""
+    ):
         self.agent_config = agent_config
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
             self.commands = []
-        self.available_commands = self.get_available_commands()
+        if agent_config != None:
+            self.available_commands = self.get_available_commands()
 
     def get_available_commands(self):
         available_commands = []
@@ -129,7 +132,7 @@ class Extensions:
         return None, None, None  # Updated return statement
 
     def get_commands_list(self):
-        self.commands = self.load_commands(agent_name=self.agent_name)
+        self.commands = self.load_commands()
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
 

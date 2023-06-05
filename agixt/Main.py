@@ -8,7 +8,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-agent_name, agent = agent_selector()
+agent_name = agent_selector()
 st.markdown(
     """
     <img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="100%">
