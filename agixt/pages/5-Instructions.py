@@ -21,18 +21,12 @@ agent_name = agent_selector()
 def render_history(instruct_container, chat_history):
     instruct_container.empty()
     with instruct_container:
-        for instruct in chat_history:
-            if "sender" in instruct and "message" in instruct:
-                if instruct["sender"] == "User":
-                    markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {instruct["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {instruct["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+        for chat in chat_history:
+            if "role" in chat and "message" in chat:
+                markdown(
+                    f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 header("Instruct an Agent")
