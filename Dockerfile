@@ -15,16 +15,17 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
-    # POETRY_VIRTUALENVS_IN_PROJECT=true \
     # do not ask any interactive question
-    POETRY_NO_INTERACTION=1
-    
+    POETRY_NO_INTERACTION=1 \
+    PLAYWRIGHT_BROWSERS_PATH=0
+
 RUN mkdir /agixt
 WORKDIR /agixt
-COPY pyproject.toml poetry.lock .
-
+COPY pyproject.toml .
+COPY poetry.lock .
 ARG HNSWLIB_NO_NATIVE=1
 RUN poetry install --no-root --with gpt4free
+RUN poetry run playwright install --with-deps
 COPY --link . .
 
 ENV PATH="/usr/local/bin:$PATH"
@@ -32,4 +33,4 @@ ENV LD_PRELOAD=libgomp.so.1
 
 WORKDIR /agixt/agixt
 ENTRYPOINT ["poetry", "run", "uvicorn", "app:app"]
-CMD ["--host", "0.0.0.0", "--port", "7437"]
+CMD ["--host", "0.0.0.0", "--port", "7437", "--workers", "2"]
