@@ -132,7 +132,7 @@ class Extensions:
         return None, None, None  # Updated return statement
 
     def get_commands_list(self):
-        self.commands = self.load_commands(agent_name=self.agent_name)
+        self.commands = self.load_commands()
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
 
