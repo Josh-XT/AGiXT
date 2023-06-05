@@ -115,7 +115,7 @@ You will need to run two different terminals, one for the back end, one for the 
 
 First terminal will be the back end:
 ```
-poetry run app.py
+poetry run python app.py
 ```
 
 Second terminal will be the front end:
