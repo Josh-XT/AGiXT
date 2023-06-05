@@ -8,6 +8,7 @@ check_auth_status()
 
 agent_name = agent_selector()
 providers = ApiClient.get_providers()
+embedders = ApiClient.get_embed_providers()
 
 
 def render_provider_settings(agent_settings, provider_name: str):
@@ -15,16 +16,19 @@ def render_provider_settings(agent_settings, provider_name: str):
         required_settings = ApiClient.get_provider_settings(provider_name)
     except (TypeError, ValueError):
         st.error(
-            f"Error loading provider settings: expected a list, but got {required_settings}"
+            f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
         )
         return {}
     rendered_settings = {}
 
-    if not isinstance(required_settings, list):
+    if not isinstance(required_settings, (list, dict)):
         st.error(
-            f"Error loading provider settings: expected a list, but got {required_settings}"
+            f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
         )
         return rendered_settings
+
+    if isinstance(required_settings, dict):
+        required_settings = list(required_settings.keys())
 
     for key in required_settings:
         if key in agent_settings:
@@ -96,7 +100,6 @@ if agent_name and not new_agent:
         ] = provider_name  # Update the agent_settings with the selected provider
 
         embedder_name = agent_settings.get("embedder", "")
-        embedders = ApiClient.get_embed_providers()
         embedder_name = st.selectbox(
             "Select Embedder",
             embedders,
@@ -199,28 +202,22 @@ if agent_name and not new_agent:
 
         # Save the existing command state to prevent duplication
         existing_command_states = {
-            command["friendly_name"]: command["enabled"]
-            for command in available_commands
+            command_name: command_status
+            for command_name, command_status in available_commands.items()
         }
 
-        for command in available_commands:
-            command_friendly_name = command["friendly_name"]
-            if command_friendly_name in existing_command_states:
-                command_status = existing_command_states[command_friendly_name]
-            else:
-                continue  # Skip the command if it is not listed in the available commands
-
+        for command_name, command_status in available_commands.items():
             toggle_status = st.checkbox(
-                command_friendly_name,
+                command_name,
                 value=command_status,
-                key=command_friendly_name,
+                key=command_name,
             )
-            command["enabled"] = toggle_status
+            available_commands[command_name] = toggle_status
 
         reduced_commands = {
-            cmd["friendly_name"]: cmd["enabled"]
-            for cmd in available_commands
-            if cmd["friendly_name"] in existing_command_states
+            cmd_name: cmd_status
+            for cmd_name, cmd_status in available_commands.items()
+            if cmd_name in existing_command_states
         }
         # Update the available commands back to the agent config
         ApiClient.update_agent_commands(
