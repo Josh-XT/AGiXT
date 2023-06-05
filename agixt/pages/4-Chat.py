@@ -22,17 +22,11 @@ def render_chat_history(chat_container, chat_history):
     chat_container.empty()
     with chat_container:
         for chat in chat_history:
-            if "sender" in chat and "message" in chat:
-                if chat["sender"] == "User":
-                    markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>User:</strong> {chat["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    markdown(
-                        f'<div style="text-align: left; margin-bottom: 5px;"><strong>Agent:</strong> {chat["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+            if "role" in chat and "message" in chat:
+                markdown(
+                    f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 header("Chat with Agent")
