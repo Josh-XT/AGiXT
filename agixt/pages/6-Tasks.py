@@ -12,7 +12,7 @@ st.title("Manage Tasks")
 if agent_name:
     smart_task_toggle = st.checkbox("Enable Smart Task")
     task_objective = st.text_area("Enter the task objective")
-    existing_tasks = ApiClient.get_tasks()
+    existing_tasks = ApiClient.get_tasks(agent_name=agent_name)
     status = ApiClient.get_task_status(agent_name=agent_name)
     agent_status = "Not Running" if status == False else "Running"
     load_task = st.selectbox(
