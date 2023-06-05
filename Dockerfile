@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pip install -U pip setuptools && \
-    pip install poetry==1.5.0
+    pip install poetry==1.5.1
 
 
 ENV PYTHONUNBUFFERED=1 \
