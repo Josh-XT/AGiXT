@@ -200,7 +200,7 @@ class Agent:
                     self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
                 else:
                     self.MAX_TOKENS = 4000
-            self.commands = self.load_commands()
+            self.commands = load_commands()
             self.available_commands = Extensions(
                 agent_config=self.AGENT_CONFIG, agent_name=self.agent_name
             ).get_available_commands()
@@ -323,8 +323,7 @@ class Agent:
                     agent_config_data = {}
                     # Populate the agent_config with all commands enabled
                     agent_config_data["commands"] = {
-                        command_name: "false"
-                        for command_name, _, _ in self.load_commands(agent_name)
+                        command_name: "false" for command_name, _, _ in load_commands()
                     }
                     agent_config_data["settings"] = DEFAULT_SETTINGS
                     # Save the updated agent_config to the file
