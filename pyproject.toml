@@ -8,7 +8,7 @@ keywords = ["AI", "AGI", "Agent", "skynet"]
 license = "MIT"
 authors = ["Josh XT <josh@devxt.com>"]
 maintainers = [
-    "localAGI <132956819+localagi@users.noreply.github.com>"
+    "Josh XT <josh@devxt.com>"
 ]
 readme = "docs/README.md"
 packages = [
