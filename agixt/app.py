@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent, add_agent
+from Agent import Agent, add_agent, delete_agent
 from Chain import Chain
 from Tasks import Tasks
 from Prompts import Prompts
@@ -14,7 +14,6 @@ from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
 import logging
-import uuid
 
 CFG = Config()
 app = FastAPI(
@@ -242,9 +241,7 @@ async def update_agent_commands(
 
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
 async def delete_agent(agent_name: str) -> ResponseMessage:
-    result, status_code = Agent(agent_name=agent_name).delete_agent(
-        agent_name=agent_name
-    )
+    result, status_code = delete_agent(agent_name=agent_name)
     if status_code == 200:
         return ResponseMessage(message=result["message"])
     else:
