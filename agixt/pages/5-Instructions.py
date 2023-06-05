@@ -77,8 +77,8 @@ if agent_name:
                     )
 
             instruct_entry = [
-                {"sender": "User", "message": instruct_prompt},
-                {"sender": "Agent", "message": response},
+                {"role": "USER", "message": instruct_prompt},
+                {"role": agent_name, "message": response},
             ]
             st.session_state.chat_history[agent_name].extend(instruct_entry)
             render_history(
