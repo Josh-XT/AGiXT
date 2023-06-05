@@ -22,7 +22,6 @@ DEFAULT_SETTINGS = {
     "AI_TEMPERATURE": "0.7",
     "MAX_TOKENS": "4000",
     "embedder": "default",
-    "LOG_REQUESTS": False,
 }
 
 
@@ -174,51 +173,45 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
-        self.commands = load_commands()
-        self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
-        self.clean_agent_config_commands()
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-            if "AI_MODEL" in self.PROVIDER_SETTINGS:
-                self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
-                if self.AI_MODEL == "":
-                    self.AI_MODEL = "default"
-            else:
-                self.AI_MODEL = "openassistant"
-            if "embedder" in self.PROVIDER_SETTINGS:
-                self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
-            else:
-                if self.AI_PROVIDER == "openai":
-                    self.EMBEDDER = "openai"
-                else:
-                    self.EMBEDDER = "default"
-            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
-                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
-            else:
-                self.MAX_TOKENS = 4000
-            if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
-                self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
-            else:
-                self.LOG_REQUESTS = True
 
-        # Create paths
-        create_agent_folder(self.agent_name)
-        self.agent_instances = {}
-        self.agent_config = self.load_agent_config(self.agent_name)
-        self.commands = load_commands()
-        if self.LOG_REQUESTS:
-            Path(
-                os.path.join(
-                    "agents",
-                    self.agent_name,
-                    "requests",
+                self._load_agent_config_keys(
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
                 )
-            ).mkdir(parents=True, exist_ok=True)
+                if "AI_MODEL" in self.PROVIDER_SETTINGS:
+                    self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+                    if self.AI_MODEL == "":
+                        self.AI_MODEL = "default"
+                else:
+                    self.AI_MODEL = "openassistant"
+                if "embedder" in self.PROVIDER_SETTINGS:
+                    self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
+                else:
+                    if self.AI_PROVIDER == "openai":
+                        self.EMBEDDER = "openai"
+                    else:
+                        self.EMBEDDER = "default"
+                if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
+                    self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
+                else:
+                    self.MAX_TOKENS = 4000
+            self.commands = self.load_commands()
+            self.available_commands = Extensions(
+                agent_config=self.AGENT_CONFIG, agent_name=self.agent_name
+            ).get_available_commands()
+            self.clean_agent_config_commands()
+
+            # Yaml Memory
+            self.memory_file = f"agents/{self.agent_name}.yaml"
+            self._create_parent_directories(self.memory_file)
+            self.memory = self.load_memory()
+            self.agent_instances = {}
+            self.agent_config = self.load_agent_config(self.agent_name)
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -242,16 +235,6 @@ class Agent:
         if not prompt:
             return ""
         answer = self.PROVIDER.instruct(prompt, tokens)
-        if self.LOG_REQUESTS:
-            log_file = os.path.join(
-                "agents", self.agent_name, "requests", f"{time.time()}.txt"
-            )
-            with open(
-                log_file,
-                "a" if os.path.exists(log_file) else "w",
-                encoding="utf-8",
-            ) as f:
-                f.write(f"{prompt}\n{answer}")
         return answer
 
     def _load_agent_config_keys(self, keys):

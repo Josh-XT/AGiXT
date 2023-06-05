@@ -133,7 +133,15 @@ class Chain:
         except:
             return ""
 
-    def get_step_content(self, chain_name, step_number, prompt_content):
+    def get_chain_responses(self, chain_name):
+        try:
+            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+                responses = json.load(f)
+            return responses
+        except:
+            return {}
+
+    def get_step_content(self, chain_name, prompt_content):
         new_prompt_content = {}
         if isinstance(prompt_content, dict):
             for arg, value in prompt_content.items():
@@ -173,7 +181,9 @@ class Chain:
                     prompt_name = step["prompt"]["prompt_name"]
                 else:
                     prompt_name = ""
-                args = self.get_step_content(chain_name, step_number, step["prompt"])
+                args = self.get_step_content(
+                    chain_name=chain_name, prompt_content=step["prompt"]
+                )
                 if prompt_type == "Command":
                     return await Extensions(
                         agent_config=agent.agent.agent_config

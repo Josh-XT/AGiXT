@@ -11,8 +11,10 @@ from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
 from Embedding import get_embedding_providers
+from Extensions import Extensions
 import os
 import logging
+import uuid
 
 CFG = Config()
 app = FastAPI(
@@ -61,14 +63,14 @@ class StepInfo(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: str
+    prompt: dict
 
 
 class ChainStep(BaseModel):
     step_number: int
     agent_name: str
     prompt_type: str
-    prompt: str
+    prompt: dict
 
 
 class ChainStepNewInfo(BaseModel):
@@ -78,6 +80,15 @@ class ChainStepNewInfo(BaseModel):
 
 class ResponseMessage(BaseModel):
     message: str
+
+
+class UrlInput(BaseModel):
+    url: str
+
+
+class FileInput(BaseModel):
+    file_name: str
+    file_content: str
 
 
 class TaskOutput(BaseModel):
@@ -102,6 +113,11 @@ class AgentNewName(BaseModel):
 class AgentSettings(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
+
+
+class AgentCommands(BaseModel):
+    agent_name: str
+    commands: Dict[str, Any]
 
 
 @app.get("/api/provider", tags=["Provider"])
@@ -179,6 +195,47 @@ async def update_agent_settings(
 ) -> ResponseMessage:
     update_config = Agent(agent_name=agent_name).update_agent_config(
         new_config=settings.settings, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
+async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
+    file_path = os.path.join(os.getcwd(), file.file_name)
+    with open(file_path, "w") as f:
+        f.write(file.file_content)
+    try:
+        memories = Agent(agent_name=agent_name).get_memories()
+        await memories.mem_read_file(file_path=file.file_content)
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        return ResponseMessage(message="Agent learned the content from the file.")
+    except Exception as e:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent/{agent_name}/learn/url", tags=["Agent"])
+async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
+    try:
+        memories = Agent(agent_name=agent_name).get_memories()
+        await memories.read_website(url=url.url)
+        return ResponseMessage(message="Agent learned the content from the url.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/agent/{agent_name}/commands", tags=["Agent"])
+async def update_agent_commands(
+    agent_name: str, commands: AgentCommands
+) -> ResponseMessage:
+    update_config = Agent(agent_name=agent_name).update_agent_config(
+        new_config=commands.commands, config_key="commands"
     )
     return ResponseMessage(message=update_config)
 
@@ -284,13 +341,23 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
         task.stop_tasks()
         return ResponseMessage(message="Task agent stopped")
     # If it's not running start it.
-    task.run_task(objective=objective.objective)
+    await task.run_task(objective=objective.objective)
     return ResponseMessage(message="Task agent started")
+
+
+# Get tasks Tasks(agent_name=agent_name).get_tasks()
+@app.get("/api/agent/{agent_name}/tasks", tags=["Agent"])
+async def get_tasks(agent_name: str) -> Dict[str, List[str]]:
+    tasks = Tasks(agent_name=agent_name).get_tasks()
+    return {"tasks": tasks}
 
 
 @app.get("/api/agent/{agent_name}/task", tags=["Agent"])
 async def get_task_output(agent_name: str) -> TaskOutput:
-    task_output = Tasks(agent_name=agent_name).get_task_output()
+    try:
+        task_output = Tasks(agent_name=agent_name).get_task_output()
+    except:
+        task_output = False
     if task_output != False:
         return TaskOutput(
             output=task_output,
@@ -326,10 +393,19 @@ async def get_chain(chain_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
+async def get_chain(chain_name: str):
+    try:
+        chain_data = Chain().get_step_response(chain_name=chain_name, step_number="all")
+        return {"chain": chain_data}
+    except:
+        raise HTTPException(status_code=404, detail="Chain not found")
+
+
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str) -> ResponseMessage:
     await Chain().run_chain(chain_name=chain_name)
-    return {"message": f"Chain '{chain_name}' started."}
+    return {"message": f"Chain '{chain_name}' completed."}
 
 
 @app.post("/api/chain", tags=["Chain"])
@@ -442,6 +518,24 @@ async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/prompt/{prompt_name}/args", tags=["Prompt"])
+async def get_prompt_arg(prompt_name: str):
+    return {"prompt_args": Prompts().get_prompt_args(prompt_name)}
+
+
+@app.get("/api/extensions/settings", tags=["Extensions"])
+async def get_extension_settings():
+    try:
+        return {"extension_settings": Extensions().get_extension_settings()}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
+
+
+@app.get("/api/extensions/{command_name}/args", tags=["Extension"])
+async def get_command_args(command_name: str):
+    return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
 if __name__ == "__main__":

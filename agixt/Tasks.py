@@ -91,7 +91,7 @@ class Tasks:
             logging.info(f"An error occurred while loading the task output: {e}")
             return None
 
-    def get_tasks_files(self):
+    def get_tasks(self):
         files = os.listdir(os.path.join("agents", self.agent_name, "tasks"))
         files = [file[:-5] for file in files]
         return files
