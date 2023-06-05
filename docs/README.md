@@ -97,7 +97,7 @@ Adapt the following commands accordingly.
 #### Setup AGiXT
 ```
 git clone https://github.com/Josh-XT/AGiXT
-pip install poetry==1.5.0
+pip install poetry==1.5.1
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 cd AGiXT
 poetry install --with gpt4free

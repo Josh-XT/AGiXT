@@ -2,8 +2,6 @@ import os
 import glob
 import logging
 
-from Agent import get_agents_basefolder
-
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -19,15 +17,13 @@ class Config:
         return providers
 
     def get_agents(self):
-        agents_dir = get_agents_basefolder()
-        if not os.path.exists(agents_dir):
-            os.makedirs(agents_dir)
-
+        memories_dir = "agents"
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
         agents = []
-        for item in os.listdir(agents_dir):
-            if os.path.isdir(os.path.join(agents_dir, item)):
-                agents.append(item)
-
+        for file in os.listdir(memories_dir):
+            if file.endswith(".yaml"):
+                agents.append(file.replace(".yaml", ""))
         output = []
         if agents:
             for agent in agents:
