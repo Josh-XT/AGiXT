@@ -134,8 +134,8 @@ class ApiClient:
         return response.json()["message"]
 
     @staticmethod
-    def get_tasks():
-        response = requests.get(f"{base_uri}/api/tasks")
+    def get_tasks(agent_name):
+        response = requests.get(f"{base_uri}/api/agent/{agent_name}/tasks")
         return response.json()["tasks"]
 
     @staticmethod
