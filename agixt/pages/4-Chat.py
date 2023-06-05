@@ -74,8 +74,8 @@ if agent_name:
                 else:
                     response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
             chat_entry = [
-                {"sender": "User", "message": chat_prompt},
-                {"sender": "Agent", "message": response},
+                {"role": "USER", "message": chat_prompt},
+                {"role": agent_name, "message": response},
             ]
             st.session_state.chat_history[agent_name].extend(chat_entry)
             render_chat_history(
