@@ -31,8 +31,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [Development using poetry](#development-using-poetry)
       - [Install poetry](#install-poetry)
       - [Setup AGiXT](#setup-agixt)
-      - [Run Streamlit](#run-streamlit)
-      - [Run REST](#run-rest)
+      - [Run AGiXT Locally](#run-agixt-locally)
     - [API Endpoints](#api-endpoints)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
@@ -82,19 +81,26 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 Clone the repository for the AGiXT back end and start it.
 
 #### Install poetry
-`pip install poetry==1.5.0`
+```
+pip install poetry==1.5.0
+```
 
 Check if poetry is available via
 
-`poetry --version`
+```
+poetry --version
+```
 
 or
 
-`python3 -m poetry --version`
+```
+python3 -m poetry --version
+```
 
 Adapt the following commands accordingly.
 
 #### Setup AGiXT
+We will install AGiXT in a virtual environment. This will ensure that the dependencies of AGiXT do not interfere with other Python projects on your system.  We will also use playwright for web scraping.  This requires a browser to be installed on your system.  If you do not have a browser installed, you can install one with `playwright install`.
 ```
 git clone https://github.com/Josh-XT/AGiXT
 pip install poetry==1.5.1
@@ -104,12 +110,18 @@ poetry install --with gpt4free
 playwright install
 ```
 
-#### Run Streamlit 
-`poetry run streamlit run Main.py`
+#### Run AGiXT Locally
+You will need to run two different terminals, one for the back end, one for the front end.
 
-#### Run REST
-`poetry run uvicorn app:app --port 7437`
+First terminal will be the back end:
+```
+poetry run uvicorn app:app --port 7437
+```
 
+Second terminal will be the front end:
+```
+poetry run streamlit run Main.py
+```
 
 Access the web interface at http://localhost:8501
 
@@ -117,16 +129,11 @@ Access the web interface at http://localhost:8501
 
 AGiXT provides several API endpoints for managing agents, prompts and chains.
 
-If you're not running with Docker, the back end can be run with:
-```
-python agixt/app.py
-```
-
 To learn more about the API endpoints and their usage, visit the API documentation at 
 - [Swagger](http://localhost:7437)
 - [Redoc](http://localhost:7437/redoc)
 
-This documentation is hosted locally and the frontend must be running for these links to work.
+This documentation is hosted locally and the back end must be running for these links to work.
 ## Configuration
 
 Each AGiXT Agent has its own settings for interfacing with AI providers, and other configuration options. These settings can be set and modified through the web interface.
