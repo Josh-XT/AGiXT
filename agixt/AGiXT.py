@@ -223,11 +223,11 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                await memories.store_result(task, self.response)
+                await memories.store_result(task_name=task, result=self.response)
             except:
                 pass
-            self.agent.log_interaction("USER", task)
-            self.agent.log_interaction(self.agent_name, self.response)
+            self.agent.log_interaction(role="USER", message=task)
+            self.agent.log_interaction(role=self.agent_name, message=self.response)
         return self.response
 
     async def smart_instruct(
