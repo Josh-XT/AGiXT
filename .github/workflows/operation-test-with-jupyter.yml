@@ -1,0 +1,112 @@
+name: Test junyper notebook
+on:
+  workflow_call:
+    inputs:
+      notebook:
+        type: string
+        required: true
+        description: file to run (ending in .ipynb), can be directory to batch run (without trailing slash)
+      image:
+        type: string
+        required: true
+      port:
+        type: string
+      port-mapping:
+        type: string
+      image-options:
+        type: string
+        description: like --entrypoint, --command
+      additional-python-dependencies:
+        type: string
+        description: add whatever pip you need here
+      allow-errors:
+        type: boolean
+        description: Fail if there is an error in the execution of the notebook
+        default: false
+      additional-args:
+        type: string
+        description: additional args for nbconvert
+        default: "--log-level DEBUG"
+      append-logs:
+        type: boolean
+        default: false
+
+    secrets:
+      api-key:
+        description: Optional api-key available as os.getenv('API_KEY') in your notebook
+
+jobs:
+  jupyter-test-job:
+    runs-on: ubuntu-latest
+    #    container: python:3.10-slim-buster
+
+    outputs:
+      digest: ${{ steps.dockerBuild.outputs.digest }}
+    services:
+      service-under-test:
+        image: ${{ inputs.image }}
+        ports:
+          - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
+    #        options: ${{ inputs.image-options }}
+    #     volumes:
+    #       - /models:/models
+
+    steps:
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Install jupyter
+        run: pip3 install jupyter nbconvert[webpdf]
+      - name: Install jupyter output generation dependencies
+        run: sudo apt install -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
+
+      - name: Install additional dependencies for notebooks
+        if: inputs.additional-python-dependencies
+        run: pip3 install ${{ inputs.additional-python-dependencies }}
+
+      - name: Set notebook and artifact files
+        run: |
+          notebook="${{ inputs.notebook }}"
+          if ${{ endsWith( inputs.notebook, 'ipynb' ) }} ; then
+            echo "notebook-file=${notebook}" >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook%.*}.pdf"  >> "$GITHUB_ENV"
+          else 
+            echo "notebook-file=${notebook}/*.ipynb" >> "$GITHUB_ENV"
+            echo "artifact-file=${notebook}/*.pdf"  >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure nbconvert args
+        run: echo "nbconvert-args=--execute ${{ inputs.additional-args }} --to pdf" >> "$GITHUB_ENV"
+
+      - name: Enable switch --allow-errors
+        if: inputs.allow-errors
+        run: echo "nbconvert-args=${{ env.nbconvert-args }} --allow-errors"
+
+      - name: Add additional nbconvert args
+        if: inputs.additional-args
+        run: echo "nbconvert-args=${{ env.nbconvert-args }} ${{ inputs.additional-args }}"
+
+      - name: Execute notebook
+        env:
+          API_KEY: ${{ secrets.api-key }}
+        run: python3 -m nbconvert ${{ env.nbconvert-args }}  ${{ env.notebook-file }}
+
+      - name: Append test logs
+        if: inputs.append-logs
+        run: |
+          docker logs "${{ job.services.agixt.id }}" > /test-output.log
+
+      - name: Append test logs
+        if: inputs.append-logs
+        run: |
+          echo "artifact-file=${{ env.artifact-file }}\n/test-output.log" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: test-reports
+          path: ${{ env.artifact-file }}
