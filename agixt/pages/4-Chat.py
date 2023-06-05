@@ -47,14 +47,17 @@ chat_container = container()
 if agent_name:
     try:
         st.session_state.chat_history[agent_name] = ApiClient.get_chat_history(
-            agent_name
+            agent_name=agent_name
         )
     except:
         st.session_state.chat_history[
             agent_name
         ] = []  # initialize as an empty list, not a dictionary
 
-    render_chat_history(chat_container, st.session_state.chat_history[agent_name])
+    render_chat_history(
+        chat_container=chat_container,
+        chat_history=st.session_state.chat_history[agent_name],
+    )
 
     chat_prompt = text_input("Enter your message", key="chat_prompt")
     send_button = button("Send Message")
@@ -76,7 +79,8 @@ if agent_name:
             ]
             st.session_state.chat_history[agent_name].extend(chat_entry)
             render_chat_history(
-                chat_container, st.session_state.chat_history[agent_name]
+                chat_container=chat_container,
+                chat_history=st.session_state.chat_history[agent_name],
             )
         else:
             error("Agent name and message are required.")
