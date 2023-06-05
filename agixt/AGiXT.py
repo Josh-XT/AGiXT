@@ -351,13 +351,7 @@ class AGiXT:
             shots=shots,
             **kwargs,
         )
-        clean_response_agent = await self.run(
-            task=task,
-            prompt="SmartChat-CleanResponse",
-            resolver_response=resolver,
-            **kwargs,
-        )
-        return clean_response_agent
+        return resolver
 
     # Worker Sub-Agents
     async def validation_agent(
