@@ -34,5 +34,5 @@ jobs:
       notebook: agixt/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
-      additional-python-dependencies: requests
+      additional-python-dependencies: requests, python-dotenv
     needs: build-agixt
