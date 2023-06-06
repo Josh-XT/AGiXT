@@ -168,7 +168,7 @@ class AGiXT:
             await self.websearch_agent(task=task, depth=websearch_depth)
         try:
             # Workaround for non-threaded providers
-            run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
             self.response = (
                 run_response.result()
                 if isinstance(run_response, Future)
@@ -223,11 +223,11 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                await memories.store_result(task, self.response)
+                await memories.store_result(task_name=task, result=self.response)
             except:
                 pass
-            self.agent.log_interaction("USER", task)
-            self.agent.log_interaction(self.agent_name, self.response)
+            self.agent.log_interaction(role="USER", message=task)
+            self.agent.log_interaction(role=self.agent_name, message=self.response)
         return self.response
 
     async def smart_instruct(
@@ -290,17 +290,8 @@ class AGiXT:
             previous_response=resolver,
             **kwargs,
         )
-        clean_response_agent = await self.run(
-            task=task,
-            prompt="SmartInstruct-CleanResponse"
-            if objective == None
-            else "SmartTask-CleanResponse",
-            resolver_response=resolver,
-            execution_response=execution_response,
-            objective=objective,
-            **kwargs,
-        )
-        return clean_response_agent
+        response = f"{resolver}\n\n{execution_response}"
+        return response
 
     async def smart_chat(
         self,
@@ -351,13 +342,7 @@ class AGiXT:
             shots=shots,
             **kwargs,
         )
-        clean_response_agent = await self.run(
-            task=task,
-            prompt="SmartChat-CleanResponse",
-            resolver_response=resolver,
-            **kwargs,
-        )
-        return clean_response_agent
+        return resolver
 
     # Worker Sub-Agents
     async def validation_agent(
@@ -420,15 +405,11 @@ class AGiXT:
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.agent.available_commands:
-                        if command_name in [
-                            available_command["friendly_name"],
-                            available_command["name"],
-                        ]:
-                            command_name = available_command["name"]
+                        if command_name == available_command["friendly_name"]:
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
-                                    command_name, command_args
+                                    command_name=command_name, command_args=command_args
                                 )
                                 logging.info("Running Command Execution Validation...")
                                 validate_command = await self.run(

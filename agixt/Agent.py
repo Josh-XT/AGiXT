@@ -8,7 +8,6 @@ import glob
 import shutil
 import importlib
 import yaml
-import time
 from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
@@ -21,7 +20,6 @@ DEFAULT_SETTINGS = {
     "AI_TEMPERATURE": "0.7",
     "MAX_TOKENS": "4000",
     "embedder": "default",
-    "LOG_REQUESTS": False,
 }
 
 
@@ -38,63 +36,55 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         # Need to get the following from the agent config file:
         self.AGENT_CONFIG = self.get_agent_config()
-        self.commands = self.load_commands()
-        self.available_commands = Extensions(self.AGENT_CONFIG).get_available_commands()
-        self.clean_agent_config_commands()
+
         # AI Configuration
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-            self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
-            if "AI_MODEL" in self.PROVIDER_SETTINGS:
-                self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
-                if self.AI_MODEL == "":
-                    self.AI_MODEL = "default"
-            else:
-                self.AI_MODEL = "openassistant"
-            if "embedder" in self.PROVIDER_SETTINGS:
-                self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
-            else:
-                if self.AI_PROVIDER == "openai":
-                    self.EMBEDDER = "openai"
-                else:
-                    self.EMBEDDER = "default"
-            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
-                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
-            else:
-                self.MAX_TOKENS = 4000
-            if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
-                self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
-            else:
-                self.LOG_REQUESTS = True
-
-        # Yaml Memory
-        self.memory_file = f"agents/{self.agent_name}.yaml"
-        self._create_parent_directories(self.memory_file)
-        self.memory = self.load_memory()
-        self.agent_instances = {}
-        self.agent_config = self.load_agent_config(self.agent_name)
-        self.commands = self.load_commands()
-        if self.LOG_REQUESTS:
-            Path(
-                os.path.join(
-                    "agents",
-                    self.agent_name,
-                    "requests",
+                self._load_agent_config_keys(
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
                 )
-            ).mkdir(parents=True, exist_ok=True)
+                if "AI_MODEL" in self.PROVIDER_SETTINGS:
+                    self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
+                    if self.AI_MODEL == "":
+                        self.AI_MODEL = "default"
+                else:
+                    self.AI_MODEL = "openassistant"
+                if "embedder" in self.PROVIDER_SETTINGS:
+                    self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
+                else:
+                    if self.AI_PROVIDER == "openai":
+                        self.EMBEDDER = "openai"
+                    else:
+                        self.EMBEDDER = "default"
+                if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
+                    self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
+                else:
+                    self.MAX_TOKENS = 4000
+            self.commands = self.load_commands()
+            self.available_commands = Extensions(
+                agent_config=self.AGENT_CONFIG
+            ).get_available_commands()
+            self.clean_agent_config_commands()
+
+            # Yaml History
+            self.history_file = f"agents/{self.agent_name}/history.yaml"
+            self._create_parent_directories(self.history_file)
+            self.history = self.load_history()
+            self.agent_instances = {}
+            self.agent_config = self.load_agent_config(self.agent_name)
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
 
     async def execute(self, command_name, command_args):
-        return await Extensions(self.AGENT_CONFIG).execute_command(
-            command_name=command_name, command_args=command_args, agent=self
+        return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(
+            command_name=command_name, command_args=command_args
         )
 
-    def instruct(self, prompt, tokens):
+    async def instruct(self, prompt, tokens):
         """
         This function takes a prompt and tokens as input, sends the prompt to a provider for a response,
         logs the request if enabled, and returns the response.
@@ -107,17 +97,7 @@ class Agent:
         """
         if not prompt:
             return ""
-        answer = self.PROVIDER.instruct(prompt, tokens)
-        if self.LOG_REQUESTS:
-            log_file = os.path.join(
-                "agents", self.agent_name, "requests", f"{time.time()}.txt"
-            )
-            with open(
-                log_file,
-                "a" if os.path.exists(log_file) else "w",
-                encoding="utf-8",
-            ) as f:
-                f.write(f"{prompt}\n{answer}")
+        answer = await self.PROVIDER.instruct(prompt, tokens)
         return answer
 
     def _load_agent_config_keys(self, keys):
@@ -175,7 +155,7 @@ class Agent:
             return None
 
         friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
+            lambda command: f"`{command['friendly_name']}` - Arguments: {command['args']}",
             enabled_commands,
         )
         command_list = "\n".join(friendly_names)
@@ -355,9 +335,9 @@ class Agent:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
         self.create_agent_config_file(agent_name, provider_settings, command_dict)
-        with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
+        with open(os.path.join("agents", f"{agent_name}/history.yaml"), "w") as f:
             f.write("")
-        return {"agent_file": f"{agent_name}.yaml"}
+        return {"agent_file": f"{agent_name}/history.yaml"}
 
     def rename_agent(self, agent_name, new_name):
         """
@@ -368,12 +348,12 @@ class Agent:
         :param new_name: The new name that the agent will be renamed to
         """
         self.agent_name = new_name
-        agent_file = f"agents/{agent_name}.yaml"
+        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
         if os.path.exists(agent_file):
-            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
+            os.rename(agent_file, os.path.join("agents", f"{new_name}/history.yaml"))
         if os.path.exists(agent_folder):
             os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
 
@@ -385,7 +365,7 @@ class Agent:
         :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
         returned.
         """
-        agent_file = f"agents/{agent_name}.yaml"
+        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
@@ -468,12 +448,12 @@ class Agent:
         an empty list is also returned.
         """
         # If it doesn't exist, create it
-        if not os.path.exists(f"agents/{agent_name}.yaml"):
-            with open(f"agents/{agent_name}.yaml", "w") as f:
+        if not os.path.exists(f"agents/{agent_name}/history.yaml"):
+            with open(f"agents/{agent_name}/history.yaml", "w") as f:
                 f.write("")
             return []
         try:
-            with open(f"agents/{agent_name}.yaml", "r") as f:
+            with open(f"agents/{agent_name}/history.yaml", "r") as f:
                 yaml_history = yaml.safe_load(f)
             chat_history = []
             for interaction in yaml_history["interactions"]:
@@ -496,18 +476,19 @@ class Agent:
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
 
-    def load_memory(self):
+    def load_history(self):
         """
-        This function loads a YAML file containing memory data and returns it, or creates a new file with
-        default data if the file does not exist.
-        :return: a dictionary object called `memory` which contains a list of interactions. The interactions
-        are loaded from a YAML file if it exists, otherwise an empty list is created and saved to the file.
+        This function loads the history of interactions from a YAML file if it exists, otherwise it creates
+        a new file and returns an empty list.
+        :return: The `load_history` function returns a dictionary containing the interactions stored in a
+        YAML file. If the file exists, it loads the interactions from the file. If the file does not exist,
+        it creates a new file and returns an empty dictionary.
         """
-        if os.path.exists(self.memory_file):
-            with open(self.memory_file, "r") as file:
+        if os.path.exists(self.history_file):
+            with open(self.history_file, "r") as file:
                 memory = yaml.safe_load(file)
         else:
-            with open(self.memory_file, "w") as file:
+            with open(self.history_file, "w") as file:
                 yaml.safe_dump({"interactions": []}, file)
             memory = {"interactions": []}
         return memory
@@ -516,8 +497,8 @@ class Agent:
         """
         This Python function saves the memory of an object to a YAML file.
         """
-        with open(self.memory_file, "w") as file:
-            yaml.safe_dump(self.memory, file)
+        with open(self.history_file, "w") as file:
+            yaml.safe_dump(self.history, file)
 
     def log_interaction(self, role: str, message: str):
         """
@@ -532,7 +513,7 @@ class Agent:
         the interaction
         :type message: str
         """
-        if self.memory is None:
-            self.memory = {"interactions": []}
-        self.memory["interactions"].append({"role": role, "message": message})
+        if self.history is None:
+            self.history = {"interactions": []}
+        self.history["interactions"].append({"role": role, "message": message})
         self.save_memory()

@@ -1,5 +1,4 @@
 from EdgeGPT import Chatbot, ConversationStyle
-import asyncio
 import os
 import json
 
@@ -10,7 +9,7 @@ class BingProvider:
         self.requirements = ["EdgeGPT"]
         self.AI_TEMPERATURE = AI_TEMPERATURE
 
-    async def ask(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         cookie_path = "./cookies.json"
         # Check if cookies exist
         if os.path.exists(cookie_path):
@@ -24,23 +23,8 @@ class BingProvider:
                 conversation_style=ConversationStyle.creative,
             )
             await bot.close()
-            return response
         except Exception as e:
             return f"EdgeGPT Error: {e}"
-
-    def instruct(self, prompt, tokens: int = 0):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        async def _ask_and_set_result():
-            result = await self.ask(prompt, tokens)
-            return result
-
-        response = loop.run_until_complete(_ask_and_set_result())
-
-        # Closing the loop after use
-        loop.close()
-
         # Extract the text of the bot's message
         bot_response = ""
         for message in response.get("item", {}).get("messages", []):

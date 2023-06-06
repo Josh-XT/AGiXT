@@ -17,13 +17,14 @@ class Config:
         return providers
 
     def get_agents(self):
-        memories_dir = "agents"
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        agents = []
-        for file in os.listdir(memories_dir):
-            if file.endswith(".yaml"):
-                agents.append(file.replace(".yaml", ""))
+        agents_dir = "agents"
+        if not os.path.exists(agents_dir):
+            os.makedirs(agents_dir)
+        agents = [
+            dir_name
+            for dir_name in os.listdir(agents_dir)
+            if os.path.isdir(os.path.join(agents_dir, dir_name))
+        ]
         output = []
         if agents:
             for agent in agents:

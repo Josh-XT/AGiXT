@@ -7,12 +7,16 @@ import inspect
 
 
 def get_provider_options(provider_name):
+    provider_name = provider_name.lower()
     module = importlib.import_module(f"provider.{provider_name}")
     provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
     signature = inspect.signature(provider_class.__init__)
-    options = [
-        param for param in signature.parameters if param != "self" and param != "kwargs"
-    ]
+    options = {
+        name: param.default if param.default is not inspect.Parameter.empty else None
+        for name, param in signature.parameters.items()
+        if name != "self" and name != "kwargs"
+    }
+    options["provider"] = provider_name
     return options
 
 

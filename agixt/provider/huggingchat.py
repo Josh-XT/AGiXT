@@ -17,7 +17,7 @@ class HuggingchatProvider:
         self.AI_MODEL = AI_MODEL
         self.HUGGINGCHAT_COOKIE_PATH = HUGGINGCHAT_COOKIE_PATH
 
-    def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def instruct(self, prompt: str, tokens: int = 0) -> str:
         try:
             chatbot = hugchat.ChatBot(cookie_path=self.HUGGINGCHAT_COOKIE_PATH)
             id = chatbot.new_conversation()

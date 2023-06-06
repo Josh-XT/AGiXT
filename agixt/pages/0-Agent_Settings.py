@@ -1,34 +1,34 @@
 import os
 import streamlit as st
-from Config import Config
-from Agent import Agent
-from Extensions import Extensions
-from Embedding import get_embedding_providers
-from provider import get_provider_options
+from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
 check_auth_status()
 
-agent_name, agent = agent_selector()
-CFG = Config()
+agent_name = agent_selector()
+providers = ApiClient.get_providers()
+embedders = ApiClient.get_embed_providers()
 
 
 def render_provider_settings(agent_settings, provider_name: str):
     try:
-        required_settings = get_provider_options(provider_name)
+        required_settings = ApiClient.get_provider_settings(provider_name)
     except (TypeError, ValueError):
         st.error(
-            f"Error loading provider settings: expected a list, but got {required_settings}"
+            f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
         )
         return {}
     rendered_settings = {}
 
-    if not isinstance(required_settings, list):
+    if not isinstance(required_settings, (list, dict)):
         st.error(
-            f"Error loading provider settings: expected a list, but got {required_settings}"
+            f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
         )
         return rendered_settings
+
+    if isinstance(required_settings, dict):
+        required_settings = list(required_settings.keys())
 
     for key in required_settings:
         if key in agent_settings:
@@ -71,7 +71,7 @@ if not agent_name:
     if add_agent_button:
         if new_agent_name:
             try:
-                Agent(new_agent_name).add_agent(new_agent_name, {})
+                ApiClient.add_agent(new_agent_name, {})
                 st.success(f"Agent '{new_agent_name}' added.")
                 agent_name = new_agent_name
                 with open(os.path.join("session.txt"), "w") as f:
@@ -86,15 +86,13 @@ if not agent_name:
 
 if agent_name and not new_agent:
     try:
-        agent_config = agent.get_agent_config()
+        agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         agent_settings = agent_config.get("settings", {})
         provider_name = agent_settings.get("provider", "")
         provider_name = st.selectbox(
             "Select Provider",
-            CFG.get_providers(),
-            index=CFG.get_providers().index(provider_name)
-            if provider_name in CFG.get_providers()
-            else 0,
+            providers,
+            index=providers.index(provider_name) if provider_name in providers else 0,
         )
 
         agent_settings[
@@ -102,7 +100,6 @@ if agent_name and not new_agent:
         ] = provider_name  # Update the agent_settings with the selected provider
 
         embedder_name = agent_settings.get("embedder", "")
-        embedders = get_embedding_providers()
         embedder_name = st.selectbox(
             "Select Embedder",
             embedders,
@@ -139,7 +136,8 @@ if agent_name and not new_agent:
             return rendered_settings
 
         st.subheader("Extension Settings")
-        extension_setting_keys = Extensions(agent_config).get_extension_settings()
+        extension_setting_keys = ApiClient.get_extension_settings()
+
         extension_settings = render_extension_settings(
             extension_setting_keys, agent_settings
         )
@@ -200,35 +198,26 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        available_commands = Extensions(agent_config).get_available_commands()
+        available_commands = ApiClient.get_commands(agent_name=agent_name)
 
         # Save the existing command state to prevent duplication
         existing_command_states = {
-            command["friendly_name"]: command["enabled"]
-            for command in available_commands
+            command_name: command_status
+            for command_name, command_status in available_commands.items()
         }
 
-        for command in available_commands:
-            command_friendly_name = command["friendly_name"]
-            if command_friendly_name in existing_command_states:
-                command_status = existing_command_states[command_friendly_name]
-            else:
-                continue  # Skip the command if it is not listed in the available commands
-
+        for command_name, command_status in available_commands.items():
             toggle_status = st.checkbox(
-                command_friendly_name,
+                command_name,
                 value=command_status,
-                key=command_friendly_name,
+                key=command_name,
             )
-            command["enabled"] = toggle_status
+            available_commands[command_name] = toggle_status
 
-        reduced_commands = {
-            cmd["friendly_name"]: cmd["enabled"]
-            for cmd in available_commands
-            if cmd["friendly_name"] in existing_command_states
-        }
         # Update the available commands back to the agent config
-        agent.update_agent_config(reduced_commands, "commands")
+        ApiClient.update_agent_commands(
+            agent_name=agent_name, commands=available_commands
+        )
 
     except Exception as e:
         st.error(f"Error loading agent configuration: {str(e)}")
@@ -248,12 +237,12 @@ if not new_agent:
     if update_agent_settings_button:
         if agent_name:
             try:
-                # Save commands in the desired format
-                reduced_commands = {
-                    cmd["friendly_name"]: cmd["enabled"] for cmd in available_commands
-                }
-                agent.update_agent_config(reduced_commands, "commands")
-                agent.update_agent_config(agent_settings, "settings")
+                ApiClient.update_agent_commands(
+                    agent_name=agent_name, commands=available_commands
+                )
+                ApiClient.update_agent_settings(
+                    agent_name=agent_name, settings=agent_settings
+                )
                 st.success(f"Agent '{agent_name}' updated.")
             except Exception as e:
                 st.error(f"Error updating agent: {str(e)}")
@@ -261,7 +250,7 @@ if not new_agent:
     if wipe_memories_button:
         if agent_name:
             try:
-                agent.wipe_agent_memories(agent_name)
+                ApiClient.wipe_agent_memories(agent_name=agent_name)
                 st.success(f"Memories of agent '{agent_name}' wiped.")
             except Exception as e:
                 st.error(f"Error wiping agent's memories: {str(e)}")
@@ -269,7 +258,7 @@ if not new_agent:
     if delete_agent_button:
         if agent_name:
             try:
-                agent.delete_agent(agent_name)
+                ApiClient.delete_agent(agent_name=agent_name)
                 st.success(f"Agent '{agent_name}' deleted.")
                 st.session_state.new_agent_name = ""  # Reset the selected agent
                 st.experimental_rerun()  # Rerun the app to update the agent list

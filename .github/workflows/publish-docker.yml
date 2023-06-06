@@ -15,7 +15,7 @@ on:
 
 jobs:
   build-agixt:
-    uses: localagi/AI-pipeline/.github/workflows/operation-docker-build-publish.yml@v4
+    uses: josh-xt/AGiXT/.github/workflows/operation-docker-build-publish.yml@main
     with:
       registry-dockerhub-enable: ${{ github.event_name != 'pull_request' }}
       registry-repo-name: AGiXT
@@ -29,10 +29,10 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   test-agixt:
-    uses: localagi/AI-pipeline/.github/workflows/operation-test-with-jupyter.yml@v4
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/quickchecks.ipynb
+      notebook: agixt/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
-      port: "7437" 
-      additional-python-dependencies: requests
+      port: "7437"
+      additional-python-dependencies: requests python-dotenv
     needs: build-agixt

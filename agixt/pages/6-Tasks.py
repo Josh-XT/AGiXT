@@ -1,24 +1,19 @@
 import streamlit as st
-from Tasks import Tasks
+from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
-from pathlib import Path
 from components.agent_selector import agent_selector
-import asyncio
 
 check_auth_status()
 
-agent_name, agent = agent_selector()
+agent_name = agent_selector()
 st.title("Manage Tasks")
 
 
 if agent_name:
     smart_task_toggle = st.checkbox("Enable Smart Task")
     task_objective = st.text_area("Enter the task objective")
-    task_agent = Tasks(agent_name)
-    task_list_dir = Path(f"agents/{agent_name}")
-    task_list_dir.mkdir(parents=True, exist_ok=True)
-    existing_tasks = task_agent.get_tasks_files()
-    status = task_agent.get_status()
+    existing_tasks = ApiClient.get_tasks(agent_name=agent_name)
+    status = ApiClient.get_task_status(agent_name=agent_name)
     agent_status = "Not Running" if status == False else "Running"
     load_task = st.selectbox(
         "Load Task",
@@ -31,19 +26,16 @@ if agent_name:
         columns = st.columns([3, 2])
         if st.button("Start Task", key=f"start_{agent_name}"):
             if agent_name and (task_objective or load_task):
-                asyncio.run(
-                    task_agent.run_task(
-                        objective=task_objective,
-                        smart=smart_task_toggle,
-                        load_task=load_task,
-                    )
+                ApiClient.start_task_agent(
+                    agent_name=agent_name, objective=task_objective
                 )
                 st.experimental_rerun()
             else:
                 columns[0].error("Agent name and task objective are required.")
 
         if st.button("Stop Task", key=f"stop_{agent_name}"):
-            task_agent.stop_tasks()
+            # This actually toggles to stop it if you try to run while it is running.
+            ApiClient.start_task_agent(agent_name=agent_name, objective="")
             st.experimental_rerun()
 
     with col2:

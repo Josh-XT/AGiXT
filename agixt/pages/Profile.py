@@ -11,7 +11,7 @@ import logging
 st.session_state["login_page"] = "Profile_Page"
 check_auth_status()
 st.session_state["login_page"] = False
-agent_name, agent = agent_selector()
+
 CFIG = Cfig()
 
 

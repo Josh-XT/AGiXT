@@ -2,6 +2,7 @@ import gpt4free
 import time
 import logging
 import importlib
+import sys
 
 
 class Gpt4freeProvider:
@@ -20,7 +21,19 @@ class Gpt4freeProvider:
         self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb"]
         self.account_tokens = {}
 
-    def instruct(self, prompt, tokens: int = 0):
+    def create_account(self, provider, module):
+        try:
+            # the following call will not terminate the program even if it calls quit()
+            return module.Account.create()
+        except SystemExit:
+            logging.error(f"Account creation for {provider} called quit(), ignoring")
+            return None
+        except Exception as e:
+            # handle other exceptions here
+            logging.error(f"Failed to create account for {provider}: {e}")
+            return None
+
+    async def instruct(self, prompt, tokens: int = 0):
         final_response = None
         while final_response is None:
             for provider in self.providers:
@@ -40,9 +53,9 @@ class Gpt4freeProvider:
                                 )
                                 if module and hasattr(module, "Account"):
                                     logging.info(f"Create account for: {provider}")
-                                    self.account_tokens[
-                                        provider
-                                    ] = module.Account.create()
+                                    self.account_tokens[provider] = self.create_account(
+                                        provider, module
+                                    )
                             except ModuleNotFoundError:
                                 self.account_tokens[provider] = None
                         args = {}
