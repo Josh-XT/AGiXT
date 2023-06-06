@@ -8,7 +8,6 @@ import glob
 import shutil
 import importlib
 import yaml
-import time
 from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
@@ -70,10 +69,10 @@ class Agent:
             ).get_available_commands()
             self.clean_agent_config_commands()
 
-            # Yaml Memory
-            self.memory_file = f"agents/{self.agent_name}/history.yaml"
-            self._create_parent_directories(self.memory_file)
-            self.memory = self.load_memory()
+            # Yaml History
+            self.history_file = f"agents/{self.agent_name}/history.yaml"
+            self._create_parent_directories(self.history_file)
+            self.history = self.load_history()
             self.agent_instances = {}
             self.agent_config = self.load_agent_config(self.agent_name)
 
@@ -477,18 +476,19 @@ class Agent:
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
 
-    def load_memory(self):
+    def load_history(self):
         """
-        This function loads a YAML file containing memory data and returns it, or creates a new file with
-        default data if the file does not exist.
-        :return: a dictionary object called `memory` which contains a list of interactions. The interactions
-        are loaded from a YAML file if it exists, otherwise an empty list is created and saved to the file.
+        This function loads the history of interactions from a YAML file if it exists, otherwise it creates
+        a new file and returns an empty list.
+        :return: The `load_history` function returns a dictionary containing the interactions stored in a
+        YAML file. If the file exists, it loads the interactions from the file. If the file does not exist,
+        it creates a new file and returns an empty dictionary.
         """
-        if os.path.exists(self.memory_file):
-            with open(self.memory_file, "r") as file:
+        if os.path.exists(self.history_file):
+            with open(self.history_file, "r") as file:
                 memory = yaml.safe_load(file)
         else:
-            with open(self.memory_file, "w") as file:
+            with open(self.history_file, "w") as file:
                 yaml.safe_dump({"interactions": []}, file)
             memory = {"interactions": []}
         return memory
@@ -497,8 +497,8 @@ class Agent:
         """
         This Python function saves the memory of an object to a YAML file.
         """
-        with open(self.memory_file, "w") as file:
-            yaml.safe_dump(self.memory, file)
+        with open(self.history_file, "w") as file:
+            yaml.safe_dump(self.history, file)
 
     def log_interaction(self, role: str, message: str):
         """
@@ -513,7 +513,7 @@ class Agent:
         the interaction
         :type message: str
         """
-        if self.memory is None:
-            self.memory = {"interactions": []}
-        self.memory["interactions"].append({"role": role, "message": message})
+        if self.history is None:
+            self.history = {"interactions": []}
+        self.history["interactions"].append({"role": role, "message": message})
         self.save_memory()
