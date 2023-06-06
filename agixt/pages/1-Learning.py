@@ -4,6 +4,13 @@ from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 
+st.set_page_config(
+    page_title="Learning",
+    page_icon=":brain:",
+    layout="wide",
+)
+
+
 check_auth_status()
 
 agent_name = agent_selector()

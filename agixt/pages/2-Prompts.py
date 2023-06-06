@@ -2,6 +2,12 @@ import streamlit as st
 from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 
+st.set_page_config(
+    page_title="Prompts",
+    page_icon=":scroll:",
+    layout="wide",
+)
+
 check_auth_status()
 
 st.header("Manage Prompts")
