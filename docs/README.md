@@ -77,28 +77,6 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yaml up
 ```
 
 ## Development using poetry
-
-Clone the repository for the AGiXT back end and start it.
-
-#### Install poetry
-```
-pip install poetry==1.5.0
-```
-
-Check if poetry is available via
-
-```
-poetry --version
-```
-
-or
-
-```
-python3 -m poetry --version
-```
-
-Adapt the following commands accordingly.
-
 #### Setup AGiXT
 We will install AGiXT in a virtual environment. This will ensure that the dependencies of AGiXT do not interfere with other Python projects on your system.  We will also use playwright for web scraping.  This requires a browser to be installed on your system.  If you do not have a browser installed, you can install one with `playwright install`.
 ```
@@ -115,11 +93,13 @@ You will need to run two different terminals, one for the back end, one for the 
 
 First terminal will be the back end:
 ```
+cd AGiXT/agixt
 poetry run python app.py
 ```
 
 Second terminal will be the front end:
 ```
+cd AGiXT/agixt
 poetry run streamlit run Main.py
 ```
 
