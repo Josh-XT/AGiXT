@@ -16,7 +16,7 @@ class ClaudeProvider:
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
 
-    def instruct(self, prompt):
+    async def instruct(self, prompt):
         try:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
             return c.completion(

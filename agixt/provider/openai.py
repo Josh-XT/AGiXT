@@ -16,7 +16,7 @@ class OpenaiProvider:
         self.MAX_TOKENS = MAX_TOKENS
         openai.api_key = OPENAI_API_KEY
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if not self.AI_MODEL.startswith("gpt-"):
             # Use completion API

@@ -33,7 +33,7 @@ class Gpt4freeProvider:
             logging.error(f"Failed to create account for {provider}: {e}")
             return None
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         final_response = None
         while final_response is None:
             for provider in self.providers:

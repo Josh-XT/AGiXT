@@ -85,7 +85,7 @@ class Agent:
             command_name=command_name, command_args=command_args, agent=self
         )
 
-    def instruct(self, prompt, tokens):
+    async def instruct(self, prompt, tokens):
         """
         This function takes a prompt and tokens as input, sends the prompt to a provider for a response,
         logs the request if enabled, and returns the response.
@@ -98,7 +98,7 @@ class Agent:
         """
         if not prompt:
             return ""
-        answer = self.PROVIDER.instruct(prompt, tokens)
+        answer = await self.PROVIDER.instruct(prompt, tokens)
         return answer
 
     def _load_agent_config_keys(self, keys):
