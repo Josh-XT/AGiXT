@@ -19,13 +19,17 @@ class LlamacppapiProvider:
         self.STOP_SEQUENCE = STOP_SEQUENCE
         self.MAX_TOKENS = int(self.MAX_TOKENS)
 
-    async def instruct(self, prompt, tokens: int = 0):
+    def instruct(self, prompt, tokens: int = 0):
         params = {
             "prompt": prompt,
             "temperature": float(self.AI_TEMPERATURE),
             "stop": self.STOP_SEQUENCE,
             "seed": random.randint(1, 1000000000),
         }
-        response = requests.post(f"{self.AI_PROVIDER_URI}/v1/completion", json=params)
+        response = requests.post(f"{self.AI_PROVIDER_URI}/v1/completions", json=params)
         data = response.json()
-        return data["content"]
+        print(data)
+        choices = data["choices"]
+        if choices:
+            return choices[0]["text"]
+        return None
