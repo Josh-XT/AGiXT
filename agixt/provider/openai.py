@@ -7,12 +7,14 @@ class OpenaiProvider:
         OPENAI_API_KEY: str = "",
         AI_MODEL: str = "gpt-3.5-turbo",
         AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 4096,
         **kwargs
     ):
         self.requirements = ["openai"]
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_TOP_P = AI_TOP_P
         self.MAX_TOKENS = MAX_TOKENS
         openai.api_key = OPENAI_API_KEY
 
@@ -25,7 +27,7 @@ class OpenaiProvider:
                 prompt=prompt,
                 temperature=float(self.AI_TEMPERATURE),
                 max_tokens=max_new_tokens,
-                top_p=1,
+                top_p=float(self.AI_TOP_P),
                 frequency_penalty=0,
                 presence_penalty=0,
             )
@@ -38,6 +40,7 @@ class OpenaiProvider:
                 messages=messages,
                 temperature=float(self.AI_TEMPERATURE),
                 max_tokens=max_new_tokens,
+                top_p=float(self.AI_TOP_P),
                 n=1,
                 stop=None,
             )
