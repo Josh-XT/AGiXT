@@ -35,7 +35,7 @@ class TransformerProvider:
         self.MAX_TOKENS = MAX_TOKENS
         self.MODEL_PATH = MODEL_PATH
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         try:
             model_path = self.MODEL_PATH

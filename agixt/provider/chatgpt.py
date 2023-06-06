@@ -21,7 +21,7 @@ class ChatgptProvider:
             )
         self.AI_MODEL = AI_MODEL
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         response = ""
         try:
             for data in self.bot.ask(prompt=prompt, model=self.AI_MODEL):

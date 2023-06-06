@@ -168,7 +168,7 @@ class AGiXT:
             await self.websearch_agent(task=task, depth=websearch_depth)
         try:
             # Workaround for non-threaded providers
-            run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
             self.response = (
                 run_response.result()
                 if isinstance(run_response, Future)

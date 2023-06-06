@@ -33,7 +33,7 @@ class Gpugpt4allProvider:
         }
         # TODO: Need to reseach to add temperature, no obvious flag.
 
-    def instruct(self, prompt):
+    async def instruct(self, prompt):
         try:
             return self.model.generate(prompt, self.config)
         except Exception as e:

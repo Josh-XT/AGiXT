@@ -24,7 +24,7 @@ class Gpt4allProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         # TODO: Need to research to add temperature, no obvious flag.
 
-    def instruct(self, prompt):
+    async def instruct(self, prompt):
         try:
             return self.model.prompt(prompt)
         except Exception as e:
