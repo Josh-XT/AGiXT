@@ -27,7 +27,7 @@ Make sure you get your ports right!
 
 ### Use a specific version of AGiXT
 ```
-AGiXT_VERSION="1.1.76-beta" docker compose up
+AGiXT_VERSION="1.1.83-beta" docker compose up
 ```
 
 ### Update local docker containers

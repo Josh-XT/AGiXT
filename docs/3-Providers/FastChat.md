@@ -3,7 +3,7 @@
 - [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Quick Start Guide
-_Note: AI_MODEL should stay `default` unless there is a folder in `model-prompts` specific to the model that you're using. You can also create one and add your own prompts._
+_Note: AI_MODEL should stay `default` unless there is a folder in `prompts` specific to the model that you're using. You can also create one and add your own prompts._
 
 ### Update your agent settings
 
