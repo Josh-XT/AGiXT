@@ -7,9 +7,7 @@ import logging
 
 
 class Extensions:
-    def __init__(
-        self, agent_config=None, load_commands_flag: bool = True, agent_name=""
-    ):
+    def __init__(self, agent_config=None, load_commands_flag: bool = True):
         self.agent_config = agent_config
         if load_commands_flag:
             self.commands = self.load_commands()
