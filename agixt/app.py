@@ -15,6 +15,7 @@ from Extensions import Extensions
 import os
 import logging
 import argparse
+import asyncio
 
 CFG = Config()
 app = FastAPI(
@@ -325,8 +326,13 @@ async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMes
         task.stop_tasks()
         return ResponseMessage(message="Task agent stopped")
     # If it's not running start it.
-    await task.run_task(objective=objective.objective)
-    return ResponseMessage(message="Task agent started")
+    try:
+        asyncio.create_task(task.run_task(objective=objective.objective))
+        return ResponseMessage(message="Task agent started")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail="Error occurred while starting the task"
+        )
 
 
 # Get tasks Tasks(agent_name=agent_name).get_tasks()

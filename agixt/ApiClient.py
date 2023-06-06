@@ -131,7 +131,10 @@ class ApiClient:
             f"{base_uri}/api/agent/{agent_name}/task",
             json={"objective": objective},
         )
-        return response.json()["message"]
+        try:
+            return response.json()["message"]
+        except:
+            return response.json()
 
     @staticmethod
     def get_tasks(agent_name) -> List[Any]:
