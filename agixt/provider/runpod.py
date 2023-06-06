@@ -43,13 +43,9 @@ class RunpodProvider:
         self.API_KEY = API_KEY
 
     @threaded
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         headers = {"Authorization": f"Bearer {self.API_KEY}"}
-        max_new_tokens = (
-            int(self.MAX_TOKENS) - tokens
-            if int(self.MAX_TOKENS) > tokens
-            else self.MAX_TOKENS
-        )
+        max_new_tokens = int(self.MAX_TOKENS) - tokens
 
         logging.info("Instructing Agent with %s", prompt)
 

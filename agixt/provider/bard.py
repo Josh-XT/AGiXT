@@ -7,7 +7,7 @@ class BardProvider:
         self.AI_MODEL = "bard"
         self.BARD_TOKEN = BARD_TOKEN
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         try:
             bot = Chatbot(self.BARD_TOKEN)
             response = bot.ask(prompt)

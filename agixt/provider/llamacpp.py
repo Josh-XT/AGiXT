@@ -39,7 +39,7 @@ class LlamacppProvider:
             except:
                 self.MAX_TOKENS = 2048
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         if os.path.isfile(self.MODEL_PATH):
             self.model = Llama(
                 model_path=self.MODEL_PATH,

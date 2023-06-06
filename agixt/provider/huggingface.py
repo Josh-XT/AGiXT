@@ -19,7 +19,7 @@ class HuggingfaceProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
 
-    def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def instruct(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3
         headers = {"Authorization": f"Bearer {self.HUGGINGFACE_API_KEY}"}
         payload = {

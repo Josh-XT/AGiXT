@@ -168,7 +168,7 @@ class AGiXT:
             await self.websearch_agent(task=task, depth=websearch_depth)
         try:
             # Workaround for non-threaded providers
-            run_response = self.agent.instruct(formatted_prompt, tokens=tokens)
+            run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
             self.response = (
                 run_response.result()
                 if isinstance(run_response, Future)
@@ -413,7 +413,7 @@ class AGiXT:
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
-                                    command_name, command_args
+                                    command_name=command_name, command_args=command_args
                                 )
                                 logging.info("Running Command Execution Validation...")
                                 validate_command = await self.run(
