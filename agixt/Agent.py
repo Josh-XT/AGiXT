@@ -156,7 +156,7 @@ class Agent:
             return None
 
         friendly_names = map(
-            lambda command: f"{command['friendly_name']} - {command['name']}({command['args']})",
+            lambda command: f"`{command['friendly_name']}` - Arguments: {command['args']}",
             enabled_commands,
         )
         command_list = "\n".join(friendly_names)
