@@ -409,7 +409,7 @@ class AGiXT:
                             available_command["friendly_name"],
                             available_command["name"],
                         ]:
-                            command_name = available_command["name"]
+                            command_name = available_command["friendly_name"]
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
