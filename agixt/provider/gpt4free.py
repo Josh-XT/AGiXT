@@ -18,7 +18,7 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
-        self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb"]
+        self.providers = ["DeepAI", "You", "UseLess", "ForeFront"]
         self.account_tokens = {}
 
     def create_account(self, provider, module):
