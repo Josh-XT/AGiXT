@@ -348,12 +348,8 @@ class Agent:
         :param new_name: The new name that the agent will be renamed to
         """
         self.agent_name = new_name
-        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
-        if os.path.exists(agent_file):
-            os.rename(agent_file, os.path.join("agents", f"{new_name}/history.yaml"))
         if os.path.exists(agent_folder):
             os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
 
@@ -365,15 +361,8 @@ class Agent:
         :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
         returned.
         """
-        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
-        agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
-        try:
-            os.remove(agent_file)
-        except FileNotFoundError:
-            return {"message": f"Agent file {agent_file} not found."}, 404
-
         if os.path.exists(agent_folder):
             shutil.rmtree(agent_folder)
 
