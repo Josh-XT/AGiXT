@@ -39,15 +39,6 @@ class Extensions:
                             "enabled": True,
                         }
                     )
-                else:
-                    available_commands.append(
-                        {
-                            "friendly_name": friendly_name,
-                            "name": command_name,
-                            "args": command_args,
-                            "enabled": False,
-                        }
-                    )
         return available_commands
 
     def get_enabled_commands(self):

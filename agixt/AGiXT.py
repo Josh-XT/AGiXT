@@ -405,11 +405,7 @@ class AGiXT:
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.agent.available_commands:
-                        if command_name in [
-                            available_command["friendly_name"],
-                            available_command["name"],
-                        ]:
-                            command_name = available_command["friendly_name"]
+                        if command_name == available_command["friendly_name"]:
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
