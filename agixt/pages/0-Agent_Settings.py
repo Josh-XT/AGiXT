@@ -4,6 +4,13 @@ from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
+
+st.set_page_config(
+    page_title="Agent Settings",
+    page_icon=":hammer_and_wrench:",
+    layout="wide",
+)
+
 check_auth_status()
 
 agent_name = agent_selector()

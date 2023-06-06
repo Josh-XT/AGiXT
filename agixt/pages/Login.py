@@ -8,6 +8,14 @@ from auth_libs.Users import (
     configure_auth_settings,
     check_admin_configured,
 )
+
+st.set_page_config(
+    page_title="Login",
+    page_icon=":key:",
+    layout="wide",
+)
+
+
 from auth_libs.Users import check_auth_status
 
 logged = st.session_state.get("logged_in")

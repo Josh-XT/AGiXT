@@ -5,6 +5,13 @@ import logging
 from auth_libs.Cfig import Cfig
 from auth_libs.Users import load_users, save_user_data
 
+st.set_page_config(
+    page_title="Register",
+    page_icon=":memo:",
+    layout="wide",
+)
+
+
 CFIG = Cfig()
 conf = CFIG.load_config()
 
