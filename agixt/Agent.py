@@ -351,6 +351,13 @@ class Agent:
         agent_folder = f"agents/{agent_name}/"
         agent_folder = os.path.abspath(agent_folder)
         if os.path.exists(agent_folder):
+            # Check if the new name is already taken
+            if os.path.exists(f"agents/{new_name}"):
+                # Add a number to the end of the new name
+                i = 1
+                while os.path.exists(f"agents/{new_name}_{i}"):
+                    i += 1
+                new_name = f"{new_name}_{i}"
             os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
 
     def delete_agent(self, agent_name):
