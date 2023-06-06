@@ -7,6 +7,6 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./agixt/agents:/agixt/agixt/agents:rw
-      - ./agixt/workspace:/agixt/agixt/WORKSPACE:rw
+      - ./agixt/agents:/agixt/agents:rw
+      - ./agixt/workspace:/agixt/WORKSPACE:rw
       - ./models:/model:rw

@@ -81,8 +81,8 @@ class Agent:
         return Memories(self.agent_name, self.AGENT_CONFIG)
 
     async def execute(self, command_name, command_args):
-        return await Extensions(self.AGENT_CONFIG).execute_command(
-            command_name=command_name, command_args=command_args, agent=self
+        return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(
+            command_name=command_name, command_args=command_args
         )
 
     async def instruct(self, prompt, tokens):
