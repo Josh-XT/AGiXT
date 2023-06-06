@@ -3,6 +3,13 @@ from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
+
+st.set_page_config(
+    page_title="Tasks",
+    page_icon=":bookmark:",
+    layout="wide",
+)
+
 check_auth_status()
 
 agent_name = agent_selector()
