@@ -71,7 +71,7 @@ class Agent:
             self.clean_agent_config_commands()
 
             # Yaml Memory
-            self.memory_file = f"agents/{self.agent_name}.yaml"
+            self.memory_file = f"agents/{self.agent_name}/history.yaml"
             self._create_parent_directories(self.memory_file)
             self.memory = self.load_memory()
             self.agent_instances = {}
@@ -336,9 +336,9 @@ class Agent:
             friendly_name, command_name, command_args = command
             command_dict[friendly_name] = False
         self.create_agent_config_file(agent_name, provider_settings, command_dict)
-        with open(os.path.join("agents", f"{agent_name}.yaml"), "w") as f:
+        with open(os.path.join("agents", f"{agent_name}/history.yaml"), "w") as f:
             f.write("")
-        return {"agent_file": f"{agent_name}.yaml"}
+        return {"agent_file": f"{agent_name}/history.yaml"}
 
     def rename_agent(self, agent_name, new_name):
         """
@@ -349,12 +349,12 @@ class Agent:
         :param new_name: The new name that the agent will be renamed to
         """
         self.agent_name = new_name
-        agent_file = f"agents/{agent_name}.yaml"
+        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
         if os.path.exists(agent_file):
-            os.rename(agent_file, os.path.join("agents", f"{new_name}.yaml"))
+            os.rename(agent_file, os.path.join("agents", f"{new_name}/history.yaml"))
         if os.path.exists(agent_folder):
             os.rename(agent_folder, os.path.join("agents", f"{new_name}"))
 
@@ -366,7 +366,7 @@ class Agent:
         :return: If the agent file is not found, a dictionary with a "message" key and a 404 status code is
         returned.
         """
-        agent_file = f"agents/{agent_name}.yaml"
+        agent_file = f"agents/{agent_name}/history.yaml"
         agent_folder = f"agents/{agent_name}/"
         agent_file = os.path.abspath(agent_file)
         agent_folder = os.path.abspath(agent_folder)
@@ -449,12 +449,12 @@ class Agent:
         an empty list is also returned.
         """
         # If it doesn't exist, create it
-        if not os.path.exists(f"agents/{agent_name}.yaml"):
-            with open(f"agents/{agent_name}.yaml", "w") as f:
+        if not os.path.exists(f"agents/{agent_name}/history.yaml"):
+            with open(f"agents/{agent_name}/history.yaml", "w") as f:
                 f.write("")
             return []
         try:
-            with open(f"agents/{agent_name}.yaml", "r") as f:
+            with open(f"agents/{agent_name}/history.yaml", "r") as f:
                 yaml_history = yaml.safe_load(f)
             chat_history = []
             for interaction in yaml_history["interactions"]:
