@@ -24,7 +24,7 @@ class ApiClient:
         return response.json()["providers"]
 
     @staticmethod
-    def add_agent(agent_name: str, settings: Dict[str, Any] = {}):
+    def add_agent(agent_name: str, settings: Dict[str, Any] = {}) -> Dict[str, Any]:
         response = requests.post(
             f"{base_uri}/api/agent",
             json={"agent_name": agent_name, "settings": settings},
