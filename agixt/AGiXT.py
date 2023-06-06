@@ -372,88 +372,51 @@ class AGiXT:
                 task, execution_response, context_results, **kwargs
             )
 
-    async def revalidation_agent(
-        self,
-        task,
-        command_name,
-        command_args,
-        command_output,
-        context_results,
-        **kwargs,
-    ):
-        logging.info(
-            f"Command {command_name} did not execute as expected with args {command_args}. Trying again.."
-        )
-        revalidate = await self.run(
-            task=task,
-            prompt="ValidationFailed",
-            command_name=command_name,
-            command_args=command_args,
-            command_output=command_output,
-            **kwargs,
-        )
-        return await self.execution_agent(revalidate, task, context_results, **kwargs)
-
     async def execution_agent(
         self, execution_response, task, context_results, **kwargs
     ):
         validated_response = await self.validation_agent(
             task, execution_response, context_results, **kwargs
         )
-        try:
+        if "commands" in validated_response:
             for command_name, command_args in validated_response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
                 if command_name is not None:
                     for available_command in self.agent.available_commands:
                         if command_name == available_command["friendly_name"]:
+                            # Check if the command is a valid command in the self.avent.available_commands list
                             try:
-                                # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
                                     command_name=command_name, command_args=command_args
                                 )
-                                logging.info("Running Command Execution Validation...")
+                            except Exception as e:
+                                logging.info("Command validation failed, retrying...")
                                 validate_command = await self.run(
                                     task=task,
-                                    prompt="Validation",
+                                    prompt="ValidationFailed",
                                     command_name=command_name,
                                     command_args=command_args,
-                                    command_output=command_output,
-                                    **kwargs,
-                                )
-                                if validate_command.startswith("Yes"):
-                                    # Failed command execution
-                                    return await self.revalidation_agent(
-                                        task=task,
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                        command_output=command_output,
-                                        context_results=context_results,
-                                        **kwargs,
-                                    )
-                                else:
-                                    # Successful command execution
-                                    logging.info(
-                                        f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
-                                    )
-                                    response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                                    return response
-                            except:
-                                return await self.revalidation_agent(
-                                    task=task,
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                    command_output=command_output,
+                                    command_output=e,
                                     context_results=context_results,
                                     **kwargs,
                                 )
+                                return await self.execution_agent(
+                                    execution_response=validate_command,
+                                    task=task,
+                                    context_results=context_results,
+                                    **kwargs,
+                                )
+                            logging.info(
+                                f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                            )
+                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
+                            return response
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
                     else:
-                        return f"\Command not recognized: {command_name} ."
-        except:
-            logging.info("\nERROR IN EXECUTION_AGENT, validated_response:\n")
-            logging.info(validated_response)
+                        return f"\Command not recognized: `{command_name}`."
+        else:
             return "\nNo commands were executed.\n"
 
     async def websearch_agent(
