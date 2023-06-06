@@ -82,7 +82,7 @@ class Agent:
 
     async def execute(self, command_name, command_args):
         return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(
-            command_name=command_name, command_args=command_args, agent=self
+            command_name=command_name, command_args=command_args
         )
 
     async def instruct(self, prompt, tokens):
