@@ -413,7 +413,7 @@ class AGiXT:
                             try:
                                 # Check if the command is a valid command in the self.avent.available_commands list
                                 command_output = await self.agent.execute(
-                                    command_name, command_args
+                                    command_name=command_name, command_args=command_args
                                 )
                                 logging.info("Running Command Execution Validation...")
                                 validate_command = await self.run(
