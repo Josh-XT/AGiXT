@@ -12,6 +12,7 @@ st.set_page_config(
 check_auth_status()
 agent_name = agent_selector()
 
+
 def render_chat_history(chat_container, chat_history):
     chat_container.empty()
     with chat_container:
@@ -21,6 +22,7 @@ def render_chat_history(chat_container, chat_history):
                     f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
                     unsafe_allow_html=True,
                 )
+
 
 st.title(":speech_balloon: Chat with Agent")
 smart_chat_toggle = st.checkbox("Enable Smart Chat")
