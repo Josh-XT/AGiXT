@@ -19,8 +19,7 @@ ENV PYTHONUNBUFFERED=1 \
     POETRY_NO_INTERACTION=1 \
     PLAYWRIGHT_BROWSERS_PATH=0
 
-RUN mkdir /agixt
-WORKDIR /agixt
+WORKDIR /
 COPY pyproject.toml .
 COPY poetry.lock .
 ARG HNSWLIB_NO_NATIVE=1
@@ -31,6 +30,6 @@ COPY --link . .
 ENV PATH="/usr/local/bin:$PATH"
 ENV LD_PRELOAD=libgomp.so.1
 
-WORKDIR /agixt/agixt
+WORKDIR /agixt
 ENTRYPOINT ["poetry", "run", "uvicorn", "app:app"]
 CMD ["--host", "0.0.0.0", "--port", "7437", "--workers", "2"]
