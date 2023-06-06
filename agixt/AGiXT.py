@@ -352,7 +352,7 @@ class AGiXT:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
             cleaned_json = pattern.findall(execution_response)
             if len(cleaned_json) == 0:
-                return False
+                return {}
             if isinstance(cleaned_json, list):
                 cleaned_json = cleaned_json[0]
             response = json.loads(cleaned_json)
@@ -369,14 +369,20 @@ class AGiXT:
                 task=task, context_results=context_results, **kwargs
             )
             return await self.validation_agent(
-                task, execution_response, context_results, **kwargs
+                task=task,
+                execution_response=execution_response,
+                context_results=context_results,
+                **kwargs,
             )
 
     async def execution_agent(
         self, execution_response, task, context_results, **kwargs
     ):
         validated_response = await self.validation_agent(
-            task, execution_response, context_results, **kwargs
+            task=task,
+            execution_response=execution_response,
+            context_results=context_results,
+            **kwargs,
         )
         if "commands" in validated_response:
             for command_name, command_args in validated_response["commands"].items():
