@@ -20,7 +20,6 @@ prompts = api_client.get_prompts()
 
 # Add a dropdown to select a prompt
 prompt_name = st.selectbox("Choose a prompt", prompts)
-
 # Fetch arguments for the selected prompt
 prompt_args = api_client.get_prompt_args(prompt_name)
 
