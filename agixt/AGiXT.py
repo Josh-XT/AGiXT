@@ -71,7 +71,7 @@ class AGiXT:
 
     async def format_prompt(
         self,
-        task: str = "",
+        user_input: str = "",
         top_results: int = 5,
         prompt="",
         chain_name="",
@@ -81,7 +81,7 @@ class AGiXT:
     ):
         cp = Prompts()
         if prompt == "":
-            prompt = task
+            prompt = user_input
         else:
             try:
                 prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
@@ -92,7 +92,7 @@ class AGiXT:
         else:
             try:
                 context = await memories.context_agent(
-                    query=task, top_results_num=top_results
+                    query=user_input, top_results_num=top_results
                 )
             except:
                 context = "None."
@@ -115,14 +115,14 @@ class AGiXT:
                     chain_name=chain_name, step_number=step_number
                 )
                 prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
-            if "{STEP" in task:
+            if "{STEP" in user_input:
                 step_response = self.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
-                task = task.replace(f"{{STEP{step_number}}}", step_response)
+                user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
         formatted_prompt = self.custom_format(
             string=prompt,
-            task=task,
+            user_input=user_input,
             agent_name=self.agent_name,
             COMMANDS=self.agent_commands,
             context=context,
@@ -139,7 +139,7 @@ class AGiXT:
 
     async def run(
         self,
-        task: str = "",
+        user_input: str = "",
         prompt: str = "",
         context_results: int = 5,
         websearch: bool = False,
@@ -156,7 +156,7 @@ class AGiXT:
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
-            task=task,
+            user_input=user_input,
             top_results=context_results,
             prompt=prompt,
             chain_name=chain_name,
@@ -165,7 +165,7 @@ class AGiXT:
             **kwargs,
         )
         if websearch:
-            await self.websearch_agent(task=task, depth=websearch_depth)
+            await self.websearch_agent(user_input=user_input, depth=websearch_depth)
         try:
             # Workaround for non-threaded providers
             run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
@@ -188,7 +188,7 @@ class AGiXT:
             if context_results > 0:
                 context_results = context_results - 1
             self.response = await self.run(
-                task=task,
+                user_input=user_input,
                 prompt=prompt,
                 context_results=context_results,
                 **kwargs,
@@ -199,7 +199,7 @@ class AGiXT:
         if "{COMMANDS}" in unformatted_prompt:
             execution_response = await self.execution_agent(
                 execution_response=self.response,
-                task=task,
+                user_input=user_input,
                 context_results=context_results,
                 **kwargs,
             )
@@ -223,16 +223,16 @@ class AGiXT:
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             try:
-                await memories.store_result(task_name=task, result=self.response)
+                await memories.store_result(input=user_input, result=self.response)
             except:
                 pass
-            self.agent.log_interaction(role="USER", message=task)
+            self.agent.log_interaction(role="USER", message=user_input)
             self.agent.log_interaction(role=self.agent_name, message=self.response)
         return self.response
 
     async def smart_instruct(
         self,
-        task: str = "Write a tweet about AI.",
+        user_input: str = "Write a tweet about AI.",
         shots: int = 3,
         learn_file: str = "",
         objective: str = None,
@@ -242,7 +242,7 @@ class AGiXT:
         # Do multi shots of prompt to get N different answers to be validated
         answers.append(
             await self.run(
-                task=task,
+                user_input=user_input,
                 prompt="SmartInstruct-StepByStep"
                 if objective == None
                 else "SmartTask-StepByStep",
@@ -259,7 +259,7 @@ class AGiXT:
             for i in range(shots - 1):
                 answers.append(
                     await self.run(
-                        task=task,
+                        user_input=user_input,
                         prompt="SmartInstruct-StepByStep"
                         if objective == None
                         else "SmartTask-StepByStep",
@@ -273,19 +273,19 @@ class AGiXT:
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = await self.run(
-            task=answer_str,
+            user_input=answer_str,
             prompt="SmartInstruct-Researcher",
             shots=shots,
             **kwargs,
         )
         resolver = await self.run(
-            task=researcher,
+            user_input=researcher,
             prompt="SmartInstruct-Resolver",
             shots=shots,
             **kwargs,
         )
         execution_response = await self.run(
-            task=f"{task}\nContext:\n{resolver}",
+            user_input=f"{user_input}\nContext:\n{resolver}",
             prompt="instruct",
             **kwargs,
         )
@@ -294,7 +294,7 @@ class AGiXT:
 
     async def smart_chat(
         self,
-        task: str = "Write a tweet about AI.",
+        user_input: str = "Write a tweet about AI.",
         shots: int = 3,
         learn_file: str = "",
         **kwargs,
@@ -302,7 +302,7 @@ class AGiXT:
         answers = []
         answers.append(
             await self.run(
-                task=task,
+                user_input=user_input,
                 prompt="SmartChat-StepByStep",
                 context_results=6,
                 websearch=True,
@@ -317,7 +317,7 @@ class AGiXT:
             for i in range(shots - 1):
                 answers.append(
                     await self.run(
-                        task=task,
+                        user_input=user_input,
                         prompt="SmartChat-StepByStep",
                         context_results=6,
                         shots=shots,
@@ -328,14 +328,14 @@ class AGiXT:
         for i, answer in enumerate(answers):
             answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = await self.run(
-            task=answer_str,
+            user_input=answer_str,
             prompt="SmartChat-Researcher",
             context_results=6,
             shots=shots,
             **kwargs,
         )
         resolver = await self.run(
-            task=researcher,
+            user_input=researcher,
             prompt="SmartChat-Resolver",
             context_results=6,
             shots=shots,
@@ -345,7 +345,7 @@ class AGiXT:
 
     # Worker Sub-Agents
     async def validation_agent(
-        self, task, execution_response, context_results, **kwargs
+        self, user_input, execution_response, context_results, **kwargs
     ):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
@@ -365,20 +365,20 @@ class AGiXT:
             else:
                 context_results = 0
             execution_response = await self.run(
-                task=task, context_results=context_results, **kwargs
+                user_input=user_input, context_results=context_results, **kwargs
             )
             return await self.validation_agent(
-                task=task,
+                user_input=user_input,
                 execution_response=execution_response,
                 context_results=context_results,
                 **kwargs,
             )
 
     async def execution_agent(
-        self, execution_response, task, context_results, **kwargs
+        self, execution_response, user_input, context_results, **kwargs
     ):
         validated_response = await self.validation_agent(
-            task=task,
+            user_input=user_input,
             execution_response=execution_response,
             context_results=context_results,
             **kwargs,
@@ -397,7 +397,7 @@ class AGiXT:
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = await self.run(
-                                    task=task,
+                                    user_input=user_input,
                                     prompt="ValidationFailed",
                                     command_name=command_name,
                                     command_args=command_args,
@@ -407,7 +407,7 @@ class AGiXT:
                                 )
                                 return await self.execution_agent(
                                     execution_response=validate_command,
-                                    task=task,
+                                    user_input=user_input,
                                     context_results=context_results,
                                     **kwargs,
                                 )
@@ -425,11 +425,13 @@ class AGiXT:
             return "\nNo commands were executed.\n"
 
     async def websearch_agent(
-        self, task: str = "What are the latest breakthroughs in AI?", depth: int = 3
+        self,
+        user_input: str = "What are the latest breakthroughs in AI?",
+        depth: int = 3,
     ):
         memories = self.agent.get_memories()
 
-        async def resursive_browsing(task, links):
+        async def resursive_browsing(user_input, links):
             try:
                 words = links.split()
                 links = [
@@ -462,18 +464,20 @@ class AGiXT:
                                         link_list = link_list[:3]
                                     try:
                                         pick_a_link = await self.run(
-                                            task=task,
+                                            user_input=user_input,
                                             prompt="Pick-a-Link",
                                             links=link_list,
                                         )
                                         if not pick_a_link.startswith("None"):
-                                            await resursive_browsing(task, pick_a_link)
+                                            await resursive_browsing(
+                                                user_input, pick_a_link
+                                            )
                                     except:
                                         logging.info(
                                             f"Issues reading {url}. Moving on..."
                                         )
 
-        results = await self.run(task=task, prompt="WebSearch")
+        results = await self.run(user_input=user_input, prompt="WebSearch")
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")
@@ -490,4 +494,4 @@ class AGiXT:
             except:
                 links = None
             if links is not None:
-                await resursive_browsing(task, links)
+                await resursive_browsing(user_input, links)

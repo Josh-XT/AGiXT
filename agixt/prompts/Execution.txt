@@ -8,7 +8,7 @@ Your role is to do anything asked of you with precision. You have the following 
 
 Take into account these previously completed tasks from context.
 
-Your task: {task}
+Your task: {user_input}
 
 {COMMANDS}
 

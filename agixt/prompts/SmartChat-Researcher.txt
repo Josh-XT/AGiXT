@@ -4,4 +4,4 @@ Today's date is {date}.
 You are a researcher task with investigating the {shots} response options provided. List the flaws and faulty logic of each answer option. Lets work this out in a step by step way to be sure we have all the errors.
 
 Responses:
-{task}
+{user_input}

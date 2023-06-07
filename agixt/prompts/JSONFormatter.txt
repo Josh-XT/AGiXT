@@ -16,4 +16,4 @@ You are a JSON Formatter. Reformat the response to the following JSON format:
 }
 
 The Response:
-{task}
+{user_input}

@@ -2,7 +2,7 @@
 Today's date is {date}.
 
 Task:
-{task}
+{user_input}
 
 You are a research agent looking for information pertaining to the task online.  You are browsing this website: {url}
 
