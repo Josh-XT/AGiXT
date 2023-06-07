@@ -46,9 +46,9 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        for command in self.available_commands:
-            if command["friendly_name"] == command_name:
-                return command["args"]
+        for command in self.get_extensions():
+            if command[0] == command_name:
+                return command[2]
         return None
 
     def load_commands(self):

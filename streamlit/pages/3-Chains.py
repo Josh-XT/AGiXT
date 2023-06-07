@@ -29,7 +29,7 @@ st.markdown(
 chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
 chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
-
+agent_commands = ApiClient.get_extensions()
 if chain_action == "Run Chain":
     user_input = st.text_input("User Input")
 
@@ -62,6 +62,8 @@ selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
 if selected_chain_name:
     try:
         chain = ApiClient.get_chain(chain_name=selected_chain_name)
+        if "chain" in chain:
+            chain = chain["chain"]
     except:
         st.write(selected_chain_name + " Responses: ")
         try:
@@ -119,10 +121,7 @@ if selected_chain_name:
         )
 
         if modify_prompt_type == "Command":
-            available_commands = [
-                cmd["friendly_name"]
-                for cmd in ApiClient.get_commands(agent_name=modify_agent_name)
-            ]
+            available_commands = [cmd[0] for cmd in agent_commands]
             command_name = st.selectbox(
                 "Select Command",
                 [""] + available_commands,
@@ -204,7 +203,7 @@ if selected_chain_name:
 
     st.write("Existing Steps:")
     if chain:
-        for step in chain:
+        for step in chain["steps"]:
             if step is not None:
                 try:
                     step = modify_step(step)
@@ -212,8 +211,7 @@ if selected_chain_name:
                     st.error(
                         "Error loading chain step. Please check the chain configuration."
                     )
-
-    step_number = max([s["step"] for s in chain]) + 1 if chain else 1
+    step_number = max([s["step"] for s in chain["steps"]]) + 1 if chain else 1
     agent_name = st.selectbox(
         "Select Agent",
         options=[""] + [agent["name"] for agent in agents],
@@ -225,9 +223,8 @@ if selected_chain_name:
         [""] + ["Command", "Prompt"],
         key="add_step_prompt_type",
     )
-    agent_commands = ApiClient.get_commands(agent_name=agent_name)
     if prompt_type == "Command":
-        available_commands = [cmd["friendly_name"] for cmd in agent_commands]
+        available_commands = [cmd[0] for cmd in agent_commands]
         command_name = st.selectbox(
             "Select Command",
             [""] + available_commands,
