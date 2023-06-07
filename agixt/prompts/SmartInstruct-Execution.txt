@@ -2,7 +2,7 @@
 
 Task: 
 ```
-{task}
+{user_input}
 ```
 
 Task Response: 

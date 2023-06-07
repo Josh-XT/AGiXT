@@ -19,7 +19,7 @@ st.markdown(
     """
     Any of these variables can be used in command arguments or prompt arguments to inject data into the prompt. These can also be used inside of any Custom Prompt.
 - `{agent_name}` will cause the agent name to be injected.
-- `{context}` will cause the current context from memory to be injected. (Only applies to prompts but is still a reserved variable name.)
+- `{context}` will cause the current context from memory to be injected. This will only work if you have `{user_input}` in your prompt arguments for the memory search. (Only applies to prompts but is still a reserved variable name.)
 - `{date}` will cause the current date and timestamp to be injected.
 - `{COMMANDS}` will cause the available commands list to be injected and for automatic commands execution from the agent based on its suggestions.
 - `{command_list}` will cause the available commands list to be injected, but will not execute any commands the AI chooses. Useful on validation steps.
@@ -29,6 +29,10 @@ st.markdown(
 chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
 chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
+
+if chain_action == "Run Chain":
+    user_input = st.text_input("User Input")
+
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
 else:
@@ -45,7 +49,7 @@ if st.button("Perform Action"):
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            ApiClient.run_chain(chain_name=chain_name)
+            ApiClient.run_chain(chain_name=chain_name, user_input=user_input)
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")

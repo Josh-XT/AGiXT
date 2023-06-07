@@ -22,4 +22,4 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands, simply make
     }
 }
 ```
-<|end|><|user|>Your task: {task}<|end|>\n<|assistant|>
+<|end|><|user|>Your task: {user_input}<|end|>\n<|assistant|>

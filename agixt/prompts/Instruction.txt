@@ -29,4 +29,4 @@ RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands, simply make
 }
 ```
 
-Your task: {task}
+Your task: {user_input}

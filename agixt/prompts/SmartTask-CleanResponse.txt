@@ -6,7 +6,7 @@ You are a professional writer tasked with improving the response from the Resolv
 
 Primary Objective: {objective}
 
-Task: {task}
+Task: {user_input}
 
 Resolver Agent Response:
 {resolver_response}
