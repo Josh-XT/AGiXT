@@ -12,6 +12,17 @@ st.set_page_config(
 check_auth_status()
 agent_name = agent_selector()
 
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = {}
+
+if agent_name:
+    try:
+        st.session_state["chat_history"][agent_name] = ApiClient.get_chat_history(
+            agent_name=agent_name
+        )
+    except:
+        st.session_state["chat_history"][agent_name] = []
+
 
 def render_chat_history(chat_container, chat_history):
     chat_container.empty()
@@ -26,7 +37,6 @@ def render_chat_history(chat_container, chat_history):
 
 st.title(":speech_balloon: Chat with Agent")
 smart_chat_toggle = st.checkbox("Enable Smart Chat")
-st.session_state["chat_history"] = {}
 
 chat_container = st.container()
 
