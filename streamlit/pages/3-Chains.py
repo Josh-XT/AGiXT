@@ -29,6 +29,10 @@ st.markdown(
 chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
 chain_action = st.selectbox("Action", ["Create Chain", "Delete Chain", "Run Chain"])
+
+if chain_action == "Run Chain":
+    user_input = st.text_input("User Input")
+
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
 else:
@@ -45,7 +49,7 @@ if st.button("Perform Action"):
             st.success(f"Chain '{chain_name}' deleted.")
             st.experimental_rerun()
         elif chain_action == "Run Chain":
-            ApiClient.run_chain(chain_name=chain_name)
+            ApiClient.run_chain(chain_name=chain_name, user_input=user_input)
             st.success(f"Chain '{chain_name}' executed.")
     else:
         st.error("Chain name is required.")
