@@ -553,5 +553,10 @@ async def get_command_args(command_name: str):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
+@app.get("/api/extensions", tags=["Extension"])
+async def get_extensions():
+    return {"extensions": Extensions().get_extensions()}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)

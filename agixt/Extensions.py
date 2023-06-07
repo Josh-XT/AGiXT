@@ -146,3 +146,16 @@ class Extensions:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
         return output
+
+    def get_extensions(self):
+        commands = []
+        command_files = glob.glob("extensions/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"extensions.{module_name}")
+            command_class = getattr(module, module_name.lower())()
+            if hasattr(command_class, "commands"):
+                for command_name, command_function in command_class.commands.items():
+                    params = self.get_command_params(command_function)
+                    commands.append((command_name, command_function.__name__, params))
+        return commands
