@@ -81,6 +81,27 @@ class ApiClient:
         return response.json()["message"]
 
     @staticmethod
+    def prompt_agent(
+        agent_name: str,
+        prompt_name: int,
+        prompt_args: dict,
+        websearch: bool = False,
+        websearch_depth: int = 3,
+        context_results: int = 5,
+    ) -> str:
+        response = requests.post(
+            f"{base_uri}/api/agent/{agent_name}/prompt",
+            json={
+                "prompt_name": prompt_name,
+                "prompt_args": prompt_args,
+                "websearch": websearch,
+                "websearch_depth": websearch_depth,
+                "context_results": context_results,
+            },
+        )
+        return response.json()["response"]
+
+    @staticmethod
     def instruct(agent_name: str, prompt: str) -> str:
         response = requests.post(
             f"{base_uri}/api/agent/{agent_name}/instruct",
