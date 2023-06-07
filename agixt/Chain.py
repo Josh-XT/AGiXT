@@ -144,10 +144,12 @@ class Chain:
         except:
             return {}
 
-    def get_step_content(self, chain_name, prompt_content):
+    def get_step_content(self, chain_name, prompt_content, user_input):
         new_prompt_content = {}
         if isinstance(prompt_content, dict):
             for arg, value in prompt_content.items():
+                if "{user_input}" in value:
+                    value = value.replace("{user_input}", user_input)
                 if "{STEP" in value:
                     # Get the step number from value between {STEP and }
                     new_step_number = int(value.split("{STEP")[1].split("}")[0])
@@ -159,6 +161,8 @@ class Chain:
                     value = value.replace(f"{{STEP{new_step_number}}}", step_response)
                 new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
+            if "{user_input}" in prompt_content:
+                new_prompt_content = prompt_content.replace("{user_input}", user_input)
             if "{STEP" in prompt_content:
                 # Get the step number from value between {STEP and }
                 new_step_number = int(prompt_content.split("{STEP")[1].split("}")[0])
