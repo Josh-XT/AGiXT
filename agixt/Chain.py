@@ -105,7 +105,7 @@ class Chain:
         with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
             json.dump(chain_data, f)
 
-    async def run_chain(self, chain_name):
+    async def run_chain(self, chain_name, user_input=None):
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
@@ -113,7 +113,7 @@ class Chain:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
                 step_response = await self.run_chain_step(
-                    step=step_data, chain_name=chain_name
+                    step=step_data, chain_name=chain_name, user_input=user_input
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
                 logging.info(f"Response: {step_response}")
@@ -172,7 +172,7 @@ class Chain:
                 )
         return new_prompt_content
 
-    async def run_chain_step(self, step: dict = {}, chain_name=""):
+    async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
         logging.info(step)
         if step:
             if "prompt_type" in step:
@@ -195,19 +195,16 @@ class Chain:
                     )
                 elif prompt_type == "Prompt":
                     result = await agent.run(
+                        user_input=user_input,
                         prompt=prompt_name,
                         chain_name=chain_name,
                         step_number=step_number,
                         **args,
                     )
                 elif prompt_type == "Chain":
-                    result = await self.run_chain(step["prompt"]["chain_name"])
-                elif prompt_type == "Smart Instruct":
-                    result = await agent.smart_instruct(**args)
-                elif prompt_type == "Smart Chat":
-                    result = await agent.smart_chat(**args)
-                elif prompt_type == "Task":
-                    result = await agent.run_task(**args)
+                    result = await self.run_chain(
+                        chain_name=step["prompt"]["chain_name"], user_input=user_input
+                    )
         if result:
             return result
         else:
