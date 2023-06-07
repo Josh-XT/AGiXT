@@ -1,0 +1,3 @@
+User said: " {input} ". 
+The response was: " {resp} ".
+Score the response in percentages in terms of confidence of clarity, relevance, accuracy, politeness, creativity, skepticism, realism. Ensure we're not just using 0, 100, or 50. we want to be as precise as possible.
