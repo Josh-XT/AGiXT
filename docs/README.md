@@ -67,8 +67,6 @@ Visit our [Quick Start](https://josh-xt.github.io/AGiXT/1-Getting%20started/Quic
 ### Setup AGiXT
 We will install AGiXT in a virtual environment. This will ensure that the dependencies of AGiXT do not interfere with other Python projects on your system.  We will also use playwright for web scraping.  This requires a browser to be installed on your system.  If you do not have a browser installed, you can install one with `playwright install`.
 
-You will need to run two different terminals, one for the back end, one for the front end.  We will start with the back end.
-
 ```
 git clone https://github.com/Josh-XT/AGiXT
 pip install poetry==1.5.1
@@ -76,13 +74,10 @@ export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 cd AGiXT
 poetry install --with gpt4free
 poetry run playwright install
-poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 2
-```
-
-Second terminal will be the front end, navigate to your `AGiXT` folder then do the following:
-```
 cd streamlit
-poetry run streamlit run Main.py
+poetry run streamlit run Main.py &
+cd ../agixt
+poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 2
 ```
 
 Access the web interface at http://localhost:8501
