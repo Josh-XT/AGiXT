@@ -2,7 +2,7 @@
 {command_list}
 
 Task:
-{task}
+{user_input}
 
 We attempted to run the following command with the Arguments:
 {command_name}

@@ -259,7 +259,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 async def instruct(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
     response = await agent.run(
-        task=prompt.prompt,
+        user_input=prompt.prompt,
         prompt="instruct",
     )
     return {"response": str(response)}
@@ -268,11 +268,13 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = AGiXT(agent_name=agent_name)
-    task = (
-        agent_prompt.prompt_args["task"] if "task" in agent_prompt.prompt_args else ""
+    user_input = (
+        agent_prompt.prompt_args["user_input"]
+        if "user_input" in agent_prompt.prompt_args
+        else ""
     )
     response = await agent.run(
-        task=task,
+        user_input=user_input,
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
         websearch_depth=agent_prompt.websearch_depth,
@@ -285,21 +287,23 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.smart_instruct(task=prompt.prompt, shots=int(shots))
+    response = await agent.smart_instruct(user_input=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.run(task=prompt.prompt, prompt="Chat", context_results=6)
+    response = await agent.run(
+        user_input=prompt.prompt, prompt="Chat", context_results=6
+    )
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.smart_chat(task=prompt.prompt, shots=shots)
+    response = await agent.smart_chat(user_input=prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
