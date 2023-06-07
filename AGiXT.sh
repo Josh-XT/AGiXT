@@ -1,7 +1,7 @@
 #!/bin/bash
+git pull
 pip install poetry==1.5.1
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
-cd AGiXT
 poetry install --with gpt4free
 poetry run playwright install
 cd agixt
