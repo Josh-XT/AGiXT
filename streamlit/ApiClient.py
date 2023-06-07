@@ -317,6 +317,11 @@ class ApiClient:
         return response.json()["extension_settings"]
 
     @staticmethod
+    def get_extensions() -> List[tuple]:
+        response = requests.get(f"{base_uri}/api/extensions")
+        return response.json()["extensions"]
+
+    @staticmethod
     def get_command_args(command_name: str) -> Dict[str, Any]:
         response = requests.get(f"{base_uri}/api/extensions/{command_name}/args")
         return response.json()["command_args"]
