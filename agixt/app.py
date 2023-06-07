@@ -526,6 +526,6 @@ async def get_command_args(command_name: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     uvicorn.run(app, host="127.0.0.1", port=7437, workers=args.workers)
