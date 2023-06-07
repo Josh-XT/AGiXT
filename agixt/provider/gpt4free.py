@@ -90,18 +90,16 @@ class Gpt4freeProvider:
                                     "status" in response
                                     and response["status"] == "Fail"
                                 ):
-                                    await self.provider_failure(provider=provider)
                                     response = None
                             if (
                                 response
                                 == "Unable to fetch the response, Please try again."
                             ):
-                                await self.provider_failure(provider=provider)
                                 response = None
-                            if final_response == None:
-                                final_response = response
-                            else:
-                                await self.provider_failure(provider=provider)
+                        if response:
+                            final_response = response
+                        else:
+                            await self.provider_failure(provider)
                     if final_response:
                         if len(final_response) > 1:
                             return final_response
