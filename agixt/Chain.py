@@ -151,29 +151,38 @@ class Chain:
                 if "{user_input}" in value:
                     value = value.replace("{user_input}", user_input)
                 if "{STEP" in value:
+                    # Count how many times {STEP is in the value
+                    step_count = value.count("{STEP")
+                    for i in range(step_count):
+                        # Get the step number from value between {STEP and }
+                        new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                        # get the response from the step number
+                        step_response = self.get_step_response(
+                            chain_name=chain_name, step_number=new_step_number
+                        )
+                        # replace the {STEPx} with the response
+                        value = value.replace(
+                            f"{{STEP{new_step_number}}}", step_response
+                        )
+                    new_prompt_content[arg] = value
+        elif isinstance(prompt_content, str):
+            if "{user_input}" in prompt_content:
+                new_prompt_content = prompt_content.replace("{user_input}", user_input)
+            if "{STEP" in prompt_content:
+                step_count = value.count("{STEP")
+                for i in range(step_count):
                     # Get the step number from value between {STEP and }
-                    new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                    new_step_number = int(
+                        prompt_content.split("{STEP")[1].split("}")[0]
+                    )
                     # get the response from the step number
                     step_response = self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
                     # replace the {STEPx} with the response
-                    value = value.replace(f"{{STEP{new_step_number}}}", step_response)
-                new_prompt_content[arg] = value
-        elif isinstance(prompt_content, str):
-            if "{user_input}" in prompt_content:
-                new_prompt_content = prompt_content.replace("{user_input}", user_input)
-            if "{STEP" in prompt_content:
-                # Get the step number from value between {STEP and }
-                new_step_number = int(prompt_content.split("{STEP")[1].split("}")[0])
-                # get the response from the step number
-                step_response = self.get_step_response(
-                    chain_name=chain_name, step_number=new_step_number
-                )
-                # replace the {STEPx} with the response
-                new_prompt_content = prompt_content.replace(
-                    f"{{STEP{new_step_number}}}", step_response
-                )
+                    new_prompt_content = prompt_content.replace(
+                        f"{{STEP{new_step_number}}}", step_response
+                    )
         return new_prompt_content
 
     async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
