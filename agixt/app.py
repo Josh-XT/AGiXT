@@ -44,6 +44,14 @@ class AgentNewName(BaseModel):
     new_name: str
 
 
+class AgentPrompt(BaseModel):
+    prompt_name: str
+    prompt_args: dict
+    websearch: bool
+    websearch_depth: int
+    context_results: int
+
+
 class Objective(BaseModel):
     objective: str
 
@@ -253,6 +261,23 @@ async def instruct(agent_name: str, prompt: Prompt):
     response = await agent.run(
         task=prompt.prompt,
         prompt="instruct",
+    )
+    return {"response": str(response)}
+
+
+@app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
+async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
+    agent = AGiXT(agent_name=agent_name)
+    task = (
+        agent_prompt.prompt_args["task"] if "task" in agent_prompt.prompt_args else ""
+    )
+    response = await agent.run(
+        task=task,
+        prompt=agent_prompt.prompt_name,
+        websearch=agent_prompt.websearch,
+        websearch_depth=agent_prompt.websearch_depth,
+        context_results=agent_prompt.context_results,
+        **agent_prompt.prompt_args,
     )
     return {"response": str(response)}
 
