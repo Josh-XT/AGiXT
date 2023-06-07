@@ -31,7 +31,7 @@ jobs:
   test-agixt:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: agixt/tests.ipynb
+      notebook: tests/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
       additional-python-dependencies: requests python-dotenv
