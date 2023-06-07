@@ -285,9 +285,8 @@ class AGiXT:
             **kwargs,
         )
         execution_response = await self.run(
-            task=task,
-            prompt="SmartInstruct-Execution",
-            previous_response=resolver,
+            task=f"{task}\nContext:\n{resolver}",
+            prompt="instruct",
             **kwargs,
         )
         response = f"{resolver}\n\n{execution_response}"
