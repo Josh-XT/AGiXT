@@ -164,7 +164,7 @@ class Chain:
                         value = value.replace(
                             f"{{STEP{new_step_number}}}", step_response
                         )
-                    new_prompt_content[arg] = value
+                new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
             if "{user_input}" in prompt_content:
                 new_prompt_content = prompt_content.replace("{user_input}", user_input)
@@ -183,6 +183,8 @@ class Chain:
                     new_prompt_content = prompt_content.replace(
                         f"{{STEP{new_step_number}}}", step_response
                     )
+            if new_prompt_content == {}:
+                new_prompt_content = prompt_content
         return new_prompt_content
 
     async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
