@@ -3,6 +3,9 @@ from ApiClient import ApiClient
 import logging
 from auth_libs.Users import check_auth_status
 
+from components.verify_backend import verify_backend
+verify_backend()
+
 
 st.set_page_config(
     page_title="Chains",
