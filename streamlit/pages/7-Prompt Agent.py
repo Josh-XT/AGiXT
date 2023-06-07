@@ -27,7 +27,7 @@ prompt_args = api_client.get_prompt_args(prompt_name)
 # Add input fields for prompt arguments
 st.header("Prompt arguments")
 prompt_args_values = {}
-skip_args = ["command_list", "context", "COMMANDS"]
+skip_args = ["command_list", "context", "COMMANDS", "date"]
 for arg in prompt_args:
     if arg not in skip_args:
         prompt_args_values[arg] = st.text_input(arg)

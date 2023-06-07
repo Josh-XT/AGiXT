@@ -27,7 +27,7 @@ st.markdown("### Predefined Injection Variables")
 st.markdown(
     """
 - `{agent_name}` will cause the agent name to be injected.
-- `{context}` will cause the current context from memory to be injected.
+- `{context}` will cause the current context from memory to be injected. This will only work if you have `{task}` in your prompt arguments for the memory search.
 - `{date}` will cause the current date and timestamp to be injected.
 - `{COMMANDS}` will cause the available commands list to be injected and for automatic commands execution from the agent based on its suggestions.
 - `{command_list}` will cause the available commands list to be injected, but will not execute any commands the AI chooses. Useful on validation steps.
