@@ -6,6 +6,11 @@ from auth_libs.Users import check_auth_status, logout_button
 from components.agent_selector import agent_selector
 import logging
 
+st.set_page_config(
+    page_title="Profile",
+    page_icon=":bust_in_silhouette:",
+    layout="wide",
+)
 
 # Check if the user is logged in
 st.session_state["login_page"] = "Profile_Page"

@@ -18,7 +18,7 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
-        self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb"]
+        self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb", "Poe"]
         self.account_tokens = {}
 
     def create_account(self, provider, module):
@@ -32,6 +32,17 @@ class Gpt4freeProvider:
             # handle other exceptions here
             logging.error(f"Failed to create account for {provider}: {e}")
             return None
+
+    async def provider_failure(self, provider):
+        if provider not in self.FAILED_PROVIDERS:
+            self.FAILED_PROVIDERS.append(provider)
+            logging.info(f"[GPT4Free] Failed provider: {provider}")
+            if len(self.FAILED_PROVIDERS) == len(self.providers):
+                self.FAILED_PROVIDERS = []
+                logging.info(
+                    "All providers failed, sleeping for 10 seconds before trying again..."
+                )
+                time.sleep(10)
 
     async def instruct(self, prompt, tokens: int = 0):
         final_response = None
@@ -79,31 +90,30 @@ class Gpt4freeProvider:
                                     "status" in response
                                     and response["status"] == "Fail"
                                 ):
-                                    self.FAILED_PROVIDERS.append(provider)
-                                    logging.info(
-                                        f"Failed to use {provider}: {response}"
-                                    )
                                     response = None
                             if (
                                 response
                                 == "Unable to fetch the response, Please try again."
                             ):
-                                self.FAILED_PROVIDERS.append(provider)
-                                logging.info(f"Failed to use {provider}: {response}")
                                 response = None
-                            if final_response == None:
-                                final_response = response
+                        if response:
+                            final_response = response
+                        else:
+                            await self.provider_failure(provider)
                     if final_response:
                         if len(final_response) > 1:
                             return final_response
+                    else:
+                        logging.info(f"Failed to use {provider}")
+                        self.FAILED_PROVIDERS.append(provider)
+                        if len(self.FAILED_PROVIDERS) == len(self.providers):
+                            self.FAILED_PROVIDERS = []
+                            logging.info(
+                                "All providers failed, sleeping for 10 seconds before trying again..."
+                            )
+                            time.sleep(10)
                 except Exception as e:
-                    logging.info(f"Failed to use {provider}: {e}")
-                    self.FAILED_PROVIDERS.append(provider)
+                    await self.provider_failure(provider=provider)
                     final_response = None
 
-            if len(self.FAILED_PROVIDERS) == len(self.providers):
-                self.FAILED_PROVIDERS = []
-                logging.info(
-                    "All providers failed, sleeping for 10 seconds before trying again..."
-                )
-                time.sleep(10)
+            await self.provider_failure(provider=provider)

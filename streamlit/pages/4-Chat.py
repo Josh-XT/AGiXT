@@ -1,18 +1,13 @@
 import streamlit as st
-from streamlit import (
-    markdown,
-    header,
-    checkbox,
-    container,
-    text_input,
-    button,
-    spinner,
-    error,
-    warning,
-)
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
+
+st.set_page_config(
+    page_title="Chat",
+    page_icon=":speech_balloon:",
+    layout="wide",
+)
 
 check_auth_status()
 agent_name = agent_selector()
@@ -23,19 +18,17 @@ def render_chat_history(chat_container, chat_history):
     with chat_container:
         for chat in chat_history:
             if "role" in chat and "message" in chat:
-                markdown(
+                st.markdown(
                     f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
                     unsafe_allow_html=True,
                 )
 
 
-header("Chat with Agent")
-
-smart_chat_toggle = checkbox("Enable Smart Chat")
-
+st.title(":speech_balloon: Chat with Agent")
+smart_chat_toggle = st.checkbox("Enable Smart Chat")
 st.session_state["chat_history"] = {}
 
-chat_container = container()
+chat_container = st.container()
 
 if agent_name:
     try:
@@ -43,21 +36,25 @@ if agent_name:
             agent_name=agent_name
         )
     except:
-        st.session_state["chat_history"][
-            agent_name
-        ] = []  # initialize as an empty list, not a dictionary
+        st.session_state["chat_history"][agent_name] = []
 
-    render_chat_history(
-        chat_container=chat_container,
-        chat_history=st.session_state["chat_history"][agent_name],
-    )
+    with st.container():
+        st.write(
+            f'<div style="width: 80%;">',
+            unsafe_allow_html=True,
+        )
+        render_chat_history(
+            chat_container=chat_container,
+            chat_history=st.session_state["chat_history"][agent_name],
+        )
 
-    chat_prompt = text_input("Enter your message", key="chat_prompt")
-    send_button = button("Send Message")
+    st.write("---")
+    chat_prompt = st.text_input("Enter your message", key="chat_prompt")
+    send_button = st.button("Send Message")
 
     if send_button:
         if agent_name and chat_prompt:
-            with spinner("Thinking, please wait..."):
+            with st.spinner("Thinking, please wait..."):
                 if smart_chat_toggle:
                     response = ApiClient.smartchat(
                         agent_name=agent_name,
@@ -71,11 +68,16 @@ if agent_name:
                 {"role": agent_name, "message": response},
             ]
             st.session_state["chat_history"][agent_name].extend(chat_entry)
-            render_chat_history(
-                chat_container=chat_container,
-                chat_history=st.session_state["chat_history"][agent_name],
-            )
+            with st.container():
+                st.write(
+                    f'<div style="width: 80%;">',
+                    unsafe_allow_html=True,
+                )
+                render_chat_history(
+                    chat_container=chat_container,
+                    chat_history=st.session_state["chat_history"][agent_name],
+                )
         else:
-            error("Agent name and message are required.")
+            st.error("Agent name and message are required.")
 else:
-    warning("Please select an agent to start chatting.")
+    st.warning("Please select an agent to start chatting.")

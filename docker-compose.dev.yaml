@@ -1,4 +1,9 @@
 services:
   agixt:
+    build: .
+    ports:
+      - "8501:8501"
+      - "7437:7437"
     volumes:
       - ./agixt:/agixt
+      - ./streamlit:/streamlit
