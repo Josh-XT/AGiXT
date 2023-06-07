@@ -214,8 +214,10 @@ class Chain:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--chain", type=str, default="")
+    parser.add_argument("--user_input", type=str, default="")
     args = parser.parse_args()
     chain_name = args.chain
+    user_input = args.user_input
     import asyncio
 
-    asyncio.run(Chain().run_chain(chain_name=chain_name))
+    asyncio.run(Chain().run_chain(chain_name=chain_name, user_input=user_input))

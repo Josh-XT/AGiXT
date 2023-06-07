@@ -188,8 +188,10 @@ class ApiClient:
         return response.json()["chain"]
 
     @staticmethod
-    def run_chain(chain_name: str) -> str:
-        response = requests.post(f"{base_uri}/api/chain/{chain_name}/run")
+    def run_chain(chain_name: str, user_input: str) -> str:
+        response = requests.post(
+            f"{base_uri}/api/chain/{chain_name}/run", json={"user_input": user_input}
+        )
         return response.json()["message"]
 
     @staticmethod
