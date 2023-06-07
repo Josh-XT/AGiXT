@@ -69,15 +69,8 @@ We will install AGiXT in a virtual environment. This will ensure that the depend
 
 ```
 git clone https://github.com/Josh-XT/AGiXT
-pip install poetry==1.5.1
-export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 cd AGiXT
-poetry install --with gpt4free
-poetry run playwright install
-cd streamlit
-poetry run streamlit run Main.py &
-cd ../agixt
-poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 2
+./AGiXT.sh
 ```
 
 Access the web interface at http://localhost:8501
