@@ -23,7 +23,7 @@ COPY poetry.lock .
 ARG HNSWLIB_NO_NATIVE=1
 RUN poetry install --no-root --with gpt4free
 RUN poetry run playwright install --with-deps
-COPY --link . .
+COPY . .
 
 ENV PATH="/usr/local/bin:$PATH"
 ENV LD_PRELOAD=libgomp.so.1
