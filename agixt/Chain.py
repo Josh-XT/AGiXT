@@ -189,7 +189,9 @@ class Chain:
                 else:
                     prompt_name = ""
                 args = self.get_step_content(
-                    chain_name=chain_name, prompt_content=step["prompt"]
+                    chain_name=chain_name,
+                    prompt_content=step["prompt"],
+                    user_input=user_input,
                 )
                 if prompt_type == "Command":
                     return await Extensions(
