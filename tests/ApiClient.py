@@ -286,7 +286,7 @@ class ApiClient:
     @staticmethod
     def get_prompt(prompt_name: str) -> Dict[str, Any]:
         response = requests.get(f"{base_uri}/api/prompt/{prompt_name}")
-        return response.json()
+        return response.json()["prompt"]
 
     @staticmethod
     def get_prompts() -> List[str]:

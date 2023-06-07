@@ -46,7 +46,7 @@ else:
     prompt_name = st.selectbox("Existing Prompts", prompt_list)
     prompt_content = st.text_area(
         "Prompt Content",
-        ApiClient.get_prompt(prompt_name) if prompt_name else "",
+        ApiClient.get_prompt(prompt_name=prompt_name) if prompt_name else "",
         height=300,
     )
 
