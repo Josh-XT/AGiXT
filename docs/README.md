@@ -24,10 +24,10 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Monitor Your Usage!](#monitor-your-usage)
     - [Under Development!](#under-development)
   - [Key Features 🗝️](#key-features-️)
-  - [Quickstart using docker](#quickstart-using-docker)
-  - [Local Development](#local-development)
-    - [Setup AGiXT](#setup-agixt)
-    - [API Endpoints](#api-endpoints)
+  - [Quick Start Guide](#quick-start-guide)
+    - [Local Quick Start Guide](#local-quick-start-guide)
+    - [Docker Quick Start Guide](#docker-quick-start-guide)
+      - [Update Docker Containers](#update-docker-containers)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
   - [Contributing](#contributing)
@@ -59,13 +59,13 @@ This project is under active development and may still have issues. We appreciat
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
-## Quickstart using docker
+## Quick Start Guide
+You have two options for running AGiXT currently, you can either run it with Python locally or you can run it with Docker.
 
-Visit our [Quick Start](https://josh-xt.github.io/AGiXT/1-Getting%20started/Quick%20Start.html) documentation.
+### Local Quick Start Guide
+To get started quickly locally, you will need at least Python 3.10.6 installed.  If using Windows, we recommend installing [Windows Subsystem For Linux](https://learn.microsoft.com/en-us/windows/wsl/install) first.
 
-## Local Development
-### Setup AGiXT
-We will install AGiXT in a virtual environment. This will ensure that the dependencies of AGiXT do not interfere with other Python projects on your system.  We will also use playwright for web scraping.  This requires a browser to be installed on your system.  If you do not have a browser installed, you can install one with `playwright install`.
+Open a terminal and run the following commands:
 
 ```
 git clone https://github.com/Josh-XT/AGiXT
@@ -73,17 +73,31 @@ cd AGiXT
 ./AGiXT.sh
 ```
 
-Access the web interface at http://localhost:8501
+Any time you want to run AGiXT after that, you can just run `./AGiXT.sh` from the AGiXT directory.  This will pull the latest changes from the main branch then launch AGiXT.
 
-### API Endpoints
+You may have to press `Ctrl+C` multiple times to stop AGiXT running in the terminal due to it running multiple processes.
 
-AGiXT provides several API endpoints for managing agents, prompts and chains.
+- Access the web interface at http://localhost:8501
+- Access the AGiXT API documentation at http://localhost:7437
 
-To learn more about the API endpoints and their usage, visit the API documentation at 
-- [Swagger](http://localhost:7437)
-- [Redoc](http://localhost:7437/redoc)
+### Docker Quick Start Guide
+To get started quickly with Docker, you will need at least Docker 24.0.2 installed. You can check your version by running `docker --version` in a terminal. You can install Docker by following the instructions [here](https://docs.docker.com/get-docker/).
 
-This documentation is hosted locally and the back end must be running for these links to work.
+Open a terminal and run the following commands:
+```
+git clone https://github.com/Josh-XT/AGiXT
+cd AGiXT
+docker-compose up
+```
+
+- Access the web interface at http://localhost:8501
+- Access the AGiXT API documentation at http://localhost:7437
+#### Update Docker Containers
+
+```
+docker compose pull
+```
+
 ## Configuration
 
 Each AGiXT Agent has its own settings for interfacing with AI providers, and other configuration options. These settings can be set and modified through the web interface.
