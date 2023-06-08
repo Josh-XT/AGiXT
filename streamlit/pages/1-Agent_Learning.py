@@ -5,10 +5,11 @@ from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 st.set_page_config(
-    page_title="Learning",
+    page_title="Agent Learning",
     page_icon=":brain:",
     layout="wide",
 )
@@ -18,7 +19,7 @@ check_auth_status()
 
 agent_name = agent_selector()
 
-st.title("Manage Learning")
+st.title("Agent Learning")
 
 # Initialize session state for stop events and agent status if not exist
 if "agent_status" not in st.session_state:

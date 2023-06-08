@@ -8,7 +8,7 @@ verify_backend()
 
 
 st.set_page_config(
-    page_title="Chains",
+    page_title="Chain Management",
     page_icon=":chains:",
     layout="wide",
 )
@@ -16,7 +16,7 @@ st.set_page_config(
 check_auth_status()
 
 
-st.header("Manage Chains")
+st.header("Chain Management")
 st.markdown("### Predefined Injection Variables")
 st.markdown(
     """

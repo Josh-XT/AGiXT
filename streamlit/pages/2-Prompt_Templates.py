@@ -3,17 +3,18 @@ from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 st.set_page_config(
-    page_title="Prompts",
+    page_title="Prompt Templates",
     page_icon=":scroll:",
     layout="wide",
 )
 
 check_auth_status()
 
-st.header("Manage Prompts")
+st.header("Prompt Templates")
 st.markdown("### Usage Instructions")
 st.markdown(
     """

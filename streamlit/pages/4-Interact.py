@@ -10,11 +10,9 @@ st.set_page_config(
 )
 
 check_auth_status()
-agent_name = agent_selector()
 
 # Create an instance of the API Client
 api_client = ApiClient()
-
 
 # Fetch available prompts
 prompts = api_client.get_prompts()
@@ -24,6 +22,7 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Chains"])
 
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
+    agent_name = agent_selector()
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
     # Fetch arguments for the selected prompt
@@ -71,6 +70,7 @@ if mode == "Prompt":
 # If the user selects Chat, then show the chat functionality
 # If the user selects Chat, then show the chat functionality
 elif mode == "Chat":
+    agent_name = agent_selector()
     # Add a checkbox for smart chat option
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
@@ -144,6 +144,7 @@ elif mode == "Chat":
 
 # If the user selects Instruct, then show the instruct functionality
 if mode == "Instruct":
+    agent_name = agent_selector()
     # Add a checkbox for smart instruct option
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
 
