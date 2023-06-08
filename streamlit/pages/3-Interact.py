@@ -4,6 +4,7 @@ from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 from components.learning import learning_page
 from components.verify_backend import verify_backend
+from components.docs import agixt_docs
 
 verify_backend()
 # check_auth_status()
@@ -13,6 +14,7 @@ st.set_page_config(
     page_icon=":speech_balloon:",
     layout="wide",
 )
+agixt_docs()
 
 st.header("Interact with Agents")
 # Create an instance of the API Client
