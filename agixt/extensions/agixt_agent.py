@@ -180,11 +180,12 @@ class agixt_agent(Extensions):
         websearch_depth: int = 3,
         context_results: int = 5,
     ):
-        match = re.findall(r"\[\{.*?\}\]", tasks)
-        if match:
-            task_list = [ast.literal_eval(task_string) for task_string in match]
-        else:
-            return "No tasks found."
+        task_list = tasks.split("\n")
+        task_list = [
+            task
+            for task in task_list
+            if task and task[0] in [str(i) for i in range(10)]
+        ]
         responses = []
         for task in task_list:
             if "task_name" in task:
