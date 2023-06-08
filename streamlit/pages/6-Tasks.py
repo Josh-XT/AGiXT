@@ -2,7 +2,6 @@ import streamlit as st
 from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
-
 from components.verify_backend import verify_backend
 
 verify_backend()
@@ -14,11 +13,11 @@ st.set_page_config(
     layout="wide",
 )
 
-check_auth_status()
+# check_auth_status()
 
-agent_name = agent_selector()
+
 st.title("Manage Tasks")
-
+agent_name = agent_selector()
 
 if agent_name:
     smart_task_toggle = st.checkbox("Enable Smart Task")
