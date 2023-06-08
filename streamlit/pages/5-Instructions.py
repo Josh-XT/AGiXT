@@ -14,6 +14,9 @@ from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 
+from components.verify_backend import verify_backend
+verify_backend()
+
 
 st.set_page_config(
     page_title="Instruct",
