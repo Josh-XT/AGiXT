@@ -45,6 +45,7 @@ class AgentNewName(BaseModel):
 
 
 class AgentPrompt(BaseModel):
+    user_input: str
     prompt_name: str
     prompt_args: dict
     websearch: bool
@@ -268,13 +269,8 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = AGiXT(agent_name=agent_name)
-    user_input = (
-        agent_prompt.prompt_args["user_input"]
-        if "user_input" in agent_prompt.prompt_args
-        else ""
-    )
     response = await agent.run(
-        user_input=user_input,
+        user_input=agent_prompt.user_input,
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
         websearch_depth=agent_prompt.websearch_depth,
