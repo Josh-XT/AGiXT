@@ -169,32 +169,6 @@ class ApiClient:
         return response.json()["message"]
 
     @staticmethod
-    def start_task_agent(agent_name: str, objective: str) -> str:
-        response = requests.post(
-            f"{base_uri}/api/agent/{agent_name}/task",
-            json={"objective": objective},
-        )
-        try:
-            return response.json()["message"]
-        except:
-            return response.json()
-
-    @staticmethod
-    def get_tasks(agent_name) -> List[Any]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/tasks")
-        return response.json()["tasks"]
-
-    @staticmethod
-    def get_task_output(agent_name: str) -> Dict[str, Union[str, Optional[str]]]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/task")
-        return response.json()["output"]
-
-    @staticmethod
-    def get_task_status(agent_name: str) -> Dict[str, bool]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/task/status")
-        return response.json()["status"]
-
-    @staticmethod
     def get_chains() -> List[str]:
         response = requests.get(f"{base_uri}/api/chain")
         return response.json()

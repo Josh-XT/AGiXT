@@ -6,7 +6,6 @@ from Config import Config
 from AGiXT import AGiXT
 from Agent import Agent
 from Chain import Chain
-from Tasks import Tasks
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
@@ -339,55 +338,6 @@ async def toggle_command(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
         )
-
-
-@app.post("/api/agent/{agent_name}/task", tags=["Agent"])
-async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
-    task = Tasks(agent_name=agent_name)
-    # If it's running stop it.
-    task_status = task.get_status()
-    if task_status != False:
-        task.stop_tasks()
-        return ResponseMessage(message="Task agent stopped")
-    # If it's not running start it.
-    try:
-        asyncio.create_task(task.run_task(objective=objective.objective))
-        return ResponseMessage(message="Task agent started")
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail="Error occurred while starting the task"
-        )
-
-
-# Get tasks Tasks(agent_name=agent_name).get_tasks()
-@app.get("/api/agent/{agent_name}/tasks", tags=["Agent"])
-async def get_tasks(agent_name: str) -> Dict[str, List[str]]:
-    tasks = Tasks(agent_name=agent_name).get_tasks()
-    return {"tasks": tasks}
-
-
-@app.get("/api/agent/{agent_name}/task", tags=["Agent"])
-async def get_task_output(agent_name: str) -> TaskOutput:
-    try:
-        task_output = Tasks(agent_name=agent_name).get_task_output()
-    except:
-        task_output = False
-    if task_output != False:
-        return TaskOutput(
-            output=task_output,
-            message="Task agent is not running",
-        )
-    else:
-        return TaskOutput(
-            output="",
-            message="Task agent is not running",
-        )
-
-
-@app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
-async def get_task_status(agent_name: str):
-    task_status = Tasks(agent_name=agent_name).get_status()
-    return {"status": task_status}
 
 
 @app.get("/api/chain", tags=["Chain"])
