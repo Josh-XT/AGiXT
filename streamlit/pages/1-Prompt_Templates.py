@@ -1,7 +1,6 @@
 import streamlit as st
 from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
-
 from components.verify_backend import verify_backend
 
 verify_backend()
@@ -41,25 +40,28 @@ st.markdown(
 
 prompt_list = ApiClient.get_prompts()
 
-if st.checkbox("Add New Prompt"):
-    action = "Add Prompt"
+action = st.selectbox("Action", ["Create New Prompt", "Modify Prompt", "Delete Prompt"])
+
+if action == "Create New Prompt":
     prompt_name = st.text_input("Prompt Name")
     prompt_content = st.text_area("Prompt Content", height=300)
-else:
-    action = st.selectbox("Action", ["Update Prompt", "Delete Prompt"])
+elif action == "Modify Prompt":
     prompt_name = st.selectbox("Existing Prompts", prompt_list)
     prompt_content = st.text_area(
         "Prompt Content",
         ApiClient.get_prompt(prompt_name=prompt_name) if prompt_name else "",
         height=300,
     )
+elif action == "Delete Prompt":
+    prompt_name = st.selectbox("Existing Prompts", prompt_list)
+    prompt_content = None
 
 if st.button("Perform Action"):
     if prompt_name and (prompt_content or action == "Delete Prompt"):
-        if action == "Add Prompt":
+        if action == "Create New Prompt":
             ApiClient.add_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' added.")
-        elif action == "Update Prompt":
+        elif action == "Modify Prompt":
             ApiClient.update_prompt(prompt_name, prompt_content)
             st.success(f"Prompt '{prompt_name}' updated.")
         elif action == "Delete Prompt":
