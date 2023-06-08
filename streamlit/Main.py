@@ -20,7 +20,7 @@ if light_theme == True:
     st.markdown(
         """
         <div style="text-align: center;">
-        <img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="65%">
+        <img src="https://josh-xt.github.io/AGiXT/images/AGiXT-gradient-flat.svg" width="65%">
         </div>
         """,
         unsafe_allow_html=True,
@@ -29,7 +29,7 @@ else:
     st.markdown(
         f"""
         <div style="text-align: center;">
-        <img src="https://josh-xt.github.io/AGiXT/images/AGiXTwhiteborder.svg" width="65%">
+        <img src="https://josh-xt.github.io/AGiXT/images/AGiXT-gradient-light.svg" width="65%">
         </div>
         """,
         unsafe_allow_html=True,
