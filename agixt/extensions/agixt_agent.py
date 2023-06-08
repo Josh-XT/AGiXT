@@ -4,8 +4,6 @@ from Chain import Chain
 from AGiXT import AGiXT
 import json
 import os
-import re
-import ast
 from typing import List, Optional
 
 
@@ -22,6 +20,7 @@ class agixt_agent(Extensions):
             "Write Tests": self.write_tests,
             "Create a new command": self.create_command,
             "Execute Task List": self.execute_task_list,
+            "Prompt AI Agent": self.prompt_agent,
         }
         if agents != None:
             for agent in agents:
