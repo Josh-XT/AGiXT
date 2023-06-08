@@ -4,13 +4,13 @@ from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 
 st.set_page_config(
-    page_title="Prompt Agent",
+    page_title="Interact with Agents",
     page_icon=":speech_balloon:",
     layout="wide",
 )
 
 check_auth_status()
-
+st.header("Interact with Agents")
 # Create an instance of the API Client
 api_client = ApiClient()
 
@@ -25,6 +25,7 @@ if "chat_history" not in st.session_state:
 
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
+    st.markdown("### Choose an Agent and Prompt")
     agent_name = agent_selector()
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
@@ -32,7 +33,7 @@ if mode == "Prompt":
     prompt_args = api_client.get_prompt_args(prompt_name=prompt_name)
 
     # Add input fields for prompt arguments
-    st.header("Prompt arguments")
+    st.markdown("### Prompt Variables")
     prompt_args_values = {}
     skip_args = ["command_list", "context", "COMMANDS", "date"]
     for arg in prompt_args:
@@ -73,6 +74,7 @@ if mode == "Prompt":
 # If the user selects Chat, then show the chat functionality
 # If the user selects Chat, then show the chat functionality
 elif mode == "Chat":
+    st.markdown("### Choose an Agent to Chat With")
     agent_name = agent_selector()
     # Add a checkbox for smart chat option
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
@@ -147,6 +149,7 @@ elif mode == "Chat":
 
 # If the user selects Instruct, then show the instruct functionality
 if mode == "Instruct":
+    st.markdown("### Choose an Agent to Instruct")
     agent_name = agent_selector()
     # Add a checkbox for smart instruct option
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
@@ -219,7 +222,7 @@ if mode == "Instruct":
 
 
 if mode == "Chains":
-    st.header("Run Chain")
+    st.markdown("### Choose a Chain to Run")
     chain_names = ApiClient.get_chains()
 
     chain_action = "Run Chain"
