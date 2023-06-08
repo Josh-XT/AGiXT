@@ -35,8 +35,7 @@ protobuf==3.20.*
 tweepy==4.14.0
 uvicorn==0.22.0
 webdriver_manager==3.8.6
-torch @ https://download.pytorch.org/whl/cpu/torch-2.0.1-cp310-cp310-linux_x86_64.whl; platform_machine == 'x86_64' and sys_platform == 'linux'
-torch @ https://pypi.org/project/torch/2.0.1/#files; platform_machine == 'aarch64' or platform_machine == 'arm64' or sys_platform == 'win32'
+torch==2.0.1
 transformers[accelerate]==4.29.2
 sentence-transformers==2.2.2
 llama-cpp-python==0.1.55
