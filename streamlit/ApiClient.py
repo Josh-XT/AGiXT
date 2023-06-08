@@ -85,13 +85,16 @@ class ApiClient:
         agent_name: str,
         prompt_name: int,
         prompt_args: dict,
+        user_input: str = "",
         websearch: bool = False,
         websearch_depth: int = 3,
         context_results: int = 5,
+        shots: int = 1,
     ) -> str:
         response = requests.post(
             f"{base_uri}/api/agent/{agent_name}/prompt",
             json={
+                "user_input": user_input,
                 "prompt_name": prompt_name,
                 "prompt_args": prompt_args,
                 "websearch": websearch,
@@ -99,6 +102,25 @@ class ApiClient:
                 "context_results": context_results,
             },
         )
+        if shots > 1:
+            responses = [response.json()["response"]]
+            for shot in range(shots - 1):
+                response = requests.post(
+                    f"{base_uri}/api/agent/{agent_name}/prompt",
+                    json={
+                        "user_input": user_input,
+                        "prompt_name": prompt_name,
+                        "prompt_args": prompt_args,
+                        "context_results": context_results,
+                    },
+                )
+                responses.append(response.json()["response"])
+            return "\n".join(
+                [
+                    f"Response {shot + 1}:\n{response}"
+                    for shot, response in enumerate(responses)
+                ]
+            )
         return response.json()["response"]
 
     @staticmethod
