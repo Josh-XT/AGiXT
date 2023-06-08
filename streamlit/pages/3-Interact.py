@@ -78,10 +78,34 @@ if mode == "Prompt":
         st.write(f"{agent_name}: {agent_prompt_resp}")
 
 # If the user selects Chat, then show the chat functionality
-# If the user selects Chat, then show the chat functionality
-elif mode == "Chat":
+
+
+def handle_message(chat_prompt):
+    if agent_name and chat_prompt:
+        with st.spinner("Thinking, please wait..."):
+            if smart_chat_toggle:
+                response = ApiClient.smartchat(
+                    agent_name=agent_name,
+                    prompt=chat_prompt,
+                    shots=3,
+                )
+            else:
+                response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
+        chat_entry = [
+            {"role": "USER", "message": chat_prompt},
+            {"role": agent_name, "message": response},
+        ]
+        st.session_state["chat_history"][agent_name].extend(chat_entry)
+        render_chat_history(
+            chat_container=chat_container,
+            chat_history=st.session_state["chat_history"][agent_name],
+        )
+
+
+if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
     agent_name = agent_selector()
+
     # Add a checkbox for smart chat option
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
 
@@ -123,35 +147,10 @@ elif mode == "Chat":
     # Add a button to send the chat prompt
     send_button = st.button("Send Message")
 
-    # If the user clicks the send button, then send the chat prompt to the agent
-    if send_button:
-        if agent_name and chat_prompt:
-            with st.spinner("Thinking, please wait..."):
-                if smart_chat_toggle:
-                    response = ApiClient.smartchat(
-                        agent_name=agent_name,
-                        prompt=chat_prompt,
-                        shots=3,
-                    )
-                else:
-                    response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
-            chat_entry = [
-                {"role": "USER", "message": chat_prompt},
-                {"role": agent_name, "message": response},
-            ]
-            st.session_state["chat_history"][agent_name].extend(chat_entry)
-            with st.container():
-                st.write(
-                    f'<div style="width: 80%;">',
-                    unsafe_allow_html=True,
-                )
-                render_chat_history(
-                    chat_container=chat_container,
-                    chat_history=st.session_state["chat_history"][agent_name],
-                )
-        else:
-            st.error("Agent name and message are required.")
-
+    # If the user clicks the send button or the chat_prompt has changed, then send the chat prompt to the agent
+    if send_button or chat_prompt != st.session_state.get("last_chat_prompt"):
+        handle_message(chat_prompt)
+        st.session_state["last_chat_prompt"] = chat_prompt
 
 # If the user selects Instruct, then show the instruct functionality
 if mode == "Instruct":
