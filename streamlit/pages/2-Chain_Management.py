@@ -16,7 +16,7 @@ st.set_page_config(
 
 # check_auth_status()
 agixt_docs()
-states = {}
+st.session_state = {}
 st.header("Chain Management")
 
 
@@ -87,7 +87,9 @@ if st.button("Perform Action"):
                     agent_name = step["agent_name"]
                     prompt_type = step["prompt_type"]
                     prompt = step.get("prompt", "")
-                    states[f"selected_agent_{step_number}"] = states.get(
+                    st.session_state[
+                        f"selected_agent_{step_number}"
+                    ] = st.session_state.get(
                         f"selected_agent_{step_number}", agent_name
                     )
 
@@ -103,18 +105,23 @@ if st.button("Perform Action"):
                         options=[""] + [agent["name"] for agent in agents],
                         index=(
                             [agent["name"] for agent in agents].index(
-                                states[f"selected_agent_{step_number}"]
+                                st.session_state[f"selected_agent_{step_number}"]
                             )
                             + 1
                         )
-                        if states[f"selected_agent_{step_number}"]
+                        if st.session_state[f"selected_agent_{step_number}"]
                         in [agent["name"] for agent in agents]
                         else 0,
                         key=f"agent_name_{step_number}",
                     )
 
-                    if modify_agent_name != states[f"selected_agent_{step_number}"]:
-                        states[f"selected_agent_{step_number}"] = modify_agent_name
+                    if (
+                        modify_agent_name
+                        != st.session_state[f"selected_agent_{step_number}"]
+                    ):
+                        st.session_state[
+                            f"selected_agent_{step_number}"
+                        ] = modify_agent_name
 
                     modify_prompt_type = st.selectbox(
                         "Select Prompt Type",
@@ -196,7 +203,9 @@ if st.button("Perform Action"):
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    modify_prompt[arg] = states[f"{arg}_{step_number}"]
+                                    modify_prompt[arg] = st.session_state[
+                                        f"{arg}_{step_number}"
+                                    ]
                         elif modify_prompt_type == "Prompt":
                             modify_prompt["prompt_name"] = modify_prompt_name
                             for arg in prompt_args:
@@ -205,7 +214,9 @@ if st.button("Perform Action"):
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    modify_prompt[arg] = states[f"{arg}_{step_number}"]
+                                    modify_prompt[arg] = st.session_state[
+                                        f"{arg}_{step_number}"
+                                    ]
 
                         ApiClient.update_step(
                             chain_name=chain_name,
@@ -328,7 +339,9 @@ if st.button("Perform Action"):
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    prompt_data[arg] = states[f"add_step_{arg}"]
+                                    prompt_data[arg] = st.session_state[
+                                        f"add_step_{arg}"
+                                    ]
                         elif prompt_type == "Prompt":
                             prompt_data["prompt_name"] = prompt_name
                             for arg in prompt_args:
@@ -337,7 +350,9 @@ if st.button("Perform Action"):
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    prompt_data[arg] = states[f"add_step_{arg}"]
+                                    prompt_data[arg] = st.session_state[
+                                        f"add_step_{arg}"
+                                    ]
                         elif step_action == "Update Step":
                             if prompt_type == "Command":
                                 prompt_data = {"command_name": command_name}
@@ -347,7 +362,9 @@ if st.button("Perform Action"):
                                         and arg != "command_list"
                                         and arg != "COMMANDS"
                                     ):
-                                        prompt_data[arg] = states[f"add_step_{arg}"]
+                                        prompt_data[arg] = st.session_state[
+                                            f"add_step_{arg}"
+                                        ]
                             elif prompt_type == "Prompt":
                                 prompt_data = {"prompt_name": prompt_name}
                                 for arg in prompt_args:
@@ -356,7 +373,9 @@ if st.button("Perform Action"):
                                         and arg != "command_list"
                                         and arg != "COMMANDS"
                                     ):
-                                        prompt_data[arg] = states[f"add_step_{arg}"]
+                                        prompt_data[arg] = st.session_state[
+                                            f"add_step_{arg}"
+                                        ]
 
                             ApiClient.update_step(
                                 chain_name=chain_name,
