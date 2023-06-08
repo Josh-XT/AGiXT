@@ -1,13 +1,12 @@
 # Main.py
 import streamlit as st
-from components.agent_selector import agent_selector
-
 from components.verify_backend import verify_backend
+from components.docs import agixt_docs
 
 verify_backend()
 
-with open('./.streamlit/config.toml') as f:
-    if 'Dark' in f.read():
+with open("./.streamlit/config.toml") as f:
+    if "Dark" in f.read():
         light_theme = False
 
 st.set_page_config(
@@ -16,31 +15,22 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-
+agixt_docs()
 if light_theme == True:
     st.markdown(
         """
         <div style="text-align: center;">
-        <center><img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="65%"></center>
+        <img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="65%">
         </div>
         """,
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
-        """
+        f"""
         <div style="text-align: center;">
         <img src="https://josh-xt.github.io/AGiXT/images/AGiXTwhiteborder.svg" width="65%">
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-st.markdown("## Useful Links")
-st.markdown(
-    """
-- [AGiXT Documentation](https://josh-xt.github.io/AGiXT/)
-- [AGiXT GitHub](https://github.com/Josh-XT/AGiXT)
-- [AGiXT Discord](https://discord.gg/d3TkHRZcjD)"""
-)
