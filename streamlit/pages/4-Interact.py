@@ -20,6 +20,9 @@ prompts = api_client.get_prompts()
 # Add a dropdown to select a mode
 mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Chains"])
 
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = {}
+
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
     agent_name = agent_selector()
