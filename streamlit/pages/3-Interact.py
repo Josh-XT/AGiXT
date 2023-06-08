@@ -2,6 +2,7 @@ import streamlit as st
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
+from components.learning import learning_page
 
 st.set_page_config(
     page_title="Interact with Agents",
@@ -18,7 +19,7 @@ api_client = ApiClient()
 prompts = api_client.get_prompts()
 
 # Add a dropdown to select a mode
-mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Chains"])
+mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "Chains"])
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = {}
@@ -220,6 +221,8 @@ if mode == "Instruct":
         else:
             st.error("Agent name and message are required.")
 
+if mode == "Learning":
+    learning_page()
 
 if mode == "Chains":
     st.markdown("### Choose a Chain to Run")
