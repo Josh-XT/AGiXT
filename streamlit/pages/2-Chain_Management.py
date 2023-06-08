@@ -21,22 +21,12 @@ st.header("Chain Management")
 
 
 @st.cache_data
-def cached_get_chains():
-    return ApiClient.get_chains()
-
-
-@st.cache_data
-def cached_get_agents():
-    return ApiClient.get_agents()
-
-
-@st.cache_data
 def cached_get_extensions():
     return ApiClient.get_extensions()
 
 
-chain_names = cached_get_chains()
-agents = cached_get_agents()
+chain_names = ApiClient.get_chains()
+agents = ApiClient.get_agents()
 agent_commands = cached_get_extensions()
 chain_action = st.selectbox("Action", ["Create Chain", "Modify Chain", "Delete Chain"])
 
