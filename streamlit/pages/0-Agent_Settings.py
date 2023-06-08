@@ -15,15 +15,42 @@ st.set_page_config(
     layout="wide",
 )
 agixt_docs()
-# check_auth_status()
 
-providers = ApiClient.get_providers()
-embedders = ApiClient.get_embed_providers()
+
+# check_auth_status()
+@st.cache_data
+def get_providers():
+    return ApiClient.get_providers()
+
+
+@st.cache_data
+def get_embed_providers():
+    return ApiClient.get_embed_providers()
+
+
+@st.cache_data
+def provider_settings(provider_name: str):
+    return ApiClient.get_provider_settings(provider_name)
+
+
+@st.cache_data
+def get_extension_settings():
+    return ApiClient.get_extension_settings()
+
+
+@st.cache_data
+def get_agent_config(agent_name: str):
+    return ApiClient.get_agentconfig(agent_name=agent_name)
+
+
+providers = get_providers()
+embedders = get_embed_providers()
+extension_setting_keys = get_extension_settings()
 
 
 def render_provider_settings(agent_settings, provider_name: str):
     try:
-        required_settings = ApiClient.get_provider_settings(provider_name)
+        required_settings = provider_settings(provider_name)
     except (TypeError, ValueError):
         st.error(
             f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
@@ -96,7 +123,7 @@ if not agent_name:
 
 if agent_name and not new_agent:
     try:
-        agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
+        agent_config = get_agent_config(agent_name=agent_name)
         agent_settings = agent_config.get("settings", {})
         provider_name = agent_settings.get("provider", "")
         provider_name = st.selectbox(
@@ -146,7 +173,6 @@ if agent_name and not new_agent:
             return rendered_settings
 
         st.subheader("Extension Settings")
-        extension_setting_keys = ApiClient.get_extension_settings()
 
         extension_settings = render_extension_settings(
             extension_setting_keys, agent_settings
@@ -208,7 +234,7 @@ if agent_name and not new_agent:
 
         st.subheader("Agent Commands")
         # Fetch the available commands using the `Commands` class
-        available_commands = ApiClient.get_commands(agent_name=agent_name)
+        available_commands = agent_config["commands"]
 
         # Save the existing command state to prevent duplication
         existing_command_states = {

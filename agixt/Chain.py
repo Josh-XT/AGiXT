@@ -4,10 +4,14 @@ from AGiXT import AGiXT
 import argparse
 from Extensions import Extensions
 import logging
+from datetime import datetime
 
 
 class Chain:
     def get_chain(self, chain_name):
+        # if chain/{chain_name}/ exists and create the folder if it does not
+        if not os.path.exists(os.path.join("chains", chain_name)):
+            os.mkdir(os.path.join("chains", chain_name))
         with open(os.path.join("chains", f"{chain_name}.json"), "r") as f:
             chain_data = json.load(f)
         return chain_data
@@ -118,15 +122,16 @@ class Chain:
                 responses[step_data["step"]] = step_response  # Store the response.
                 logging.info(f"Response: {step_response}")
                 # Write the responses to the json file.
+                dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with open(
-                    os.path.join("chains", f"{chain_name}_responses.json"), "w"
+                    os.path.join("chains", chain_name, "responses.json"), "w"
                 ) as f:
                     json.dump(responses, f)
         return responses
 
     def get_step_response(self, chain_name, step_number="all"):
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
                 responses = json.load(f)
             print(responses)
             if step_number == "all":
@@ -138,7 +143,7 @@ class Chain:
 
     def get_chain_responses(self, chain_name):
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
                 responses = json.load(f)
             return responses
         except:
