@@ -15,7 +15,7 @@ st.set_page_config(
 
 st.markdown(
     """
-    <img src="https://josh-xt.github.io/AGiXT/images/AGiXT.svg" width="100%">
+    <img src="https://josh-xt.github.io/AGiXT/images/AGiXTwhiteborder.svg" width="100%">
     """,
     unsafe_allow_html=True,
 )
