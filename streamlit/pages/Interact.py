@@ -27,7 +27,7 @@ if mode == "Prompt":
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
     # Fetch arguments for the selected prompt
-    prompt_args = api_client.get_prompt_args(prompt_name)
+    prompt_args = api_client.get_prompt_args(prompt_name=prompt_name)
 
     # Add input fields for prompt arguments
     st.header("Prompt arguments")
@@ -62,6 +62,7 @@ if mode == "Prompt":
             websearch=websearch,
             websearch_depth=websearch_depth,
             context_results=context_results,
+            shots=1,
         )
 
         # Print the response
