@@ -16,7 +16,7 @@ st.set_page_config(
 
 # check_auth_status()
 agixt_docs()
-
+states = {}
 st.header("Chain Management")
 
 
@@ -93,145 +93,142 @@ if st.button("Perform Action"):
 
             def modify_step(step):
                 step_number = step["step"]
-                agent_name = step["agent_name"]
-                prompt_type = step["prompt_type"]
-                prompt = step.get("prompt", "")
-                st.session_state[
-                    f"selected_agent_{step_number}"
-                ] = st.session_state.get(f"selected_agent_{step_number}", agent_name)
+                with st.form(f"chain_step_{step_number}"):
+                    agent_name = step["agent_name"]
+                    prompt_type = step["prompt_type"]
+                    prompt = step.get("prompt", "")
+                    states[f"selected_agent_{step_number}"] = states.get(
+                        f"selected_agent_{step_number}", agent_name
+                    )
 
-                modify_step_number = st.number_input(
-                    "Step Number",
-                    min_value=1,
-                    step=1,
-                    value=step_number,
-                    key=f"step_num_{step_number}",
-                )
-                modify_agent_name = st.selectbox(
-                    "Select Agent",
-                    options=[""] + [agent["name"] for agent in agents],
-                    index=(
-                        [agent["name"] for agent in agents].index(
-                            st.session_state[f"selected_agent_{step_number}"]
+                    modify_step_number = st.number_input(
+                        "Step Number",
+                        min_value=1,
+                        step=1,
+                        value=step_number,
+                        key=f"step_num_{step_number}",
+                    )
+                    modify_agent_name = st.selectbox(
+                        "Select Agent",
+                        options=[""] + [agent["name"] for agent in agents],
+                        index=(
+                            [agent["name"] for agent in agents].index(
+                                states[f"selected_agent_{step_number}"]
+                            )
+                            + 1
                         )
-                        + 1
-                    )
-                    if st.session_state[f"selected_agent_{step_number}"]
-                    in [agent["name"] for agent in agents]
-                    else 0,
-                    key=f"agent_name_{step_number}",
-                )
-
-                if (
-                    modify_agent_name
-                    != st.session_state[f"selected_agent_{step_number}"]
-                ):
-                    st.session_state[
-                        f"selected_agent_{step_number}"
-                    ] = modify_agent_name
-
-                modify_prompt_type = st.selectbox(
-                    "Select Prompt Type",
-                    options=["", "Command", "Prompt"],
-                    index=["", "Command", "Prompt"].index(prompt_type),
-                    key=f"prompt_type_{step_number}",
-                )
-
-                if modify_prompt_type == "Command":
-                    available_commands = [cmd[0] for cmd in agent_commands]
-                    command_name = st.selectbox(
-                        "Select Command",
-                        [""] + available_commands,
-                        key=f"command_name_{step_number}",
-                        index=available_commands.index(prompt.get("command_name", ""))
-                        + 1
-                        if "command_name" in prompt
+                        if states[f"selected_agent_{step_number}"]
+                        in [agent["name"] for agent in agents]
                         else 0,
+                        key=f"agent_name_{step_number}",
                     )
 
-                    if command_name:
-                        command_args = ApiClient.get_command_args(command_name)
-                        formatted_command_args = ", ".join(
-                            [
-                                f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
-                                for arg in command_args
-                                if arg != "context"
-                                and arg != "command_list"
-                                and arg != "COMMANDS"
-                            ]
-                        )
-                        modify_prompt = f"{command_name}({formatted_command_args})"
-                elif modify_prompt_type == "Prompt":
-                    available_prompts = ApiClient.get_prompts()
-                    modify_prompt_name = st.selectbox(
-                        "Select Custom Prompt",
-                        [""] + available_prompts,
-                        key=f"prompt_name_{step_number}",
-                        index=available_prompts.index(prompt.get("prompt_name", "")) + 1
-                        if "prompt_name" in prompt
-                        else 0,
+                    if modify_agent_name != states[f"selected_agent_{step_number}"]:
+                        states[f"selected_agent_{step_number}"] = modify_agent_name
+
+                    modify_prompt_type = st.selectbox(
+                        "Select Prompt Type",
+                        options=["", "Command", "Prompt"],
+                        index=["", "Command", "Prompt"].index(prompt_type),
+                        key=f"prompt_type_{step_number}",
                     )
 
-                    if modify_prompt_name:
-                        prompt_args = ApiClient.get_prompt_args(modify_prompt_name)
-                        if prompt_args:
-                            if isinstance(prompt_args, str):
-                                prompt_args = [prompt_args]
-                            try:
-                                modify_prompt["prompt_name"] = modify_prompt_name
-                                for arg in prompt_args:
-                                    if (
-                                        arg != "context"
-                                        and arg != "command_list"
-                                        and arg != "COMMANDS"
-                                    ):
-                                        modify_prompt[arg] = st.text_input(
-                                            arg,
-                                            value=prompt.get(arg, "")
-                                            if arg in prompt
-                                            else "",
-                                            key=f"{arg}_{step_number}",
-                                        )
-                            except:
-                                pass
-                else:
-                    modify_prompt = ""
-
-                if st.button("Modify Step", key=f"modify_{step_number}"):
-                    modify_prompt = {}
                     if modify_prompt_type == "Command":
-                        modify_prompt["command_name"] = command_name
-                        for arg in command_args:
-                            if (
-                                arg != "context"
-                                and arg != "command_list"
-                                and arg != "COMMANDS"
-                            ):
-                                modify_prompt[arg] = st.session_state[
-                                    f"{arg}_{step_number}"
-                                ]
-                    elif modify_prompt_type == "Prompt":
-                        modify_prompt["prompt_name"] = modify_prompt_name
-                        for arg in prompt_args:
-                            if (
-                                arg != "context"
-                                and arg != "command_list"
-                                and arg != "COMMANDS"
-                            ):
-                                modify_prompt[arg] = st.session_state[
-                                    f"{arg}_{step_number}"
-                                ]
+                        available_commands = [cmd[0] for cmd in agent_commands]
+                        command_name = st.selectbox(
+                            "Select Command",
+                            [""] + available_commands,
+                            key=f"command_name_{step_number}",
+                            index=available_commands.index(
+                                prompt.get("command_name", "")
+                            )
+                            + 1
+                            if "command_name" in prompt
+                            else 0,
+                        )
 
-                    ApiClient.update_step(
-                        chain_name=chain_name,
-                        step_number=step_number,
-                        agent_name=modify_agent_name,
-                        prompt_type=modify_prompt_type,
-                        prompt=modify_prompt,
-                    )
-                    st.success(f"Step {step_number} updated in chain '{chain_name}'.")
-                    # st.experimental_rerun()
-                return step
+                        if command_name:
+                            command_args = ApiClient.get_command_args(command_name)
+                            formatted_command_args = ", ".join(
+                                [
+                                    f"{arg}: {st.text_input(arg, value=prompt.get(arg, ''), key=f'{arg}_{step_number}')} "
+                                    for arg in command_args
+                                    if arg != "context"
+                                    and arg != "command_list"
+                                    and arg != "COMMANDS"
+                                ]
+                            )
+                            modify_prompt = f"{command_name}({formatted_command_args})"
+                    elif modify_prompt_type == "Prompt":
+                        available_prompts = ApiClient.get_prompts()
+                        modify_prompt_name = st.selectbox(
+                            "Select Custom Prompt",
+                            [""] + available_prompts,
+                            key=f"prompt_name_{step_number}",
+                            index=available_prompts.index(prompt.get("prompt_name", ""))
+                            + 1
+                            if "prompt_name" in prompt
+                            else 0,
+                        )
+
+                        if modify_prompt_name:
+                            prompt_args = ApiClient.get_prompt_args(modify_prompt_name)
+                            if prompt_args:
+                                if isinstance(prompt_args, str):
+                                    prompt_args = [prompt_args]
+                                try:
+                                    modify_prompt["prompt_name"] = modify_prompt_name
+                                    for arg in prompt_args:
+                                        if (
+                                            arg != "context"
+                                            and arg != "command_list"
+                                            and arg != "COMMANDS"
+                                        ):
+                                            modify_prompt[arg] = st.text_input(
+                                                arg,
+                                                value=prompt.get(arg, "")
+                                                if arg in prompt
+                                                else "",
+                                                key=f"{arg}_{step_number}",
+                                            )
+                                except:
+                                    pass
+                    else:
+                        modify_prompt = ""
+                    submit = st.form_submit_button("Modify Step")
+                    if submit:
+                        modify_prompt = {}
+                        if modify_prompt_type == "Command":
+                            modify_prompt["command_name"] = command_name
+                            for arg in command_args:
+                                if (
+                                    arg != "context"
+                                    and arg != "command_list"
+                                    and arg != "COMMANDS"
+                                ):
+                                    modify_prompt[arg] = states[f"{arg}_{step_number}"]
+                        elif modify_prompt_type == "Prompt":
+                            modify_prompt["prompt_name"] = modify_prompt_name
+                            for arg in prompt_args:
+                                if (
+                                    arg != "context"
+                                    and arg != "command_list"
+                                    and arg != "COMMANDS"
+                                ):
+                                    modify_prompt[arg] = states[f"{arg}_{step_number}"]
+
+                        ApiClient.update_step(
+                            chain_name=chain_name,
+                            step_number=step_number,
+                            agent_name=modify_agent_name,
+                            prompt_type=modify_prompt_type,
+                            prompt=modify_prompt,
+                        )
+                        st.success(
+                            f"Step {step_number} updated in chain '{chain_name}'."
+                        )
+                        # st.experimental_rerun()
+                    return step
 
             st.write("Existing Steps:")
             if chain:
@@ -249,130 +246,147 @@ if st.button("Perform Action"):
                 )
             else:
                 step_number = 1
-            agent_name = st.selectbox(
-                "Select Agent",
-                options=[""] + [agent["name"] for agent in agents],
-                index=0,
-                key="add_step_agent_name",
-            )
-            prompt_type = st.selectbox(
-                "Select Prompt Type",
-                [""] + ["Command", "Prompt"],
-                key="add_step_prompt_type",
-            )
-            if prompt_type == "Command":
-                available_commands = [cmd[0] for cmd in agent_commands]
-                command_name = st.selectbox(
-                    "Select Command",
-                    [""] + available_commands,
-                    key="add_step_command_name",
+
+            with st.form("add_step_form"):
+                new_step_number = st.number_input(
+                    "Step Number",
+                    min_value=1,
+                    step=1,
+                    value=step_number,
+                    key=f"step_num_{step_number}",
                 )
-
-                if command_name:
-                    command_args = ApiClient.get_command_args(command_name=command_name)
-                    formatted_command_args = ", ".join(
-                        [
-                            f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
-                            for arg in command_args
-                            if arg != "context"
-                            and arg != "command_list"
-                            and arg != "COMMANDS"
-                        ]
-                    )
-                    prompt = f"{command_name}({formatted_command_args})"
-            elif prompt_type == "Prompt":
-                available_prompts = ApiClient.get_prompts()
-                prompt_name = st.selectbox(
-                    "Select Custom Prompt",
-                    [""] + available_prompts,
-                    key="add_step_prompt_name",
+                agent_name = st.selectbox(
+                    "Select Agent",
+                    options=[""] + [agent["name"] for agent in agents],
+                    index=0,
+                    key="add_step_agent_name",
                 )
-
-                if prompt_name:
-                    prompt_args = ApiClient.get_prompt_args(prompt_name)
-                    formatted_prompt_args = ", ".join(
-                        [
-                            f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
-                            for arg in prompt_args
-                            if arg != "context"
-                            and arg != "command_list"
-                            and arg != "COMMANDS"
-                        ]
+                prompt_type = st.selectbox(
+                    "Select Prompt Type",
+                    [""] + ["Command", "Prompt"],
+                    key="add_step_prompt_type",
+                )
+                if prompt_type == "Command":
+                    available_commands = [cmd[0] for cmd in agent_commands]
+                    command_name = st.selectbox(
+                        "Select Command",
+                        [""] + available_commands,
+                        key="add_step_command_name",
                     )
-                    prompt = f"{prompt_name}({formatted_prompt_args})"
-            else:
-                prompt = ""
 
-            step_action = st.selectbox(
-                "Action",
-                ["Add Step", "Update Step", "Delete Step"],
-                key="add_step_action",
-            )
-
-            if st.button("Perform Step Action", key="add_step_button"):
-                if chain_name and step_number and agent_name and prompt_type and prompt:
-                    prompt_data = {}
-                    if prompt_type == "Command":
-                        prompt_data["command_name"] = command_name
-                        for arg in command_args:
-                            if (
-                                arg != "context"
+                    if command_name:
+                        command_args = ApiClient.get_command_args(
+                            command_name=command_name
+                        )
+                        formatted_command_args = ", ".join(
+                            [
+                                f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                                for arg in command_args
+                                if arg != "context"
                                 and arg != "command_list"
                                 and arg != "COMMANDS"
-                            ):
-                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
-                    elif prompt_type == "Prompt":
-                        prompt_data["prompt_name"] = prompt_name
-                        for arg in prompt_args:
-                            if (
-                                arg != "context"
+                            ]
+                        )
+                        prompt = {
+                            "command_name": command_name,
+                            **formatted_command_args,
+                        }
+                elif prompt_type == "Prompt":
+                    available_prompts = ApiClient.get_prompts()
+                    prompt_name = st.selectbox(
+                        "Select Custom Prompt",
+                        [""] + available_prompts,
+                        key="add_step_prompt_name",
+                    )
+
+                    if prompt_name:
+                        prompt_args = ApiClient.get_prompt_args(prompt_name)
+                        formatted_prompt_args = ", ".join(
+                            [
+                                f"{arg}: {st.text_input(arg, key=f'add_step_{arg}')} "
+                                for arg in prompt_args
+                                if arg != "context"
                                 and arg != "command_list"
                                 and arg != "COMMANDS"
-                            ):
-                                prompt_data[arg] = st.session_state[f"add_step_{arg}"]
-                    elif step_action == "Update Step":
+                            ]
+                        )
+                        prompt = f"{prompt_name}({formatted_prompt_args})"
+                else:
+                    prompt = ""
+
+                step_action = st.selectbox(
+                    "Action",
+                    ["Add Step", "Update Step", "Delete Step"],
+                    key="add_step_action",
+                )
+
+                submit = st.form_submit_button("Perform Step Action")
+                if submit:
+                    if (
+                        chain_name
+                        and step_number
+                        and agent_name
+                        and prompt_type
+                        and prompt
+                    ):
+                        prompt_data = {}
                         if prompt_type == "Command":
-                            prompt_data = {"command_name": command_name}
+                            prompt_data["command_name"] = command_name
                             for arg in command_args:
                                 if (
                                     arg != "context"
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    prompt_data[arg] = st.session_state[
-                                        f"add_step_{arg}"
-                                    ]
+                                    prompt_data[arg] = states[f"add_step_{arg}"]
                         elif prompt_type == "Prompt":
-                            prompt_data = {"prompt_name": prompt_name}
+                            prompt_data["prompt_name"] = prompt_name
                             for arg in prompt_args:
                                 if (
                                     arg != "context"
                                     and arg != "command_list"
                                     and arg != "COMMANDS"
                                 ):
-                                    prompt_data[arg] = st.session_state[
-                                        f"add_step_{arg}"
-                                    ]
+                                    prompt_data[arg] = states[f"add_step_{arg}"]
+                        elif step_action == "Update Step":
+                            if prompt_type == "Command":
+                                prompt_data = {"command_name": command_name}
+                                for arg in command_args:
+                                    if (
+                                        arg != "context"
+                                        and arg != "command_list"
+                                        and arg != "COMMANDS"
+                                    ):
+                                        prompt_data[arg] = states[f"add_step_{arg}"]
+                            elif prompt_type == "Prompt":
+                                prompt_data = {"prompt_name": prompt_name}
+                                for arg in prompt_args:
+                                    if (
+                                        arg != "context"
+                                        and arg != "command_list"
+                                        and arg != "COMMANDS"
+                                    ):
+                                        prompt_data[arg] = states[f"add_step_{arg}"]
 
-                        ApiClient.update_step(
-                            chain_name=chain_name,
-                            step_number=step_number,
-                            agent_name=agent_name,
-                            prompt_type=prompt_type,
-                            prompt=prompt_data,
-                        )
-                        st.success(
-                            f"Step {step_number} updated in chain '{chain_name}'."
-                        )
-                        # st.experimental_rerun()
-                    elif step_action == "Delete Step":
-                        ApiClient.delete_step(chain_name, step_number)
-                        st.success(
-                            f"Step {step_number} deleted from chain '{chain_name}'."
-                        )
-                        # st.experimental_rerun()
-                else:
-                    st.error("All fields are required.")
+                            ApiClient.update_step(
+                                chain_name=chain_name,
+                                step_number=step_number,
+                                agent_name=agent_name,
+                                prompt_type=prompt_type,
+                                prompt=prompt_data,
+                            )
+                            st.success(
+                                f"Step {step_number} updated in chain '{chain_name}'."
+                            )
+                            # st.experimental_rerun()
+                        elif step_action == "Delete Step":
+                            ApiClient.delete_step(chain_name, step_number)
+                            st.success(
+                                f"Step {step_number} deleted from chain '{chain_name}'."
+                            )
+                            # st.experimental_rerun()
+                    else:
+                        st.error("All fields are required.")
 
 st.markdown("### Predefined Injection Variables")
 st.markdown(

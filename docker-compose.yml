@@ -8,5 +8,5 @@ services:
       - "7437:7437"
     volumes:
       - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/workspace:/agixt/WORKSPACE:rw
-      - ./models:/model:rw
+      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
+      - ./agixt/models:/model:rw
