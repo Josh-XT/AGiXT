@@ -10,6 +10,7 @@ from auth_libs.Users import (
 )
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 st.set_page_config(

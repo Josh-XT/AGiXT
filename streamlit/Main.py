@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-agent_name = agent_selector()
+
 if light_theme == True:
     st.markdown(
         """
