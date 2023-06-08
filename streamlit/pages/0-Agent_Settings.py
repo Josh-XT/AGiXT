@@ -38,11 +38,6 @@ def get_extension_settings():
     return ApiClient.get_extension_settings()
 
 
-@st.cache_data
-def get_agent_config(agent_name: str):
-    return ApiClient.get_agentconfig(agent_name=agent_name)
-
-
 providers = get_providers()
 embedders = get_embed_providers()
 extension_setting_keys = get_extension_settings()
@@ -124,7 +119,7 @@ if not agent_name:
 with st.form("agent_settings"):
     if agent_name and not new_agent:
         try:
-            agent_config = get_agent_config(agent_name=agent_name)
+            agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
             agent_settings = agent_config.get("settings", {})
             provider_name = agent_settings.get("provider", "")
             provider_name = st.selectbox(
