@@ -6,6 +6,7 @@ from auth_libs.Cfig import Cfig
 from auth_libs.Users import load_users, save_user_data
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 st.set_page_config(

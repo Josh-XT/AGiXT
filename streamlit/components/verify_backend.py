@@ -1,5 +1,6 @@
 import socket, errno, subprocess, os, logging
 
+
 def verify_backend():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -10,9 +11,13 @@ def verify_backend():
         if e.errno == errno.EADDRINUSE:
             print("Port is already in use")
         else:
-            subprocess.Popen(os.system("cd ../agixt/ && poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 && cd ../streamlit/"))
+            subprocess.Popen(
+                os.system(
+                    "cd ../agixt/ && poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 && cd ../streamlit/"
+                )
+            )
             logging.info("LAUNCHED FOR YOU")
-            s=None
+            s = None
 
-    if s!=None:
+    if s != None:
         s.close()
