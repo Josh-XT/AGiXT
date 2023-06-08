@@ -4,6 +4,8 @@ from Chain import Chain
 from AGiXT import AGiXT
 import json
 import os
+import re
+import ast
 from typing import List, Optional
 
 
@@ -19,6 +21,7 @@ class agixt_agent(Extensions):
             "Improve Code": self.improve_code,
             "Write Tests": self.write_tests,
             "Create a new command": self.create_command,
+            "Execute Task List": self.execute_task_list,
         }
         if agents != None:
             for agent in agents:
@@ -167,3 +170,33 @@ class agixt_agent(Extensions):
                 ]
             )
         return response
+
+    async def execute_task_list(
+        self,
+        agent_name: str,
+        tasks: str,
+        user_input: str,
+        websearch: bool = False,
+        websearch_depth: int = 3,
+        context_results: int = 5,
+    ):
+        match = re.findall(r"\[\{.*?\}\]", tasks)
+        if match:
+            task_list = [ast.literal_eval(task_string) for task_string in match]
+        else:
+            return "No tasks found."
+        responses = []
+        for task in task_list:
+            if "task_name" in task:
+                response = await AGiXT(agent_name=agent_name).run(
+                    user_input=user_input,
+                    prompt="Task Execution",
+                    prompt_args={
+                        "task": task["task_name"],
+                    },
+                    websearch=websearch,
+                    websearch_depth=websearch_depth,
+                    context_results=context_results,
+                )
+                responses.append(response)
+        return "\n".join(responses)
