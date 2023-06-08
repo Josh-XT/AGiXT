@@ -23,7 +23,7 @@
             "prompt": {
                 "prompt_name": "SmartChat-Researcher",
                 "shots": "3",
-                "user_input": "{user_input}"
+                "task": "{STEP1}"
             }
         },
         {
