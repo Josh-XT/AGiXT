@@ -270,7 +270,6 @@ async def instruct(agent_name: str, prompt: Prompt):
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = AGiXT(agent_name=agent_name)
     response = await agent.run(
-        user_input=agent_prompt.user_input,
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
         websearch_depth=agent_prompt.websearch_depth,
