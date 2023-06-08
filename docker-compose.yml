@@ -7,6 +7,7 @@ services:
       - "8501:8501"
       - "7437:7437"
     volumes:
-      - ./agixt/agents:/agixt/agents:rw
-      - ./agixt/WORKSPACE:/agixt/WORKSPACE:rw
-      - ./agixt/models:/model:rw
+      - ./agixt:/agixt:rw
+      - ./streamlit:/streamlit:rw
+      - ./tests:/tests:rw
+      - ./models:/model:rw
