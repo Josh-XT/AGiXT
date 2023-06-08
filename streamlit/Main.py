@@ -5,9 +5,12 @@ from components.docs import agixt_docs
 
 verify_backend()
 
-with open("./.streamlit/config.toml") as f:
-    if "Dark" in f.read():
-        light_theme = False
+try:
+    with open("./.streamlit/config.toml") as f:
+        if "Dark" in f.read():
+            light_theme = False
+except:
+    light_theme = False
 
 st.set_page_config(
     page_title="AGiXT",
