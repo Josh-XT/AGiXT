@@ -5,6 +5,7 @@ from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 
@@ -16,7 +17,6 @@ st.set_page_config(
 
 check_auth_status()
 
-agent_name = agent_selector()
 providers = ApiClient.get_providers()
 embedders = ApiClient.get_embed_providers()
 
@@ -60,8 +60,8 @@ def render_provider_settings(agent_settings, provider_name: str):
     return rendered_settings
 
 
-st.header("Manage Agent Settings")
-
+st.header("Agent Settings")
+agent_name = agent_selector()
 if "new_agent_name" not in st.session_state:
     st.session_state.new_agent_name = ""
 
