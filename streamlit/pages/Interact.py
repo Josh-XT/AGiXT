@@ -213,7 +213,7 @@ if mode == "Instruct":
             st.error("Agent name and message are required.")
 
 
-if mode == "Chain":
+if mode == "Chains":
     st.header("Run Chain")
     chain_names = ApiClient.get_chains()
 
