@@ -19,10 +19,26 @@ agixt_docs()
 
 st.header("Chain Management")
 
-chain_names = ApiClient.get_chains()
-agents = ApiClient.get_agents()
+
+@st.cache_data
+def cached_get_chains():
+    return ApiClient.get_chains()
+
+
+@st.cache_data
+def cached_get_agents():
+    return ApiClient.get_agents()
+
+
+@st.cache_data
+def cached_get_extensions():
+    return ApiClient.get_extensions()
+
+
+chain_names = cached_get_chains()
+agents = cached_get_agents()
+agent_commands = cached_get_extensions()
 chain_action = st.selectbox("Action", ["Create Chain", "Modify Chain", "Delete Chain"])
-agent_commands = ApiClient.get_extensions()
 
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
@@ -34,11 +50,11 @@ if st.button("Perform Action"):
         if chain_action == "Create Chain":
             ApiClient.add_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' created.")
-            st.experimental_rerun()
+            # st.experimental_rerun()
         elif chain_action == "Delete Chain":
             ApiClient.delete_chain(chain_name=chain_name)
             st.success(f"Chain '{chain_name}' deleted.")
-            st.experimental_rerun()
+            # st.experimental_rerun()
         elif chain_action == "Modify Chain":
             try:
                 chain = ApiClient.get_chain(chain_name=chain_name)
@@ -80,6 +96,10 @@ if st.button("Perform Action"):
                 agent_name = step["agent_name"]
                 prompt_type = step["prompt_type"]
                 prompt = step.get("prompt", "")
+                st.session_state[
+                    f"selected_agent_{step_number}"
+                ] = st.session_state.get(f"selected_agent_{step_number}", agent_name)
+
                 modify_step_number = st.number_input(
                     "Step Number",
                     min_value=1,
@@ -90,11 +110,26 @@ if st.button("Perform Action"):
                 modify_agent_name = st.selectbox(
                     "Select Agent",
                     options=[""] + [agent["name"] for agent in agents],
-                    index=([agent["name"] for agent in agents].index(agent_name) + 1)
-                    if agent_name in [agent["name"] for agent in agents]
+                    index=(
+                        [agent["name"] for agent in agents].index(
+                            st.session_state[f"selected_agent_{step_number}"]
+                        )
+                        + 1
+                    )
+                    if st.session_state[f"selected_agent_{step_number}"]
+                    in [agent["name"] for agent in agents]
                     else 0,
                     key=f"agent_name_{step_number}",
                 )
+
+                if (
+                    modify_agent_name
+                    != st.session_state[f"selected_agent_{step_number}"]
+                ):
+                    st.session_state[
+                        f"selected_agent_{step_number}"
+                    ] = modify_agent_name
+
                 modify_prompt_type = st.selectbox(
                     "Select Prompt Type",
                     options=["", "Command", "Prompt"],
@@ -195,7 +230,7 @@ if st.button("Perform Action"):
                         prompt=modify_prompt,
                     )
                     st.success(f"Step {step_number} updated in chain '{chain_name}'.")
-                    st.experimental_rerun()
+                    # st.experimental_rerun()
                 return step
 
             st.write("Existing Steps:")
@@ -208,7 +243,12 @@ if st.button("Perform Action"):
                             st.error(
                                 "Error loading chain step. Please check the chain configuration."
                             )
-            step_number = max([s["step"] for s in chain["steps"]]) + 1 if chain else 1
+            if len(chain["steps"]) > 0:
+                step_number = (
+                    max([s["step"] for s in chain["steps"]]) + 1 if chain else 1
+                )
+            else:
+                step_number = 1
             agent_name = st.selectbox(
                 "Select Agent",
                 options=[""] + [agent["name"] for agent in agents],
@@ -324,13 +364,13 @@ if st.button("Perform Action"):
                         st.success(
                             f"Step {step_number} updated in chain '{chain_name}'."
                         )
-                        st.experimental_rerun()
+                        # st.experimental_rerun()
                     elif step_action == "Delete Step":
                         ApiClient.delete_step(chain_name, step_number)
                         st.success(
                             f"Step {step_number} deleted from chain '{chain_name}'."
                         )
-                        st.experimental_rerun()
+                        # st.experimental_rerun()
                 else:
                     st.error("All fields are required.")
 
