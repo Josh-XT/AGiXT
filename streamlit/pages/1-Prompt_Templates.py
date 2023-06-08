@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-check_auth_status()
+# check_auth_status()
 
 st.header("Prompt Templates")
 st.markdown("### Usage Instructions")
