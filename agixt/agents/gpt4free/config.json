@@ -1,1 +1,10 @@
-{"commands": {"Write to File": true, "Scrape Text with Playwright": false, "Scrape Links with Playwright": false, "Speak with MacOS TTS": false, "Evaluate Code": false, "Analyze Pull Request": false, "Perform Automated Testing": false, "Run CI-CD Pipeline": false, "Improve Code": false, "Write Tests": false, "Create a new command": false, "Ask AI Agent Bing": false, "Instruct AI Agent Bing": false, "Prompt AI Agent Bing": false, "Ask AI Agent gpt4free": false, "Instruct AI Agent gpt4free": false, "Prompt AI Agent gpt4free": false, "Ask AI Agent Bard": false, "Instruct AI Agent Bard": false, "Prompt AI Agent Bard": false, "Ask AI Agent Vicuna": false, "Instruct AI Agent Vicuna": false, "Prompt AI Agent Vicuna": false, "Ask AI Agent OpenAI": false, "Instruct AI Agent OpenAI": false, "Prompt AI Agent OpenAI": false, "Ask AI Agent azure": false, "Instruct AI Agent azure": false, "Prompt AI Agent azure": false, "Ask AI Agent ChatGPT": false, "Instruct AI Agent ChatGPT": false, "Prompt AI Agent ChatGPT": false, "Ask AI Agent Guanaco": false, "Instruct AI Agent Guanaco": false, "Prompt AI Agent Guanaco": false, "Read File": false, "Search Files": false, "Append to File": false, "Execute Python File": false, "Delete File": false, "Execute Shell": false, "Read Audio from File": false, "Read Audio": false, "Generate Image with Stable Diffusion": false, "Speak with TTS with BrianTTS": false, "Clone Github Repository": false, "Get Datetime": false, "Speak with TTS Using Elevenlabs": false, "Use The Search Engine": false}, "settings": {"provider": "gpt4free", "AI_MODEL": "gpt-3.5-turbo", "AI_TEMPERATURE": "0.4", "MAX_TOKENS": "4000", "embedder": "default"}}
+{
+    "commands": {},
+    "settings": {
+        "provider": "gpt4free",
+        "AI_MODEL": "gpt-3.5-turbo",
+        "AI_TEMPERATURE": "0.4",
+        "MAX_TOKENS": "4000",
+        "embedder": "default"
+    }
+}
