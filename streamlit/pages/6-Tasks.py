@@ -4,6 +4,7 @@ from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 
 from components.verify_backend import verify_backend
+
 verify_backend()
 
 
