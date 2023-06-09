@@ -148,7 +148,7 @@ if mode == "Chat":
     send_button = st.button("Send Message")
 
     # If the user clicks the send button or the chat_prompt has changed, then send the chat prompt to the agent
-    if send_button or chat_prompt != st.session_state.get("last_chat_prompt"):
+    if send_button or chat_prompt != st.session_state["last_chat_prompt"]:
         handle_message(chat_prompt)
         st.session_state["last_chat_prompt"] = chat_prompt
 
