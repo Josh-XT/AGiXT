@@ -1,7 +1,5 @@
 import streamlit as st
 from ApiClient import ApiClient
-import logging
-from auth_libs.Users import check_auth_status
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
@@ -14,7 +12,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# check_auth_status()
 agixt_docs()
 st.session_state = {}
 st.header("Chain Management")
