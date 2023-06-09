@@ -16,7 +16,7 @@
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Execute Task List",
-                "agent_name": "gpt4free",
+                "agent": "{agent_name}",
                 "user_input": "{user_input}",
                 "tasks": "{STEP1}",
                 "websearch": false,

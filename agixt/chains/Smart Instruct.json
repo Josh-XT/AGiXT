@@ -10,6 +10,7 @@
                 "user_input": "{user_input}",
                 "prompt_name": "SmartInstruct-StepByStep",
                 "prompt_args": {},
+                "agent": "{agent_name}",
                 "websearch": true,
                 "websearch_depth": 3,
                 "context_results": 5,
