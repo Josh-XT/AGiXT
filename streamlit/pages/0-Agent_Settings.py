@@ -85,11 +85,14 @@ def render_provider_settings(agent_settings, provider_name: str):
 st.header("Agent Settings")
 agent_name = agent_selector()
 if "new_agent_name" not in st.session_state:
-    st.session_state.new_agent_name = ""
+    st.session_state["new_agent_name"] = ""
 
 # Check if a new agent has been added and reset the session state variable
-if st.session_state.new_agent_name and st.session_state.new_agent_name != agent_name:
-    st.session_state.new_agent_name = ""
+if (
+    st.session_state["new_agent_name"]
+    and st.session_state["new_agent_name"] != agent_name
+):
+    st.session_state["new_agent_name"] = ""
 
 # Add an input field for the new agent's name
 new_agent = False
@@ -108,7 +111,7 @@ if not agent_name:
                 agent_name = new_agent_name
                 with open(os.path.join("session.txt"), "w") as f:
                     f.write(agent_name)
-                st.session_state.new_agent_name = agent_name
+                st.session_state["new_agent_name"] = agent_name
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
                 st.error(f"Error adding agent: {str(e)}")
@@ -297,7 +300,7 @@ with st.form("agent_settings"):
                 try:
                     ApiClient.delete_agent(agent_name=agent_name)
                     st.success(f"Agent '{agent_name}' deleted.")
-                    st.session_state.new_agent_name = ""  # Reset the selected agent
+                    st.session_state["new_agent_name"] = ""  # Reset the selected agent
                     st.experimental_rerun()  # Rerun the app to update the agent list
                 except Exception as e:
                     st.error(f"Error deleting agent: {str(e)}")
