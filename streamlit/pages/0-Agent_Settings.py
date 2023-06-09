@@ -84,8 +84,12 @@ def render_provider_settings(agent_settings, provider_name: str):
 
 st.header("Agent Settings")
 agent_name = agent_selector()
+
 if "new_agent_name" not in st.session_state:
     st.session_state["new_agent_name"] = ""
+
+# Add an input field for the new agent's name
+new_agent = False
 
 # Check if a new agent has been added and reset the session state variable
 if (
@@ -94,8 +98,6 @@ if (
 ):
     st.session_state["new_agent_name"] = ""
 
-# Add an input field for the new agent's name
-new_agent = False
 if not agent_name:
     new_agent_name = st.text_input("New Agent Name")
 
@@ -119,125 +121,71 @@ if not agent_name:
             st.error("New agent name is required.")
     new_agent = True
 
-with st.form("agent_settings"):
-    if agent_name and not new_agent:
-        try:
-            agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
-            agent_settings = agent_config.get("settings", {})
-            provider_name = agent_settings.get("provider", "")
-            provider_name = st.selectbox(
-                "Select Provider",
-                providers,
-                index=providers.index(provider_name)
-                if provider_name in providers
-                else 0,
+if agent_name and not new_agent:
+    try:
+        agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
+        agent_settings = agent_config.get("settings", {})
+        provider_name = agent_settings.get("provider", "")
+        provider_name = st.selectbox(
+            "Select Provider",
+            providers,
+            index=providers.index(provider_name) if provider_name in providers else 0,
+        )
+
+        agent_settings[
+            "provider"
+        ] = provider_name  # Update the agent_settings with the selected provider
+
+        embedder_name = agent_settings.get("embedder", "")
+        embedder_name = st.selectbox(
+            "Select Embedder",
+            embedders,
+            index=embedders.index(embedder_name) if embedder_name in embedders else 0,
+        )
+
+        agent_settings[
+            "embedder"
+        ] = embedder_name  # Update the agent_settings with the selected embedder
+
+        if provider_name:
+            provider_settings = render_provider_settings(agent_settings, provider_name)
+            agent_settings.update(provider_settings)
+
+        def render_extension_settings(extension_settings, agent_settings):
+            rendered_settings = {}
+
+            for extension, settings in extension_settings.items():
+                st.subheader(f"{extension}")
+                for key, val in settings.items():
+                    if key in agent_settings:
+                        default_value = agent_settings[key]
+                    else:
+                        default_value = val if val else ""
+
+                    user_val = st.text_input(
+                        key, value=default_value, key=f"{extension}_{key}"
+                    )
+
+                    # Check if the user value exists before saving the setting
+                    if user_val:
+                        rendered_settings[key] = user_val
+
+            return rendered_settings
+
+        with st.form(key="update_agent_settings_form"):
+            update_agent_settings_button = st.form_submit_button(
+                "Update Agent Settings"
             )
-
-            agent_settings[
-                "provider"
-            ] = provider_name  # Update the agent_settings with the selected provider
-
-            embedder_name = agent_settings.get("embedder", "")
-            embedder_name = st.selectbox(
-                "Select Embedder",
-                embedders,
-                index=embedders.index(embedder_name)
-                if embedder_name in embedders
-                else 0,
-            )
-
-            agent_settings[
-                "embedder"
-            ] = embedder_name  # Update the agent_settings with the selected embedder
-
-            if provider_name:
-                provider_settings = render_provider_settings(
-                    agent_settings, provider_name
-                )
-                agent_settings.update(provider_settings)
-
-            def render_extension_settings(extension_settings, agent_settings):
-                rendered_settings = {}
-
-                for extension, settings in extension_settings.items():
-                    st.subheader(f"{extension}")
-                    for key, val in settings.items():
-                        if key in agent_settings:
-                            default_value = agent_settings[key]
-                        else:
-                            default_value = val if val else ""
-
-                        user_val = st.text_input(
-                            key, value=default_value, key=f"{extension}_{key}"
-                        )
-
-                        # Check if the user value exists before saving the setting
-                        if user_val:
-                            rendered_settings[key] = user_val
-
-                return rendered_settings
-
-            st.subheader("Extension Settings")
-
+            wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
+            delete_agent_button = st.form_submit_button("Delete Agent")
+        st.subheader("Extension Settings")
+        with st.form("extension_settings"):
             extension_settings = render_extension_settings(
                 extension_setting_keys, agent_settings
             )
 
             # Update the extension settings in the agent_settings directly
             agent_settings.update(extension_settings)
-
-            st.subheader("Custom Settings")
-            custom_settings = agent_settings.get("custom_settings", [])
-
-            custom_settings_list = st.session_state.get("custom_settings_list", None)
-            if custom_settings_list is None:
-                if not custom_settings:
-                    custom_settings = [""]
-                st.session_state.custom_settings_list = custom_settings.copy()
-
-            custom_settings_container = st.container()
-            with custom_settings_container:
-                for i, custom_setting in enumerate(
-                    st.session_state.custom_settings_list
-                ):
-                    key, value = (
-                        custom_setting.split(":", 1)
-                        if ":" in custom_setting
-                        else (custom_setting, "")
-                    )
-                    col1, col2 = st.columns(
-                        [0.5, 0.5]
-                    )  # Add columns for side by side input
-                    with col1:
-                        new_key = st.text_input(
-                            f"Custom Setting {i + 1} Key",
-                            value=key,
-                            key=f"custom_key_{i}",
-                        )
-                    with col2:
-                        new_value = st.text_input(
-                            f"Custom Setting {i + 1} Value",
-                            value=value,
-                            key=f"custom_value_{i}",
-                        )
-                    st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
-
-                    # Automatically add an empty key/value pair if the last one is filled
-                    if (
-                        i == len(st.session_state.custom_settings_list) - 1
-                        and new_key
-                        and new_value
-                    ):
-                        st.session_state.custom_settings_list.append("")
-
-            # Update the custom settings in the agent_settings directly
-            agent_settings.update(
-                {
-                    custom_setting.split(":", 1)[0]: custom_setting.split(":", 1)[1]
-                    for custom_setting in st.session_state.custom_settings_list
-                    if custom_setting and ":" in custom_setting
-                }
-            )
 
             st.subheader("Agent Commands")
             # Fetch the available commands using the `Commands` class
@@ -256,53 +204,45 @@ with st.form("agent_settings"):
                     key=command_name,
                 )
                 available_commands[command_name] = toggle_status
+            if st.form_submit_button("Update Agent Commands"):
+                ApiClient.update_agent_commands(
+                    agent_name=agent_name, commands=available_commands
+                )
 
-            # Update the available commands back to the agent config
-            ApiClient.update_agent_commands(
-                agent_name=agent_name, commands=available_commands
-            )
+    except Exception as e:
+        st.error(f"Error loading agent configuration: {str(e)}")
 
-        except Exception as e:
-            st.error(f"Error loading agent configuration: {str(e)}")
+if not new_agent:
+    # Trigger actions on form submit
+    if update_agent_settings_button:
+        if agent_name:
+            try:
+                ApiClient.update_agent_commands(
+                    agent_name=agent_name, commands=available_commands
+                )
+                ApiClient.update_agent_settings(
+                    agent_name=agent_name, settings=agent_settings
+                )
+                st.success(f"Agent '{agent_name}' updated.")
+            except Exception as e:
+                st.error(f"Error updating agent: {str(e)}")
 
-    if not new_agent:
-        # Create a form for each button
-        update_agent_settings_button = st.form_submit_button("Update Agent Settings")
+    if wipe_memories_button:
+        if agent_name:
+            try:
+                ApiClient.wipe_agent_memories(agent_name=agent_name)
+                st.success(f"Memories of agent '{agent_name}' wiped.")
+            except Exception as e:
+                st.error(f"Error wiping agent's memories: {str(e)}")
 
-        wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
-
-        delete_agent_button = st.form_submit_button("Delete Agent")
-
-        # Trigger actions on form submit
-        if update_agent_settings_button:
-            if agent_name:
-                try:
-                    ApiClient.update_agent_commands(
-                        agent_name=agent_name, commands=available_commands
-                    )
-                    ApiClient.update_agent_settings(
-                        agent_name=agent_name, settings=agent_settings
-                    )
-                    st.success(f"Agent '{agent_name}' updated.")
-                except Exception as e:
-                    st.error(f"Error updating agent: {str(e)}")
-
-        if wipe_memories_button:
-            if agent_name:
-                try:
-                    ApiClient.wipe_agent_memories(agent_name=agent_name)
-                    st.success(f"Memories of agent '{agent_name}' wiped.")
-                except Exception as e:
-                    st.error(f"Error wiping agent's memories: {str(e)}")
-
-        if delete_agent_button:
-            if agent_name:
-                try:
-                    ApiClient.delete_agent(agent_name=agent_name)
-                    st.success(f"Agent '{agent_name}' deleted.")
-                    st.session_state["new_agent_name"] = ""  # Reset the selected agent
-                    st.experimental_rerun()  # Rerun the app to update the agent list
-                except Exception as e:
-                    st.error(f"Error deleting agent: {str(e)}")
-            else:
-                st.error("Agent name is required.")
+    if delete_agent_button:
+        if agent_name:
+            try:
+                ApiClient.delete_agent(agent_name=agent_name)
+                st.success(f"Agent '{agent_name}' deleted.")
+                st.session_state["new_agent_name"] = ""  # Reset the selected agent
+                st.experimental_rerun()  # Rerun the app to update the agent list
+            except Exception as e:
+                st.error(f"Error deleting agent: {str(e)}")
+        else:
+            st.error("Agent name is required.")
