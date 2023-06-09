@@ -1,5 +1,6 @@
 #!/bin/bash
 git pull
+pip install --upgrade pip
 pip install poetry==1.5.1
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 export POETRY_NO_INTERACTION=1
