@@ -3,10 +3,9 @@ from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 from components.learning import learning_page
+from components.history import get_history
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
-from streamlit_chat import message
-from streamlit.components.v1 import html
 
 verify_backend()
 # check_auth_status()
@@ -29,49 +28,7 @@ prompts = api_client.get_prompts()
 mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "Chains"])
 
 if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = {}
-
-
-def get_history(agent_name):
-    history = ApiClient.get_chat_history(agent_name=agent_name)
-    i = 0
-    ai_history = []
-    user_history = []
-    if history:
-        for item in history:
-            if "USER" in item.keys():
-                user_history.append(item["USER"])
-            else:
-                ai_history.append({"type": "normal", "data": item[agent_name]})
-        st.session_state.setdefault("past", user_history)
-        st.session_state.setdefault("generated", ai_history)
-        st.title("Chat placeholder")
-        chat_placeholder = st.empty()
-        with chat_placeholder.container():
-            for i in range(len(st.session_state["generated"])):
-                message(st.session_state["past"][i], is_user=True, key=f"{i}_user")
-                message(
-                    st.session_state["generated"][i]["data"],
-                    key=f"{i}",
-                    allow_html=True,
-                    is_table=True
-                    if st.session_state["generated"][i]["type"] == "table"
-                    else False,
-                )
-
-        with st.container():
-            st.text_input("User Input:", key="user_input")
-            if mode == "Chat":
-                st.form_submit_button("Submit", key="submit")
-            elif mode == "Instruct":
-                st.form_submit_button("Submit", key="submit")
-            elif mode == "Learning":
-                st.form_submit_button("Submit", key="submit")
-            elif mode == "Chains":
-                st.form_submit_button("Submit", key="submit")
-            else:
-                st.form_submit_button("Submit", key="submit")
-
+    st.session_state["chat_history"] = ""
 
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
@@ -121,131 +78,37 @@ if mode == "Prompt":
         # Print the response
         st.write(f"{agent_name}: {agent_prompt_resp}")
 
-# If the user selects Chat, then show the chat functionality
-
-
-def handle_message(chat_prompt):
-    if agent_name and chat_prompt:
-        with st.spinner("Thinking, please wait..."):
-            if smart_chat_toggle:
-                response = ApiClient.smartchat(
-                    agent_name=agent_name,
-                    prompt=chat_prompt,
-                    shots=3,
-                )
-            else:
-                response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
-        chat_entry = [
-            {"role": "USER", "message": chat_prompt},
-            {"role": agent_name, "message": response},
-        ]
-        st.session_state["chat_history"][agent_name].extend(chat_entry)
-        render_chat_history(
-            chat_container=chat_container,
-            chat_history=st.session_state["chat_history"][agent_name],
-        )
-
-
 if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
     agent_name = agent_selector()
-
-    # Add a checkbox for smart chat option
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
-
-    # Create a container for the chat history
-    chat_container = st.container()
-
-    # If the user has selected an agent, then fetch the chat history
-    if agent_name:
-        try:
-            st.session_state["chat_history"] = {}
-        except:
-            pass
-
-        # Fetch the chat history
-        st.session_state["chat_history"][agent_name] = ApiClient.get_chat_history(
-            agent_name=agent_name
-        )
-
-    # Render the chat history
-    with chat_container:
-        st.write(
-            f'<div style="width: 80%;">',
-            unsafe_allow_html=True,
-        )
-
-        def render_chat_history(chat_container, chat_history):
-            chat_container.empty()
-            with chat_container:
-                for chat in chat_history:
-                    if "role" in chat and "message" in chat:
-                        st.markdown(
-                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
-                            unsafe_allow_html=True,
-                        )
-
-    # Add a text input for the chat prompt
     chat_prompt = st.text_input("Enter your message", key="chat_prompt")
-
-    # Add a button to send the chat prompt
     send_button = st.button("Send Message")
 
-    # If the user clicks the send button or the chat_prompt has changed, then send the chat prompt to the agent
-    if send_button or chat_prompt != st.session_state["last_chat_prompt"]:
-        handle_message(chat_prompt)
-        st.session_state["last_chat_prompt"] = chat_prompt
+    if send_button:
+        if agent_name and chat_prompt:
+            with st.spinner("Thinking, please wait..."):
+                if smart_chat_toggle:
+                    response = ApiClient.smartchat(
+                        agent_name=agent_name,
+                        prompt=chat_prompt,
+                        shots=3,
+                    )
+                else:
+                    response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
+            st.session_state["chat_history"] = get_history(agent_name=agent_name)
 
-# If the user selects Instruct, then show the instruct functionality
 if mode == "Instruct":
     st.markdown("### Choose an Agent to Instruct")
     agent_name = agent_selector()
-    # Add a checkbox for smart instruct option
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
-
-    # Create a container for the chat history
-    instruct_container = st.container()
-
-    # If the user has selected an agent, then fetch the chat history
-    if agent_name:
-        try:
-            st.session_state["chat_history"] = {}
-        except:
-            pass
-
-        # Fetch the chat history
-        st.session_state["chat_history"][agent_name] = ApiClient.get_chat_history(
-            agent_name=agent_name
-        )
-
-    # Render the chat history
-    with instruct_container:
-        st.write(
-            f'<div style="width: 80%;">',
-            unsafe_allow_html=True,
-        )
-
-        def render_chat_history1(instruct_container, chat_history):
-            instruct_container.empty()
-            with instruct_container:
-                for chat in chat_history:
-                    if "role" in chat and "message" in chat:
-                        st.markdown(
-                            f'<div style="text-align: left; margin-bottom: 5px;"><strong>{chat["role"]}:</strong> {chat["message"]}</div>',
-                            unsafe_allow_html=True,
-                        )
-
-    # Add a text input for the instruct prompt
     instruct_prompt = st.text_input("Enter your instruction", key="instruct_prompt")
+    send_button = st.button("Send Message")
 
-    # Add a button to send the instruct prompt
-    send_button = st.button("Send Instruction")
-
-    # If the user clicks the send button, then send the instruct prompt to the agent
     if send_button:
         if agent_name and instruct_prompt:
             with st.spinner("Thinking, please wait..."):
-                if smart_instruct_toggle:
+                if smart_chat_toggle:
                     response = ApiClient.smartinstruct(
                         agent_name=agent_name,
                         prompt=instruct_prompt,
@@ -253,21 +116,9 @@ if mode == "Instruct":
                     )
                 else:
                     response = ApiClient.instruct(
-                        agent_name=agent_name,
-                        prompt=instruct_prompt,
+                        agent_name=agent_name, prompt=chat_prompt
                     )
-
-            instruct_entry = [
-                {"role": "USER", "message": instruct_prompt},
-                {"role": agent_name, "message": response},
-            ]
-            st.session_state["chat_history"][agent_name].extend(instruct_entry)
-            render_chat_history1(
-                instruct_container=instruct_container,
-                chat_history=st.session_state["chat_history"][agent_name],
-            )
-        else:
-            st.error("Agent name and message are required.")
+            st.session_state["chat_history"] = get_history(agent_name=agent_name)
 
 if mode == "Learning":
     learning_page()
@@ -289,3 +140,6 @@ if mode == "Chains":
                 st.write(responses)
         else:
             st.error("Chain name is required.")
+
+if agent_name:
+    st.session_state["chat_history"] = get_history(agent_name=agent_name)
