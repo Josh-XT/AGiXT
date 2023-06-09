@@ -91,23 +91,12 @@ if "new_agent_name" not in st.session_state:
 # Add an input field for the new agent's name
 new_agent = False
 
-if not new_agent:
-    with st.form(key="update_agent_settings_form"):
-        update_agent_settings_button = st.form_submit_button("Update Agent Settings")
-
-    with st.form(key="wipe_memories_form"):
-        wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
-
-    with st.form(key="delete_agent_form"):
-        delete_agent_button = st.form_submit_button("Delete Agent")
-
 # Check if a new agent has been added and reset the session state variable
 if (
     st.session_state["new_agent_name"]
     and st.session_state["new_agent_name"] != agent_name
 ):
     st.session_state["new_agent_name"] = ""
-
 
 if not agent_name:
     new_agent_name = st.text_input("New Agent Name")
@@ -183,6 +172,12 @@ if agent_name and not new_agent:
 
             return rendered_settings
 
+        with st.form(key="update_agent_settings_form"):
+            update_agent_settings_button = st.form_submit_button(
+                "Update Agent Settings"
+            )
+            wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
+            delete_agent_button = st.form_submit_button("Delete Agent")
         st.subheader("Extension Settings")
         with st.form("extension_settings"):
             extension_settings = render_extension_settings(
@@ -213,6 +208,7 @@ if agent_name and not new_agent:
                 ApiClient.update_agent_commands(
                     agent_name=agent_name, commands=available_commands
                 )
+
     except Exception as e:
         st.error(f"Error loading agent configuration: {str(e)}")
 
