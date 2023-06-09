@@ -83,6 +83,7 @@ nomic = "^1.1.6"
 semantic-kernel = "^0.2.9.dev0"
 python-dotenv = "^1.0.0"
 ffmpeg = "^1.4"
+cleo = "2.0.1"
 
 [tool.poetry.group.gpt4free]
 optional = true
