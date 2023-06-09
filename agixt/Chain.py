@@ -149,12 +149,14 @@ class Chain:
         except:
             return {}
 
-    def get_step_content(self, chain_name, prompt_content, user_input):
+    def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
         new_prompt_content = {}
         if isinstance(prompt_content, dict):
             for arg, value in prompt_content.items():
                 if "{user_input}" in value:
                     value = value.replace("{user_input}", user_input)
+                if "{agent_name}" in value:
+                    value = value.replace("{agent_name}", agent_name)
                 if "{STEP" in value:
                     # Count how many times {STEP is in the value
                     step_count = value.count("{STEP")
@@ -171,8 +173,15 @@ class Chain:
                         )
                 new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
+            new_prompt_content = prompt_content
             if "{user_input}" in prompt_content:
-                new_prompt_content = prompt_content.replace("{user_input}", user_input)
+                new_prompt_content = new_prompt_content.replace(
+                    "{user_input}", user_input
+                )
+            if "{agent_name}" in new_prompt_content:
+                new_prompt_content = new_prompt_content.replace(
+                    "{agent_name}", agent_name
+                )
             if "{STEP" in prompt_content:
                 step_count = value.count("{STEP")
                 for i in range(step_count):
@@ -208,6 +217,7 @@ class Chain:
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
+                    agent_name=agent_name,
                 )
                 if prompt_type == "Command":
                     return await Extensions(
