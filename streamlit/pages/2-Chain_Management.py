@@ -39,7 +39,7 @@ elif chain_action == "Modify Chain":
 
     if selected_chain_name:
         chain = ApiClient.get_chain(chain_name=selected_chain_name)
-        st.subheader(f"Selected Chain: {selected_chain_name}")
+        st.markdown(f"## Modifying Chain: {selected_chain_name}")
 
         def modify_step(step):
             step_number = step["step"]
