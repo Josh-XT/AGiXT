@@ -195,9 +195,7 @@ elif chain_action == "Modify Chain":
 
         if prompt_type == "Command":
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
-            available_commands = [
-                cmd["friendly_name"] for cmd in ApiClient.get_enabled_commands()
-            ]
+            available_commands = [cmd[0] for cmd in agent_commands]
             command_name = st.selectbox(
                 "Select Command",
                 [""] + available_commands,
