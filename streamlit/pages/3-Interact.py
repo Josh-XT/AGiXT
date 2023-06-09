@@ -5,6 +5,8 @@ from ApiClient import ApiClient
 from components.learning import learning_page
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
+from streamlit_chat import message
+from streamlit.components.v1 import html
 
 verify_backend()
 # check_auth_status()
@@ -28,6 +30,48 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "C
 
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = {}
+
+
+def get_history(agent_name):
+    history = ApiClient.get_chat_history(agent_name=agent_name)
+    i = 0
+    ai_history = []
+    user_history = []
+    if history:
+        for item in history:
+            if "USER" in item.keys():
+                user_history.append(item["USER"])
+            else:
+                ai_history.append({"type": "normal", "data": item[agent_name]})
+        st.session_state.setdefault("past", user_history)
+        st.session_state.setdefault("generated", ai_history)
+        st.title("Chat placeholder")
+        chat_placeholder = st.empty()
+        with chat_placeholder.container():
+            for i in range(len(st.session_state["generated"])):
+                message(st.session_state["past"][i], is_user=True, key=f"{i}_user")
+                message(
+                    st.session_state["generated"][i]["data"],
+                    key=f"{i}",
+                    allow_html=True,
+                    is_table=True
+                    if st.session_state["generated"][i]["type"] == "table"
+                    else False,
+                )
+
+        with st.container():
+            st.text_input("User Input:", key="user_input")
+            if mode == "Chat":
+                st.form_submit_button("Submit", key="submit")
+            elif mode == "Instruct":
+                st.form_submit_button("Submit", key="submit")
+            elif mode == "Learning":
+                st.form_submit_button("Submit", key="submit")
+            elif mode == "Chains":
+                st.form_submit_button("Submit", key="submit")
+            else:
+                st.form_submit_button("Submit", key="submit")
+
 
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":

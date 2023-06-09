@@ -4424,6 +4424,20 @@ reference = "ffb0583"
 resolved_reference = "ffb0583f59972adadb52164a285e8395e8a17ef7"
 
 [[package]]
+name = "streamlit-chat-media"
+version = "0.0.4"
+description = "A streamlit component, to make chatbots with media support"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "streamlit-chat-media-0.0.4.tar.gz", hash = "sha256:eb135021eaf133fc1e253521f0b76519966db78b2c721cd3952db864256ea340"},
+    {file = "streamlit_chat_media-0.0.4-py3-none-any.whl", hash = "sha256:02c272b60e04014aa1f03610a91eb3ae1252b57072ab8a4bd6bd5859948a5a89"},
+]
+
+[package.dependencies]
+streamlit = ">=0.63"
+
+[[package]]
 name = "sympy"
 version = "1.12"
 description = "Computer algebra system (CAS) in Python"
@@ -5638,4 +5652,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "fec7e3ce1b92fde5e317e1ab3b7e0c524b4a9264b7706dfa2a858824f9e05795"
+content-hash = "1978de44a9e96e3df93e749ebeba40a93a6fb9551ef2a3baeb0b97411881fbdf"
