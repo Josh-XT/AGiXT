@@ -99,16 +99,16 @@ class Memories:
             logging.info(f"Failed to store memory: {e}")
 
     async def store_result(
-        self, task_name: str, result: str, external_source_name: str = None
+        self, input: str, result: str, external_source_name: str = None
     ):
         if result:
             if not isinstance(result, str):
                 result = str(result)
-            chunks = await self.chunk_content(result, task_name)
+            chunks = await self.chunk_content(result, input)
             for chunk in chunks:
                 await self.store_memory(
                     content=chunk,
-                    description=task_name,
+                    description=input,
                     external_source_name=external_source_name,
                 )
 
@@ -213,7 +213,7 @@ class Memories:
             else:
                 with open(file_path, "r") as f:
                     content = f.read()
-            await self.store_result(task_name=file_path, result=content)
+            await self.store_result(input=file_path, result=content)
             return True
         except:
             return False
@@ -240,7 +240,7 @@ class Memories:
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
                 if text_content:
-                    await self.store_result(url, text_content)
+                    await self.store_result(input=url, result=text_content)
                 return text_content, link_list
         except:
             return None, None

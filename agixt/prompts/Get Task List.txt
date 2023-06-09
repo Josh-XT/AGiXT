@@ -1,0 +1,13 @@
+{command_list}
+{context}
+
+Today's date is {date}. 
+
+Primary Objective: {user_input}
+
+Task: Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective. Let's work this out in a step by step way to be sure we are doing what is asked.
+Respond in this format:
+1. First task
+2. Second task
+3. Third task
+etc.

@@ -1,5 +1,5 @@
 {
-    "chain_name": "Smart Chat",
+    "chain_name": "Smart Instruct",
     "steps": [
         {
             "step": 1,
@@ -8,7 +8,7 @@
             "prompt": {
                 "command_name": "prompt_agent",
                 "user_input": "{user_input}",
-                "prompt_name": "SmartChat-StepByStep",
+                "prompt_name": "SmartInstruct-StepByStep",
                 "prompt_args": {},
                 "agent": "{agent_name}",
                 "websearch": true,
@@ -22,7 +22,7 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SmartChat-Researcher",
+                "prompt_name": "SmartInstruct-Researcher",
                 "shots": "3",
                 "task": "{STEP1}"
             }
@@ -32,7 +32,7 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SmartChat-Resolver",
+                "prompt_name": "SmartInstruct-Resolver",
                 "shots": "3",
                 "task": "{STEP2}"
             }

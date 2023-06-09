@@ -4,10 +4,14 @@ from AGiXT import AGiXT
 import argparse
 from Extensions import Extensions
 import logging
+from datetime import datetime
 
 
 class Chain:
     def get_chain(self, chain_name):
+        # if chain/{chain_name}/ exists and create the folder if it does not
+        if not os.path.exists(os.path.join("chains", chain_name)):
+            os.mkdir(os.path.join("chains", chain_name))
         with open(os.path.join("chains", f"{chain_name}.json"), "r") as f:
             chain_data = json.load(f)
         return chain_data
@@ -105,7 +109,7 @@ class Chain:
         with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
             json.dump(chain_data, f)
 
-    async def run_chain(self, chain_name):
+    async def run_chain(self, chain_name, user_input=None):
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
@@ -113,20 +117,21 @@ class Chain:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
                 step_response = await self.run_chain_step(
-                    step=step_data, chain_name=chain_name
+                    step=step_data, chain_name=chain_name, user_input=user_input
                 )  # Get the response of the current step.
                 responses[step_data["step"]] = step_response  # Store the response.
                 logging.info(f"Response: {step_response}")
                 # Write the responses to the json file.
+                dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with open(
-                    os.path.join("chains", f"{chain_name}_responses.json"), "w"
+                    os.path.join("chains", chain_name, "responses.json"), "w"
                 ) as f:
                     json.dump(responses, f)
         return responses
 
     def get_step_response(self, chain_name, step_number="all"):
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
                 responses = json.load(f)
             print(responses)
             if step_number == "all":
@@ -138,41 +143,65 @@ class Chain:
 
     def get_chain_responses(self, chain_name):
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
                 responses = json.load(f)
             return responses
         except:
             return {}
 
-    def get_step_content(self, chain_name, prompt_content):
+    def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
         new_prompt_content = {}
         if isinstance(prompt_content, dict):
             for arg, value in prompt_content.items():
+                if "{user_input}" in value:
+                    value = value.replace("{user_input}", user_input)
+                if "{agent_name}" in value:
+                    value = value.replace("{agent_name}", agent_name)
                 if "{STEP" in value:
+                    # Count how many times {STEP is in the value
+                    step_count = value.count("{STEP")
+                    for i in range(step_count):
+                        # Get the step number from value between {STEP and }
+                        new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                        # get the response from the step number
+                        step_response = self.get_step_response(
+                            chain_name=chain_name, step_number=new_step_number
+                        )
+                        # replace the {STEPx} with the response
+                        value = value.replace(
+                            f"{{STEP{new_step_number}}}", step_response
+                        )
+                new_prompt_content[arg] = value
+        elif isinstance(prompt_content, str):
+            new_prompt_content = prompt_content
+            if "{user_input}" in prompt_content:
+                new_prompt_content = new_prompt_content.replace(
+                    "{user_input}", user_input
+                )
+            if "{agent_name}" in new_prompt_content:
+                new_prompt_content = new_prompt_content.replace(
+                    "{agent_name}", agent_name
+                )
+            if "{STEP" in prompt_content:
+                step_count = value.count("{STEP")
+                for i in range(step_count):
                     # Get the step number from value between {STEP and }
-                    new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                    new_step_number = int(
+                        prompt_content.split("{STEP")[1].split("}")[0]
+                    )
                     # get the response from the step number
                     step_response = self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
                     # replace the {STEPx} with the response
-                    value = value.replace(f"{{STEP{new_step_number}}}", step_response)
-                new_prompt_content[arg] = value
-        elif isinstance(prompt_content, str):
-            if "{STEP" in prompt_content:
-                # Get the step number from value between {STEP and }
-                new_step_number = int(prompt_content.split("{STEP")[1].split("}")[0])
-                # get the response from the step number
-                step_response = self.get_step_response(
-                    chain_name=chain_name, step_number=new_step_number
-                )
-                # replace the {STEPx} with the response
-                new_prompt_content = prompt_content.replace(
-                    f"{{STEP{new_step_number}}}", step_response
-                )
+                    new_prompt_content = prompt_content.replace(
+                        f"{{STEP{new_step_number}}}", step_response
+                    )
+            if new_prompt_content == {}:
+                new_prompt_content = prompt_content
         return new_prompt_content
 
-    async def run_chain_step(self, step: dict = {}, chain_name=""):
+    async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
         logging.info(step)
         if step:
             if "prompt_type" in step:
@@ -185,7 +214,10 @@ class Chain:
                 else:
                     prompt_name = ""
                 args = self.get_step_content(
-                    chain_name=chain_name, prompt_content=step["prompt"]
+                    chain_name=chain_name,
+                    prompt_content=step["prompt"],
+                    user_input=user_input,
+                    agent_name=agent_name,
                 )
                 if prompt_type == "Command":
                     return await Extensions(
@@ -195,19 +227,16 @@ class Chain:
                     )
                 elif prompt_type == "Prompt":
                     result = await agent.run(
+                        user_input=user_input,
                         prompt=prompt_name,
                         chain_name=chain_name,
                         step_number=step_number,
                         **args,
                     )
                 elif prompt_type == "Chain":
-                    result = await self.run_chain(step["prompt"]["chain_name"])
-                elif prompt_type == "Smart Instruct":
-                    result = await agent.smart_instruct(**args)
-                elif prompt_type == "Smart Chat":
-                    result = await agent.smart_chat(**args)
-                elif prompt_type == "Task":
-                    result = await agent.run_task(**args)
+                    result = await self.run_chain(
+                        chain_name=step["prompt"]["chain_name"], user_input=user_input
+                    )
         if result:
             return result
         else:
@@ -217,8 +246,10 @@ class Chain:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--chain", type=str, default="")
+    parser.add_argument("--user_input", type=str, default="")
     args = parser.parse_args()
     chain_name = args.chain
+    user_input = args.user_input
     import asyncio
 
-    asyncio.run(Chain().run_chain(chain_name=chain_name))
+    asyncio.run(Chain().run_chain(chain_name=chain_name, user_input=user_input))

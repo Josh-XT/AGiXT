@@ -3,6 +3,10 @@ import streamlit as st
 from ApiClient import ApiClient
 from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
+from components.verify_backend import verify_backend
+from components.docs import agixt_docs
+
+verify_backend()
 
 
 st.set_page_config(
@@ -10,17 +14,38 @@ st.set_page_config(
     page_icon=":hammer_and_wrench:",
     layout="wide",
 )
+agixt_docs()
 
-check_auth_status()
 
-agent_name = agent_selector()
-providers = ApiClient.get_providers()
-embedders = ApiClient.get_embed_providers()
+# check_auth_status()
+@st.cache_data
+def get_providers():
+    return ApiClient.get_providers()
+
+
+@st.cache_data
+def get_embed_providers():
+    return ApiClient.get_embed_providers()
+
+
+@st.cache_data
+def provider_settings(provider_name: str):
+    return ApiClient.get_provider_settings(provider_name)
+
+
+@st.cache_data
+def get_extension_settings():
+    return ApiClient.get_extension_settings()
+
+
+providers = get_providers()
+embedders = get_embed_providers()
+extension_setting_keys = get_extension_settings()
 
 
 def render_provider_settings(agent_settings, provider_name: str):
     try:
-        required_settings = ApiClient.get_provider_settings(provider_name)
+        required_settings = provider_settings(provider_name)
     except (TypeError, ValueError):
         st.error(
             f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
@@ -57,17 +82,22 @@ def render_provider_settings(agent_settings, provider_name: str):
     return rendered_settings
 
 
-st.header("Manage Agent Settings")
+st.header("Agent Settings")
+agent_name = agent_selector()
 
 if "new_agent_name" not in st.session_state:
-    st.session_state.new_agent_name = ""
-
-# Check if a new agent has been added and reset the session state variable
-if st.session_state.new_agent_name and st.session_state.new_agent_name != agent_name:
-    st.session_state.new_agent_name = ""
+    st.session_state["new_agent_name"] = ""
 
 # Add an input field for the new agent's name
 new_agent = False
+
+# Check if a new agent has been added and reset the session state variable
+if (
+    st.session_state["new_agent_name"]
+    and st.session_state["new_agent_name"] != agent_name
+):
+    st.session_state["new_agent_name"] = ""
+
 if not agent_name:
     new_agent_name = st.text_input("New Agent Name")
 
@@ -83,7 +113,7 @@ if not agent_name:
                 agent_name = new_agent_name
                 with open(os.path.join("session.txt"), "w") as f:
                     f.write(agent_name)
-                st.session_state.new_agent_name = agent_name
+                st.session_state["new_agent_name"] = agent_name
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
                 st.error(f"Error adding agent: {str(e)}")
@@ -142,104 +172,47 @@ if agent_name and not new_agent:
 
             return rendered_settings
 
-        st.subheader("Extension Settings")
-        extension_setting_keys = ApiClient.get_extension_settings()
-
-        extension_settings = render_extension_settings(
-            extension_setting_keys, agent_settings
-        )
-
-        # Update the extension settings in the agent_settings directly
-        agent_settings.update(extension_settings)
-
-        st.subheader("Custom Settings")
-        custom_settings = agent_settings.get("custom_settings", [])
-
-        custom_settings_list = st.session_state.get("custom_settings_list", None)
-        if custom_settings_list is None:
-            if not custom_settings:
-                custom_settings = [""]
-            st.session_state.custom_settings_list = custom_settings.copy()
-
-        custom_settings_container = st.container()
-        with custom_settings_container:
-            for i, custom_setting in enumerate(st.session_state.custom_settings_list):
-                key, value = (
-                    custom_setting.split(":", 1)
-                    if ":" in custom_setting
-                    else (custom_setting, "")
-                )
-                col1, col2 = st.columns(
-                    [0.5, 0.5]
-                )  # Add columns for side by side input
-                with col1:
-                    new_key = st.text_input(
-                        f"Custom Setting {i + 1} Key",
-                        value=key,
-                        key=f"custom_key_{i}",
-                    )
-                with col2:
-                    new_value = st.text_input(
-                        f"Custom Setting {i + 1} Value",
-                        value=value,
-                        key=f"custom_value_{i}",
-                    )
-                st.session_state.custom_settings_list[i] = f"{new_key}:{new_value}"
-
-                # Automatically add an empty key/value pair if the last one is filled
-                if (
-                    i == len(st.session_state.custom_settings_list) - 1
-                    and new_key
-                    and new_value
-                ):
-                    st.session_state.custom_settings_list.append("")
-
-        # Update the custom settings in the agent_settings directly
-        agent_settings.update(
-            {
-                custom_setting.split(":", 1)[0]: custom_setting.split(":", 1)[1]
-                for custom_setting in st.session_state.custom_settings_list
-                if custom_setting and ":" in custom_setting
-            }
-        )
-
-        st.subheader("Agent Commands")
-        # Fetch the available commands using the `Commands` class
-        available_commands = ApiClient.get_commands(agent_name=agent_name)
-
-        # Save the existing command state to prevent duplication
-        existing_command_states = {
-            command_name: command_status
-            for command_name, command_status in available_commands.items()
-        }
-
-        for command_name, command_status in available_commands.items():
-            toggle_status = st.checkbox(
-                command_name,
-                value=command_status,
-                key=command_name,
+        with st.form(key="update_agent_settings_form"):
+            update_agent_settings_button = st.form_submit_button(
+                "Update Agent Settings"
             )
-            available_commands[command_name] = toggle_status
+            wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
+            delete_agent_button = st.form_submit_button("Delete Agent")
+        st.subheader("Extension Settings")
+        with st.form("extension_settings"):
+            extension_settings = render_extension_settings(
+                extension_setting_keys, agent_settings
+            )
 
-        # Update the available commands back to the agent config
-        ApiClient.update_agent_commands(
-            agent_name=agent_name, commands=available_commands
-        )
+            # Update the extension settings in the agent_settings directly
+            agent_settings.update(extension_settings)
+
+            st.subheader("Agent Commands")
+            # Fetch the available commands using the `Commands` class
+            available_commands = agent_config["commands"]
+
+            # Save the existing command state to prevent duplication
+            existing_command_states = {
+                command_name: command_status
+                for command_name, command_status in available_commands.items()
+            }
+
+            for command_name, command_status in available_commands.items():
+                toggle_status = st.checkbox(
+                    command_name,
+                    value=command_status,
+                    key=command_name,
+                )
+                available_commands[command_name] = toggle_status
+            if st.form_submit_button("Update Agent Commands"):
+                ApiClient.update_agent_commands(
+                    agent_name=agent_name, commands=available_commands
+                )
 
     except Exception as e:
         st.error(f"Error loading agent configuration: {str(e)}")
 
 if not new_agent:
-    # Create a form for each button
-    with st.form(key="update_agent_settings_form"):
-        update_agent_settings_button = st.form_submit_button("Update Agent Settings")
-
-    with st.form(key="wipe_memories_form"):
-        wipe_memories_button = st.form_submit_button("Wipe Agent Memories")
-
-    with st.form(key="delete_agent_form"):
-        delete_agent_button = st.form_submit_button("Delete Agent")
-
     # Trigger actions on form submit
     if update_agent_settings_button:
         if agent_name:
@@ -267,7 +240,7 @@ if not new_agent:
             try:
                 ApiClient.delete_agent(agent_name=agent_name)
                 st.success(f"Agent '{agent_name}' deleted.")
-                st.session_state.new_agent_name = ""  # Reset the selected agent
+                st.session_state["new_agent_name"] = ""  # Reset the selected agent
                 st.experimental_rerun()  # Rerun the app to update the agent list
             except Exception as e:
                 st.error(f"Error deleting agent: {str(e)}")

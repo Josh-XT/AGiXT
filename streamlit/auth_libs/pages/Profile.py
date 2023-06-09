@@ -6,6 +6,10 @@ from auth_libs.Users import check_auth_status, logout_button
 from components.agent_selector import agent_selector
 import logging
 
+from components.verify_backend import verify_backend
+
+verify_backend()
+
 st.set_page_config(
     page_title="Profile",
     page_icon=":bust_in_silhouette:",

@@ -21,12 +21,12 @@ class file_system(Extensions):
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
         self.commands = {
-            "Read File": self.read_file,
             "Write to File": self.write_to_file,
-            "Append to File": self.append_to_file,
-            "Delete File": self.delete_file,
+            "Read File": self.read_file,
             "Search Files": self.search_files,
+            "Append to File": self.append_to_file,
             "Execute Python File": self.execute_python_file,
+            "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY

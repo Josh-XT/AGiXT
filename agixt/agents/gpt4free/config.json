@@ -1,7 +1,5 @@
 {
-    "commands": {
-        "Write to File": true
-    },
+    "commands": {},
     "settings": {
         "provider": "gpt4free",
         "AI_MODEL": "gpt-3.5-turbo",

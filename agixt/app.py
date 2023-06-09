@@ -6,7 +6,6 @@ from Config import Config
 from AGiXT import AGiXT
 from Agent import Agent
 from Chain import Chain
-from Tasks import Tasks
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options
@@ -45,6 +44,7 @@ class AgentNewName(BaseModel):
 
 
 class AgentPrompt(BaseModel):
+    user_input: str
     prompt_name: str
     prompt_args: dict
     websearch: bool
@@ -259,7 +259,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 async def instruct(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
     response = await agent.run(
-        task=prompt.prompt,
+        user_input=prompt.prompt,
         prompt="instruct",
     )
     return {"response": str(response)}
@@ -268,11 +268,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = AGiXT(agent_name=agent_name)
-    task = (
-        agent_prompt.prompt_args["task"] if "task" in agent_prompt.prompt_args else ""
-    )
     response = await agent.run(
-        task=task,
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
         websearch_depth=agent_prompt.websearch_depth,
@@ -285,21 +281,23 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.smart_instruct(task=prompt.prompt, shots=int(shots))
+    response = await agent.smart_instruct(user_input=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.run(task=prompt.prompt, prompt="Chat", context_results=6)
+    response = await agent.run(
+        user_input=prompt.prompt, prompt="Chat", context_results=6
+    )
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
     agent = AGiXT(agent_name=agent_name)
-    response = await agent.smart_chat(task=prompt.prompt, shots=shots)
+    response = await agent.smart_chat(user_input=prompt.prompt, shots=shots)
     return {"response": str(response)}
 
 
@@ -342,55 +340,6 @@ async def toggle_command(
         )
 
 
-@app.post("/api/agent/{agent_name}/task", tags=["Agent"])
-async def start_task_agent(agent_name: str, objective: Objective) -> ResponseMessage:
-    task = Tasks(agent_name=agent_name)
-    # If it's running stop it.
-    task_status = task.get_status()
-    if task_status != False:
-        task.stop_tasks()
-        return ResponseMessage(message="Task agent stopped")
-    # If it's not running start it.
-    try:
-        asyncio.create_task(task.run_task(objective=objective.objective))
-        return ResponseMessage(message="Task agent started")
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail="Error occurred while starting the task"
-        )
-
-
-# Get tasks Tasks(agent_name=agent_name).get_tasks()
-@app.get("/api/agent/{agent_name}/tasks", tags=["Agent"])
-async def get_tasks(agent_name: str) -> Dict[str, List[str]]:
-    tasks = Tasks(agent_name=agent_name).get_tasks()
-    return {"tasks": tasks}
-
-
-@app.get("/api/agent/{agent_name}/task", tags=["Agent"])
-async def get_task_output(agent_name: str) -> TaskOutput:
-    try:
-        task_output = Tasks(agent_name=agent_name).get_task_output()
-    except:
-        task_output = False
-    if task_output != False:
-        return TaskOutput(
-            output=task_output,
-            message="Task agent is not running",
-        )
-    else:
-        return TaskOutput(
-            output="",
-            message="Task agent is not running",
-        )
-
-
-@app.get("/api/agent/{agent_name}/task/status", tags=["Agent"])
-async def get_task_status(agent_name: str):
-    task_status = Tasks(agent_name=agent_name).get_status()
-    return {"status": task_status}
-
-
 @app.get("/api/chain", tags=["Chain"])
 async def get_chains():
     chains = Chain().get_chains()
@@ -416,8 +365,8 @@ async def get_chain(chain_name: str):
 
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
-async def run_chain(chain_name: str) -> ResponseMessage:
-    await Chain().run_chain(chain_name=chain_name)
+async def run_chain(chain_name: str, user_input: Prompt) -> ResponseMessage:
+    await Chain().run_chain(chain_name=chain_name, user_input=user_input.prompt)
     return {"message": f"Chain '{chain_name}' completed."}
 
 
@@ -547,6 +496,11 @@ async def get_extension_settings():
 @app.get("/api/extensions/{command_name}/args", tags=["Extension"])
 async def get_command_args(command_name: str):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
+
+
+@app.get("/api/extensions", tags=["Extension"])
+async def get_extensions():
+    return {"extensions": Extensions().get_extensions()}
 
 
 if __name__ == "__main__":

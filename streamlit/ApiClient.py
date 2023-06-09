@@ -85,13 +85,16 @@ class ApiClient:
         agent_name: str,
         prompt_name: int,
         prompt_args: dict,
+        user_input: str = "",
         websearch: bool = False,
         websearch_depth: int = 3,
         context_results: int = 5,
+        shots: int = 1,
     ) -> str:
         response = requests.post(
             f"{base_uri}/api/agent/{agent_name}/prompt",
             json={
+                "user_input": user_input,
                 "prompt_name": prompt_name,
                 "prompt_args": prompt_args,
                 "websearch": websearch,
@@ -99,6 +102,25 @@ class ApiClient:
                 "context_results": context_results,
             },
         )
+        if shots > 1:
+            responses = [response.json()["response"]]
+            for shot in range(shots - 1):
+                response = requests.post(
+                    f"{base_uri}/api/agent/{agent_name}/prompt",
+                    json={
+                        "user_input": user_input,
+                        "prompt_name": prompt_name,
+                        "prompt_args": prompt_args,
+                        "context_results": context_results,
+                    },
+                )
+                responses.append(response.json()["response"])
+            return "\n".join(
+                [
+                    f"Response {shot + 1}:\n{response}"
+                    for shot, response in enumerate(responses)
+                ]
+            )
         return response.json()["response"]
 
     @staticmethod
@@ -147,32 +169,6 @@ class ApiClient:
         return response.json()["message"]
 
     @staticmethod
-    def start_task_agent(agent_name: str, objective: str) -> str:
-        response = requests.post(
-            f"{base_uri}/api/agent/{agent_name}/task",
-            json={"objective": objective},
-        )
-        try:
-            return response.json()["message"]
-        except:
-            return response.json()
-
-    @staticmethod
-    def get_tasks(agent_name) -> List[Any]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/tasks")
-        return response.json()["tasks"]
-
-    @staticmethod
-    def get_task_output(agent_name: str) -> Dict[str, Union[str, Optional[str]]]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/task")
-        return response.json()["output"]
-
-    @staticmethod
-    def get_task_status(agent_name: str) -> Dict[str, bool]:
-        response = requests.get(f"{base_uri}/api/agent/{agent_name}/task/status")
-        return response.json()["status"]
-
-    @staticmethod
     def get_chains() -> List[str]:
         response = requests.get(f"{base_uri}/api/chain")
         return response.json()
@@ -188,8 +184,10 @@ class ApiClient:
         return response.json()["chain"]
 
     @staticmethod
-    def run_chain(chain_name: str) -> str:
-        response = requests.post(f"{base_uri}/api/chain/{chain_name}/run")
+    def run_chain(chain_name: str, user_input: str) -> str:
+        response = requests.post(
+            f"{base_uri}/api/chain/{chain_name}/run", json={"prompt": user_input}
+        )
         return response.json()["message"]
 
     @staticmethod
@@ -284,7 +282,7 @@ class ApiClient:
     @staticmethod
     def get_prompt(prompt_name: str) -> Dict[str, Any]:
         response = requests.get(f"{base_uri}/api/prompt/{prompt_name}")
-        return response.json()
+        return response.json()["prompt"]
 
     @staticmethod
     def get_prompts() -> List[str]:
@@ -313,6 +311,11 @@ class ApiClient:
     def get_extension_settings() -> Dict[str, Any]:
         response = requests.get(f"{base_uri}/api/extensions/settings")
         return response.json()["extension_settings"]
+
+    @staticmethod
+    def get_extensions() -> List[tuple]:
+        response = requests.get(f"{base_uri}/api/extensions")
+        return response.json()["extensions"]
 
     @staticmethod
     def get_command_args(command_name: str) -> Dict[str, Any]:

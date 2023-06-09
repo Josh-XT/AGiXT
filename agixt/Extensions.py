@@ -46,9 +46,9 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        for command in self.available_commands:
-            if command["friendly_name"] == command_name:
-                return command["args"]
+        for command in self.get_extensions():
+            if command[0] == command_name:
+                return command[2]
         return None
 
     def load_commands(self):
@@ -146,3 +146,16 @@ class Extensions:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
         return output
+
+    def get_extensions(self):
+        commands = []
+        command_files = glob.glob("extensions/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"extensions.{module_name}")
+            command_class = getattr(module, module_name.lower())()
+            if hasattr(command_class, "commands"):
+                for command_name, command_function in command_class.commands.items():
+                    params = self.get_command_params(command_function)
+                    commands.append((command_name, command_function.__name__, params))
+        return commands

@@ -1,6 +1,6 @@
 import axios from "axios";
 import * as dotenv from "dotenv";
-
+// TODO: Need to review to modify some endpoints and add some missing ones.
 dotenv.config();
 const baseUri = process.env.BASE_URI || "http://localhost:7437";
 

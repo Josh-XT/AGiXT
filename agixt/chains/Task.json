@@ -1,0 +1,28 @@
+{
+    "chain_name": "Task",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Get Task List",
+                "user_input": "{user_input}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Execute Task List",
+                "agent": "{agent_name}",
+                "user_input": "{user_input}",
+                "tasks": "{STEP1}",
+                "websearch": false,
+                "websearch_depth": 0,
+                "context_results": 5
+            }
+        }
+    ]
+}
