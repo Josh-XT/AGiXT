@@ -166,7 +166,6 @@ elif chain_action == "Modify Chain":
             return step
 
         st.write("Existing Steps:")
-        print(chain)
         if chain:
             for step in chain["steps"]:
                 if step is not None:
