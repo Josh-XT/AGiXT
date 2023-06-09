@@ -8,25 +8,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install -U pip setuptools && \
-    pip install poetry==1.5.1
+    pip install -U pip setuptools
 
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
-    POETRY_NO_INTERACTION=1 \
     PLAYWRIGHT_BROWSERS_PATH=0
 
 WORKDIR /
 COPY pyproject.toml .
-COPY poetry.lock .
+COPY requirements.txt .
 ARG HNSWLIB_NO_NATIVE=1
-RUN poetry install --no-root --with gpt4free
-RUN poetry run playwright install --with-deps
+RUN pip install -r requirements.txt
+RUN playwright install --with-deps
 COPY . .
 
 ENV PATH="/usr/local/bin:$PATH"
 ENV LD_PRELOAD=libgomp.so.1
 
 WORKDIR /agixt
-ENTRYPOINT ["sh", "-c", "poetry run streamlit run /streamlit/Main.py & poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 2"]
+ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py"]
