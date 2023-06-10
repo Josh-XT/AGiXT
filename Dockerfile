@@ -28,4 +28,4 @@ ENV PATH="/usr/local/bin:$PATH"
 ENV LD_PRELOAD=libgomp.so.1
 
 WORKDIR /agixt
-ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py"]
+ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py & uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4"]
