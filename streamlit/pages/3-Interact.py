@@ -28,10 +28,17 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "C
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = ""
 
+# Update this line
+agent_name, agent_history = agent_selector()
+
+# Add this line to display agent history
+if agent_name:  # Only show history if an agent is selected
+    st.write(agent_history)
+
+
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
     st.markdown("### Choose an Agent and Prompt")
-    agent_name = agent_selector()
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
     # Fetch arguments for the selected prompt
@@ -78,7 +85,6 @@ if mode == "Prompt":
 
 if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
-    agent_name = agent_selector()
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
     chat_prompt = st.text_input("Enter your message", key="chat_prompt")
     send_button = st.button("Send Message")
@@ -100,7 +106,6 @@ if mode == "Chat":
 
 if mode == "Instruct":
     st.markdown("### Choose an Agent to Instruct")
-    agent_name = agent_selector()
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
     instruct_prompt = st.text_input("Enter your instruction", key="instruct_prompt")
     send_button = st.button("Send Message")
@@ -127,7 +132,6 @@ if mode == "Learning":
 if mode == "Chains":
     st.markdown("### Choose a Chain to Run")
     chain_names = ApiClient.get_chains()
-
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
     user_input = st.text_input("User Input")
@@ -141,6 +145,3 @@ if mode == "Chains":
                 st.write(responses)
         else:
             st.error("Chain name is required.")
-
-if agent_name:
-    st.session_state["chat_history"] = get_history(agent_name=agent_name)

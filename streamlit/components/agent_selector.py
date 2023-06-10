@@ -1,5 +1,6 @@
 import streamlit as st
 from ApiClient import ApiClient
+from components.history import get_history
 import os
 import logging
 
@@ -38,4 +39,8 @@ def agent_selector():
             st.experimental_rerun()
         except Exception as e:
             logging.info(e)
-    return selected_agent
+
+    # Get the history for the selected agent
+    agent_history = get_history(agent_name=selected_agent)
+
+    return selected_agent, agent_history
