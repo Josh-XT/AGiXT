@@ -14,7 +14,7 @@ def verify_backend():
             try:
                 subprocess.Popen(
                     os.system(
-                        "cd ../agixt/ && poetry run uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 && cd ../streamlit/"
+                        "cd ../agixt/ && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 && cd ../streamlit/"
                     )
                 )
                 logging.info("LAUNCHED FOR YOU")
