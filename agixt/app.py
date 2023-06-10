@@ -2,13 +2,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent, add_agent, delete_agent, rename_agent
+from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
-from provider import get_provider_options
+from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
@@ -18,7 +17,11 @@ this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
-CFG = Config()
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
@@ -134,8 +137,8 @@ class AgentCommands(BaseModel):
 
 
 @app.get("/api/provider", tags=["Provider"])
-async def get_providers():
-    providers = CFG.get_providers()
+async def getproviders():
+    providers = get_providers()
     return {"providers": providers}
 
 
@@ -218,8 +221,8 @@ async def deleteagent(agent_name: str) -> ResponseMessage:
 
 
 @app.get("/api/agent", tags=["Agent"])
-async def get_agents():
-    agents = CFG.get_agents()
+async def getagents():
+    agents = get_agents()
     return {"agents": agents}
 
 

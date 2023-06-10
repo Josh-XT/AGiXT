@@ -1,5 +1,5 @@
 from Extensions import Extensions
-from Config import Config
+from Agent import get_agents
 from Chain import Chain
 from AGiXT import AGiXT
 import json
@@ -9,7 +9,7 @@ from typing import List, Optional
 
 class agixt_agent(Extensions):
     def __init__(self, **kwargs):
-        agents = Config().get_agents()
+        agents = get_agents()
         self.chains = Chain().get_chains()
         self.commands = {
             "Evaluate Code": self.evaluate_code,

@@ -76,6 +76,18 @@ def rename_agent(agent_name, new_name):
         return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
+def get_agents():
+    agents_dir = "agents"
+    if not os.path.exists(agents_dir):
+        os.makedirs(agents_dir)
+    agents = [
+        dir_name
+        for dir_name in os.listdir(agents_dir)
+        if os.path.isdir(os.path.join(agents_dir, dir_name))
+    ]
+    return agents
+
+
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
