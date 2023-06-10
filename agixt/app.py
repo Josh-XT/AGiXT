@@ -240,13 +240,13 @@ async def get_chat_history(agent_name: str):
     return {"chat_history": chat_history}
 
 
-@app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
+@app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
 async def delete_history(agent_name: str) -> ResponseMessage:
     Agent(agent_name=agent_name).delete_history()
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
-@app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
+@app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     Agent(agent_name=agent_name).wipe_agent_memories()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
