@@ -2,7 +2,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from AGiXT import AGiXT
+from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
 from Prompts import Prompts
@@ -252,7 +252,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 
 @app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
 async def instruct(agent_name: str, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         user_input=prompt.prompt,
         prompt="instruct",
@@ -262,7 +262,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
@@ -275,14 +275,14 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
 
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.smart_instruct(user_input=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         user_input=prompt.prompt, prompt="Chat", context_results=6
     )
@@ -291,7 +291,7 @@ async def chat(agent_name: str, prompt: Prompt):
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.smart_chat(user_input=prompt.prompt, shots=shots)
     return {"response": str(response)}
 

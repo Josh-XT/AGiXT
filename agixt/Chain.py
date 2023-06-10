@@ -1,6 +1,6 @@
 import os
 import json
-from AGiXT import AGiXT
+from Interactions import Interactions
 import argparse
 from Extensions import Extensions
 import logging
@@ -206,7 +206,7 @@ class Chain:
         if step:
             if "prompt_type" in step:
                 agent_name = step["agent_name"]
-                agent = AGiXT(agent_name)
+                agent = Interactions(agent_name)
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:

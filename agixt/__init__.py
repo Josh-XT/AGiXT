@@ -1,4 +1,4 @@
-from .AGiXT import AGiXT
+from .Interactions import Interactions
 from .Memories import Memories
 from .Chain import Chain
 from .Extensions import Extensions
