@@ -96,8 +96,6 @@ class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
-        self.agent_folder = os.path.join("agents", self.agent_name)
-        self.agent_config_file = os.path.join("agents", self.agent_name, "config.json")
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             if "provider" in self.PROVIDER_SETTINGS:
@@ -131,7 +129,7 @@ class Agent:
             self.history_file = os.path.join("agents", self.agent_name, "history.yaml")
             self.history = self.load_history()
             self.agent_instances = {}
-            self.agent_config = self.load_agent_config(self.agent_name)
+            self.agent_config = self.load_agent_config()
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -160,7 +158,7 @@ class Agent:
         for command in list(self.AGENT_CONFIG["commands"]):
             if command not in [cmd[0] for cmd in self.commands]:
                 del self.AGENT_CONFIG["commands"][command]
-        with open(self.agent_config_file, "w") as f:
+        with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
@@ -225,18 +223,20 @@ class Agent:
         )
 
         # Check and create agent directory if it doesn't exist
-        if not os.path.exists(self.agent_folder):
-            os.makedirs(self.agent_folder)
+        if not os.path.exists(os.path.join("agents", self.agent_name)):
+            os.makedirs(os.path.join("agents", self.agent_name))
 
         # Write the settings to the agent config file
-        with open(self.agent_config_file, "w") as f:
+        with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
             f.write(settings)
 
-        return self.agent_config_file
+        return os.path.join("agents", self.agent_name, "config.json")
 
     def load_agent_config(self):
         try:
-            with open(self.agent_config_file) as agent_config:
+            with open(
+                os.path.join("agents", self.agent_name, "config.json")
+            ) as agent_config:
                 try:
                     agent_config_data = json.load(agent_config)
                     return agent_config_data
@@ -249,12 +249,14 @@ class Agent:
                     }
                     agent_config_data["settings"] = DEFAULT_SETTINGS
                     # Save the updated agent_config to the file
-                    with open(self.agent_config_file, "w") as agent_config_file:
+                    with open(
+                        os.path.join("agents", self.agent_name, "config.json"), "w"
+                    ) as agent_config_file:
                         json.dump(agent_config_data, agent_config_file)
                     return agent_config_data
         except:
             # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "false"}
-            with open(self.agent_config_file, "w") as f:
+            with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
                 f.write(
                     json.dumps(
                         {
@@ -270,9 +272,11 @@ class Agent:
 
     def get_agent_config(self):
         while True:
-            if os.path.exists(self.agent_config_file):
+            if os.path.exists(os.path.join("agents", self.agent_name, "config.json")):
                 try:
-                    with open(self.agent_config_file, "r") as f:
+                    with open(
+                        os.path.join("agents", self.agent_name, "config.json"), "r"
+                    ) as f:
                         file_content = f.read().strip()
                         if file_content:
                             return json.loads(file_content)
@@ -282,8 +286,8 @@ class Agent:
             return self.get_agent_config()
 
     def update_agent_config(self, new_config, config_key):
-        if os.path.exists(self.agent_config_file):
-            with open(self.agent_config_file, "r") as f:
+        if os.path.exists(os.path.join("agents", self.agent_name, "config.json")):
+            with open(os.path.join("agents", self.agent_name, "config.json"), "r") as f:
                 current_config = json.load(f)
 
             # Ensure the config_key is present in the current configuration
@@ -295,7 +299,7 @@ class Agent:
                 current_config[config_key][key] = value
 
             # Save the updated configuration back to the file
-            with open(self.agent_config_file, "w") as f:
+            with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
                 json.dump(current_config, f)
             return f"Agent {self.agent_name} configuration updated."
         else:
