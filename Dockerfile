@@ -6,7 +6,8 @@ FROM ${BASE_IMAGE}
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update ; \
     apt-get upgrade -y ; \
-    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev 
+    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Update pip
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
