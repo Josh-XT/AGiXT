@@ -333,3 +333,11 @@ class Agent:
             }
         )
         self.save_history()
+
+    def delete_history(self):
+        try:
+            self.history = {"interactions": []}
+            self.save_history()
+            return "History deleted."
+        except:
+            return "History not found."
