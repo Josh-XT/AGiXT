@@ -161,7 +161,8 @@ async def addagent(agent: AgentSettings) -> Dict[str, str]:
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    return rename_agent(agent_name=agent_name, new_name=new_name.new_name)
+    rename_agent(agent_name=agent_name, new_name=new_name.new_name)
+    return ResponseMessage(message="Agent renamed.")
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
@@ -217,7 +218,8 @@ async def update_agent_commands(
 
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
 async def deleteagent(agent_name: str) -> ResponseMessage:
-    return delete_agent(agent_name=agent_name)
+    delete_agent(agent_name=agent_name)
+    return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
 
 @app.get("/api/agent", tags=["Agent"])
