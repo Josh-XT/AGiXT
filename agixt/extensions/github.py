@@ -1,3 +1,5 @@
+import os
+
 import git
 from github import Github
 from Extensions import Extensions
@@ -27,8 +29,8 @@ class github(Extensions):
         else:
             auth_repo_url = "//".join(split_url)
         try:
-            git.Repo.clone_from(auth_repo_url, self.WORKING_DIRECTORY + clone_path)
-            return f"""Cloned {repo_url} to {self.WORKING_DIRECTORY + clone_path}"""
+            git.Repo.clone_from(auth_repo_url, os.path.join(self.WORKING_DIRECTORY, clone_path))
+            return f"""Cloned {repo_url} to {os.path.join(self.WORKING_DIRECTORY, clone_path)}"""
         except Exception as e:
             return f"Error: {str(e)}"
 
