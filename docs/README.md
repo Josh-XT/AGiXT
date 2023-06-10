@@ -70,10 +70,12 @@ Open a terminal and run the following commands:
 ```
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-./AGiXT.sh
+pip install --upgrade pip
+pip install -r requirements.txt
+playwright install --with-deps
+cd streamlit
+streamlit run Main.py
 ```
-
-Any time you want to run AGiXT after that, you can just run `./AGiXT.sh` from the AGiXT directory.  This will pull the latest changes from the main branch then launch AGiXT.
 
 You may have to press `Ctrl+C` multiple times to stop AGiXT running in the terminal due to it running multiple processes.
 

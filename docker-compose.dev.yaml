@@ -1,9 +1,13 @@
 services:
   agixt:
     build: .
+    environment:
+      - UVICORN_WORKERS=4
     ports:
       - "8501:8501"
       - "7437:7437"
     volumes:
-      - ./agixt:/agixt
-      - ./streamlit:/streamlit
+      - ./agixt:/agixt:rw
+      - ./streamlit:/streamlit:rw
+      - ./tests:/tests:rw
+      - ./models:/model:rw

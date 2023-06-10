@@ -1,5 +1,4 @@
 import streamlit as st
-from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 from components.learning import learning_page
@@ -8,7 +7,6 @@ from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
 verify_backend()
-# check_auth_status()
 
 st.set_page_config(
     page_title="Interact with Agents",
@@ -96,7 +94,9 @@ if mode == "Chat":
                     )
                 else:
                     response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
-            st.session_state["chat_history"] = get_history(agent_name=agent_name)
+                if response:
+                    st.experimental_rerun()
+
 
 if mode == "Instruct":
     st.markdown("### Choose an Agent to Instruct")
@@ -118,7 +118,8 @@ if mode == "Instruct":
                     response = ApiClient.instruct(
                         agent_name=agent_name, prompt=chat_prompt
                     )
-            st.session_state["chat_history"] = get_history(agent_name=agent_name)
+            if response:
+                st.experimental_rerun()
 
 if mode == "Learning":
     learning_page()

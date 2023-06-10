@@ -13,6 +13,7 @@ from inspect import signature, Parameter
 from provider import Provider
 from Memories import Memories
 from Extensions import Extensions
+from datetime import datetime
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
@@ -454,7 +455,7 @@ class Agent:
             chat_history = []
             for interaction in yaml_history["interactions"]:
                 role = interaction["role"]
-                message = interaction["message"]
+                message = interaction["timestamp"] + "\n" + interaction["message"]
                 chat_history.append({role: message})
             return chat_history
         except:
@@ -511,5 +512,11 @@ class Agent:
         """
         if self.history is None:
             self.history = {"interactions": []}
-        self.history["interactions"].append({"role": role, "message": message})
+        self.history["interactions"].append(
+            {
+                "role": role,
+                "message": message,
+                "timestamp": datetime.now().strftime("%B %d, %Y %I:%M %p"),
+            }
+        )
         self.save_memory()

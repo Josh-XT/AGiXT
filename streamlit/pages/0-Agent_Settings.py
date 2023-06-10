@@ -1,7 +1,6 @@
 import os
 import streamlit as st
 from ApiClient import ApiClient
-from auth_libs.Users import check_auth_status
 from components.agent_selector import agent_selector
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
@@ -17,7 +16,6 @@ st.set_page_config(
 agixt_docs()
 
 
-# check_auth_status()
 @st.cache_data
 def get_providers():
     return ApiClient.get_providers()

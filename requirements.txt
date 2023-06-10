@@ -1,5 +1,4 @@
 anthropic==0.2.9
-bcrypt==4.0.1
 beautifulsoup4==4.12.2
 captcha-solver==0.1.5
 chromadb==0.3.25
@@ -31,6 +30,7 @@ selenium==4.9.1
 sendgrid==6.10.0
 spacy==3.5.3
 streamlit==1.22.0
+ffmpeg
 protobuf==3.20.*
 tweepy==4.14.0
 uvicorn==0.22.0
