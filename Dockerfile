@@ -27,9 +27,9 @@ COPY requirements.txt .
 
 # Install application dependencies
 ARG HNSWLIB_NO_NATIVE=1
-RUN pip install -r requirements.txt
-RUN pip install --force-reinstall hnswlib protobuf==3.20.*
-RUN playwright install --with-deps
+RUN pip install -r requirements.txt && \
+    pip install --force-reinstall hnswlib protobuf==3.20.* && \
+    playwright install --with-deps
 
 # Copy local code to the container image.
 COPY . .
