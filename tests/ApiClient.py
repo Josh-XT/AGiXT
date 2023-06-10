@@ -76,6 +76,11 @@ class ApiClient:
         return response.json()["chat_history"]
 
     @staticmethod
+    def delete_agent_history(agent_name: str) -> str:
+        response = requests.delete(f"{base_uri}/api/agent/{agent_name}/history")
+        return response.json()["message"]
+
+    @staticmethod
     def wipe_agent_memories(agent_name: str) -> str:
         response = requests.delete(f"{base_uri}/api/agent/{agent_name}/memory")
         return response.json()["message"]

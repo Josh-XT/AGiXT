@@ -6,6 +6,14 @@ import os
 import inspect
 
 
+def get_providers():
+    providers = []
+    for provider in glob.glob("provider/*.py"):
+        if "__init__.py" not in provider:
+            providers.append(os.path.splitext(os.path.basename(provider))[0])
+    return providers
+
+
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     module = importlib.import_module(f"provider.{provider_name}")
