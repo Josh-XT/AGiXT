@@ -6,11 +6,12 @@ FROM ${BASE_IMAGE}
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update ; \
     apt-get upgrade -y ; \
-    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev 
+    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Update pip
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install -U pip setuptools
+    pip install --no-cache-dir -U pip setuptools
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -28,8 +29,8 @@ COPY requirements.txt .
 
 # Install application dependencies
 ARG HNSWLIB_NO_NATIVE=1
-RUN pip install -r requirements.txt
-RUN pip install --force-reinstall hnswlib protobuf==3.20.*
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --force-reinstall hnswlib protobuf==3.20.*
 RUN playwright install --with-deps
 
 # Copy local code to the container image.
