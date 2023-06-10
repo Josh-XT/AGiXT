@@ -51,16 +51,37 @@ def add_agent(agent_name, provider_settings=None):
 
 
 def delete_agent(agent_name):
-    agent_folder = os.path.join("agents", agent_name)
-    if os.path.exists(agent_folder):
-        shutil.rmtree(agent_folder)
-    return {"message": f"Agent {agent_name} deleted."}, 200
+    try:
+        agent_folder = os.path.join("agents", agent_name)
+        if os.path.exists(agent_folder):
+            shutil.rmtree(agent_folder)
+        return {"message": f"Agent {agent_name} deleted."}, 200
+    except:
+        return {"message": f"Agent {agent_name} could not be deleted."}, 400
+
+
+def rename_agent(agent_name, new_name):
+    current_agent_folder = os.path.join("agents", agent_name)
+    new_agent_folder = os.path.join("agents", new_name)
+    if os.path.exists(current_agent_folder):
+        # Check if the new name is already taken
+        if os.path.exists(new_agent_folder):
+            # Add a number to the end of the new name
+            i = 1
+            while os.path.exists(f"agents/{new_name}_{i}"):
+                i += 1
+            new_name = f"{new_name}_{i}"
+            new_agent_folder = os.path.join("agents", new_name)
+        os.rename(current_agent_folder, new_agent_folder)
+        return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
+        self.agent_folder = os.path.join("agents", self.agent_name)
+        self.agent_config_file = os.path.join("agents", self.agent_name, "config.json")
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
             if "provider" in self.PROVIDER_SETTINGS:
@@ -94,10 +115,6 @@ class Agent:
             self.history_file = os.path.join("agents", self.agent_name, "history.yaml")
             self.history = self.load_history()
             self.agent_instances = {}
-            self.agent_folder = os.path.join("agents", self.agent_name)
-            self.agent_config_file = os.path.join(
-                "agents", self.agent_name, "config.json"
-            )
             self.agent_config = self.load_agent_config(self.agent_name)
 
     def get_memories(self):
@@ -234,20 +251,6 @@ class Agent:
                     )
                 )
         return agent_config_data
-
-    def rename_agent(self, new_name):
-        if os.path.exists(self.agent_folder):
-            # Check if the new name is already taken
-            if os.path.exists(f"agents/{new_name}"):
-                # Add a number to the end of the new name
-                i = 1
-                while os.path.exists(f"agents/{new_name}_{i}"):
-                    i += 1
-                new_name = f"{new_name}_{i}"
-            self.agent_name = new_name
-            agent_folder = os.path.join("agents", f"{self.agent_name}")
-            os.rename(self.agent_folder, agent_folder)
-            self.agent_folder = agent_folder
 
     def get_agent_config(self):
         while True:

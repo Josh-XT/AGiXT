@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent, add_agent, delete_agent
+from Agent import Agent, add_agent, delete_agent, rename_agent
 from Chain import Chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
@@ -153,18 +153,12 @@ async def get_embed_providers():
 
 @app.post("/api/agent", tags=["Agent"])
 async def addagent(agent: AgentSettings) -> Dict[str, str]:
-    agent_info = add_agent(
-        agent_name=agent.agent_name, provider_settings=agent.settings
-    )
-    return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
+    return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
 
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
-async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    Agent(agent_name=agent_name).rename_agent(new_name=new_name.new_name)
-    return ResponseMessage(
-        message=f"Agent {agent_name} renamed to {new_name.new_name}."
-    )
+async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
+    return rename_agent(agent_name=agent_name, new_name=new_name.new_name)
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
@@ -220,11 +214,7 @@ async def update_agent_commands(
 
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
 async def deleteagent(agent_name: str) -> ResponseMessage:
-    result, status_code = delete_agent(agent_name=agent_name)
-    if status_code == 200:
-        return ResponseMessage(message=result["message"])
-    else:
-        raise HTTPException(status_code=status_code, detail=result["message"])
+    return delete_agent(agent_name=agent_name)
 
 
 @app.get("/api/agent", tags=["Agent"])
