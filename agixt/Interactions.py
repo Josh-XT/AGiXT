@@ -13,7 +13,7 @@ import logging
 from concurrent.futures import Future
 
 
-class AGiXT:
+class Interactions:
     def __init__(self, agent_name: str = "AGiXT"):
         self.agent_name = agent_name
         self.agent = Agent(self.agent_name)

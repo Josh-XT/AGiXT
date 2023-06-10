@@ -2,13 +2,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from Config import Config
-from AGiXT import AGiXT
-from Agent import Agent
+from Interactions import Interactions
+from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
-from provider import get_provider_options
+from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
@@ -18,7 +17,11 @@ this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
-CFG = Config()
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
@@ -134,8 +137,8 @@ class AgentCommands(BaseModel):
 
 
 @app.get("/api/provider", tags=["Provider"])
-async def get_providers():
-    providers = CFG.get_providers()
+async def getproviders():
+    providers = get_providers()
     return {"providers": providers}
 
 
@@ -152,21 +155,14 @@ async def get_embed_providers():
 
 
 @app.post("/api/agent", tags=["Agent"])
-async def add_agent(agent: AgentSettings) -> Dict[str, str]:
-    agent_info = Agent(agent.agent_name).add_agent(
-        agent_name=agent.agent_name, provider_settings=agent.settings
-    )
-    return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
+async def addagent(agent: AgentSettings) -> Dict[str, str]:
+    return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
 
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
-async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    Agent(agent_name=agent_name).rename_agent(
-        agent_name=agent_name, new_name=new_name.new_name
-    )
-    return ResponseMessage(
-        message=f"Agent {agent_name} renamed to {new_name.new_name}."
-    )
+async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
+    rename_agent(agent_name=agent_name, new_name=new_name.new_name)
+    return ResponseMessage(message="Agent renamed.")
 
 
 @app.put("/api/agent/{agent_name}", tags=["Agent"])
@@ -221,19 +217,14 @@ async def update_agent_commands(
 
 
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
-async def delete_agent(agent_name: str) -> ResponseMessage:
-    result, status_code = Agent(agent_name=agent_name).delete_agent(
-        agent_name=agent_name
-    )
-    if status_code == 200:
-        return ResponseMessage(message=result["message"])
-    else:
-        raise HTTPException(status_code=status_code, detail=result["message"])
+async def deleteagent(agent_name: str) -> ResponseMessage:
+    delete_agent(agent_name=agent_name)
+    return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
 
 @app.get("/api/agent", tags=["Agent"])
-async def get_agents():
-    agents = CFG.get_agents()
+async def getagents():
+    agents = get_agents()
     return {"agents": agents}
 
 
@@ -245,19 +236,25 @@ async def get_agentconfig(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name=agent_name).get_chat_history(agent_name=agent_name)
+    chat_history = Agent(agent_name=agent_name).get_history()
     return {"chat_history": chat_history}
 
 
 @app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
+async def delete_history(agent_name: str) -> ResponseMessage:
+    Agent(agent_name=agent_name).delete_history()
+    return ResponseMessage(message=f"History for agent {agent_name} deleted.")
+
+
+@app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    Agent(agent_name=agent_name).wipe_agent_memories(agent_name=agent_name)
+    Agent(agent_name=agent_name).wipe_agent_memories()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
 @app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
 async def instruct(agent_name: str, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         user_input=prompt.prompt,
         prompt="instruct",
@@ -267,7 +264,7 @@ async def instruct(agent_name: str, prompt: Prompt):
 
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         websearch=agent_prompt.websearch,
@@ -280,14 +277,14 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
 
 @app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
 async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.smart_instruct(user_input=prompt.prompt, shots=int(shots))
     return {"response": str(response)}
 
 
 @app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
 async def chat(agent_name: str, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         user_input=prompt.prompt, prompt="Chat", context_results=6
     )
@@ -296,7 +293,7 @@ async def chat(agent_name: str, prompt: Prompt):
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
 async def smartchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = AGiXT(agent_name=agent_name)
+    agent = Interactions(agent_name=agent_name)
     response = await agent.smart_chat(user_input=prompt.prompt, shots=shots)
     return {"response": str(response)}
 
