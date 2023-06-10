@@ -13,18 +13,18 @@ from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
 import logging
-import argparse
-import asyncio
+
+this_directory = os.path.abspath(os.path.dirname(__file__))
+with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
+    version = f.read().strip()
 
 CFG = Config()
 app = FastAPI(
     title="AGiXT",
     description="AGiXT is an Artificial Intelligence Automation platform for creating and managing AI agents. Visit the GitHub repo for more information or to report issues. https://github.com/Josh-XT/AGiXT/",
-    version="1.0.0",  # API version according to https://restfulapi.net/versioning/
+    version=version,
     docs_url="/",
 )
-agent_threads = {}
-agent_stop_events = {}
 
 app.add_middleware(
     CORSMiddleware,
