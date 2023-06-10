@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Update pip
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --no-cache-dir -U pip setuptools
+    pip install -U pip setuptools
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -29,8 +29,8 @@ COPY requirements.txt .
 
 # Install application dependencies
 ARG HNSWLIB_NO_NATIVE=1
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir --force-reinstall hnswlib protobuf==3.20.*
+RUN pip install -r requirements.txt
+RUN pip install --force-reinstall hnswlib protobuf==3.20.*
 RUN playwright install --with-deps
 
 # Copy local code to the container image.
