@@ -20,6 +20,7 @@ COPY pyproject.toml .
 COPY requirements.txt .
 ARG HNSWLIB_NO_NATIVE=1
 RUN pip install -r requirements.txt
+RUN pip install --force-reinstall hnswlib protobuf==3.20.*
 RUN playwright install --with-deps
 COPY . .
 
