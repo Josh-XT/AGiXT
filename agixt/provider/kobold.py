@@ -16,16 +16,17 @@ class KoboldProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.AI_MODEL = AI_MODEL
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         try:
             max_tokens = int(self.MAX_TOKENS - tokens)
         except:
             max_tokens = 2000
         response = requests.post(
-            f"{self.AI_PROVIDER_URI}/generate",
+            f"{self.AI_PROVIDER_URI}/api/v1/generate",
             json={
                 "prompt": prompt,
-                "max_length": max_tokens,
+                "max_context_length": max_tokens,
+                "max_length": 200,
                 "temperature": float(self.AI_TEMPERATURE),
             },
         )

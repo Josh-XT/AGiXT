@@ -26,7 +26,7 @@ class huggingface(Extensions):
                 "Generate Image with Stable Diffusion": self.generate_image_with_hf,
             }
 
-    def generate_image_with_hf(self, prompt: str, filename: str) -> str:
+    async def generate_image_with_hf(self, prompt: str, filename: str) -> str:
         API_URL = (
             "https://api-inference.huggingface.co/models/CompVis/stable-diffusion-v1-4"
         )
@@ -47,13 +47,13 @@ class huggingface(Extensions):
 
         return f"Saved to disk:{filename}"
 
-    def read_audio_from_file(self, audio_path: str):
+    async def read_audio_from_file(self, audio_path: str):
         audio_path = os.path.join(self.WORKING_DIRECTORY, audio_path)
         with open(audio_path, "rb") as audio_file:
             audio = audio_file.read()
-        return self.read_audio(audio)
+        return await self.read_audio(audio)
 
-    def read_audio(self, audio):
+    async def read_audio(self, audio):
         model = self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL
         api_url = f"https://api-inference.huggingface.co/models/{model}"
         api_token = self.HUGGINGFACE_API_KEY

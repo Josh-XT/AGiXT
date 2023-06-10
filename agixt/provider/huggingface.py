@@ -19,7 +19,7 @@ class HuggingfaceProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
 
-    def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def instruct(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3
         headers = {"Authorization": f"Bearer {self.HUGGINGFACE_API_KEY}"}
         payload = {
@@ -30,13 +30,14 @@ class HuggingfaceProvider:
         for _ in range(num_retries):
             try:
                 response = requests.post(
-                    f"{self.HUGGINGFACE_API_URL}/models/{self.AI_MODEL}",
+                    self.HUGGINGFACE_API_URL,
                     headers=headers,
                     json=payload,
                 )
                 response.raise_for_status()
                 return response.json()[0]["generated_text"]
-            except:
+            except requests.exceptions.RequestException as e:
+                logging.error(e)
                 logging.info("Rate limit exceeded. Retrying after 20 seconds.")
                 time.sleep(20)
                 continue

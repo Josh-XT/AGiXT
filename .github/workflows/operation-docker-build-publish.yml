@@ -1,0 +1,250 @@
+name: Build and publish docker containers
+
+on:
+  workflow_call:
+    inputs:
+      tags:
+        type: string
+        default: |
+          type=schedule
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{raw}}
+          type=sha
+      flavor:
+        type: string
+        default: |
+          latest=auto
+          prefix=
+          suffix=
+      build-args:
+        type: string
+      dockerfile:
+        type: string
+        default: Dockerfile
+      context:
+        type: string
+        default: "{{defaultContext}}"
+      context-cache:
+        type: string
+        description: a cache key
+        required: false
+      context-repository:
+        type: string
+        description: github repository to use
+      context-repository-ref:
+        type: string
+      push:
+        type: boolean
+        default: true
+      registry-repo-name:
+        type: string
+        default: ${{ github.event.repository.name }}
+      registry-dockerhub-enable:
+        type: boolean
+        default: true
+      registry-github-enable:
+        type: boolean
+        default: true
+      registry-readme:
+        type: string
+        default: https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docs/README.md
+      runs-on:
+        type: string
+        default: ubuntu-latest
+      platforms:
+        type: string
+        default: linux/amd64
+      cache-from:
+        type: string
+        default: type=gha
+      cache-to:
+        type: string
+        default: type=gha,mode=max
+      pre-free-disk-space:
+        type: boolean
+        default: false
+
+      buildkitd-flags:
+        type: string
+        description: directly transferred to docker build push action
+    outputs:
+      digest:
+        description: "Digest of docker image"
+        value: ${{ jobs.build_publish_docker.outputs.digest }}
+      primary-image:
+        description: "Primary full name of pushed docker image"
+        value: ${{ jobs.build_publish_docker.outputs.primary-image }}
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
+
+jobs:
+  build_publish_docker:
+    runs-on: ${{ inputs.runs-on }}
+
+    permissions:
+      packages: write
+      contents: read
+
+    outputs:
+      digest: ${{ steps.dockerBuild.outputs.digest }}
+      primary-image: ${{ steps.get-primary-image.outputs.primary-image }}
+
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        if: inputs.pre-free-disk-space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: false
+          # all of these default to true, but feel free to set to
+          # "false" if necessary for your workflow
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Log in to Docker Hub
+        if: inputs.registry-dockerhub-enable
+        uses: docker/login-action@v2
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to the Github registry
+        if: inputs.registry-github-enable
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate dockerhub full repo path
+        if: inputs.registry-dockerhub-enable
+        id: step_one
+        run: |
+          echo "dockerhub-repo=${{ vars.DOCKERHUB_USERNAME }}/${{ inputs.registry-repo-name }}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      # Needed for cache layers on github registry
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      ## Cache based contexts
+      - name: Restore cached context
+        if: inputs.context-cache
+        uses: actions/cache/restore@v3
+        with:
+          path: cached-context
+          key: ${{ inputs.context-cache }}
+          fail-on-cache-miss: true
+
+      - name: Set docker-context for cache
+        if: inputs.context-cache
+        run: echo "docker-context=cached-context" >> $GITHUB_ENV
+      ######
+
+      ## Repo based context (fixes submodules etc)
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        if: inputs.context-repository
+        with:
+          fetch-depth: 1
+
+      - name: Checkout external context
+        uses: actions/checkout@v3
+        if: inputs.context-repository
+        with:
+          repository: ${{ inputs.context-repository }}
+          ref: ${{ inputs.context-repository-ref }}
+          path: repository-context
+          fetch-depth: 1
+          submodules: true
+
+      - name: Set docker-context for repository
+        if: inputs.context-repository
+        run: echo "docker-context=repository-context" >> $GITHUB_ENV
+      ######
+
+      ###### Docker build metadata
+
+      - name: Set image names
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "image-names<<$EOF" >> "$GITHUB_ENV"
+          if ${{ inputs.registry-dockerhub-enable }} ; then
+            echo "${{ env.dockerhub-repo }}" >> "$GITHUB_ENV"
+          fi
+          if ${{ inputs.registry-github-enable }} ; then
+            echo "ghcr.io/${{ github.repository_owner }}/${{ inputs.registry-repo-name }}" >> "$GITHUB_ENV"
+          fi
+          echo "$EOF" >> "$GITHUB_ENV"
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.image-names }}
+          # generate Docker tags based on the following events/attributes
+          tags: ${{ inputs.tags }}
+          flavor: ${{ inputs.flavor }}
+
+      ######
+
+      - name: Build and push Docker images
+        id: dockerBuild
+        uses: docker/build-push-action@v4
+        with:
+          platforms: ${{ inputs.platforms }}
+          file: ${{ inputs.dockerfile }}
+          context: ${{ env.docker-context || inputs.context }}
+          build-args: ${{ inputs.build-args }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ inputs.cache-from }}
+          cache-to: ${{ inputs.cache-to }}
+          buildkitd-flags: ${{ inputs.buildkitd-flags }}
+
+      # publish README on docker hub
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      ###### Load docker readme file from remote
+
+      - name: Get remote registry readme
+        if: startsWith(inputs.registry-readme, 'https')
+        run: wget ${{ inputs.registry-readme }} -O README.docker.remote.md
+
+      - name: Set registry readme file
+        run: |
+          if ${{ startsWith( inputs.registry-readme, 'https' ) }} ; then
+            echo "registry-readme=README.docker.remote.md" >> "$GITHUB_ENV"
+          else 
+            echo "registry-readme=${{ inputs.registry-readme }}" >> "$GITHUB_ENV"
+          fi
+      #######
+      - name: Docker Hub Description
+        if: inputs.registry-dockerhub-enable
+        uses: peter-evans/dockerhub-description@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.dockerhub-repo }}
+          readme-filepath: ${{ env.registry-readme }}
+
+      - name: Selecting primary image from
+        run: echo "${{ fromJSON(steps.dockerBuild.outputs.metadata)['image.name'] }}"
+
+      - name: Primary image will be
+        run: echo "primary-image=$( cut -d ',' -f 1 <<< "${{ fromJSON(steps.dockerBuild.outputs.metadata)['image.name'] }}" )"
+
+      - name: Set output image
+        id: get-primary-image
+        run: echo "primary-image=$( cut -d ',' -f 1 <<< "${{ fromJSON(steps.dockerBuild.outputs.metadata)['image.name'] }}" )" >> "$GITHUB_OUTPUT"

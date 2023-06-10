@@ -18,7 +18,7 @@ class OobaboogaProvider:
         self.AI_MODEL = AI_MODEL
         self.requirements = []
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         new_tokens = int(self.MAX_TOKENS) - tokens
         params = {
             "prompt": prompt,

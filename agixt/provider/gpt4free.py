@@ -2,6 +2,7 @@ import gpt4free
 import time
 import logging
 import importlib
+import sys
 
 
 class Gpt4freeProvider:
@@ -17,10 +18,33 @@ class Gpt4freeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.FAILED_PROVIDERS = []
-        self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb"]
+        self.providers = ["DeepAI", "You", "UseLess", "ForeFront", "Theb", "Poe"]
         self.account_tokens = {}
 
-    def instruct(self, prompt, tokens: int = 0):
+    def create_account(self, provider, module):
+        try:
+            # the following call will not terminate the program even if it calls quit()
+            return module.Account.create()
+        except SystemExit:
+            logging.error(f"Account creation for {provider} called quit(), ignoring")
+            return None
+        except Exception as e:
+            # handle other exceptions here
+            logging.error(f"Failed to create account for {provider}: {e}")
+            return None
+
+    async def provider_failure(self, provider):
+        if provider not in self.FAILED_PROVIDERS:
+            self.FAILED_PROVIDERS.append(provider)
+            logging.info(f"[GPT4Free] Failed provider: {provider}")
+            if len(self.FAILED_PROVIDERS) == len(self.providers):
+                self.FAILED_PROVIDERS = []
+                logging.info(
+                    "All providers failed, sleeping for 10 seconds before trying again..."
+                )
+                time.sleep(10)
+
+    async def instruct(self, prompt, tokens: int = 0):
         final_response = None
         while final_response is None:
             for provider in self.providers:
@@ -40,9 +64,9 @@ class Gpt4freeProvider:
                                 )
                                 if module and hasattr(module, "Account"):
                                     logging.info(f"Create account for: {provider}")
-                                    self.account_tokens[
-                                        provider
-                                    ] = module.Account.create()
+                                    self.account_tokens[provider] = self.create_account(
+                                        provider, module
+                                    )
                             except ModuleNotFoundError:
                                 self.account_tokens[provider] = None
                         args = {}
@@ -66,31 +90,30 @@ class Gpt4freeProvider:
                                     "status" in response
                                     and response["status"] == "Fail"
                                 ):
-                                    self.FAILED_PROVIDERS.append(provider)
-                                    logging.info(
-                                        f"Failed to use {provider}: {response}"
-                                    )
                                     response = None
                             if (
                                 response
                                 == "Unable to fetch the response, Please try again."
                             ):
-                                self.FAILED_PROVIDERS.append(provider)
-                                logging.info(f"Failed to use {provider}: {response}")
                                 response = None
-                            if final_response == None:
-                                final_response = response
+                        if response:
+                            final_response = response
+                        else:
+                            await self.provider_failure(provider)
                     if final_response:
                         if len(final_response) > 1:
                             return final_response
+                    else:
+                        logging.info(f"Failed to use {provider}")
+                        self.FAILED_PROVIDERS.append(provider)
+                        if len(self.FAILED_PROVIDERS) == len(self.providers):
+                            self.FAILED_PROVIDERS = []
+                            logging.info(
+                                "All providers failed, sleeping for 10 seconds before trying again..."
+                            )
+                            time.sleep(10)
                 except Exception as e:
-                    logging.info(f"Failed to use {provider}: {e}")
-                    self.FAILED_PROVIDERS.append(provider)
+                    await self.provider_failure(provider=provider)
                     final_response = None
 
-            if len(self.FAILED_PROVIDERS) == len(self.providers):
-                self.FAILED_PROVIDERS = []
-                logging.info(
-                    "All providers failed, sleeping for 10 seconds before trying again..."
-                )
-                time.sleep(10)
+            await self.provider_failure(provider=provider)

@@ -6,13 +6,14 @@ import logging
 
 
 class Extensions:
-    def __init__(self, agent_config, load_commands_flag: bool = True, agent_name=""):
+    def __init__(self, agent_config=None, load_commands_flag: bool = True):
         self.agent_config = agent_config
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
             self.commands = []
-        self.available_commands = self.get_available_commands()
+        if agent_config != None:
+            self.available_commands = self.get_available_commands()
 
     def get_available_commands(self):
         available_commands = []
@@ -35,15 +36,6 @@ class Extensions:
                             "enabled": True,
                         }
                     )
-                else:
-                    available_commands.append(
-                        {
-                            "friendly_name": friendly_name,
-                            "name": command_name,
-                            "args": command_args,
-                            "enabled": False,
-                        }
-                    )
         return available_commands
 
     def get_enabled_commands(self):
@@ -54,9 +46,9 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        for command in self.available_commands:
-            if command["friendly_name"] == command_name:
-                return command["args"]
+        for command in self.get_extensions():
+            if command[0] == command_name:
+                return command[2]
         return None
 
     def load_commands(self):
@@ -128,39 +120,42 @@ class Extensions:
         return None, None, None  # Updated return statement
 
     def get_commands_list(self):
-        self.commands = self.load_commands(agent_name=self.agent_name)
+        self.commands = self.load_commands()
         commands_list = [command_name for command_name, _, _ in self.commands]
         return commands_list
 
-    def execute_command(self, command_name: str, command_args: dict = None):
+    async def execute_command(self, command_name: str, command_args: dict = None):
         command_function, module, params = self.find_command(command_name=command_name)
+        logging.info(
+            f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
+        )
         if command_function is None:
-            logging.info("|")
-            logging.info(
-                "Command Name: "
-                + str(command_name)
-                + " Args: "
-                + str(command_args)
-                + " Command Function: "
-                + str(command_function)
-            )
-            logging.info("|")
+            logging.error(f"Command {command_name} not found")
             return False
-
-        if command_args is None:
-            command_args = {}
-
-        if not isinstance(command_args, dict):
-            return f"Error: command_args should be a dictionary, but got {type(command_args).__name__}"
-
-        for name, value in command_args.items():
-            if name in params:
-                params[name] = value
-
+        for param in params:
+            if param not in command_args:
+                if param != "self" and param != "kwargs":
+                    command_args[param] = None
+        args = command_args.copy()
+        for param in command_args:
+            if param not in params:
+                del args[param]
         try:
-            command_class = module()
-            output = getattr(command_class, command_function.__name__)(**params)
+            output = await getattr(module(), command_function.__name__)(**args)
         except Exception as e:
             output = f"Error: {str(e)}"
-
+        logging.info(f"Command Output: {output}")
         return output
+
+    def get_extensions(self):
+        commands = []
+        command_files = glob.glob("extensions/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            module = importlib.import_module(f"extensions.{module_name}")
+            command_class = getattr(module, module_name.lower())()
+            if hasattr(command_class, "commands"):
+                for command_name, command_function in command_class.commands.items():
+                    params = self.get_command_params(command_function)
+                    commands.append((command_name, command_function.__name__, params))
+        return commands

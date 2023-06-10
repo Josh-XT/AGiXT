@@ -21,17 +21,17 @@ class file_system(Extensions):
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
         self.commands = {
-            "Read File": self.read_file,
             "Write to File": self.write_to_file,
-            "Append to File": self.append_to_file,
-            "Delete File": self.delete_file,
+            "Read File": self.read_file,
             "Search Files": self.search_files,
+            "Append to File": self.append_to_file,
             "Execute Python File": self.execute_python_file,
+            "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
-    def execute_python_file(self, file: str):
+    async def execute_python_file(self, file: str):
         logging.info(f"Executing file '{file}' in workspace '{self.WORKING_DIRECTORY}'")
 
         if not file.endswith(".py"):
@@ -95,7 +95,7 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def execute_shell(self, command_line: str) -> str:
+    async def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()
         os.chdir(current_dir)
         logging.info(
@@ -126,22 +126,18 @@ class file_system(Extensions):
                 os.makedirs(new_path)
         return new_path
 
-    def read_file(self, filename: str) -> str:
+    async def read_file(self, filename: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def write_to_file(self, filename: str, text: str) -> str:
+    async def write_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             directory = os.path.dirname(filepath)
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -151,35 +147,31 @@ class file_system(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def append_to_file(self, filename: str, text: str) -> str:
+    async def append_to_file(self, filename: str, text: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             with open(filepath, "a") as f:
                 f.write(text)
             return "Text appended successfully."
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def delete_file(self, filename: str) -> str:
+    async def delete_file(self, filename: str) -> str:
         try:
-            filepath = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=filename
-            )
+            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
             os.remove(filepath)
             return "File deleted successfully."
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def search_files(self, directory: str) -> List[str]:
+    async def search_files(self, directory: str) -> List[str]:
         found_files = []
 
         if directory in {"", "/"}:
             search_directory = self.WORKING_DIRECTORY
         else:
             search_directory = self.safe_join(
-                self=self, base=self.WORKING_DIRECTORY, paths=directory
+                base=self.WORKING_DIRECTORY, paths=directory
             )
 
         for root, _, files in os.walk(search_directory):

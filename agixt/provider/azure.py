@@ -13,6 +13,7 @@ class AzureProvider:
         AZURE_EMBEDDER_DEPLOYMENT_ID: str = "",
         AI_MODEL: str = "gpt-35-turbo",
         AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 4096,
         **kwargs,
     ):
@@ -25,10 +26,11 @@ class AzureProvider:
         self.AZURE_API_KEY = AZURE_API_KEY
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_TOP_P = AI_TOP_P
         self.MAX_TOKENS = MAX_TOKENS
         self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
 
-    def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def instruct(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3
         messages = [{"role": "system", "content": prompt}]
         for _ in range(num_retries):
@@ -38,6 +40,7 @@ class AzureProvider:
                     messages=messages,
                     max_tokens=int(self.MAX_TOKENS),
                     temperature=float(self.AI_TEMPERATURE),
+                    top_p=float(self.AI_TOP_P),
                 )["choices"][0]["message"]["content"]
                 return resp
 

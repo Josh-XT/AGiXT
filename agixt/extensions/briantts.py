@@ -14,7 +14,7 @@ class briantts(Extensions):
         if self.USE_BRIAN_TTS:
             self.commands = {"Speak with TTS with BrianTTS": self.speak_with_briantts}
 
-    def speak_with_briantts(self, text: str) -> bool:
+    async def speak_with_briantts(self, text: str) -> bool:
         tts_url = (
             f"https://api.streamelements.com/kappa/v2/speech?voice=Brian&text={text}"
         )

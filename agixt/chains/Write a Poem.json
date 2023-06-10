@@ -1,0 +1,41 @@
+{
+    "chain_name": "Write a Poem",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Pick a Poem Subject"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Write a Poem",
+                "subject": "{STEP1}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Title a Poem",
+                "poem": "{STEP2}"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Write to File",
+                "filename": "{STEP3}.txt",
+                "text": "{STEP2}"
+            }
+        }
+    ]
+}

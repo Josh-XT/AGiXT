@@ -1,8 +1,12 @@
 import requests
 import inspect
-import openai
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+from semantic_kernel.connectors.ai.hugging_face import HuggingFaceTextEmbedding
+from semantic_kernel.connectors.ai.open_ai import (
+    AzureTextEmbedding,
+    OpenAITextEmbedding,
+)
 import logging
 
 
@@ -77,99 +81,64 @@ class LlamacppEmbeddingFunction(EmbeddingFunction):
         return {}
 
 
-class AzureEmbeddingFunction(EmbeddingFunction):
-    def __init__(
-        self,
-        api_key: str,
-        model_name: str = "text-embedding-ada-002",
-        deployment_id: str = "",
-        AZURE_OPENAI_ENDPOINT: str = "https://api.openai.com",
-    ):
-        openai.api_type = "azure"
-        openai.api_type = "azure"
-        openai.api_base = AZURE_OPENAI_ENDPOINT
-        openai.api_version = "2023-05-15"
-        openai.api_key = api_key
-        if api_key is not None:
-            self.api_key = api_key
-        else:
-            raise ValueError("Please update your Agent settings with an AZURE_API_KEY.")
-        if deployment_id is not None:
-            self.deployment_id = deployment_id
-        else:
-            raise ValueError("Please update your Agent settings with an AZURE_API_KEY.")
-        self._client = openai.Embedding(engine=model_name)
-        self._model_name = model_name
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        # replace newlines, which can negatively affect performance.
-        texts = [t.replace("\n", " ") for t in texts]
-
-        # Call the OpenAI Embedding API
-        embeddings = self._client.create(
-            input=texts,
-            engine=self._model_name,
-        )["data"]
-
-        # Sort resulting embeddings by index
-        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
-
-        # Return just the embeddings
-        return [result["embedding"] for result in sorted_embeddings]
-
-
 class Embedding:
     def __init__(self, AGENT_CONFIG=None):
-        # We need to take the embedder string and then return the correct embedder
-        # We also need to return the correct chunk size
         self.AGENT_CONFIG = AGENT_CONFIG
+
+    async def get_embedder(self):
         try:
             embedder = self.AGENT_CONFIG["settings"]["embedder"]
-            self.embed, self.chunk_size = self.__getattribute__(embedder)()
+            embed, chunk_size = await self.__getattribute__(embedder)()
         except:
-            self.embed, self.chunk_size = self.default()
+            embed, chunk_size = await self.default()
             logging.info("Embedder not found, using default embedder")
+        return embed, chunk_size
 
-    def default(self):
+    async def embed_text(self, text):
+        embed, chunk_size = await self.get_embedder()
+        return await embed(text)
+
+    async def default(self):
         chunk_size = 128
-        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-mpnet-base-v2"
-        )
+        embed = HuggingFaceTextEmbedding(
+            model_id="all-mpnet-base-v2", log=logging
+        ).generate_embeddings_async
         return embed, chunk_size
 
-    def large_local(self):
+    async def large_local(self):
         chunk_size = 500
-        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="gtr-t5-large"
-        )
+        embed = HuggingFaceTextEmbedding(
+            model_id="gtr-t5-large", log=logging
+        ).generate_embeddings_async
         return embed, chunk_size
 
-    def azure(self):
+    async def azure(self):
         chunk_size = 1000
-        embed = AzureEmbeddingFunction(
+        embed = AzureTextEmbedding(
+            deployment_name=self.AGENT_CONFIG["settings"]["AZURE_DEPLOYMENT_NAME"],
+            endpoint=self.AGENT_CONFIG["settings"]["AZURE_OPENAI_ENDPOINT"],
             api_key=self.AGENT_CONFIG["settings"]["AZURE_API_KEY"],
-            deployment_id=self.AGENT_CONFIG["settings"]["AZURE_EMBEDDER_DEPLOYMENT_ID"],
-            AZURE_OPENAI_ENDPOINT=self.AGENT_CONFIG["settings"][
-                "AZURE_OPENAI_ENDPOINT"
-            ],
-        )
+            logger=logging,
+        ).generate_embeddings_async
         return embed, chunk_size
 
-    def openai(self):
+    async def openai(self):
         chunk_size = 1000
-        embed = embedding_functions.OpenAIEmbeddingFunction(
+        embed = OpenAITextEmbedding(
+            model_id="text-embedding-ada-002",
             api_key=self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
-        )
+            log=logging,
+        ).generate_embeddings_async
         return embed, chunk_size
 
-    def google_palm(self):
+    async def google_palm(self):
         chunk_size = 1000
         embed = GooglePalmEmbeddingFunction(
             api_key=self.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
         )
         return embed, chunk_size
 
-    def google_vertex(self):
+    async def google_vertex(self):
         chunk_size = 1000
         embed = GoogleVertexEmbeddingFunction(
             api_key=self.AGENT_CONFIG["settings"]["GOOGLE_API_KEY"],
@@ -177,16 +146,16 @@ class Embedding:
         )
         return embed, chunk_size
 
-    def cohere(self):
+    async def cohere(self):
         chunk_size = 500
         embed = embedding_functions.CohereEmbeddingFunction(
             api_key=self.AGENT_CONFIG["settings"]["COHERE_API_KEY"],
         )
         return embed, chunk_size
 
-    def llamacpp(self):
+    async def llamacpp(self):
         chunk_size = 250
-        embed = embedding_functions.LlamaCppEmbeddingFunction(
+        embed = LlamacppEmbeddingFunction(
             model_name=self.AGENT_CONFIG["settings"]["EMBEDDING_URI"],
         )
         return embed, chunk_size
