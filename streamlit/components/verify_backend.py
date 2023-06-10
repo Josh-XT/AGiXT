@@ -1,5 +1,5 @@
 import socket, errno, subprocess, os, logging
-
+import streamlit as st
 
 def verify_backend():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -19,6 +19,7 @@ def verify_backend():
                 )
                 logging.info("LAUNCHED FOR YOU")
                 s = None
+                st.experimental_rerun()
             except Exception as e:
                 logging.info(e)
                 print("Press CTRL + C to exit.")
