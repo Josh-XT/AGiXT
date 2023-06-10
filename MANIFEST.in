@@ -1,0 +1,5 @@
+include requirements.txt
+recursive-include agixt *
+recursive-include tests *
+recursive-include streamlit *
+recursive-include docs *
