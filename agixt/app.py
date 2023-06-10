@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Config import Config
 from AGiXT import AGiXT
-from Agent import Agent
+from Agent import Agent, add_agent, delete_agent
 from Chain import Chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
@@ -152,8 +152,8 @@ async def get_embed_providers():
 
 
 @app.post("/api/agent", tags=["Agent"])
-async def add_agent(agent: AgentSettings) -> Dict[str, str]:
-    agent_info = Agent(agent.agent_name).add_agent(
+async def addagent(agent: AgentSettings) -> Dict[str, str]:
+    agent_info = add_agent(
         agent_name=agent.agent_name, provider_settings=agent.settings
     )
     return {"message": "Agent added", "agent_file": agent_info["agent_file"]}
@@ -161,9 +161,7 @@ async def add_agent(agent: AgentSettings) -> Dict[str, str]:
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
 async def rename_agent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    Agent(agent_name=agent_name).rename_agent(
-        agent_name=agent_name, new_name=new_name.new_name
-    )
+    Agent(agent_name=agent_name).rename_agent(new_name=new_name.new_name)
     return ResponseMessage(
         message=f"Agent {agent_name} renamed to {new_name.new_name}."
     )
@@ -221,10 +219,8 @@ async def update_agent_commands(
 
 
 @app.delete("/api/agent/{agent_name}", tags=["Agent"])
-async def delete_agent(agent_name: str) -> ResponseMessage:
-    result, status_code = Agent(agent_name=agent_name).delete_agent(
-        agent_name=agent_name
-    )
+async def deleteagent(agent_name: str) -> ResponseMessage:
+    result, status_code = delete_agent(agent_name=agent_name)
     if status_code == 200:
         return ResponseMessage(message=result["message"])
     else:
@@ -245,13 +241,13 @@ async def get_agentconfig(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name=agent_name).get_chat_history(agent_name=agent_name)
+    chat_history = Agent(agent_name=agent_name).get_history()
     return {"chat_history": chat_history}
 
 
 @app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    Agent(agent_name=agent_name).wipe_agent_memories(agent_name=agent_name)
+    Agent(agent_name=agent_name).wipe_agent_memories()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 

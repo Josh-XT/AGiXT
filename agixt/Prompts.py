@@ -12,7 +12,7 @@ class Prompts:
                 f.write(prompt)
 
     def get_prompt(self, prompt_name, model="default"):
-        model_prompt_file = f"prompts/{model}/{prompt_name}.txt"
+        model_prompt_file = os.path.join("prompts", f"{model}", f"{prompt_name}.txt")
         default_prompt_file = os.path.join("prompts", f"{prompt_name}.txt")
 
         prompt_file = (
