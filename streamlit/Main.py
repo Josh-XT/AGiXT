@@ -1,9 +1,12 @@
-# Main.py
 import streamlit as st
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
+from streamlit_autorefresh import st_autorefresh
 
-verify_backend()
+
+# Run the autorefresh about (5 seconds) and stop running in the corner after the 2nd time
+count = st_autorefresh(interval=5000, limit=2)
+
 
 try:
     with open("./.streamlit/config.toml") as f:
@@ -37,3 +40,7 @@ else:
         """,
         unsafe_allow_html=True,
     )
+
+
+if not verify_backend():
+    verify_backend()
