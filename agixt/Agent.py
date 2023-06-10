@@ -85,7 +85,11 @@ def get_agents():
         for dir_name in os.listdir(agents_dir)
         if os.path.isdir(os.path.join(agents_dir, dir_name))
     ]
-    return agents
+    output = []
+    if agents:
+        for agent in agents:
+            output.append({"name": agent, "status": False})
+    return output
 
 
 class Agent:
