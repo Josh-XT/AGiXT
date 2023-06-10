@@ -26,6 +26,7 @@ You may have to press `Ctrl+C` multiple times to stop AGiXT running in the termi
 ### Docker Quick Start Guide
 To get started quickly with Docker, you will need at least Docker 24.0.2 installed. You can check your version by running `docker --version` in a terminal. You can install Docker by following the instructions [here](https://docs.docker.com/get-docker/).
 
+#### Pull from remote Docker Hub
 Open a terminal and run the following commands:
 ```
 git clone https://github.com/Josh-XT/AGiXT
@@ -35,6 +36,15 @@ docker-compose up
 
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
+#### Build from Local Dockerfile
+Open a terminal and run the following commands:
+```
+DOCKER_BUILDKIT=1 sudo -E docker-compose -f docker-compose.dev.yaml up
+```
+
+- Access the web interface at http://localhost:8501
+- Access the AGiXT API documentation at http://localhost:7437
+
 #### Update Docker Containers
 
 ```
