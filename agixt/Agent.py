@@ -137,9 +137,13 @@ class Agent:
             self.agent_instances = {}
             self.agent_config = self.load_agent_config()
             if self.LOG_REQUESTS:
-                Path(os.path.join(
-                    "agents", self.agent_name, "requests",
-                )).mkdir(parents=True, exist_ok=True)
+                Path(
+                    os.path.join(
+                        "agents",
+                        self.agent_name,
+                        "requests",
+                    )
+                ).mkdir(parents=True, exist_ok=True)
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
