@@ -4,6 +4,13 @@ from components.docs import agixt_docs
 from streamlit_autorefresh import st_autorefresh
 
 
+st.set_page_config(
+    page_title="AGiXT",
+    page_icon=":robot:",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 # Run the autorefresh about (5 seconds) and stop running in the corner after the 2nd time
 count = st_autorefresh(interval=5000, limit=2)
 
@@ -15,12 +22,7 @@ try:
 except:
     light_theme = False
 
-st.set_page_config(
-    page_title="AGiXT",
-    page_icon=":robot:",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+
 agixt_docs()
 if light_theme == True:
     st.markdown(
