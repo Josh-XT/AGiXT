@@ -17,7 +17,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
     PLAYWRIGHT_BROWSERS_PATH=0 \
     PATH="/usr/local/bin:$PATH" \
-    LD_PRELOAD=libgomp.so.1
+    LD_PRELOAD=libgomp.so.1 \
+    UVICORN_WORKERS=4
 
 # Set work directory
 WORKDIR /
@@ -38,4 +39,4 @@ COPY . .
 WORKDIR /agixt
 
 # Set entry point
-ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py & uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4"]
+ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py & uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS"]
