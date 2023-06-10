@@ -3,6 +3,8 @@ services:
   agixt:
     image: joshxt/agixt:${AGIXT_VERSION:-main}
     init: true
+    environment:
+      - UVICORN_WORKERS=4
     ports:
       - "8501:8501"
       - "7437:7437"
