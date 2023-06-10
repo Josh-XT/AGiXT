@@ -108,7 +108,7 @@ if mode == "Instruct":
     if send_button:
         if agent_name and instruct_prompt:
             with st.spinner("Thinking, please wait..."):
-                if smart_chat_toggle:
+                if smart_instruct_toggle:
                     response = ApiClient.smartinstruct(
                         agent_name=agent_name,
                         prompt=instruct_prompt,
@@ -116,7 +116,7 @@ if mode == "Instruct":
                     )
                 else:
                     response = ApiClient.instruct(
-                        agent_name=agent_name, prompt=chat_prompt
+                        agent_name=agent_name, prompt=instruct_prompt
                     )
             if response:
                 st.experimental_rerun()
