@@ -40,6 +40,7 @@ def get_history(agent_name):
                     else:
                         if item[agent_name].startswith(f"{agent_name}:"):
                             item[agent_name] = item[agent_name][len(agent_name) + 1 :]
+                        item[agent_name].replace("\n", "<br>")
                         st.markdown(
                             f"<div class='chat agent'><b>{agent_name}:</b><br>{item[agent_name]}</div>",
                             unsafe_allow_html=True,
