@@ -4,6 +4,8 @@ import glob
 import shutil
 import importlib
 import yaml
+import time
+from pathlib import Path
 from inspect import signature, Parameter
 from provider import Provider
 from Memories import Memories
@@ -121,6 +123,10 @@ class Agent:
                 self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
             else:
                 self.MAX_TOKENS = 4000
+            if "LOG_REQUESTS" in self.PROVIDER_SETTINGS:
+                self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
+            else:
+                self.LOG_REQUESTS = True
             self.commands = self.load_commands()
             self.available_commands = Extensions(
                 agent_config=self.AGENT_CONFIG
@@ -130,6 +136,10 @@ class Agent:
             self.history = self.load_history()
             self.agent_instances = {}
             self.agent_config = self.load_agent_config()
+            if self.LOG_REQUESTS:
+                Path(os.path.join(
+                    "agents", self.agent_name, "requests",
+                )).mkdir(parents=True, exist_ok=True)
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -143,6 +153,16 @@ class Agent:
         if not prompt:
             return ""
         answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
+        if self.LOG_REQUESTS:
+            log_file = os.path.join(
+                "agents", self.agent_name, "requests", f"{time.time()}.txt"
+            )
+            with open(
+                log_file,
+                "a" if os.path.exists(log_file) else "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(f"{prompt}\n{answer}")
         return answer
 
     def _load_agent_config_keys(self, keys):
