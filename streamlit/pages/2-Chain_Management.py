@@ -60,7 +60,7 @@ elif chain_action == "Modify Chain":
                 key=f"agent_name_{step_number}",
             )
             modify_prompt_type = st.selectbox(
-                "Select Prompt Type",
+                "Select Step Type",
                 options=["", "Command", "Prompt", "Chain"],
                 index=["", "Command", "Prompt", "Chain"].index(prompt_type),
                 key=f"prompt_type_{step_number}",
@@ -203,7 +203,7 @@ elif chain_action == "Modify Chain":
             key="add_step_agent_name",
         )
         prompt_type = st.selectbox(
-            "Select Prompt Type",
+            "Select Step Type",
             [""] + ["Command", "Prompt", "Chain"],
             key="add_step_prompt_type",
         )
