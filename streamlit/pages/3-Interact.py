@@ -145,8 +145,9 @@ if mode == "Chains":
     if st.button("Perform Action"):
         if chain_name:
             if chain_action == "Run Chain":
-                ApiClient.run_chain(chain_name=chain_name, user_input=user_input)
-                responses = ApiClient.get_chain_responses(chain_name=chain_name)
+                responses = ApiClient.run_chain(
+                    chain_name=chain_name, user_input=user_input
+                )
                 st.success(f"Chain '{chain_name}' executed.")
                 st.write(responses)
         else:
