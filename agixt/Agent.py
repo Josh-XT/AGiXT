@@ -355,8 +355,12 @@ class Agent:
             return []
 
     def wipe_agent_memories(self):
-        agent_folder = os.path.join("agents", self.agent_name)
-        memories_folder = os.path.join(agent_folder, "memories")
+        memories_folder = os.path.normpath(
+            os.path.join(os.getcwd(), self.agent_name, "memories")
+        )
+        if not memories_folder.startswith(os.getcwd()):
+            raise ValueError("Invalid path, agent name must not contain slashes.")
+
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
 
