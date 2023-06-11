@@ -120,6 +120,8 @@ local_install() {
   sleep 1
 
   echo "${BOLD}${YELLOW}Step 3: Installing requirements...${RESET}"
+  pip install -r static-requirements.txt
+  sleep 1
   pip install -r requirements.txt
   sleep 1
 

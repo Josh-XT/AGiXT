@@ -25,10 +25,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /
 
 # Copy only requirements, to cache them in docker layer
+COPY static-requirements.txt .
 COPY requirements.txt .
 
 # Install application dependencies
 ARG HNSWLIB_NO_NATIVE=1
+RUN pip install -r static-requirements.txt
 RUN pip install -r requirements.txt
 RUN pip install --force-reinstall hnswlib protobuf==3.20.*
 RUN playwright install --with-deps
