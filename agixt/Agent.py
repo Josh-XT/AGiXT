@@ -21,6 +21,18 @@ DEFAULT_SETTINGS = {
 }
 
 
+def get_agent_file_paths(agent_name):
+    base_path = os.path.join(os.getcwd(), "agents")
+    folder_path = os.path.normpath(os.path.join(base_path, agent_name))
+    config_path = os.path.normpath(os.path.join(base_path, "config.json"))
+    history_path = os.path.normpath(os.path.join(base_path, "history.yaml"))
+    if not config_path.startswith(base_path) or not folder_path.startswith(base_path):
+        raise ValueError("Invalid path, agent name must not contain slashes.")
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+    return config_path, history_path, folder_path
+
+
 def add_agent(agent_name, provider_settings=None):
     if not agent_name:
         return "Agent name cannot be empty."
@@ -29,13 +41,7 @@ def add_agent(agent_name, provider_settings=None):
         if not provider_settings or provider_settings == {}
         else provider_settings
     )
-    agent_folder = os.path.join("agents", agent_name)
-    if not os.path.exists("agents"):
-        os.makedirs("agents")
-    if not os.path.exists(agent_folder):
-        os.makedirs(agent_folder)
-    agent_dir = os.path.join("agents", agent_name)
-    agent_config_file = os.path.join(agent_dir, "config.json")
+    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
     settings = json.dumps(
@@ -45,27 +51,31 @@ def add_agent(agent_name, provider_settings=None):
         }
     )
     # Write the settings to the agent config file
-    with open(agent_config_file, "w") as f:
+    with open(config_path, "w") as f:
         f.write(settings)
-    with open(os.path.join("agents", agent_name, "history.yaml"), "w") as f:
+    with open(history_path, "w") as f:
         f.write("")
-    return {"agent_file": f"{agent_name}/history.yaml"}
+    return {"message": f"Agent {agent_name} created."}
 
 
 def delete_agent(agent_name):
+    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
     try:
-        agent_folder = os.path.join("agents", agent_name)
-        if os.path.exists(agent_folder):
-            shutil.rmtree(agent_folder)
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
         return {"message": f"Agent {agent_name} deleted."}, 200
     except:
         return {"message": f"Agent {agent_name} could not be deleted."}, 400
 
 
 def rename_agent(agent_name, new_name):
-    current_agent_folder = os.path.join("agents", agent_name)
-    new_agent_folder = os.path.join("agents", new_name)
-    if os.path.exists(current_agent_folder):
+    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
+    base_path = os.path.join(os.getcwd(), "agents")
+    new_agent_folder = os.path.normpath(os.path.join("agents", new_name))
+    if not new_agent_folder.startswith(base_path):
+        raise ValueError("Invalid path, agent name must not contain slashes.")
+
+    if os.path.exists(folder_path):
         # Check if the new name is already taken
         if os.path.exists(new_agent_folder):
             # Add a number to the end of the new name
@@ -74,7 +84,7 @@ def rename_agent(agent_name, new_name):
                 i += 1
             new_name = f"{new_name}_{i}"
             new_agent_folder = os.path.join("agents", new_name)
-        os.rename(current_agent_folder, new_agent_folder)
+        os.rename(folder_path, new_agent_folder)
         return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
@@ -97,6 +107,9 @@ def get_agents():
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
+        self.config_path, self.history_file, self.folder_path = get_agent_file_paths(
+            agent_name=agent_name
+        )
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -132,16 +145,16 @@ class Agent:
                 agent_config=self.AGENT_CONFIG
             ).get_available_commands()
             self.clean_agent_config_commands()
-            self.history_file = os.path.join("agents", self.agent_name, "history.yaml")
             self.history = self.load_history()
             self.agent_instances = {}
             self.agent_config = self.load_agent_config()
             if self.LOG_REQUESTS:
                 Path(
-                    os.path.join(
-                        "agents",
-                        self.agent_name,
-                        "requests",
+                    os.path.normpath(
+                        os.path.join(
+                            self.folder_path,
+                            "requests",
+                        )
                     )
                 ).mkdir(parents=True, exist_ok=True)
 
@@ -182,7 +195,7 @@ class Agent:
         for command in list(self.AGENT_CONFIG["commands"]):
             if command not in [cmd[0] for cmd in self.commands]:
                 del self.AGENT_CONFIG["commands"][command]
-        with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
+        with open(self.config_path, "w") as f:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
@@ -251,16 +264,14 @@ class Agent:
             os.makedirs(os.path.join("agents", self.agent_name))
 
         # Write the settings to the agent config file
-        with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
+        with open(self.config_path, "w") as f:
             f.write(settings)
 
-        return os.path.join("agents", self.agent_name, "config.json")
+        return self.config_path
 
     def load_agent_config(self):
         try:
-            with open(
-                os.path.join("agents", self.agent_name, "config.json")
-            ) as agent_config:
+            with open(self.config_path) as agent_config:
                 try:
                     agent_config_data = json.load(agent_config)
                     return agent_config_data
@@ -273,14 +284,11 @@ class Agent:
                     }
                     agent_config_data["settings"] = DEFAULT_SETTINGS
                     # Save the updated agent_config to the file
-                    with open(
-                        os.path.join("agents", self.agent_name, "config.json"), "w"
-                    ) as agent_config_file:
+                    with open(self.config_path, "w") as agent_config_file:
                         json.dump(agent_config_data, agent_config_file)
                     return agent_config_data
         except:
-            # Add all commands to agent/{agent_name}/config.json in this format {"command_name": "false"}
-            with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
+            with open(self.config_path, "w") as f:
                 f.write(
                     json.dumps(
                         {
@@ -296,11 +304,9 @@ class Agent:
 
     def get_agent_config(self):
         while True:
-            if os.path.exists(os.path.join("agents", self.agent_name, "config.json")):
+            if os.path.exists(self.config_path):
                 try:
-                    with open(
-                        os.path.join("agents", self.agent_name, "config.json"), "r"
-                    ) as f:
+                    with open(self.config_path, "r") as f:
                         file_content = f.read().strip()
                         if file_content:
                             return json.loads(file_content)
@@ -310,8 +316,8 @@ class Agent:
             return self.get_agent_config()
 
     def update_agent_config(self, new_config, config_key):
-        if os.path.exists(os.path.join("agents", self.agent_name, "config.json")):
-            with open(os.path.join("agents", self.agent_name, "config.json"), "r") as f:
+        if os.path.exists(self.config_path):
+            with open(self.config_path, "r") as f:
                 current_config = json.load(f)
 
             # Ensure the config_key is present in the current configuration
@@ -323,7 +329,7 @@ class Agent:
                 current_config[config_key][key] = value
 
             # Save the updated configuration back to the file
-            with open(os.path.join("agents", self.agent_name, "config.json"), "w") as f:
+            with open(self.config_path, "w") as f:
                 json.dump(current_config, f)
             return f"Agent {self.agent_name} configuration updated."
         else:
