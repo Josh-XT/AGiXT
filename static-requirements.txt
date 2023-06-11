@@ -27,7 +27,7 @@ protobuf==3.20.*
 uvicorn==0.22.0
 webdriver_manager==3.8.6
 torch==2.0.1
-transformers[accelerate]==4.29.2
+transformers[accelerate]==4.30.1
 sentence-transformers==2.2.2
 python-dotenv==1.0.0
 ffmpeg==1.4
