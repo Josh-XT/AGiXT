@@ -6,13 +6,16 @@ from components.history import get_history
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
-verify_backend()
-
 st.set_page_config(
     page_title="Interact with Agents",
     page_icon=":speech_balloon:",
     layout="wide",
 )
+
+
+verify_backend()
+
+
 agixt_docs()
 
 st.header("Interact with Agents")
@@ -28,10 +31,16 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "C
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = ""
 
+agent_name = agent_selector()
+
+
+if agent_name:
+    st.session_state["chat_history"] = get_history(agent_name=agent_name)
+
+
 # If the user selects Prompt, then show the prompt functionality
 if mode == "Prompt":
     st.markdown("### Choose an Agent and Prompt")
-    agent_name = agent_selector()
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
     # Fetch arguments for the selected prompt
@@ -78,7 +87,6 @@ if mode == "Prompt":
 
 if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
-    agent_name = agent_selector()
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
     chat_prompt = st.text_input("Enter your message", key="chat_prompt")
     send_button = st.button("Send Message")
@@ -100,7 +108,6 @@ if mode == "Chat":
 
 if mode == "Instruct":
     st.markdown("### Choose an Agent to Instruct")
-    agent_name = agent_selector()
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
     instruct_prompt = st.text_input("Enter your instruction", key="instruct_prompt")
     send_button = st.button("Send Message")
@@ -127,7 +134,6 @@ if mode == "Learning":
 if mode == "Chains":
     st.markdown("### Choose a Chain to Run")
     chain_names = ApiClient.get_chains()
-
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
     user_input = st.text_input("User Input")
@@ -142,5 +148,3 @@ if mode == "Chains":
         else:
             st.error("Chain name is required.")
 
-if agent_name:
-    st.session_state["chat_history"] = get_history(agent_name=agent_name)
