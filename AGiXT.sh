@@ -99,9 +99,9 @@ display_menu() {
   echo "----------------------------------------------------${RESET}"
   echo "${BOLD}${MAGENTA}Welcome to the AGiXT Installer!${RESET}"
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
-  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Local Install${RESET}"
-  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Docker Install${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update${RESET}"
+  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Local Install/Run${RESET}"
+  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Docker Install/Run${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update pulls latest from repo & pulls latest docker${RESET}"
   echo "  ${BOLD}${RED}4.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
@@ -151,6 +151,9 @@ update() {
 
   echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
   git pull
+ 
+    echo "${BOLD}${YELLOW}Step 2: Pulling latest Docker Images...${RESET}"
+  docker compose pull
 }
 
 # Main loop to display the menu and handle user input
