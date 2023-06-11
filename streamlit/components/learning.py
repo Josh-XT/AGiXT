@@ -1,5 +1,4 @@
 import streamlit as st
-from components.agent_selector import agent_selector
 from ApiClient import ApiClient
 import os
 
