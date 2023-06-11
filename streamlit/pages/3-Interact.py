@@ -129,7 +129,8 @@ if mode == "Instruct":
                 st.experimental_rerun()
 
 if mode == "Learning":
-    learning_page()
+    if agent_name:
+        learning_page(agent_name)
 
 if mode == "Chains":
     st.markdown("### Choose a Chain to Run")
