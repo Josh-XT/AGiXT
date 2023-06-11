@@ -86,6 +86,13 @@ class StepInfo(BaseModel):
     prompt: dict
 
 
+class RunChainResponse(BaseModel):
+    response: str
+    agent_name: str
+    prompt: dict
+    prompt_type: str
+
+
 class ChainStep(BaseModel):
     step_number: int
     agent_name: str
@@ -246,6 +253,14 @@ async def delete_history(agent_name: str) -> ResponseMessage:
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
+@app.delete("/api/agent/{agent_name}/history/message", tags=["Agent"])
+async def delete_history_message(
+    agent_name: str, message: ResponseMessage
+) -> ResponseMessage:
+    Agent(agent_name=agent_name).delete_history_message(message.message)
+    return ResponseMessage(message=f"Message deleted.")
+
+
 @app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     Agent(agent_name=agent_name).wipe_agent_memories()
@@ -353,7 +368,7 @@ async def get_chain(chain_name: str):
 
 
 @app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
-async def get_chain(chain_name: str):
+async def get_chain_responses(chain_name: str):
     try:
         chain_data = Chain().get_step_response(chain_name=chain_name, step_number="all")
         return {"chain": chain_data}
@@ -362,9 +377,11 @@ async def get_chain(chain_name: str):
 
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
-async def run_chain(chain_name: str, user_input: Prompt) -> ResponseMessage:
-    await Chain().run_chain(chain_name=chain_name, user_input=user_input.prompt)
-    return {"message": f"Chain '{chain_name}' completed."}
+async def run_chain(chain_name: str, user_input: Prompt):
+    chain_response = await Chain().run_chain(
+        chain_name=chain_name, user_input=user_input.prompt
+    )
+    return chain_response
 
 
 @app.post("/api/chain", tags=["Chain"])

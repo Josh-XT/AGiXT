@@ -45,8 +45,7 @@ class Gpt4freeProvider:
                 time.sleep(10)
 
     async def instruct(self, prompt, tokens: int = 0):
-        final_response = None
-        while final_response is None:
+        while True:
             for provider in self.providers:
                 try:
                     if provider not in self.FAILED_PROVIDERS:
@@ -96,24 +95,10 @@ class Gpt4freeProvider:
                                 == "Unable to fetch the response, Please try again."
                             ):
                                 response = None
-                        if response:
-                            final_response = response
+                        if response and len(response) > 1:
+                            return response
                         else:
                             await self.provider_failure(provider)
-                    if final_response:
-                        if len(final_response) > 1:
-                            return final_response
-                    else:
-                        logging.info(f"Failed to use {provider}")
-                        self.FAILED_PROVIDERS.append(provider)
-                        if len(self.FAILED_PROVIDERS) == len(self.providers):
-                            self.FAILED_PROVIDERS = []
-                            logging.info(
-                                "All providers failed, sleeping for 10 seconds before trying again..."
-                            )
-                            time.sleep(10)
                 except Exception as e:
-                    await self.provider_failure(provider=provider)
-                    final_response = None
-
-            await self.provider_failure(provider=provider)
+                    logging.info(f"[GPT4Free] Exception: {e}")
+                    await self.provider_failure(provider)
