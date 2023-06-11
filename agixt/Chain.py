@@ -116,10 +116,15 @@ class Chain:
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
+                step = {}
                 step_response = await self.run_chain_step(
                     step=step_data, chain_name=chain_name, user_input=user_input
                 )  # Get the response of the current step.
-                responses[step_data["step"]] = step_response  # Store the response.
+                step["response"] = step_response
+                step["agent_name"] = step_data["agent_name"]
+                step["prompt"] = step_data["prompt"]
+                step["prompt_type"] = step_data["prompt_type"]
+                responses[step_data["step"]] = step  # Store the response.
                 logging.info(f"Response: {step_response}")
                 # Write the responses to the json file.
                 dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -169,7 +174,7 @@ class Chain:
                         )
                         # replace the {STEPx} with the response
                         value = value.replace(
-                            f"{{STEP{new_step_number}}}", step_response
+                            f"{{STEP{new_step_number}}}", step_response["response"]
                         )
                 new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
@@ -195,7 +200,7 @@ class Chain:
                     )
                     # replace the {STEPx} with the response
                     new_prompt_content = prompt_content.replace(
-                        f"{{STEP{new_step_number}}}", step_response
+                        f"{{STEP{new_step_number}}}", step_response["response"]
                     )
             if new_prompt_content == {}:
                 new_prompt_content = prompt_content
