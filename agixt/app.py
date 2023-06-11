@@ -184,11 +184,6 @@ async def update_agent_settings(
 
 @app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
-    # Strip \'s from file.file_name
-    if "\\" in file.file_name:
-        return ResponseMessage(
-            message="File name cannot contain backslashes. Please rename the file and try again."
-        )
     base_path = os.getcwd()
     file_path = os.path.normpath(os.path.join(base_path, file.file_name))
     if not file_path.startswith(base_path):
