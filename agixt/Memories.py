@@ -197,6 +197,10 @@ class Memories:
         return [chunk_text for score, chunk_text in content_chunks]
 
     async def mem_read_file(self, file_path: str):
+        base_path = os.path.join(os.getcwd(), "WORKSPACE")
+        file_path = os.path.normpath(os.path.join(base_path, file_path))
+        if not file_path.startswith(base_path):
+            raise Exception("Path given not allowed")
         try:
             # If file extension is pdf, convert to text
             if file_path.endswith(".pdf"):

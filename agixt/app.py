@@ -184,7 +184,10 @@ async def update_agent_settings(
 
 @app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
-    file_path = os.path.join(os.getcwd(), file.file_name)
+    base_path = os.path.join(os.getcwd(), "WORKSPACE")
+    file_path = os.path.normpath(os.path.join(base_path, file.file_name))
+    if not file_path.startswith(base_path):
+        raise Exception("Path given not allowed")
     with open(file_path, "w") as f:
         f.write(file.file_content)
     try:
@@ -463,11 +466,11 @@ async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
 
 @app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=CustomPromptModel)
 async def get_prompt(prompt_name: str):
-    try:
-        prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
-        return {"prompt_name": prompt_name, "prompt": prompt_content}
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # try:
+    prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
+    return {"prompt_name": prompt_name, "prompt": prompt_content}
+    # except Exception as e:
+    #    raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
