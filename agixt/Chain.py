@@ -174,7 +174,7 @@ class Chain:
                         )
                         # replace the {STEPx} with the response
                         value = value.replace(
-                            f"{{STEP{new_step_number}}}", step_response["response"]
+                            f"{{STEP{new_step_number}}}", f"{step_response['response']}"
                         )
                 new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
@@ -200,7 +200,7 @@ class Chain:
                     )
                     # replace the {STEPx} with the response
                     new_prompt_content = prompt_content.replace(
-                        f"{{STEP{new_step_number}}}", step_response["response"]
+                        f"{{STEP{new_step_number}}}", f"{step_response['response']}"
                     )
             if new_prompt_content == {}:
                 new_prompt_content = prompt_content
