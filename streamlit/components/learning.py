@@ -7,11 +7,6 @@ import os
 def learning_page():
     agent_name = agent_selector()
     st.markdown("### Choose a Method for Learning")
-    api_client = ApiClient()
-
-    # Initialize session state for stop events and agent status if not exist
-    if "agent_status" not in st.session_state:
-        st.session_state.agent_status = {}
 
     if agent_name:
         st.markdown("### Learn from a file")
