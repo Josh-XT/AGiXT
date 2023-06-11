@@ -2,10 +2,7 @@ import streamlit as st
 from ApiClient import ApiClient
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
-from components.chain_selectors import (
-    chain_selection,
-    command_selection,
-    prompt_selection,
+from components.chain import (
     add_new_step,
     modify_step,
 )
@@ -20,11 +17,9 @@ st.set_page_config(
 
 agixt_docs()
 st.session_state = {}
-st.header("Chain Management")
-
-
 chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
+st.header("Chain Management")
 chain_action = st.selectbox("Action", ["Create Chain", "Modify Chain", "Delete Chain"])
 
 if chain_action == "Create Chain":
@@ -40,10 +35,8 @@ elif chain_action == "Modify Chain":
                 if step is not None:
                     new_step = modify_step(
                         chain_name=selected_chain_name,
-                        step_number=step["step"],
-                        agent_name=step["agent_name"],
-                        prompt_type=step["prompt_type"],
-                        prompt=step["prompt"],
+                        step=step,
+                        agents=agents,
                     )
 
         if len(chain["steps"]) > 0:
