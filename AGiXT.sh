@@ -127,12 +127,12 @@ local_install() {
   playwright install --with-deps
   sleep 1
 
-  echo "${BOLD}${YELLOW}Step 5: Changing directory to 'streamlit'...${RESET}"
-  cd streamlit || { echo "${RED}Error: Failed to change directory to 'streamlit'${RESET}"; exit 1; }
+  echo "${BOLD}${YELLOW}Step 5: Running AGiXT Back End...${RESET}"
+  cd agixt && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 &
   sleep 1
 
-  echo "${BOLD}${YELLOW}Step 6: Running Streamlit...${RESET}"
-  streamlit run Main.py
+  echo "${BOLD}${YELLOW}Step 6: Running Streamlit Front End...${RESET}"
+  cd streamlit && streamlit run Main.py
 }
 
 # Function to perform the Docker install
