@@ -28,6 +28,7 @@ def agent_selector():
         "Agent Name",
         options=[""] + agent_names,
         index=default_index,
+        key="select_learning_agent",
     )
 
     # If the selected agent has changed, save the new selection

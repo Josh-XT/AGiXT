@@ -4,8 +4,7 @@ from ApiClient import ApiClient
 import os
 
 
-def learning_page():
-    agent_name = agent_selector()
+def learning_page(agent_name):
     st.markdown("### Choose a Method for Learning")
     api_client = ApiClient()
 
