@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from ApiClient import ApiClient
-from components.agent_selector import agent_selector
+from components.selectors import agent_selection
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
@@ -81,7 +81,7 @@ def render_provider_settings(agent_settings, provider_name: str):
 
 
 st.header("Agent Settings")
-agent_name = agent_selector()
+agent_name = agent_selection()
 
 if "new_agent_name" not in st.session_state:
     st.session_state["new_agent_name"] = ""
