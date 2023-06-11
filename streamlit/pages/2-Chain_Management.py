@@ -18,9 +18,12 @@ chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
 st.header("Chain Management")
 chain_action = st.selectbox("Action", ["Create Chain", "Modify Chain", "Delete Chain"])
-
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
+else:
+    chain_name = st.selectbox("Chains", options=chain_names)
+
+if chain_action == "Create Chain":
     action_button = st.button("Create New Chain")
     if action_button:
         if chain_name:
@@ -31,7 +34,6 @@ if chain_action == "Create Chain":
             st.error("Chain name is required.")
 
 elif chain_action == "Delete Chain":
-    chain_name = st.selectbox("Chains", options=chain_names)
     action_button = st.button("Delete Chain")
     if action_button:
         if chain_name:
@@ -42,13 +44,10 @@ elif chain_action == "Delete Chain":
             st.error("Chain name is required.")
 
 elif chain_action == "Modify Chain":
-    selected_chain_name = st.selectbox("Select Chain", [""] + chain_names)
-    if selected_chain_name:
-        chain = modify_chain(chain_name=selected_chain_name, agents=agents)
+    if chain_name:
+        chain = modify_chain(chain_name=chain_name, agents=agents)
     else:
         st.warning("Please select a chain to manage steps.")
-else:
-    chain_name = st.selectbox("Chains", options=chain_names)
 
 st.markdown("### Predefined Injection Variables")
 st.markdown(
