@@ -61,8 +61,8 @@ elif chain_action == "Modify Chain":
             )
             modify_prompt_type = st.selectbox(
                 "Select Prompt Type",
-                options=["", "Command", "Prompt"],
-                index=["", "Command", "Prompt"].index(prompt_type),
+                options=["", "Command", "Prompt", "Chain"],
+                index=["", "Command", "Prompt", "Chain"].index(prompt_type),
                 key=f"prompt_type_{step_number}",
             )
 
@@ -121,6 +121,21 @@ elif chain_action == "Modify Chain":
                             "prompt_name": modify_prompt_name,
                             "prompt_args": formatted_prompt_args,
                         }
+            elif modify_prompt_type == "Chain":
+                available_chains = ApiClient.get_chains()
+                modify_chain_name = st.selectbox(
+                    "Select Chain",
+                    [""] + available_chains,
+                    key=f"chain_name_{step_number}",
+                    index=available_chains.index(prompt.get("chain_name", "")) + 1
+                    if "chain_name" in prompt
+                    else 0,
+                )
+                chain_user_input = st.text_input(
+                    "User Input", key=f"user_input_{step_number}"
+                )
+                if modify_chain_name:
+                    modify_prompt = {"chain_name": modify_chain_name}
             else:
                 modify_prompt = ""
 
@@ -148,6 +163,15 @@ elif chain_action == "Modify Chain":
                             modify_prompt[arg] = st.session_state[
                                 f"{arg}_{step_number}"
                             ]
+                elif modify_prompt_type == "Chain":
+                    modify_prompt["chain_name"] = st.session_state[
+                        f"chain_name_{step_number}"
+                    ]
+                    modify_prompt["user_input"] = st.session_state[
+                        f"user_input_{step_number}"
+                    ]
+                else:
+                    modify_prompt = ""
 
                 ApiClient.update_step(
                     chain_name=selected_chain_name,
@@ -166,12 +190,7 @@ elif chain_action == "Modify Chain":
         if chain:
             for step in chain["steps"]:
                 if step is not None:
-                    # try:
                     step = modify_step(step=step)
-                    # except TypeError:
-                    #    st.error(
-                    #        "Error loading chain step. Please check the chain configuration."
-                    #    )
 
         if len(chain["steps"]) > 0:
             step_number = max([s["step"] for s in chain["steps"]]) + 1 if chain else 1
@@ -185,7 +204,7 @@ elif chain_action == "Modify Chain":
         )
         prompt_type = st.selectbox(
             "Select Prompt Type",
-            [""] + ["Command", "Prompt"],
+            [""] + ["Command", "Prompt", "Chain"],
             key="add_step_prompt_type",
         )
 
@@ -236,6 +255,17 @@ elif chain_action == "Modify Chain":
                     "prompt_name": prompt_name,
                     "prompt_args": formatted_prompt_args,
                 }
+        elif prompt_type == "Chain":
+            available_chains = ApiClient.get_chains()
+            run_chain_name = st.selectbox(
+                "Select Chain",
+                [""] + available_chains,
+                key="add_step_chain_name",
+            )
+            user_input = st.text_input("User Input", key="add_step_user_input")
+
+            if run_chain_name:
+                prompt = {"chain_name": run_chain_name, "user_input": user_input}
         else:
             prompt = {}
 
@@ -272,7 +302,11 @@ elif chain_action == "Modify Chain":
                             and arg != "COMMANDS"
                         ):
                             prompt_data[arg] = st.session_state[f"add_step_{arg}"]
-                elif step_action == "Update Step":
+                elif prompt_type == "Chain":
+                    prompt_data["chain_name"] = run_chain_name
+                    prompt_data["user_input"] = user_input
+
+                if step_action == "Update Step":
                     if prompt_type == "Command":
                         prompt_data = {"command_name": command_name}
                         for arg in command_args:
@@ -291,6 +325,11 @@ elif chain_action == "Modify Chain":
                                 and arg != "COMMANDS"
                             ):
                                 prompt_data[arg] = st.session_state[f"add_step_{arg}"]
+                    elif prompt_type == "Chain":
+                        prompt_data = {
+                            "chain_name": run_chain_name,
+                            "user_input": user_input,
+                        }
 
                     ApiClient.update_step(
                         chain_name=selected_chain_name,
@@ -308,6 +347,16 @@ elif chain_action == "Modify Chain":
                     st.success(
                         f"Step {step_number} deleted from chain '{selected_chain_name}'."
                     )
+                    st.experimental_rerun()
+                elif step_action == "Add Step":
+                    ApiClient.add_step(
+                        chain_name=selected_chain_name,
+                        step_number=step_number,
+                        agent_name=agent_name,
+                        prompt_type=prompt_type,
+                        prompt=prompt_data,
+                    )
+                    st.success(f"Step added to chain '{selected_chain_name}'.")
                     st.experimental_rerun()
             else:
                 st.error("All fields are required.")
