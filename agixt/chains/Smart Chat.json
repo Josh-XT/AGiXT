@@ -6,7 +6,7 @@
             "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "prompt_agent",
+                "command_name": "Prompt AI Agent",
                 "user_input": "{user_input}",
                 "prompt_name": "SmartChat-StepByStep",
                 "prompt_args": {},
