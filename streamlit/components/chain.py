@@ -35,7 +35,6 @@ def prompt_selection(step_number, prompt):
 
 
 def command_selection(step_number, prompt):
-    print(prompt)
     agent_commands = cached_get_extensions()
     available_commands = [cmd[0] for cmd in agent_commands]
     command_name = st.selectbox(
