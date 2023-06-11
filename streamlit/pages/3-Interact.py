@@ -1,5 +1,5 @@
 import streamlit as st
-from components.agent_selector import agent_selector
+from components.selectors import agent_selection
 from ApiClient import ApiClient
 from components.learning import learning_page
 from components.history import get_history
@@ -31,7 +31,7 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "C
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = ""
 
-agent_name = agent_selector()
+agent_name = agent_selection()
 
 
 if agent_name:
