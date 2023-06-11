@@ -7,12 +7,29 @@ import logging
 from datetime import datetime
 
 
+def get_chain_file_path(chain_name):
+    base_path = os.path.join(os.getcwd(), "chains")
+    folder_path = os.path.normpath(os.path.join(base_path, chain_name))
+    file_path = os.path.normpath(os.path.join(base_path, f"{chain_name}.json"))
+    if not file_path.startswith(base_path) or not folder_path.startswith(base_path):
+        raise ValueError("Invalid path, chain name must not contain slashes.")
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+    return file_path
+
+
+def get_chain_responses_file_path(chain_name):
+    base_path = os.path.join(os.getcwd(), "chains")
+    file_path = os.path.normpath(os.path.join(base_path, chain_name, "responses.json"))
+    if not file_path.startswith(base_path):
+        raise ValueError("Invalid path, chain name must not contain slashes.")
+    return file_path
+
+
 class Chain:
     def get_chain(self, chain_name):
-        # if chain/{chain_name}/ exists and create the folder if it does not
-        if not os.path.exists(os.path.join("chains", chain_name)):
-            os.mkdir(os.path.join("chains", chain_name))
-        with open(os.path.join("chains", f"{chain_name}.json"), "r") as f:
+        file_path = get_chain_file_path(chain_name=chain_name)
+        with open(file_path, "r") as f:
             chain_data = json.load(f)
         return chain_data
 
@@ -23,21 +40,25 @@ class Chain:
         return chains
 
     def add_chain(self, chain_name):
+        file_path = get_chain_file_path(chain_name=chain_name)
         chain_data = {"chain_name": chain_name, "steps": []}
-        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+        with open(file_path, "w") as f:
             json.dump(chain_data, f)
 
     def rename_chain(self, chain_name, new_name):
+        file_path = get_chain_file_path(chain_name=chain_name)
+        new_file_path = get_chain_file_path(chain_name=new_name)
         os.rename(
-            os.path.join("chains", f"{chain_name}.json"),
-            os.path.join("chains", f"{new_name}.json"),
+            os.path.join(file_path),
+            os.path.join(new_file_path),
         )
         chain_data = self.get_chain(chain_name=new_name)
         chain_data["chain_name"] = new_name
-        with open(os.path.join("chains", f"{new_name}.json"), "w") as f:
+        with open(new_file_path, "w") as f:
             json.dump(chain_data, f)
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
+        file_path = get_chain_file_path(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         chain_data["steps"].append(
             {
@@ -47,10 +68,11 @@ class Chain:
                 "prompt": prompt,
             }
         )
-        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+        with open(file_path, "w") as f:
             json.dump(chain_data, f)
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
+        file_path = get_chain_file_path(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         for step in chain_data["steps"]:
             if step["step"] == step_number:
@@ -58,19 +80,21 @@ class Chain:
                 step["prompt_type"] = prompt_type
                 step["prompt"] = prompt
                 break
-        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+        with open(file_path, "w") as f:
             json.dump(chain_data, f)
 
     def delete_step(self, chain_name, step_number):
+        file_path = get_chain_file_path(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         chain_data["steps"] = [
             step for step in chain_data["steps"] if step["step"] != step_number
         ]
-        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+        with open(file_path, "w") as f:
             json.dump(chain_data, f)
 
     def delete_chain(self, chain_name):
-        os.remove(os.path.join("chains", f"{chain_name}.json"))
+        file_path = get_chain_file_path(chain_name=chain_name)
+        os.remove(file_path)
 
     def get_step(self, chain_name, step_number):
         chain_data = self.get_chain(chain_name=chain_name)
@@ -84,6 +108,7 @@ class Chain:
         return chain_data["steps"]
 
     def move_step(self, chain_name, current_step_number, new_step_number):
+        file_path = get_chain_file_path(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         if not 1 <= new_step_number <= len(
             chain_data["steps"]
@@ -106,10 +131,11 @@ class Chain:
         moved_step["step"] = new_step_number
         chain_data["steps"].append(moved_step)
         chain_data["steps"] = sorted(chain_data["steps"], key=lambda x: x["step"])
-        with open(os.path.join("chains", f"{chain_name}.json"), "w") as f:
+        with open(file_path, "w") as f:
             json.dump(chain_data, f)
 
     async def run_chain(self, chain_name, user_input=None):
+        file_path = get_chain_responses_file_path(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
@@ -128,15 +154,14 @@ class Chain:
                 logging.info(f"Response: {step_response}")
                 # Write the responses to the json file.
                 dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                with open(
-                    os.path.join("chains", chain_name, "responses.json"), "w"
-                ) as f:
+                with open(file_path, "w") as f:
                     json.dump(responses, f)
         return responses
 
     def get_step_response(self, chain_name, step_number="all"):
+        file_path = get_chain_responses_file_path(chain_name=chain_name)
         try:
-            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
+            with open(file_path, "r") as f:
                 responses = json.load(f)
             print(responses)
             if step_number == "all":
@@ -147,8 +172,9 @@ class Chain:
             return ""
 
     def get_chain_responses(self, chain_name):
+        file_path = get_chain_responses_file_path(chain_name=chain_name)
         try:
-            with open(os.path.join("chains", chain_name, "responses.json"), "r") as f:
+            with open(file_path, "r") as f:
                 responses = json.load(f)
             return responses
         except:

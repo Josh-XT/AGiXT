@@ -49,8 +49,14 @@ class Interactions:
         return result
 
     def get_step_response(self, chain_name, step_number):
+        base_path = os.path.join(os.getcwd(), "chains")
+        file_path = os.path.normpath(
+            os.path.join(base_path, chain_name, "responses.json")
+        )
+        if not file_path.startswith(base_path):
+            raise ValueError("Invalid path, chain name must not contain slashes.")
         try:
-            with open(os.path.join("chains", f"{chain_name}_responses.json"), "r") as f:
+            with open(file_path, "r") as f:
                 responses = json.load(f)
             return responses.get(str(step_number))
         except:
