@@ -133,8 +133,10 @@ if mode == "Learning":
         learning_page(agent_name)
 
 if mode == "Chains":
-    st.markdown("### Choose a Agent and Chain to Run")
-    agent_name = agent_selection()
+    st.markdown("### Chain to Run")
+    st.markdown(
+        "The agent you choose does not matter for running chains, they will run on whichever agent is assigned per step."
+    )
     chain_names = ApiClient.get_chains()
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
