@@ -24,8 +24,8 @@ DEFAULT_SETTINGS = {
 def get_agent_file_paths(agent_name):
     base_path = os.path.join(os.getcwd(), "agents")
     folder_path = os.path.normpath(os.path.join(base_path, agent_name))
-    config_path = os.path.normpath(os.path.join(config_path, "config.json"))
-    history_path = os.path.normpath(os.path.join(config_path, "history.yaml"))
+    config_path = os.path.normpath(os.path.join(folder_path, "config.json"))
+    history_path = os.path.normpath(os.path.join(folder_path, "history.yaml"))
     if not config_path.startswith(base_path) or not folder_path.startswith(base_path):
         raise ValueError("Invalid path, agent name must not contain slashes.")
     if not os.path.exists(folder_path):
