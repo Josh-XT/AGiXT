@@ -193,7 +193,7 @@ class ApiClient:
         response = requests.post(
             f"{base_uri}/api/chain/{chain_name}/run", json={"prompt": user_input}
         )
-        return response.json()["message"]
+        return response.json()
 
     @staticmethod
     def add_chain(chain_name: str) -> str:
