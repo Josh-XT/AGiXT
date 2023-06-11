@@ -253,6 +253,14 @@ async def delete_history(agent_name: str) -> ResponseMessage:
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
+@app.delete("/api/agent/{agent_name}/history/message", tags=["Agent"])
+async def delete_history_message(
+    agent_name: str, message: ResponseMessage
+) -> ResponseMessage:
+    Agent(agent_name=agent_name).delete_history_message(message.message)
+    return ResponseMessage(message=f"Message deleted.")
+
+
 @app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     Agent(agent_name=agent_name).wipe_agent_memories()

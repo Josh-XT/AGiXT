@@ -385,3 +385,15 @@ class Agent:
             return "History deleted."
         except:
             return "History not found."
+
+    def delete_history_message(self, message: str):
+        try:
+            self.history["interactions"] = [
+                interaction
+                for interaction in self.history["interactions"]
+                if interaction["message"] != message
+            ]
+            self.save_history()
+            return "Message deleted."
+        except:
+            return "Message not found."
