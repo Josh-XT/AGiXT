@@ -134,10 +134,11 @@ class agixt_agent(Extensions):
         return response
 
     async def prompt_agent(
-        agent: str,
-        user_input: str,
-        prompt_name: int,
-        prompt_args: dict,
+        self,
+        agent: str = "gpt4free",
+        user_input: str = "",
+        prompt_name: str = "",
+        prompt_args: dict = {},
         websearch: bool = False,
         websearch_depth: int = 3,
         context_results: int = 5,
@@ -146,10 +147,10 @@ class agixt_agent(Extensions):
         response = await Interactions(agent_name=agent).run(
             user_input=user_input,
             prompt=prompt_name,
-            prompt_args=prompt_args,
             websearch=websearch,
             websearch_depth=websearch_depth,
             context_results=context_results,
+            **prompt_args,
         )
         if shots > 1:
             responses = [response]
@@ -157,8 +158,8 @@ class agixt_agent(Extensions):
                 response = await Interactions(agent_name=agent).run(
                     user_input=user_input,
                     prompt=prompt_name,
-                    prompt_args=prompt_args,
                     context_results=context_results,
+                    **prompt_args,
                 )
                 responses.append(response)
             # Join responses by "Response # <shot number>:" and return
