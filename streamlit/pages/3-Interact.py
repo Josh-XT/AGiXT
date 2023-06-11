@@ -6,13 +6,16 @@ from components.history import get_history
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
-verify_backend()
-
 st.set_page_config(
     page_title="Interact with Agents",
     page_icon=":speech_balloon:",
     layout="wide",
 )
+
+
+verify_backend()
+
+
 agixt_docs()
 
 st.header("Interact with Agents")
