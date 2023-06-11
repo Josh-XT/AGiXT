@@ -8,16 +8,23 @@ def get_prompt_file_path(prompt_name, model="default"):
         os.path.join(base_model_path, f"{prompt_name}.txt")
     )
     default_prompt_file = os.path.normpath(
-        os.path.join("prompts", f"{prompt_name}.txt")
+        os.path.join(base_path, f"{prompt_name}.txt")
     )
     if (
         not base_model_path.startswith(base_path)
         or not model_prompt_file.startswith(base_model_path)
         or not default_prompt_file.startswith(base_path)
     ):
+        print(base_model_path)
+        print(model_prompt_file)
+        print(default_prompt_file)
         raise ValueError(
             "Invalid file path. Prompt name cannot contain '/', '\\' or '..' in"
         )
+    if not os.path.exists(base_path):
+        os.mkdir(base_path)
+    if not os.path.exists(base_model_path):
+        os.mkdir(base_model_path)
     prompt_file = (
         model_prompt_file if os.path.isfile(model_prompt_file) else default_prompt_file
     )
@@ -27,14 +34,7 @@ def get_prompt_file_path(prompt_name, model="default"):
 class Prompts:
     def add_prompt(self, prompt_name, prompt):
         # if prompts folder does not exist, create it
-        base_path = os.path.join(os.getcwd(), "prompts")
-        file_path = os.path.normpath(base_path, f"{prompt_name}.txt")
-        if not file_path.startswith(base_path):
-            raise ValueError(
-                "Invalid file path. Prompt name cannot contain '/', '\\' or '..' in"
-            )
-        if not os.path.exists(base_path):
-            os.mkdir(base_path)
+        file_path = get_prompt_file_path(prompt_name=prompt_name)
         # if prompt file does not exist, create it
         if not os.path.exists(file_path):
             with open(file_path, "w") as f:

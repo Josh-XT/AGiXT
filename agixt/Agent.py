@@ -71,7 +71,7 @@ def delete_agent(agent_name):
 def rename_agent(agent_name, new_name):
     config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
     base_path = os.path.join(os.getcwd(), "agents")
-    new_agent_folder = os.path.normpath(os.path.join("agents", new_name))
+    new_agent_folder = os.path.normpath(os.path.join(base_path, new_name))
     if not new_agent_folder.startswith(base_path):
         raise ValueError("Invalid path, agent name must not contain slashes.")
 
