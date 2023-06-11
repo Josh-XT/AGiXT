@@ -70,14 +70,10 @@ Open a terminal and run the following commands:
 ```
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-pip install --upgrade pip
-pip install -r requirements.txt
-playwright install --with-deps
-cd streamlit
-streamlit run Main.py
+./AGiXT.sh
 ```
 
-You may have to press `Ctrl+C` multiple times to stop AGiXT running in the terminal due to it running multiple processes.
+Follow the prompts to install the required dependencies.  Any time you want to run AGiXT in the future, just run `./AGiXT.sh` again.
 
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
