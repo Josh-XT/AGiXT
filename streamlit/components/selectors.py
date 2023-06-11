@@ -9,6 +9,14 @@ def cached_get_extensions():
     return ApiClient.get_extensions()
 
 
+def build_args(args: dict = {}, prompt: dict = {}, step_number: int = 0):
+    return {
+        arg: st.text_input(arg, value=prompt.get(arg, ""), key=f"{arg}_{step_number}")
+        for arg in args
+        if arg != "context" and arg != "command_list" and arg != "COMMANDS"
+    }
+
+
 def prompt_selection(prompt: dict = {}, step_number: int = 0):
     available_prompts = ApiClient.get_prompts()
     prompt_name = st.selectbox(
@@ -22,16 +30,10 @@ def prompt_selection(prompt: dict = {}, step_number: int = 0):
 
     if prompt_name:
         prompt_args = ApiClient.get_prompt_args(prompt_name)
-        formatted_prompt_args = {
-            arg: st.text_input(
-                arg, value=prompt.get(arg, ""), key=f"{arg}_{step_number}"
-            )
-            for arg in prompt_args
-            if arg != "context" and arg != "command_list" and arg != "COMMANDS"
-        }
+        args = build_args(args=prompt_args, prompt=prompt, step_number=step_number)
         new_prompt = {
             "prompt_name": prompt_name,
-            "prompt_args": formatted_prompt_args,
+            "prompt_args": args,
         }
         return new_prompt
 
@@ -50,16 +52,10 @@ def command_selection(prompt: dict = {}, step_number: int = 0):
 
     if command_name:
         command_args = ApiClient.get_command_args(command_name=command_name)
-        formatted_command_args = {
-            arg: st.text_input(
-                arg, value=prompt.get(arg, ""), key=f"{arg}_{step_number}"
-            )
-            for arg in command_args
-            if arg != "context" and arg != "command_list" and arg != "COMMANDS"
-        }
+        args = build_args(args=command_args, prompt=prompt, step_number=step_number)
         new_prompt = {
             "command_name": command_name,
-            "command_args": formatted_command_args,
+            "command_args": args,
         }
         return new_prompt
 
