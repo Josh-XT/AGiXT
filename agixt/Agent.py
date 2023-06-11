@@ -80,10 +80,12 @@ def rename_agent(agent_name, new_name):
         if os.path.exists(new_agent_folder):
             # Add a number to the end of the new name
             i = 1
-            while os.path.exists(f"agents/{new_name}_{i}"):
+            while os.path.exists(new_agent_folder):
                 i += 1
-            new_name = f"{new_name}_{i}"
-            new_agent_folder = os.path.join("agents", new_name)
+                new_name = f"{new_name}_{i}"
+                new_agent_folder = os.path.normpath(os.path.join(base_path, new_name))
+            if not new_agent_folder.startswith(base_path):
+                raise ValueError("Invalid path, agent name must not contain slashes.")
         os.rename(folder_path, new_agent_folder)
         return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
