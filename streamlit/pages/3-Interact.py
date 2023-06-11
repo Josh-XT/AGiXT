@@ -31,8 +31,7 @@ mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "C
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = ""
 
-agent_name = agent_selection()
-
+agent_name = agent_selection() if mode != "Chains" else None
 
 if agent_name:
     st.session_state["chat_history"] = get_history(agent_name=agent_name)
@@ -134,9 +133,6 @@ if mode == "Learning":
 
 if mode == "Chains":
     st.markdown("### Chain to Run")
-    st.markdown(
-        "The agent you choose does not matter for running chains, they will run on whichever agent is assigned per step."
-    )
     chain_names = ApiClient.get_chains()
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
