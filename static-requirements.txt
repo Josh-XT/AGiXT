@@ -2,7 +2,7 @@ anthropic==0.2.9
 beautifulsoup4==4.12.2
 captcha-solver==0.1.5
 chromadb==0.3.25
-cryptography==39.0.1
+cryptography==41.0.0
 discord==2.2.3
 docker==6.1.2
 docx2txt==0.8

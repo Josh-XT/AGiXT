@@ -1,4 +1,4 @@
-cryptography==39.0.1
+cryptography==41.0.0
 EdgeGPT==0.6.7
 GoogleBard==1.1.3
 hugchat==0.0.6.2
