@@ -184,7 +184,7 @@ async def update_agent_settings(
 
 @app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
-    base_path = os.getcwd()
+    base_path = os.path.join(os.getcwd(), "WORKSPACE")
     file_path = os.path.normpath(os.path.join(base_path, file.file_name))
     if not file_path.startswith(base_path):
         raise Exception("Path given not allowed")
