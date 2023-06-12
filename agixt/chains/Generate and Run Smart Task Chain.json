@@ -1,5 +1,5 @@
 {
-    "chain_name": "Task",
+    "chain_name": "Generate and Run Smart Task Chain",
     "steps": [
         {
             "step": 1,
