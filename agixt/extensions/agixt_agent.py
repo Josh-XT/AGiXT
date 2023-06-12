@@ -149,7 +149,8 @@ class agixt_agent(Extensions):
         context_results: int = 5,
         shots: int = 1,
     ) -> str:
-        response = await Interactions(agent_name=agent).run(
+        ai = Interactions(agent_name=agent)
+        response = await ai.run(
             user_input=user_input,
             prompt=prompt_name,
             websearch=websearch,
@@ -160,7 +161,7 @@ class agixt_agent(Extensions):
         if shots > 1:
             responses = [response]
             for shot in range(shots - 1):
-                response = await Interactions(agent_name=agent).run(
+                response = await ai.run(
                     user_input=user_input,
                     prompt=prompt_name,
                     context_results=context_results,
@@ -192,13 +193,15 @@ class agixt_agent(Extensions):
             if task and task[0] in [str(i) for i in range(10)]
         ]
         responses = []
-        ai = Interactions(agent_name=agent)
         for task in task_list:
             if "task_name" in task:
-                response = await ai.run(
+                response = await self.prompt_agent(
+                    agent=agent,
                     user_input=user_input,
-                    prompt="Task Execution",
-                    task=task["task_name"],
+                    prompt_name="Task Execution",
+                    prompt_args={
+                        "task": task["task_name"],
+                    },
                     websearch=websearch,
                     websearch_depth=websearch_depth,
                     context_results=context_results,
@@ -230,3 +233,6 @@ class agixt_agent(Extensions):
 
             # Return the caption
             return caption
+
+    async def create_chain(self, chain_name: str, chain: str):
+        

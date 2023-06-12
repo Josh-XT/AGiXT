@@ -7,7 +7,10 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "Get Task List",
-                "user_input": "{user_input}"
+                "user_input": "{user_input}",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5
             }
         },
         {
@@ -16,7 +19,7 @@
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Execute Task List",
-                "agent": "{agent_name}",
+                "agent": "gpt4free",
                 "user_input": "{user_input}",
                 "tasks": "{STEP1}",
                 "websearch": false,
