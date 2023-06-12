@@ -33,8 +33,16 @@ if "chat_history" not in st.session_state:
 
 agent_name = agent_selection() if mode != "Chains" else None
 
-if agent_name:
-    st.session_state["chat_history"] = get_history(agent_name=agent_name)
+
+
+
+
+with st.container():
+    if agent_name:
+        st.session_state["chat_history"] = get_history(agent_name=agent_name)
+    
+        
+
 
 
 # If the user selects Prompt, then show the prompt functionality
