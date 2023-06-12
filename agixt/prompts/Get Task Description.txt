@@ -1,0 +1,6 @@
+Objective: 
+```
+{user_input}
+```
+
+Give a very short description of the objective in 10 words or less.

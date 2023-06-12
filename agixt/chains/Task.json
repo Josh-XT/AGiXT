@@ -16,15 +16,31 @@
         {
             "step": 2,
             "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Get Task Description",
+                "user_input": "{user_input}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Execute Task List",
+                "command_name": "Create Task Chain",
                 "agent": "gpt4free",
-                "user_input": "{user_input}",
-                "tasks": "{STEP1}",
-                "websearch": false,
-                "websearch_depth": 0,
-                "context_results": 5
+                "primary_objective": "{user_input}",
+                "numbered_list_of_tasks": "{STEP1}",
+                "short_task_description": "{STEP2}"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "gpt4free",
+            "prompt_type": "Chain",
+            "prompt": {
+                "chain_name": "{STEP3}",
+                "user_input": "{user_input}"
             }
         }
     ]
