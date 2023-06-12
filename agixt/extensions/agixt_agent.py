@@ -23,7 +23,7 @@ class agixt_agent(Extensions):
             "Improve Code": self.improve_code,
             "Write Tests": self.write_tests,
             "Create a new command": self.create_command,
-            "Execute Task List": self.execute_task_list,
+            "Create Task Chain": self.create_task_chain,
             "Prompt AI Agent": self.prompt_agent,
             "Describe Image": self.describe_image,
         }
@@ -149,7 +149,8 @@ class agixt_agent(Extensions):
         context_results: int = 5,
         shots: int = 1,
     ) -> str:
-        response = await Interactions(agent_name=agent).run(
+        ai = Interactions(agent_name=agent)
+        response = await ai.run(
             user_input=user_input,
             prompt=prompt_name,
             websearch=websearch,
@@ -160,7 +161,7 @@ class agixt_agent(Extensions):
         if shots > 1:
             responses = [response]
             for shot in range(shots - 1):
-                response = await Interactions(agent_name=agent).run(
+                response = await ai.run(
                     user_input=user_input,
                     prompt=prompt_name,
                     context_results=context_results,
@@ -175,36 +176,6 @@ class agixt_agent(Extensions):
                 ]
             )
         return response
-
-    async def execute_task_list(
-        self,
-        agent: str,
-        tasks: str,
-        user_input: str,
-        websearch: bool = False,
-        websearch_depth: int = 3,
-        context_results: int = 5,
-    ):
-        task_list = tasks.split("\n")
-        task_list = [
-            task
-            for task in task_list
-            if task and task[0] in [str(i) for i in range(10)]
-        ]
-        responses = []
-        ai = Interactions(agent_name=agent)
-        for task in task_list:
-            if "task_name" in task:
-                response = await ai.run(
-                    user_input=user_input,
-                    prompt="Task Execution",
-                    task=task["task_name"],
-                    websearch=websearch,
-                    websearch_depth=websearch_depth,
-                    context_results=context_results,
-                )
-                responses.append(response)
-        return "\n".join(responses)
 
     async def describe_image(self, image_url):
         """
@@ -230,3 +201,37 @@ class agixt_agent(Extensions):
 
             # Return the caption
             return caption
+
+    async def create_task_chain(
+        self,
+        agent: str,
+        primary_objective: str,
+        numbered_list_of_tasks: str,
+        short_task_description: str,
+    ):
+        task_list = numbered_list_of_tasks.split("\n")
+        task_list = [
+            task
+            for task in task_list
+            if task and task[0] in [str(i) for i in range(10)]
+        ]
+        chain_name = f"AI Generated Task - {short_task_description}"
+        chain = Chain()
+        chain.add_chain(chain_name=chain_name)
+        for task in task_list:
+            if "task_name" in task:
+                chain.add_chain_step(
+                    chain_name=chain_name,
+                    agent_name=agent,
+                    step_number=1,
+                    prompt_type="Prompt",
+                    prompt={
+                        "prompt_name": "Task Execution",
+                        "user_input": primary_objective,
+                        "task": task["task_name"],
+                        "websearch": True,
+                        "websearch_depth": 3,
+                        "context_results": 5,
+                    },
+                )
+        return chain_name

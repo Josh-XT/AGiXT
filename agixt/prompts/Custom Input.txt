@@ -1,1 +1,2 @@
- {user_input} 
+{context} 
+{user_input} 
