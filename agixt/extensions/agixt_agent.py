@@ -35,7 +35,6 @@ class agixt_agent(Extensions):
                         {
                             f"Ask{name}": self.ask,
                             f"Instruct{name}": self.instruct,
-                            f"Prompt{name}": self.prompt_agent,
                         }
                     )
         if self.chains != None:
