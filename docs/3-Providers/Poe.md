@@ -6,6 +6,13 @@
 
 We are not responsible if Poe bans your account for doing this. This may not be consistent with their rules to use their services in this way. This was developed for experimental purposes and we assume no responsibility for how you use it.
 
+
+## Limitations for Free accounts
+- Claude+ (a2_2) has a limit of 3 messages per day. 
+- GPT-4 (beaver) has a limit of 1 message per day. 
+- Claude-instant-100k (c2_100k) is completely inaccessible for free accounts. 
+- For all the other chatbots, there seems to be a rate limit of 10 messages per minute.
+
 ## Quick Start Guide
 
 ### Get your Poe Token
