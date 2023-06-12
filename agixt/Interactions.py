@@ -232,7 +232,10 @@ class Interactions:
                 await memories.store_result(input=user_input, result=self.response)
             except:
                 pass
-            self.agent.log_interaction(role="USER", message=formatted_prompt)
+            if prompt == "Chat":
+                self.agent.log_interaction(role="USER", message=user_input)
+            else:
+                self.agent.log_interaction(role="USER", message=formatted_prompt)
             self.agent.log_interaction(role=self.agent_name, message=self.response)
         return self.response
 
