@@ -33,7 +33,7 @@ def prompt_selection(prompt: dict = {}, step_number: int = 0):
         args = build_args(args=prompt_args, prompt=prompt, step_number=step_number)
         new_prompt = {
             "prompt_name": prompt_name,
-            "prompt_args": args,
+            **args,
         }
         return new_prompt
 
@@ -55,7 +55,7 @@ def command_selection(prompt: dict = {}, step_number: int = 0):
         args = build_args(args=command_args, prompt=prompt, step_number=step_number)
         new_prompt = {
             "command_name": command_name,
-            "command_args": args,
+            **args,
         }
         return new_prompt
 
