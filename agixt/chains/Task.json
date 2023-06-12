@@ -7,7 +7,6 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "Get Task List",
-                "user_input": "{user_input}",
                 "websearch": true,
                 "websearch_depth": 3,
                 "context_results": 5
@@ -18,8 +17,7 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "Get Task Description",
-                "user_input": "{user_input}"
+                "prompt_name": "Get Task Description"
             }
         },
         {
@@ -39,8 +37,7 @@
             "agent_name": "gpt4free",
             "prompt_type": "Chain",
             "prompt": {
-                "chain_name": "{STEP3}",
-                "user_input": "{user_input}"
+                "chain_name": "{STEP3}"
             }
         }
     ]
