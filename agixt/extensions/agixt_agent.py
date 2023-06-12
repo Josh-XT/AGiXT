@@ -192,9 +192,10 @@ class agixt_agent(Extensions):
             if task and task[0] in [str(i) for i in range(10)]
         ]
         responses = []
+        ai = Interactions(agent_name=agent)
         for task in task_list:
             if "task_name" in task:
-                response = await Interactions(agent_name=agent).run(
+                response = await ai.run(
                     user_input=user_input,
                     prompt="Task Execution",
                     prompt_args={
