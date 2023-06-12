@@ -26,18 +26,16 @@ class PoeProvider:
         self.requirements = ["poe-api"]
         self.POE_TOKEN = POE_TOKEN
         self.AI_MODEL = AI_MODEL.lower()
-        self.client = poe.Client(token=self.POE_TOKEN)
-        if self.AI_MODEL not in self.client.bot_names:
-            try:
-                self.AI_MODEL = self.client.get_bot_by_codename(self.AI_MODEL)
-            except:
-                raise Exception(f"Invalid AI Model: {AI_MODEL}")
 
     async def instruct(self, prompt, tokens: int = 0):
         try:
-            for chunk in self.client.send_message(
-                chatbot=self.AI_MODEL, message=prompt
-            ):
+            client = poe.Client(token=self.POE_TOKEN)
+            if self.AI_MODEL not in client.bot_names:
+                try:
+                    self.AI_MODEL = client.get_bot_by_codename(self.AI_MODEL)
+                except:
+                    raise Exception(f"Invalid AI Model: {self.AI_MODEL}")
+            for chunk in client.send_message(chatbot=self.AI_MODEL, message=prompt):
                 pass
             response = chunk["text"].replace("\n", "\n")
             return response
