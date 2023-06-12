@@ -207,24 +207,27 @@ class agixt_agent(Extensions):
                 responses.append(response)
         return "\n".join(responses)
 
-    async def describe_image(self, image_url: str) -> str:
+    async def describe_image(self, image_url):
         """
         Describe an image using FuseCap.
         """
-        processor = BlipProcessor.from_pretrained("noamrot/FuseCap")
-        model = BlipForConditionalGeneration.from_pretrained("noamrot/FuseCap")
+        if image_url:
+            processor = BlipProcessor.from_pretrained("noamrot/FuseCap")
+            model = BlipForConditionalGeneration.from_pretrained("noamrot/FuseCap")
 
-        # Define the device to run the model on (CPU or GPU)
+            # Define the device to run the model on (CPU or GPU)
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model.to(device)
-        raw_image = Image.open(requests.get(image_url, stream=True).raw).convert("RGB")
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model.to(device)
+            raw_image = Image.open(requests.get(image_url, stream=True).raw).convert(
+                "RGB"
+            )
 
-        # Generate a caption for the image using FuseCap
-        text = "a picture of "
-        inputs = processor(raw_image, text, return_tensors="pt").to(device)
-        out = model.generate(**inputs, num_beams=3)
-        caption = processor.decode(out[0], skip_special_tokens=True)
+            # Generate a caption for the image using FuseCap
+            text = "a picture of "
+            inputs = processor(raw_image, text, return_tensors="pt").to(device)
+            out = model.generate(**inputs, num_beams=3)
+            caption = processor.decode(out[0], skip_special_tokens=True)
 
-        # Return the caption
-        return caption
+            # Return the caption
+            return caption

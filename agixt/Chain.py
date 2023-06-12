@@ -250,11 +250,13 @@ class Chain:
                     user_input=user_input,
                     agent_name=agent_name,
                 )
+                print(f"ARGS: {args}")
                 if prompt_type == "Command":
                     return await Extensions(
                         agent_config=agent.agent.agent_config
                     ).execute_command(
-                        command_name=args["command_name"], command_args=args
+                        command_name=args["command_name"],
+                        command_args=args["command_args"],
                     )
                 elif prompt_type == "Prompt":
                     result = await agent.run(
