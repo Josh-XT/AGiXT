@@ -163,7 +163,6 @@ class Chain:
         try:
             with open(file_path, "r") as f:
                 responses = json.load(f)
-            print(responses)
             if step_number == "all":
                 return responses
             else:
@@ -250,7 +249,6 @@ class Chain:
                     user_input=user_input,
                     agent_name=agent_name,
                 )
-                print(f"ARGS: {args}")
                 if prompt_type == "Command":
                     return await Extensions(
                         agent_config=agent.agent.agent_config
