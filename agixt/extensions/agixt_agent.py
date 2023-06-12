@@ -198,9 +198,7 @@ class agixt_agent(Extensions):
                 response = await ai.run(
                     user_input=user_input,
                     prompt="Task Execution",
-                    prompt_args={
-                        "task": task["task_name"],
-                    },
+                    task=task["task_name"],
                     websearch=websearch,
                     websearch_depth=websearch_depth,
                     context_results=context_results,
