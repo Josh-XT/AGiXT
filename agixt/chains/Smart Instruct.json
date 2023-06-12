@@ -4,13 +4,10 @@
         {
             "step": 1,
             "agent_name": "gpt4free",
-            "prompt_type": "Command",
+            "prompt_type": "Prompt",
             "prompt": {
-                "command_name": "Prompt AI Agent",
-                "user_input": "{user_input}",
                 "prompt_name": "SmartInstruct-StepByStep",
-                "prompt_args": {},
-                "agent": "{agent_name}",
+                "user_input": "{user_input}",
                 "websearch": true,
                 "websearch_depth": 3,
                 "context_results": 5,

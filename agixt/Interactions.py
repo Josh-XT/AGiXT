@@ -153,9 +153,9 @@ class Interactions:
         learn_file: str = "",
         chain_name: str = "",
         step_number: int = 0,
+        shots: int = 1,
         **kwargs,
     ):
-        logging.info(f"KWARGS: {kwargs}")
         memories = self.agent.get_memories()
         if learn_file != "":
             learning_file = await memories.mem_read_file(file_path=learn_file)
@@ -237,6 +237,27 @@ class Interactions:
             else:
                 self.agent.log_interaction(role="USER", message=formatted_prompt)
             self.agent.log_interaction(role=self.agent_name, message=self.response)
+
+        if shots > 1:
+            responses = [self.response]
+            for shot in range(shots - 1):
+                shot_response = self.run(
+                    user_input=user_input,
+                    prompt=prompt,
+                    context_results=context_results,
+                    shots=shots - 1,
+                    chain_name=chain_name,
+                    step_number=step_number,
+                    **kwargs,
+                )
+                time.sleep(1)
+                responses.append(shot_response)
+            return "\n".join(
+                [
+                    f"Response {shot + 1}:\n{response}"
+                    for shot, response in enumerate(responses)
+                ]
+            )
         return self.response
 
     async def smart_instruct(
