@@ -254,7 +254,7 @@ class Chain:
                         agent_config=agent.agent.agent_config
                     ).execute_command(
                         command_name=args["command_name"],
-                        command_args=args["command_args"],
+                        command_args=args,
                     )
                 elif prompt_type == "Prompt":
                     result = await agent.run(
