@@ -7,7 +7,6 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "SmartChat-StepByStep",
-                "user_input": "{user_input}",
                 "websearch": true,
                 "websearch_depth": 3,
                 "context_results": 5,
