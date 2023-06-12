@@ -1,7 +1,6 @@
 from ApiClient import ApiClient
 import streamlit as st
 
-
 def get_history(agent_name):
     st.markdown("### Agent History")
     st.markdown(
@@ -13,41 +12,55 @@ def get_history(agent_name):
         ApiClient.delete_agent_history(agent_name=agent_name)
         st.success("Agent history deleted successfully.")
 
+    # Define CSS rules for message container
+    message_container_css = """
+        <style>
+        .message-container {
+            height: 400px;
+            overflow: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .message {
+            margin-bottom: 10px;
+        }
+        .user-message {
+            background-color: #0f0f0f;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .agent-message {
+            background-color: #3a3b3c;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        </style>
+    """
+
+    st.write(message_container_css, unsafe_allow_html=True)
+
     with st.container():
-        st.markdown(
-            """
-            <style>
-            .chat {
-                border-radius: 5px;
-                padding: 10px;
-                margin: 10px 0;
-            }
-            .chat.user {
-                background-color: #0f0f0f;
-            }
-            .chat.agent {
-                background-color: #3A3B3C;
-                color: white;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        if agent_name:
-            history = ApiClient.get_chat_history(agent_name=agent_name)
-            history = reversed(history)
-            if history:
-                for item in history:
-                    if "USER" in item.keys():
-                        st.markdown(
-                            f"<div class='chat user'><b>You:</b><br> {item['USER']}</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        if item[agent_name].startswith(f"{agent_name}:"):
-                            item[agent_name] = item[agent_name][len(agent_name) + 1 :]
-                        item[agent_name].replace("\n", "<br>")
-                        st.markdown(
-                            f"<div class='chat agent'><b>{agent_name}:</b><br>{item[agent_name]}</div>",
-                            unsafe_allow_html=True,
-                        )
+        # Get chat history from API
+        history = ApiClient.get_chat_history(agent_name=agent_name)
+        history = reversed(history)
+
+        # Create a container for messages
+        message_container = "<div class='message-container'>"
+
+        for item in history:
+            if "USER" in item.keys():
+                message_container += (
+                    f"<div class='message user-message'><b>You:</b><br>{item['USER']}</div>"
+                )
+            else:
+                if item[agent_name].startswith(f"{agent_name}:"):
+                    item[agent_name] = item[agent_name][len(agent_name) + 1 :]
+                item[agent_name] = item[agent_name].replace("\n", "<br>")
+                message_container += (
+                    f"<div class='message agent-message'><b>{agent_name}:</b><br>{item[agent_name]}</div>"
+                )
+        message_container += "</div>"
+        st.write(message_container, unsafe_allow_html=True)
