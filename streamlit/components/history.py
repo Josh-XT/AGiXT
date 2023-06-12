@@ -1,6 +1,7 @@
 from ApiClient import ApiClient
 import streamlit as st
 
+
 def get_history(agent_name):
     st.markdown("### Agent History")
     st.markdown(
@@ -52,15 +53,11 @@ def get_history(agent_name):
 
         for item in history:
             if "USER" in item.keys():
-                message_container += (
-                    f"<div class='message user-message'><b>You:</b><br>{item['USER']}</div>"
-                )
+                message_container += f"<div class='message user-message'><b>You:</b><br>{item['USER']}</div>"
             else:
                 if item[agent_name].startswith(f"{agent_name}:"):
                     item[agent_name] = item[agent_name][len(agent_name) + 1 :]
                 item[agent_name] = item[agent_name].replace("\n", "<br>")
-                message_container += (
-                    f"<div class='message agent-message'><b>{agent_name}:</b><br>{item[agent_name]}</div>"
-                )
+                message_container += f"<div class='message agent-message'><b>{agent_name}:</b><br>{item[agent_name]}</div>"
         message_container += "</div>"
         st.write(message_container, unsafe_allow_html=True)
