@@ -207,7 +207,7 @@ class agixt_agent(Extensions):
                 responses.append(response)
         return "\n".join(responses)
 
-    def describe_image(self, image_url: str) -> str:
+    async def describe_image(self, image_url: str) -> str:
         """
         Describe an image using FuseCap.
         """
