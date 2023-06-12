@@ -5,6 +5,10 @@ from Interactions import Interactions
 import json
 import os
 from typing import List, Optional
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import torch
+from PIL import Image
+import requests
 
 
 class agixt_agent(Extensions):
@@ -21,6 +25,7 @@ class agixt_agent(Extensions):
             "Create a new command": self.create_command,
             "Execute Task List": self.execute_task_list,
             "Prompt AI Agent": self.prompt_agent,
+            "Describe Image": self.describe_image,
         }
         if agents != None:
             for agent in agents:
@@ -134,10 +139,11 @@ class agixt_agent(Extensions):
         return response
 
     async def prompt_agent(
-        agent: str,
-        user_input: str,
-        prompt_name: int,
-        prompt_args: dict,
+        self,
+        agent: str = "gpt4free",
+        user_input: str = "",
+        prompt_name: str = "",
+        prompt_args: dict = {},
         websearch: bool = False,
         websearch_depth: int = 3,
         context_results: int = 5,
@@ -146,10 +152,10 @@ class agixt_agent(Extensions):
         response = await Interactions(agent_name=agent).run(
             user_input=user_input,
             prompt=prompt_name,
-            prompt_args=prompt_args,
             websearch=websearch,
             websearch_depth=websearch_depth,
             context_results=context_results,
+            **prompt_args,
         )
         if shots > 1:
             responses = [response]
@@ -157,8 +163,8 @@ class agixt_agent(Extensions):
                 response = await Interactions(agent_name=agent).run(
                     user_input=user_input,
                     prompt=prompt_name,
-                    prompt_args=prompt_args,
                     context_results=context_results,
+                    **prompt_args,
                 )
                 responses.append(response)
             # Join responses by "Response # <shot number>:" and return
@@ -200,3 +206,28 @@ class agixt_agent(Extensions):
                 )
                 responses.append(response)
         return "\n".join(responses)
+
+    async def describe_image(self, image_url):
+        """
+        Describe an image using FuseCap.
+        """
+        if image_url:
+            processor = BlipProcessor.from_pretrained("noamrot/FuseCap")
+            model = BlipForConditionalGeneration.from_pretrained("noamrot/FuseCap")
+
+            # Define the device to run the model on (CPU or GPU)
+
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model.to(device)
+            raw_image = Image.open(requests.get(image_url, stream=True).raw).convert(
+                "RGB"
+            )
+
+            # Generate a caption for the image using FuseCap
+            text = "a picture of "
+            inputs = processor(raw_image, text, return_tensors="pt").to(device)
+            out = model.generate(max_length=20, temperature=0.7, **inputs, num_beams=3)
+            caption = processor.decode(out[0], skip_special_tokens=True)
+
+            # Return the caption
+            return caption
