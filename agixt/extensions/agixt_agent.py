@@ -25,7 +25,6 @@ class agixt_agent(Extensions):
             "Create a new command": self.create_command,
             "Create Task Chain": self.create_task_chain,
             "Create Smart Task Chain": self.create_smart_task_chain,
-            "Prompt AI Agent": self.prompt_agent,
             "Describe Image": self.describe_image,
         }
         if agents != None:
@@ -139,45 +138,6 @@ class agixt_agent(Extensions):
         )
         return response
 
-    async def prompt_agent(
-        self,
-        agent: str = "gpt4free",
-        user_input: str = "",
-        prompt_name: str = "",
-        prompt_args: dict = {},
-        websearch: bool = False,
-        websearch_depth: int = 3,
-        context_results: int = 5,
-        shots: int = 1,
-    ) -> str:
-        ai = Interactions(agent_name=agent)
-        response = await ai.run(
-            user_input=user_input,
-            prompt=prompt_name,
-            websearch=websearch,
-            websearch_depth=websearch_depth,
-            context_results=context_results,
-            **prompt_args,
-        )
-        if shots > 1:
-            responses = [response]
-            for shot in range(shots - 1):
-                response = await ai.run(
-                    user_input=user_input,
-                    prompt=prompt_name,
-                    context_results=context_results,
-                    **prompt_args,
-                )
-                responses.append(response)
-            # Join responses by "Response # <shot number>:" and return
-            return "\n".join(
-                [
-                    f"Response {shot + 1}:\n{response}"
-                    for shot, response in enumerate(responses)
-                ]
-            )
-        return response
-
     async def describe_image(self, image_url):
         """
         Describe an image using FuseCap.
@@ -214,7 +174,7 @@ class agixt_agent(Extensions):
         task_list = [
             task
             for task in task_list
-            if task and task[0] in [str(i) for i in range(10)]
+            if task and task[0] in [str(i) for i in range(len(task_list))]
         ]
         chain_name = f"AI Generated Task - {short_task_description}"
         chain = Chain()
@@ -248,7 +208,7 @@ class agixt_agent(Extensions):
         task_list = [
             task
             for task in task_list
-            if task and task[0] in [str(i) for i in range(10)]
+            if task and task[0] in [str(i) for i in range(len(task_list))]
         ]
         chain_name = f"AI Generated Smart Task - {short_task_description}"
         chain = Chain()
