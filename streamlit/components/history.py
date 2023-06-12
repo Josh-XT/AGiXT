@@ -5,8 +5,14 @@ import streamlit as st
 def get_history(agent_name):
     st.markdown("### Agent History")
     st.markdown(
-        "The history of the agent's interactions.  The latest responses are at the top."
+        "The history of the agent's interactions. The latest responses are at the top."
     )
+
+    # Add a button to delete agent history
+    if st.button("Delete Agent History"):
+        ApiClient.delete_agent_history(agent_name=agent_name)
+        st.success("Agent history deleted successfully.")
+
     with st.container():
         st.markdown(
             """
