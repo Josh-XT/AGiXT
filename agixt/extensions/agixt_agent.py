@@ -226,7 +226,7 @@ class agixt_agent(Extensions):
             # Generate a caption for the image using FuseCap
             text = "a picture of "
             inputs = processor(raw_image, text, return_tensors="pt").to(device)
-            out = model.generate(**inputs, num_beams=3)
+            out = model.generate(max_length=20, temperature=0.7, **inputs, num_beams=3)
             caption = processor.decode(out[0], skip_special_tokens=True)
 
             # Return the caption
