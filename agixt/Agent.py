@@ -111,7 +111,7 @@ class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.config_path, self.history_file, self.folder_path = get_agent_file_paths(
-            agent_name=agent_name
+            agent_name=self.agent_name
         )
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" in self.AGENT_CONFIG:
@@ -355,7 +355,10 @@ class Agent:
             history = []
             for interaction in yaml_history["interactions"]:
                 role = interaction["role"]
-                message = interaction["timestamp"] + "\n" + interaction["message"]
+                if "timestamp" in interaction:
+                    message = interaction["timestamp"] + "\n" + interaction["message"]
+                else:
+                    message = interaction["message"]
                 history.append({role: message})
             return history
         except:
