@@ -67,17 +67,16 @@ class agixt_chain(Extensions):
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         for task in task_list:
-            if "task_name" in task:
-                chain.add_chain_step(
-                    chain_name=chain_name,
-                    agent_name=agent,
-                    step_number=1,
-                    prompt_type="Chain",
-                    prompt={
-                        "chain_name": "Smart Instruct",
-                        "user_input": f"Primary Objective: {primary_objective}\nYour Task: {task['task_name']}",
-                    },
-                )
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=1,
+                prompt_type="Chain",
+                prompt={
+                    "chain_name": "Smart Instruct",
+                    "user_input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
+                },
+            )
         return chain_name
 
     async def run_chain(self, chain_name: str = "", user_input: str = ""):
