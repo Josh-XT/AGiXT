@@ -8,6 +8,7 @@ from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
 from extensions.searxng import searxng
+from Chain import Chain
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
@@ -210,21 +211,24 @@ class Interactions:
                 **kwargs,
             )
             return_response = ""
-            try:
-                self.response = json.loads(self.response)
-                if "response" in self.response:
-                    return_response = self.response["response"]
-                if "commands" in self.response:
-                    if self.response["commands"] != {}:
+            if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                try:
+                    self.response = json.loads(self.response)
+                    if "response" in self.response:
+                        return_response = self.response["response"]
+                    if "commands" in self.response:
+                        if self.response["commands"] != {}:
+                            return_response += (
+                                f"\n\nCommands Executed:\n{self.response['commands']}"
+                            )
+                    if execution_response:
                         return_response += (
-                            f"\n\nCommands Executed:\n{self.response['commands']}"
+                            f"\n\nCommand Execution Response:\n{execution_response}"
                         )
-                if execution_response:
-                    return_response += (
-                        f"\n\nCommand Execution Response:\n{execution_response}"
-                    )
-            except:
-                return_response = self.response
+                except:
+                    return_response = self.response
+            else:
+                return_response = f"{self.response}\n\n{execution_response}"
             self.response = return_response
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
@@ -421,9 +425,37 @@ class Interactions:
                         if command_name == available_command["friendly_name"]:
                             # Check if the command is a valid command in the self.avent.available_commands list
                             try:
-                                command_output = await self.agent.execute(
-                                    command_name=command_name, command_args=command_args
-                                )
+                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                    command_output = await self.agent.execute(
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                    )
+                                else:
+                                    chain = Chain()
+                                    chain_name = (
+                                        f"{self.agent_name} Command Suggestions"
+                                    )
+                                    try:
+                                        chain_steps = chain.get_chain(
+                                            chain_name=chain_name
+                                        )
+                                        # Get last step number in chain_steps, it is at chain_steps["steps"][-1]["step"]
+                                        step = int(chain_steps["steps"][-1]["step"]) + 1
+                                    except:
+                                        chain.add_chain(chain_name=chain_name)
+                                        step = 1
+                                        # Add the step to the chain
+                                        chain.add_chain_step(
+                                            chain_name=chain_name,
+                                            agent_name=self.agent_name,
+                                            step_number=step,
+                                            prompt_type="Command",
+                                            prompt={
+                                                "command_name": command_name,
+                                                **command_args,
+                                            },
+                                        )
+                                    command_output = f"AUTONOMOUS_EXECUTION is set to False. The command has been added to a chain called '{self.agent_name} Command Suggestions' for you to review and execute manually."
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = await self.run(
