@@ -15,9 +15,6 @@ def get_prompt_file_path(prompt_name, model="default"):
         or not model_prompt_file.startswith(base_model_path)
         or not default_prompt_file.startswith(base_path)
     ):
-        print(base_model_path)
-        print(model_prompt_file)
-        print(default_prompt_file)
         raise ValueError(
             "Invalid file path. Prompt name cannot contain '/', '\\' or '..' in"
         )

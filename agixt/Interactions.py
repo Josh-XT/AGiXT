@@ -274,7 +274,9 @@ class Interactions:
         chain = Chain()
         if step:
             if "prompt_type" in step:
-                agent_name = step["agent_name"]
+                self.agent_name = step["agent_name"]
+                self.agent = Agent(self.agent_name)
+                self.agent_commands = self.agent.get_commands_string()
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -285,7 +287,7 @@ class Interactions:
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
-                    agent_name=agent_name,
+                    agent_name=self.agent_name,
                 )
                 if prompt_type == "Command":
                     return await self.agent.execute(

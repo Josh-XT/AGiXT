@@ -327,7 +327,6 @@ async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
     agent = Agent(agent_name=agent_name)
-    print(payload)
     try:
         if payload.command_name == "*":
             for each_command_name in agent.agent_config["commands"]:
