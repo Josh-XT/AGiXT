@@ -381,7 +381,7 @@ async def get_chain_responses(chain_name: str):
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str, user_input: Prompt):
-    chain_response = await Chain().run_chain(
+    chain_response = await Interactions(agent_name="").run_chain(
         chain_name=chain_name, user_input=user_input.prompt
     )
     return chain_response
