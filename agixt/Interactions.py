@@ -68,17 +68,58 @@ class Interactions:
         except:
             return ""
 
-    def get_step_content(self, chain_name, step_number, prompt_content):
+    def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
         new_prompt_content = {}
-        for arg, value in prompt_content.items():
-            if "{STEP" in value:
-                # get the response from the step number
-                step_response = self.get_step_response(
-                    chain_name=chain_name, step_number=step_number
+        if isinstance(prompt_content, dict):
+            for arg, value in prompt_content.items():
+                if isinstance(value, str):
+                    if "{user_input}" in value:
+                        value = value.replace("{user_input}", user_input)
+                    if "{agent_name}" in value:
+                        value = value.replace("{agent_name}", agent_name)
+                    if "{STEP" in value:
+                        # Count how many times {STEP is in the value
+                        step_count = value.count("{STEP")
+                        for i in range(step_count):
+                            # Get the step number from value between {STEP and }
+                            new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                            # get the response from the step number
+                            step_response = self.get_step_response(
+                                chain_name=chain_name, step_number=new_step_number
+                            )
+                            # replace the {STEPx} with the response
+                            value = value.replace(
+                                f"{{STEP{new_step_number}}}",
+                                f"{step_response['response']}",
+                            )
+                new_prompt_content[arg] = value
+        elif isinstance(prompt_content, str):
+            new_prompt_content = prompt_content
+            if "{user_input}" in prompt_content:
+                new_prompt_content = new_prompt_content.replace(
+                    "{user_input}", user_input
                 )
-                # replace the {STEPx} with the response
-                value = value.replace(f"{{STEP{step_number}}}", step_response)
-            new_prompt_content[arg] = value
+            if "{agent_name}" in new_prompt_content:
+                new_prompt_content = new_prompt_content.replace(
+                    "{agent_name}", agent_name
+                )
+            if "{STEP" in prompt_content:
+                step_count = value.count("{STEP")
+                for i in range(step_count):
+                    # Get the step number from value between {STEP and }
+                    new_step_number = int(
+                        prompt_content.split("{STEP")[1].split("}")[0]
+                    )
+                    # get the response from the step number
+                    step_response = self.get_step_response(
+                        chain_name=chain_name, step_number=new_step_number
+                    )
+                    # replace the {STEPx} with the response
+                    new_prompt_content = prompt_content.replace(
+                        f"{{STEP{new_step_number}}}", f"{step_response['response']}"
+                    )
+            if new_prompt_content == {}:
+                new_prompt_content = prompt_content
         return new_prompt_content
 
     async def format_prompt(
@@ -250,7 +291,7 @@ class Interactions:
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
-                shot_response = self.run(
+                shot_response = await self.run(
                     user_input=user_input,
                     prompt=prompt,
                     context_results=context_results,
@@ -271,7 +312,6 @@ class Interactions:
 
     async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
         logging.info(step)
-        chain = Chain()
         if step:
             if "prompt_type" in step:
                 self.agent_name = step["agent_name"]
@@ -283,7 +323,7 @@ class Interactions:
                     prompt_name = step["prompt"]["prompt_name"]
                 else:
                     prompt_name = ""
-                args = chain.get_step_content(
+                args = self.get_step_content(
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
@@ -315,6 +355,8 @@ class Interactions:
         chain = Chain()
         file_path = get_chain_responses_file_path(chain_name=chain_name)
         chain_data = chain.get_chain(chain_name=chain_name)
+        if chain_data == {}:
+            return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         for step_data in chain_data["steps"]:
