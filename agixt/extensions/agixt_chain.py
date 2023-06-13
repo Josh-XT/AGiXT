@@ -33,11 +33,12 @@ class agixt_chain(Extensions):
         chain_name = f"AI Generated Task - {short_task_description}"
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
+        i = 1
         for task in task_list:
             chain.add_chain_step(
                 chain_name=chain_name,
                 agent_name=agent,
-                step_number=1,
+                step_number=i,
                 prompt_type="Prompt",
                 prompt={
                     "prompt_name": "Task Execution",
@@ -48,6 +49,7 @@ class agixt_chain(Extensions):
                     "context_results": 5,
                 },
             )
+            i += 1
         return chain_name
 
     async def create_smart_task_chain(
@@ -66,17 +68,19 @@ class agixt_chain(Extensions):
         chain_name = f"AI Generated Smart Task - {short_task_description}"
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
+        i = 1
         for task in task_list:
             chain.add_chain_step(
                 chain_name=chain_name,
                 agent_name=agent,
-                step_number=1,
+                step_number=i,
                 prompt_type="Chain",
                 prompt={
                     "chain_name": "Smart Instruct",
                     "user_input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
                 },
             )
+            i += 1
         return chain_name
 
     async def run_chain(self, chain_name: str = "", user_input: str = ""):
