@@ -1,6 +1,7 @@
 import streamlit as st
 from ApiClient import ApiClient
 import os
+import base64
 
 
 def learning_page(agent_name):
@@ -23,7 +24,9 @@ def learning_page(agent_name):
                 ApiClient.learn_file(
                     agent_name=agent_name,
                     file_name=learn_file_path,
-                    file_content=learn_file_upload.read(),
+                    file_content=base64.b64encode(learn_file_upload.read()).decode(
+                        "utf-8"
+                    ),
                 )
                 st.success(
                     "Agent '"
