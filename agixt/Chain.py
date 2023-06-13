@@ -7,6 +7,30 @@ import logging
 from datetime import datetime
 
 
+def create_command_suggestion_chain(agent_name, command_name, command_args):
+    chain = Chain()
+    chain_name = f"{agent_name} Command Suggestions"
+    try:
+        chain_steps = chain.get_chain(chain_name=chain_name)
+        # Get last step number in chain_steps, it is at chain_steps["steps"][-1]["step"]
+        step = int(chain_steps["steps"][-1]["step"]) + 1
+    except:
+        chain.add_chain(chain_name=chain_name)
+        step = 1
+        # Add the step to the chain
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent_name,
+            step_number=step,
+            prompt_type="Command",
+            prompt={
+                "command_name": command_name,
+                **command_args,
+            },
+        )
+    return f"AUTONOMOUS_EXECUTION is set to False. The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
+
+
 def get_chain_file_path(chain_name):
     base_path = os.path.join(os.getcwd(), "chains")
     folder_path = os.path.normpath(os.path.join(base_path, chain_name))

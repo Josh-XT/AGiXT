@@ -8,7 +8,7 @@ from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
 from extensions.searxng import searxng
-from Chain import Chain
+from Chain import create_command_suggestion_chain
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
@@ -431,31 +431,11 @@ class Interactions:
                                         command_args=command_args,
                                     )
                                 else:
-                                    chain = Chain()
-                                    chain_name = (
-                                        f"{self.agent_name} Command Suggestions"
+                                    command_output = create_command_suggestion_chain(
+                                        agent_name=self.agent_name,
+                                        command_name=command_name,
+                                        command_args=command_args,
                                     )
-                                    try:
-                                        chain_steps = chain.get_chain(
-                                            chain_name=chain_name
-                                        )
-                                        # Get last step number in chain_steps, it is at chain_steps["steps"][-1]["step"]
-                                        step = int(chain_steps["steps"][-1]["step"]) + 1
-                                    except:
-                                        chain.add_chain(chain_name=chain_name)
-                                        step = 1
-                                        # Add the step to the chain
-                                        chain.add_chain_step(
-                                            chain_name=chain_name,
-                                            agent_name=self.agent_name,
-                                            step_number=step,
-                                            prompt_type="Command",
-                                            prompt={
-                                                "command_name": command_name,
-                                                **command_args,
-                                            },
-                                        )
-                                    command_output = f"AUTONOMOUS_EXECUTION is set to False. The command has been added to a chain called '{self.agent_name} Command Suggestions' for you to review and execute manually."
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = await self.run(
