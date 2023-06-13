@@ -13,7 +13,10 @@ def build_args(args: dict = {}, prompt: dict = {}, step_number: int = 0):
     return {
         arg: st.text_input(arg, value=prompt.get(arg, ""), key=f"{arg}_{step_number}")
         for arg in args
-        if arg != "context" and arg != "command_list" and arg != "COMMANDS"
+        if arg != "context"
+        and arg != "command_list"
+        and arg != "COMMANDS"
+        and arg != "user_input"
     }
 
 
