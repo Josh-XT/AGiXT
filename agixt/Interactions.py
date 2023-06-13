@@ -344,14 +344,16 @@ class Interactions:
                     )
                 elif prompt_type == "Chain":
                     result = await self.run_chain(
-                        chain_name=step["prompt"]["chain_name"], user_input=user_input
+                        chain_name=step["prompt"]["chain_name"],
+                        user_input=user_input,
+                        all_responses=False,
                     )
         if result:
             return result
         else:
             return None
 
-    async def run_chain(self, chain_name, user_input=None):
+    async def run_chain(self, chain_name, user_input=None, all_responses=True):
         chain = Chain()
         file_path = get_chain_responses_file_path(chain_name=chain_name)
         chain_data = chain.get_chain(chain_name=chain_name)
@@ -359,6 +361,7 @@ class Interactions:
             return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
+        last_response = ""
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
                 logging.info(f"Running step {step_data['step']}")
@@ -370,13 +373,18 @@ class Interactions:
                 step["agent_name"] = step_data["agent_name"]
                 step["prompt"] = step_data["prompt"]
                 step["prompt_type"] = step_data["prompt_type"]
+                last_response = step_response
                 responses[step_data["step"]] = step  # Store the response.
                 logging.info(f"Response: {step_response}")
                 # Write the responses to the json file.
                 dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 with open(file_path, "w") as f:
                     json.dump(responses, f)
-        return responses
+        if all_responses == True:
+            return responses
+        else:
+            # Return only the last response in the chain.
+            return last_response
 
     async def smart_instruct(
         self,
