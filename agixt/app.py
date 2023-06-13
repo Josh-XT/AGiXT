@@ -12,6 +12,7 @@ from Embedding import get_embedding_providers
 from Extensions import Extensions
 import os
 import logging
+import base64
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
@@ -184,15 +185,18 @@ async def update_agent_settings(
 
 @app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
+    # Strip any path information from the file name
+    file.file_name = os.path.basename(file.file_name)
     base_path = os.path.join(os.getcwd(), "WORKSPACE")
     file_path = os.path.normpath(os.path.join(base_path, file.file_name))
     if not file_path.startswith(base_path):
         raise Exception("Path given not allowed")
-    with open(file_path, "w") as f:
-        f.write(file.file_content)
+    file_content = base64.b64decode(file.file_content)
+    with open(file_path, "wb") as f:
+        f.write(file_content)
     try:
         memories = Agent(agent_name=agent_name).get_memories()
-        await memories.mem_read_file(file_path=file.file_content)
+        await memories.mem_read_file(file_path=file_path)
         try:
             os.remove(file_path)
         except Exception:
