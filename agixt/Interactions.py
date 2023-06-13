@@ -291,7 +291,7 @@ class Interactions:
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
-                shot_response = self.run(
+                shot_response = await self.run(
                     user_input=user_input,
                     prompt=prompt,
                     context_results=context_results,
