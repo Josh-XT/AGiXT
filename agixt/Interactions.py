@@ -8,16 +8,22 @@ from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
 from extensions.searxng import searxng
+from Chain import Chain, get_chain_responses_file_path, create_command_suggestion_chain
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
 
 
 class Interactions:
-    def __init__(self, agent_name: str = "AGiXT"):
-        self.agent_name = agent_name
-        self.agent = Agent(self.agent_name)
-        self.agent_commands = self.agent.get_commands_string()
+    def __init__(self, agent_name: str = ""):
+        if agent_name != "":
+            self.agent_name = agent_name
+            self.agent = Agent(self.agent_name)
+            self.agent_commands = self.agent.get_commands_string()
+        else:
+            self.agent_name = ""
+            self.agent = None
+            self.agent_commands = ""
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -210,21 +216,24 @@ class Interactions:
                 **kwargs,
             )
             return_response = ""
-            try:
-                self.response = json.loads(self.response)
-                if "response" in self.response:
-                    return_response = self.response["response"]
-                if "commands" in self.response:
-                    if self.response["commands"] != {}:
+            if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                try:
+                    self.response = json.loads(self.response)
+                    if "response" in self.response:
+                        return_response = self.response["response"]
+                    if "commands" in self.response:
+                        if self.response["commands"] != {}:
+                            return_response += (
+                                f"\n\nCommands Executed:\n{self.response['commands']}"
+                            )
+                    if execution_response:
                         return_response += (
-                            f"\n\nCommands Executed:\n{self.response['commands']}"
+                            f"\n\nCommand Execution Response:\n{execution_response}"
                         )
-                if execution_response:
-                    return_response += (
-                        f"\n\nCommand Execution Response:\n{execution_response}"
-                    )
-            except:
-                return_response = self.response
+                except:
+                    return_response = self.response
+            else:
+                return_response = f"{self.response}\n\n{execution_response}"
             self.response = return_response
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
@@ -259,6 +268,73 @@ class Interactions:
                 ]
             )
         return self.response
+
+    async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
+        logging.info(step)
+        chain = Chain()
+        if step:
+            if "prompt_type" in step:
+                self.agent_name = step["agent_name"]
+                self.agent = Agent(self.agent_name)
+                self.agent_commands = self.agent.get_commands_string()
+                prompt_type = step["prompt_type"]
+                step_number = step["step"]
+                if "prompt_name" in step["prompt"]:
+                    prompt_name = step["prompt"]["prompt_name"]
+                else:
+                    prompt_name = ""
+                args = chain.get_step_content(
+                    chain_name=chain_name,
+                    prompt_content=step["prompt"],
+                    user_input=user_input,
+                    agent_name=self.agent_name,
+                )
+                if prompt_type == "Command":
+                    return await self.agent.execute(
+                        command_name=args["command_name"],
+                        command_args=args,
+                    )
+                elif prompt_type == "Prompt":
+                    result = await self.run(
+                        user_input=user_input,
+                        prompt=prompt_name,
+                        chain_name=chain_name,
+                        step_number=step_number,
+                        **args,
+                    )
+                elif prompt_type == "Chain":
+                    result = await self.run_chain(
+                        chain_name=step["prompt"]["chain_name"], user_input=user_input
+                    )
+        if result:
+            return result
+        else:
+            return None
+
+    async def run_chain(self, chain_name, user_input=None):
+        chain = Chain()
+        file_path = get_chain_responses_file_path(chain_name=chain_name)
+        chain_data = chain.get_chain(chain_name=chain_name)
+        logging.info(f"Running chain '{chain_name}'")
+        responses = {}  # Create a dictionary to hold responses.
+        for step_data in chain_data["steps"]:
+            if "prompt" in step_data and "step" in step_data:
+                logging.info(f"Running step {step_data['step']}")
+                step = {}
+                step_response = await self.run_chain_step(
+                    step=step_data, chain_name=chain_name, user_input=user_input
+                )  # Get the response of the current step.
+                step["response"] = step_response
+                step["agent_name"] = step_data["agent_name"]
+                step["prompt"] = step_data["prompt"]
+                step["prompt_type"] = step_data["prompt_type"]
+                responses[step_data["step"]] = step  # Store the response.
+                logging.info(f"Response: {step_response}")
+                # Write the responses to the json file.
+                dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with open(file_path, "w") as f:
+                    json.dump(responses, f)
+        return responses
 
     async def smart_instruct(
         self,
@@ -421,9 +497,17 @@ class Interactions:
                         if command_name == available_command["friendly_name"]:
                             # Check if the command is a valid command in the self.avent.available_commands list
                             try:
-                                command_output = await self.agent.execute(
-                                    command_name=command_name, command_args=command_args
-                                )
+                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                    command_output = await self.agent.execute(
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                    )
+                                else:
+                                    command_output = create_command_suggestion_chain(
+                                        agent_name=self.agent_name,
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                    )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = await self.run(

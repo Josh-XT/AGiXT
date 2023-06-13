@@ -1,6 +1,5 @@
 from Extensions import Extensions
 from Agent import get_agents
-from Chain import Chain
 from Interactions import Interactions
 import json
 import os
@@ -14,7 +13,6 @@ import requests
 class agixt_agent(Extensions):
     def __init__(self, **kwargs):
         agents = get_agents()
-        self.chains = Chain().get_chains()
         self.commands = {
             "Evaluate Code": self.evaluate_code,
             "Analyze Pull Request": self.analyze_pull_request,
@@ -23,8 +21,6 @@ class agixt_agent(Extensions):
             "Improve Code": self.improve_code,
             "Write Tests": self.write_tests,
             "Create a new command": self.create_command,
-            "Create Task Chain": self.create_task_chain,
-            "Create Smart Task Chain": self.create_smart_task_chain,
             "Describe Image": self.describe_image,
         }
         if agents != None:
@@ -36,12 +32,6 @@ class agixt_agent(Extensions):
                             f"Ask{name}": self.ask,
                             f"Instruct{name}": self.instruct,
                         }
-                    )
-        if self.chains != None:
-            for chain in self.chains:
-                if "name" in chain:
-                    self.commands.update(
-                        {f"Run Chain: {chain['name']}": self.run_chain}
                     )
 
     def command_exists(self, file_name: str) -> bool:
@@ -121,10 +111,6 @@ class agixt_agent(Extensions):
         prompt = f"You are now the following python function: ```# {description_string}\n{function_string}```\n\nOnly respond with your `return` value. Args: {args}"
         return await Interactions(agent_name=agent).run(user_input=prompt)
 
-    async def run_chain(self, chain_name: str = "", user_input: str = ""):
-        await Chain().run_chain(chain_name=chain_name, user_input=user_input)
-        return "Chain started successfully."
-
     async def ask(self, user_input: str, agent: str = "AGiXT") -> str:
         response = await Interactions(agent_name=agent).run(
             user_input=user_input, prompt="chat", websearch=True, websearch_depth=4
@@ -161,67 +147,3 @@ class agixt_agent(Extensions):
 
             # Return the caption
             return caption
-
-    async def create_task_chain(
-        self,
-        agent: str,
-        primary_objective: str,
-        numbered_list_of_tasks: str,
-        short_task_description: str,
-    ):
-        task_list = numbered_list_of_tasks.split("\n")
-        task_list = [
-            task
-            for task in task_list
-            if task and task[0] in [str(i) for i in range(len(task_list))]
-        ]
-        chain_name = f"AI Generated Task - {short_task_description}"
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
-        for task in task_list:
-            if "task_name" in task:
-                chain.add_chain_step(
-                    chain_name=chain_name,
-                    agent_name=agent,
-                    step_number=1,
-                    prompt_type="Prompt",
-                    prompt={
-                        "prompt_name": "Task Execution",
-                        "user_input": primary_objective,
-                        "task": task["task_name"],
-                        "websearch": True,
-                        "websearch_depth": 3,
-                        "context_results": 5,
-                    },
-                )
-        return chain_name
-
-    async def create_smart_task_chain(
-        self,
-        agent: str,
-        primary_objective: str,
-        numbered_list_of_tasks: str,
-        short_task_description: str,
-    ):
-        task_list = numbered_list_of_tasks.split("\n")
-        task_list = [
-            task
-            for task in task_list
-            if task and task[0] in [str(i) for i in range(len(task_list))]
-        ]
-        chain_name = f"AI Generated Smart Task - {short_task_description}"
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
-        for task in task_list:
-            if "task_name" in task:
-                chain.add_chain_step(
-                    chain_name=chain_name,
-                    agent_name=agent,
-                    step_number=1,
-                    prompt_type="Chain",
-                    prompt={
-                        "chain_name": "Smart Instruct",
-                        "user_input": f"Primary Objective: {primary_objective}\nYour Task: {task['task_name']}",
-                    },
-                )
-        return chain_name
