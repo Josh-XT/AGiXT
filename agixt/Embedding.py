@@ -113,7 +113,7 @@ class Embedding:
         return embed, chunk_size
 
     async def azure(self):
-        chunk_size = 1000
+        chunk_size = 2048
         embed = AzureTextEmbedding(
             deployment_name=self.AGENT_CONFIG["settings"]["AZURE_DEPLOYMENT_NAME"],
             endpoint=self.AGENT_CONFIG["settings"]["AZURE_OPENAI_ENDPOINT"],
@@ -123,7 +123,7 @@ class Embedding:
         return embed, chunk_size
 
     async def openai(self):
-        chunk_size = 1000
+        chunk_size = 4096
         embed = OpenAITextEmbedding(
             model_id="text-embedding-ada-002",
             api_key=self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
