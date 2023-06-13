@@ -14,10 +14,11 @@ from datetime import datetime
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
-    "AI_MODEL": "gpt-4",
+    "AI_MODEL": "gpt-3.5-turbo",
     "AI_TEMPERATURE": "0.7",
-    "MAX_TOKENS": "4000",
+    "MAX_TOKENS": "4096",
     "embedder": "default",
+    "autonomous_execution": "false",
 }
 
 
@@ -119,7 +120,7 @@ class Agent:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
                 self._load_agent_config_keys(
-                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "autonomous_execution"]
                 )
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -142,6 +143,12 @@ class Agent:
                 self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
             else:
                 self.LOG_REQUESTS = True
+            if "autonomous_execution" in self.PROVIDER_SETTINGS:
+                self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
+                    "autonomous_execution"
+                ]
+            else:
+                self.AUTONOMOUS_EXECUTION = True
             self.commands = self.load_commands()
             self.available_commands = Extensions(
                 agent_config=self.AGENT_CONFIG
