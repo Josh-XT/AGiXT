@@ -34,21 +34,20 @@ class agixt_chain(Extensions):
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         for task in task_list:
-            if "task_name" in task:
-                chain.add_chain_step(
-                    chain_name=chain_name,
-                    agent_name=agent,
-                    step_number=1,
-                    prompt_type="Prompt",
-                    prompt={
-                        "prompt_name": "Task Execution",
-                        "user_input": primary_objective,
-                        "task": task["task_name"],
-                        "websearch": True,
-                        "websearch_depth": 3,
-                        "context_results": 5,
-                    },
-                )
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=1,
+                prompt_type="Prompt",
+                prompt={
+                    "prompt_name": "Task Execution",
+                    "user_input": primary_objective,
+                    "task": task,
+                    "websearch": True,
+                    "websearch_depth": 3,
+                    "context_results": 5,
+                },
+            )
         return chain_name
 
     async def create_smart_task_chain(
