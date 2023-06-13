@@ -5,6 +5,7 @@
         "AI_MODEL": "gpt-3.5-turbo",
         "AI_TEMPERATURE": "0.4",
         "MAX_TOKENS": "4000",
-        "embedder": "default"
+        "embedder": "default",
+        "AUTONOMOUS_EXECUTION": "false"
     }
 }
