@@ -1,5 +1,6 @@
 from ApiClient import ApiClient
 import streamlit as st
+import html
 
 
 def get_history(agent_name):
@@ -58,6 +59,7 @@ def get_history(agent_name):
                 if item[agent_name].startswith(f"{agent_name}:"):
                     item[agent_name] = item[agent_name][len(agent_name) + 1 :]
                 item[agent_name] = item[agent_name].replace("\n", "<br>")
+                item[agent_name] = html.escape(item[agent_name])
                 message_container += f"<div class='message agent-message'><b>{agent_name}:</b><br>{item[agent_name]}</div>"
         message_container += "</div>"
         st.write(message_container, unsafe_allow_html=True)
