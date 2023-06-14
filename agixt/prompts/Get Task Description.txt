@@ -3,4 +3,4 @@ Objective:
 {user_input}
 ```
 
-Give a very short description of the objective in 10 words or less.
+Give a very short description of the objective without using symbols except for spaces.
