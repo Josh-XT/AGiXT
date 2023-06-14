@@ -29,7 +29,7 @@ display_animation() {
     echo " /    ^  ^ |             |/ _ \\"
     echo "/  /|   ^  |               | | |"
     echo "\_/ |  \_/ |               |_| |"
-    echo "    |   ___|             |\\___/"
+    echo "/   |   ___|             |\\___/"
     echo "    |  /    \\___________/    \\"
     echo "    |  \\_____________________/"
     sleep 0.65
@@ -62,7 +62,7 @@ display_animation() {
     echo "  | ^   ^ | | Join Us On Discord! |"
     echo " @|(_) (_)|@| ____________________|"
     echo "  |    >  | |/   )   ("
-    echo "  |   _o_ |  )   (    )"
+    echo "  |   _o_ |  )  (     )"
     echo "   \___?__/  ( )    ( )"
     echo "   __|  |__ _____________"
     echo "  /        <_____________> ___"
@@ -82,7 +82,7 @@ display_animation() {
     echo "  | ^   ^ | |discord.gg/UCtYPvBdEC|"
     echo " @|(o) (o)|@| ____________________|"
     echo "  |    >  | |/ (  ) ("
-    echo "  |   _O_ |   )  (   )"
+    echo "  |   _O_ |   ) (    )"
     echo "   \___?__/  ( )   ( )"
     echo "   __|  |__ _____________"
     echo "  /        <_____________> ___"
@@ -109,10 +109,12 @@ display_menu() {
   echo "----------------------------------------------------${RESET}"
   echo "${BOLD}${MAGENTA}Welcome to the AGiXT Installer!${RESET}"
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
-  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Local Install/Run${RESET}"
-  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Docker Install/Run${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update pulls latest from repo & pulls latest docker${RESET}"
-  echo "  ${BOLD}${RED}4.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Install Locally & Run Streamlit${RESET}"
+  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run Local Install${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Install Docker & Run Container${RESET}"
+  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run Docker Container${RESET}"
+  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Update Repo & Docker Container${RESET}"
+  echo "  ${BOLD}${RED}6.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
@@ -123,12 +125,10 @@ update_window_title() {
   echo -ne "\033]0;Step $step_number: $step_description\007"
 }
 
-# Function to perform the local install
+# Function containing the local install steps
 local_install() {
-  clear
-  echo "${BOLD}${GREEN}Running local install...${RESET}"
-
-  steps=(
+  
+  local_steps=(
     "Updating install repos...:if command -v apt &>/dev/null; then apt update; elif command -v zypper &>/dev/null; then zypper refresh; elif command -v dnf &>/dev/null; then dnf check-update; elif command -v urpmi &>/dev/null; then urpmi.update -a; elif command -v slackpkg &>/dev/null; then slackpkg update; elif command -v slapt-get &>/dev/null; then slapt-get --update; elif command -v cards &>/dev/null; then cards sync; elif command -v pacman &>/dev/null; then pacman -Sy; elif command -v apk &>/dev/null; then apk update; elif command -v smart &>/dev/null; then smart update; elif command -v pkcon &>/dev/null; then pkcon refresh; elif command -v emerge &>/dev/null; then emerge --sync; elif command -v lin &>/dev/null; then lin moonbase; elif command -v scribe &>/dev/null; then scribe update; elif command -v nix-channel &>/dev/null; then nix-channel --update; elif command -v xbps-install &>/dev/null; then xbps-install -S; elif command -v pkg &>/dev/null; then pkg update; elif command -v csup &>/dev/null; then csup -L 2 -h cvsup.FreeBSD.org path_to_supfile; elif command -v portsnap &>/dev/null; then portsnap update; else echo 'No package manager found.'; fi"
     "Updating python Install...:if command -v apt-get &>/dev/null; then apt-get install python=3.10.12; elif command -v zypper &>/dev/null; then zypper install -t package python=3.10.12; elif command -v dnf &>/dev/null; then dnf install python=3.10.12; elif command -v urpmi &>/dev/null; then urpmi python=3.10.12; elif command -v slackpkg &>/dev/null; then slackpkg install python=3.10.12; elif command -v slapt-get &>/dev/null; then slapt-get --install python=3.10.12; elif command -v netpkg &>/dev/null; then netpkg python=3.10.12; elif command -v cards &>/dev/null; then cards install python=3.10.12; elif command -v pacman &>/dev/null; then pacman -S python=3.10.12; elif command -v apk &>/dev/null; then apk add python=3.10.12; elif command -v smart &>/dev/null; then smart install python=3.10.12; elif command -v pkcon &>/dev/null; then pkcon install python=3.10.12; elif command -v emerge &>/dev/null; then emerge python=3.10.12; elif command -v lin &>/dev/null; then lin python=3.10.12; elif command -v cast &>/dev/null; then cast python=3.10.12; elif command -v nix-env &>/dev/null; then nix-env -i python=3.10.12; elif command -v xbps-install &>/dev/null; then xbps-install python=3.10.12; elif command -v snap &>/dev/null; then snap install python=3.10.12; elif command -v pkg_add &>/dev/null; then pkg_add -r python=3.10.12; elif command -v pkg &>/dev/null; then pkg install python=3.10.12; elif command -v make &>/dev/null; then cd port_dir && make && make install python=3.10.12; else echo 'No package manager found.'; fi"
     "Updating docker-compose Install...:docker -v || if command -v apt-get &>/dev/null; then apt-get install docker-compose; elif command -v zypper &>/dev/null; then zypper install -t package docker-compose; elif command -v dnf &>/dev/null; then dnf install docker-compose; elif command -v urpmi &>/dev/null; then urpmi docker-compose; elif command -v slackpkg &>/dev/null; then slackpkg install docker-compose; elif command -v slapt-get &>/dev/null; then slapt-get --install docker-compose; elif command -v netpkg &>/dev/null; then netpkg docker-compose; elif command -v cards &>/dev/null; then cards install docker-compose; elif command -v pacman &>/dev/null; then pacman -S docker-compose; elif command -v apk &>/dev/null; then apk add docker-compose; elif command -v smart &>/dev/null; then smart install docker-compose; elif command -v pkcon &>/dev/null; then pkcon install docker-compose; elif command -v emerge &>/dev/null; then emerge docker-compose; elif command -v lin &>/dev/null; then lin docker-compose; elif command -v cast &>/dev/null; then cast docker-compose; elif command -v nix-env &>/dev/null; then nix-env -i docker-compose; elif command -v xbps-install &>/dev/null; then xbps-install docker-compose; elif command -v snap &>/dev/null; then snap install docker-compose; elif command -v pkg_add &>/dev/null; then pkg_add -r docker-compose; elif command -v pkg &>/dev/null; then pkg install docker-compose; elif command -v make &>/dev/null; then cd port_dir && make && make install docker-compose; else echo 'No package manager found.'; fi"
@@ -136,13 +136,41 @@ local_install() {
     "Installing dbus-x11 package...:if command -v apt-get &>/dev/null; then apt-get install dbus-x11; elif command -v zypper &>/dev/null; then zypper install -t package dbus-x11; elif command -v dnf &>/dev/null; then dnf install dbus-x11; elif command -v urpmi &>/dev/null; then urpmi dbus-x11; elif command -v slackpkg &>/dev/null; then slackpkg install dbus-x11; elif command -v slapt-get &>/dev/null; then slapt-get --install dbus-x11; elif command -v netpkg &>/dev/null; then netpkg dbus-x11; elif command -v cards &>/dev/null; then cards install dbus-x11; elif command -v pacman &>/dev/null; then pacman -S dbus-x11; elif command -v apk &>/dev/null; then apk add dbus-x11; elif command -v smart &>/dev/null; then smart install dbus-x11; elif command -v pkcon &>/dev/null; then pkcon install dbus-x11; elif command -v emerge &>/dev/null; then emerge dbus-x11; elif command -v lin &>/dev/null; then lin dbus-x11; elif command -v cast &>/dev/null; then cast dbus-x11; elif command -v nix-env &>/dev/null; then nix-env -i dbus-x11; elif command -v xbps-install &>/dev/null; then xbps-install dbus-x11; elif command -v snap &>/dev/null; then snap install dbus-x11; elif command -v pkg_add &>/dev/null; then pkg_add -r dbus-x11; elif command -v pkg &>/dev/null; then pkg install dbus-x11; elif command -v make &>/dev/null; then cd port_dir && make && make install dbus-x11; else echo 'No package manager found.'; fi"
     "Checking AGiXT directory...:if [[ ! -d \"AGiXT\" ]]; then git clone https://github.com/Josh-XT/AGiXT && cd ./AGiXT; else echo \"AGiXT directory already exists.\"; fi"
     "Upgrading pip...:pip install --upgrade pip"
-    "Installing requirements...:pip install -r $PWD/static-requirements.txt >./dev/null 2>&1 || pip install -r $PWD/AGiXT/static-requirements.txt >./dev/null 2>&1"
-    "Installing requirements...:pip install -r $PWD/requirements.txt >./dev/null 2>&1 || pip install -r $PWD/AGiXT/requirements.txt >./dev/null 2>&1"
+    "Installing requirements...:[-d '$PWD/agixt/' ] && pip install -r $PWD/static-requirements.txt >./dev/null 2>&1 || pip install -r $PWD/AGiXT/static-requirements.txt >./dev/null 2>&1"
+    "Installing requirements...:[-d '$PWD/agixt/' ] && pip install -r $PWD/requirements.txt >./dev/null 2>&1 || pip install -r $PWD/AGiXT/requirements.txt >./dev/null 2>&1"
     "Installing Playwright dependencies...:playwright || playwright install --with-deps"
-    "Running Streamlit...:x-terminal-emulator -e 'cd $PWD/agixt/ && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4'' || x-terminal-emulator -e 'cd $PWD/AGIXT/agixt/ && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4'"
-    "Running Streamlit...:x-terminal-emulator -e 'streamlit run $PWD/streamlit/Main.py' || x-terminal-emulator -e 'streamlit run $PWD/AGiXT/streamlit/Main.py'"
+    "Running Backend...:[ -d '$PWD/agixt/' ] && x-terminal-emulator -e 'uvicorn $PWD/agixt/app:app --host 0.0.0.0 --port 7437 --workers 4' || x-terminal-emulator -e 'cd $PWD/AGiXT/agixt/ && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4'"
+    "Running Streamlit...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'streamlit run $PWD/streamlit/Main.py' || x-terminal-emulator -e 'streamlit run $PWD/AGiXT/streamlit/Main.py'"
   )
-  j = 0
+  
+  execute_steps "${local_steps[@]}"
+
+}
+
+# Function containing the local run steps
+local_run() {
+  
+  local_run_steps=(
+    "Checking AGiXT directory...:if [[ ! -d \"AGiXT\" ]]; then git clone https://github.com/Josh-XT/AGiXT && cd ./AGiXT; else echo \"AGiXT directory already exists.\"; fi"
+    "Running Backend...:[ -d '$PWD/agixt/' ] && x-terminal-emulator -e 'uvicorn $PWD/agixt/app:app --host 0.0.0.0 --port 7437 --workers 4' || x-terminal-emulator -e 'cd $PWD/AGiXT/agixt/ && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4'"
+    "Running Streamlit...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'streamlit run $PWD/streamlit/Main.py' || x-terminal-emulator -e 'streamlit run $PWD/AGiXT/streamlit/Main.py'"
+  )
+  
+  execute_steps "${local_run_steps[@]}"
+
+}
+
+# Function to perform the steps
+execute_steps() {
+  steps=("$@")
+    for i in "${arr[@]}";
+      do
+        echo $i
+      done
+  clear
+  echo "${BOLD}${GREEN}Running Steps...${RESET}"
+
+  j=0
   for ((i = 0; i < ${#steps[@]}; i++)); do
     step=${steps[$i]}
     description=${step%%:*}
@@ -155,13 +183,13 @@ local_install() {
     animation_pid=$!
 
     # Check if the command is the Streamlit run command
-    if [[ $command == "x-terminal-emulator"* ]]; then
+    if [[ $command == "x-terminal-emulator -e 'streamlit run"* ]]; then
       # Sleep for a few seconds to allow Streamlit to start in the new terminal
       sleep 5
-      j++
+      $j++
       # Remove the & at the end to run in the foreground
       eval "$command"
-      if [j>1]; then
+      if $j -gt 0; then
         break
       fi
     fi
@@ -179,39 +207,36 @@ local_install() {
 
 # Function to perform the Docker install
 docker_install() {
-  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
-  display_animation
+  docker_steps=(
+  "Updating install repos...:if command -v apt &>/dev/null; then apt update; elif command -v zypper &>/dev/null; then zypper refresh; elif command -v dnf &>/dev/null; then dnf check-update; elif command -v urpmi &>/dev/null; then urpmi.update -a; elif command -v slackpkg &>/dev/null; then slackpkg update; elif command -v slapt-get &>/dev/null; then slapt-get --update; elif command -v cards &>/dev/null; then cards sync; elif command -v pacman &>/dev/null; then pacman -Sy; elif command -v apk &>/dev/null; then apk update; elif command -v smart &>/dev/null; then smart update; elif command -v pkcon &>/dev/null; then pkcon refresh; elif command -v emerge &>/dev/null; then emerge --sync; elif command -v lin &>/dev/null; then lin moonbase; elif command -v scribe &>/dev/null; then scribe update; elif command -v nix-channel &>/dev/null; then nix-channel --update; elif command -v xbps-install &>/dev/null; then xbps-install -S; elif command -v pkg &>/dev/null; then pkg update; elif command -v csup &>/dev/null; then csup -L 2 -h cvsup.FreeBSD.org path_to_supfile; elif command -v portsnap &>/dev/null; then portsnap update; else echo 'No package manager found.'; fi"
+  "Installing docker...:if command -v sudo &>/dev/null; then if command -v apt &>/dev/null; then sudo apt install docker-compose; elif command -v zypper &>/dev/null; then sudo zypper in docker-compose; elif command -v dnf &>/dev/null; then sudo dnf install docker-compose; elif command -v urpmi &>/dev/null; then sudo urpmi docker-compose; elif command -v slackpkg &>/dev/null; then sudo slackpkg install docker-compose; elif command -v slapt-get &>/dev/null; then sudo slapt-get --install docker-compose; elif command -v cards &>/dev/null; then sudo cards install docker-compose; elif command -v pacman &>/dev/null; then sudo pacman -S docker-compose; elif command -v apk &>/dev/null; then sudo apk add docker-compose; elif command -v smart &>/dev/null; then sudo smart install docker-compose; elif command -v pkcon &>/dev/null; then sudo pkcon install docker-compose; elif command -v emerge &>/dev/null; then sudo emerge app-emulation/docker-compose; elif command -v xbps-install &>/dev/null; then sudo xbps-install docker-compose; elif command -v pkg &>/dev/null; then sudo pkg install docker-compose; else echo 'sudo or docker-compose not found or docker-compose might not be available.'; fi else echo 'sudo not found.'; fi"
+  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
+  )
+  
+  execute_steps "${docker_steps[@]}"
+  
+}
 
-  echo "${BOLD}${YELLOW}Step 1: Starting Docker Compose...${RESET}"
-  docker-compose up
+# Function to perform the Docker run
+docker_run() {
+  docker_run_steps=(
+  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
+  )
+  
+  execute_steps "${docker_run_steps[@]}"
+  
 }
 
 # Function to perform the Update
 update() {
-  echo "${BOLD}${GREEN}Running Update...${RESET}"
-  display_animation
-
-  echo "${BOLD}${YELLOW}Step 1: Checking AGiXT directory...${RESET}"
-  if [[ ! -d "AGiXT" ]]; then
-    echo "${RED}AGiXT directory not found.${RESET}"
-    exit 1
-  fi
-
-  echo "${BOLD}${YELLOW}Step 2: Checking Streamlit directory...${RESET}"
-  if [[ ! -d "AGiXT/streamlit" ]]; then
-    echo "${RED}Streamlit directory not found.${RESET}"
-    exit 1
-  fi
-
-  echo "${BOLD}${YELLOW}Step 3: Updating the repository...${RESET}"
-  cd AGiXT
-  git pull
-  cd ..
-
-  echo "${BOLD}${YELLOW}Step 4: Pulling latest Docker Images...${RESET}"
-  docker compose pull
+ 
+  update_steps=(
+  "Downloading latest repo updates...:[ -d '$PWD/streamlit/' ] && git pull || [ -d '$PWD/AGiXT/' ] && (cd ./AGiXT/ && git pull) || git clone https://github.com/Josh-XT/AGiXT"
+  "Updating docker container...:[ -d '$PWD/streamlit/' ] && docker-compose pull || cd ./AGiXT/ && docker-compose pull"
+  )
+  execute_steps "${update_steps[@]}"
+  
 }
-
 # Main loop to display the menu and handle user input
 while true; do
   display_menu
@@ -223,15 +248,23 @@ while true; do
       break
       ;;
     2)
-      docker_install
+      local_run
       break
       ;;
     3)
+      docker_install
+      break
+      ;;
+    4)
+      docker_run
+      break
+      ;;
+    5)
       update
       echo "${BOLD}${GREEN}Update complete.${RESET}"
       sleep 2
       ;;
-    4)
+    6)
       echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
       break
       ;;
