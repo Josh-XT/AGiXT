@@ -13,7 +13,7 @@ RESET=$(tput sgr0)
 # Function to display a show opening style animation
 display_animation() {
   # More dynamic smoke animation above ASCII art
-  for i in {1..10}; do
+  for i in {1..5}; do
     clear
     echo ""
     echo ""
@@ -160,6 +160,39 @@ local_run() {
 
 }
 
+# Function to perform the Docker install
+docker_install() {
+  docker_steps=(
+  "Updating install repos...:if command -v apt &>/dev/null; then apt update; elif command -v zypper &>/dev/null; then zypper refresh; elif command -v dnf &>/dev/null; then dnf check-update; elif command -v urpmi &>/dev/null; then urpmi.update -a; elif command -v slackpkg &>/dev/null; then slackpkg update; elif command -v slapt-get &>/dev/null; then slapt-get --update; elif command -v cards &>/dev/null; then cards sync; elif command -v pacman &>/dev/null; then pacman -Sy; elif command -v apk &>/dev/null; then apk update; elif command -v smart &>/dev/null; then smart update; elif command -v pkcon &>/dev/null; then pkcon refresh; elif command -v emerge &>/dev/null; then emerge --sync; elif command -v lin &>/dev/null; then lin moonbase; elif command -v scribe &>/dev/null; then scribe update; elif command -v nix-channel &>/dev/null; then nix-channel --update; elif command -v xbps-install &>/dev/null; then xbps-install -S; elif command -v pkg &>/dev/null; then pkg update; elif command -v csup &>/dev/null; then csup -L 2 -h cvsup.FreeBSD.org path_to_supfile; elif command -v portsnap &>/dev/null; then portsnap update; else echo 'No package manager found.'; fi"
+  "Installing docker...:if command -v sudo &>/dev/null; then if command -v apt &>/dev/null; then sudo apt install docker-compose; elif command -v zypper &>/dev/null; then sudo zypper in docker-compose; elif command -v dnf &>/dev/null; then sudo dnf install docker-compose; elif command -v urpmi &>/dev/null; then sudo urpmi docker-compose; elif command -v slackpkg &>/dev/null; then sudo slackpkg install docker-compose; elif command -v slapt-get &>/dev/null; then sudo slapt-get --install docker-compose; elif command -v cards &>/dev/null; then sudo cards install docker-compose; elif command -v pacman &>/dev/null; then sudo pacman -S docker-compose; elif command -v apk &>/dev/null; then sudo apk add docker-compose; elif command -v smart &>/dev/null; then sudo smart install docker-compose; elif command -v pkcon &>/dev/null; then sudo pkcon install docker-compose; elif command -v emerge &>/dev/null; then sudo emerge app-emulation/docker-compose; elif command -v xbps-install &>/dev/null; then sudo xbps-install docker-compose; elif command -v pkg &>/dev/null; then sudo pkg install docker-compose; else echo 'sudo or docker-compose not found or docker-compose might not be available.'; fi else echo 'sudo not found.'; fi"
+  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
+  )
+  
+  execute_steps "${docker_steps[@]}"
+  
+}
+
+# Function to perform the Docker run
+docker_run() {
+  docker_run_steps=(
+  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
+  )
+  
+  execute_steps "${docker_run_steps[@]}"
+  
+}
+
+# Function to perform the Update
+update() {
+ 
+  update_steps=(
+  "Downloading latest repo updates...:[ -d '$PWD/streamlit/' ] && git pull || [ -d '$PWD/AGiXT/' ] && (cd ./AGiXT/ && git pull) || git clone https://github.com/Josh-XT/AGiXT"
+  "Updating docker container...:[ -d '$PWD/streamlit/' ] && docker-compose pull || cd ./AGiXT/ && docker-compose pull"
+  )
+  execute_steps "${update_steps[@]}"
+  
+}
+
 # Function to perform the steps
 execute_steps() {
   steps=("$@")
@@ -203,75 +236,50 @@ execute_steps() {
 
   echo "${BOLD}${GREEN}Installation complete.${RESET}"
   update_window_title "" "Installation Complete"
+  sleep 2
+  show_main
 }
 
-# Function to perform the Docker install
-docker_install() {
-  docker_steps=(
-  "Updating install repos...:if command -v apt &>/dev/null; then apt update; elif command -v zypper &>/dev/null; then zypper refresh; elif command -v dnf &>/dev/null; then dnf check-update; elif command -v urpmi &>/dev/null; then urpmi.update -a; elif command -v slackpkg &>/dev/null; then slackpkg update; elif command -v slapt-get &>/dev/null; then slapt-get --update; elif command -v cards &>/dev/null; then cards sync; elif command -v pacman &>/dev/null; then pacman -Sy; elif command -v apk &>/dev/null; then apk update; elif command -v smart &>/dev/null; then smart update; elif command -v pkcon &>/dev/null; then pkcon refresh; elif command -v emerge &>/dev/null; then emerge --sync; elif command -v lin &>/dev/null; then lin moonbase; elif command -v scribe &>/dev/null; then scribe update; elif command -v nix-channel &>/dev/null; then nix-channel --update; elif command -v xbps-install &>/dev/null; then xbps-install -S; elif command -v pkg &>/dev/null; then pkg update; elif command -v csup &>/dev/null; then csup -L 2 -h cvsup.FreeBSD.org path_to_supfile; elif command -v portsnap &>/dev/null; then portsnap update; else echo 'No package manager found.'; fi"
-  "Installing docker...:if command -v sudo &>/dev/null; then if command -v apt &>/dev/null; then sudo apt install docker-compose; elif command -v zypper &>/dev/null; then sudo zypper in docker-compose; elif command -v dnf &>/dev/null; then sudo dnf install docker-compose; elif command -v urpmi &>/dev/null; then sudo urpmi docker-compose; elif command -v slackpkg &>/dev/null; then sudo slackpkg install docker-compose; elif command -v slapt-get &>/dev/null; then sudo slapt-get --install docker-compose; elif command -v cards &>/dev/null; then sudo cards install docker-compose; elif command -v pacman &>/dev/null; then sudo pacman -S docker-compose; elif command -v apk &>/dev/null; then sudo apk add docker-compose; elif command -v smart &>/dev/null; then sudo smart install docker-compose; elif command -v pkcon &>/dev/null; then sudo pkcon install docker-compose; elif command -v emerge &>/dev/null; then sudo emerge app-emulation/docker-compose; elif command -v xbps-install &>/dev/null; then sudo xbps-install docker-compose; elif command -v pkg &>/dev/null; then sudo pkg install docker-compose; else echo 'sudo or docker-compose not found or docker-compose might not be available.'; fi else echo 'sudo not found.'; fi"
-  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
-  )
-  
-  execute_steps "${docker_steps[@]}"
-  
-}
-
-# Function to perform the Docker run
-docker_run() {
-  docker_run_steps=(
-  "Building docker container...:[ -d '$PWD/streamlit/' ] && x-terminal-emulator -e 'docker-compose up' || cd ./AGiXT/ && x-terminal-emulator -e 'docker-compose up'"
-  )
-  
-  execute_steps "${docker_run_steps[@]}"
-  
-}
-
-# Function to perform the Update
-update() {
- 
-  update_steps=(
-  "Downloading latest repo updates...:[ -d '$PWD/streamlit/' ] && git pull || [ -d '$PWD/AGiXT/' ] && (cd ./AGiXT/ && git pull) || git clone https://github.com/Josh-XT/AGiXT"
-  "Updating docker container...:[ -d '$PWD/streamlit/' ] && docker-compose pull || cd ./AGiXT/ && docker-compose pull"
-  )
-  execute_steps "${update_steps[@]}"
-  
-}
 # Main loop to display the menu and handle user input
-while true; do
-  display_menu
-  read -p "${BOLD}${CYAN}Enter your choice:${RESET} " choice
+show_main() {
+  update_window_title "" "AGiXT Automated Installer"
+  while true; do
+    display_menu
+    read -p "${BOLD}${CYAN}Enter your choice:${RESET} " choice
 
-  case "$choice" in
-    1)
-      local_install
-      break
-      ;;
-    2)
-      local_run
-      break
-      ;;
-    3)
-      docker_install
-      break
-      ;;
-    4)
-      docker_run
-      break
-      ;;
-    5)
-      update
-      echo "${BOLD}${GREEN}Update complete.${RESET}"
-      sleep 2
-      ;;
-    6)
-      echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
-      break
-      ;;
-    *)
-      echo "${RED}Invalid option. Please try again.${RESET}"
-      sleep 2
-      ;;
-  esac
-done
+    case "$choice" in
+      1)
+        local_install
+        break
+        ;;
+      2)
+        local_run
+        break
+        ;;
+      3)
+        docker_install
+        break
+        ;;
+      4)
+        docker_run
+        break
+        ;;
+      5)
+        update
+        echo "${BOLD}${GREEN}Update complete.${RESET}"
+        sleep 2
+        ;;
+      6)
+        echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
+        break
+        ;;
+      *)
+        echo "${RED}Invalid option. Please try again.${RESET}"
+        sleep 2
+        ;;
+    esac
+  done
+}
+
+show_main
 
