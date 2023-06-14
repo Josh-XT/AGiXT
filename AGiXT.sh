@@ -61,8 +61,8 @@ display_animation() {
     echo "  ////^\\\\\\\\ |*********************|"
     echo "  | ^   ^ | | Join Us On Discord! |"
     echo " @|(_) (_)|@| ____________________|"
-    echo "  |    >  | |/   )   ("
-    echo "  |   _o_ |  )  (     )"
+    echo "  |    >  | |/  )   (  )"
+    echo "  |   _o_ |  )  (  (  ("
     echo "   \___?__/  ( )    ( )"
     echo "   __|  |__ _____________"
     echo "  /        <_____________> ___"
@@ -242,7 +242,7 @@ execute_steps() {
 
 # Main loop to display the menu and handle user input
 show_main() {
-  update_window_title "" "AGiXT Automated Installer"
+  update_window_title "" "Main Menu Select"
   while true; do
     display_menu
     read -p "${BOLD}${CYAN}Enter your choice:${RESET} " choice
