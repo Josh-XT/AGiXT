@@ -1,0 +1,44 @@
+{
+    "chain_name": "Generate and Run Smart Task Chain",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Get Task List",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Get Task Description"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Create Smart Task Chain",
+                "agent": "gpt4free",
+                "primary_objective": "{user_input}",
+                "numbered_list_of_tasks": "{STEP1}",
+                "short_task_description": "{STEP2}"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "gpt4free",
+            "prompt_type": "Chain",
+            "prompt": {
+                "chain_name": "{STEP3}"
+            }
+        }
+    ]
+}

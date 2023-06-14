@@ -14,10 +14,11 @@ from datetime import datetime
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
-    "AI_MODEL": "gpt-4",
+    "AI_MODEL": "gpt-3.5-turbo",
     "AI_TEMPERATURE": "0.7",
-    "MAX_TOKENS": "4000",
+    "MAX_TOKENS": "4096",
     "embedder": "default",
+    "autonomous_execution": "false",
 }
 
 
@@ -110,7 +111,7 @@ class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.config_path, self.history_file, self.folder_path = get_agent_file_paths(
-            agent_name=agent_name
+            agent_name=self.agent_name
         )
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" in self.AGENT_CONFIG:
@@ -119,7 +120,7 @@ class Agent:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
                 self._load_agent_config_keys(
-                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "autonomous_execution"]
                 )
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -142,6 +143,12 @@ class Agent:
                 self.LOG_REQUESTS = self.PROVIDER_SETTINGS["LOG_REQUESTS"]
             else:
                 self.LOG_REQUESTS = True
+            if "autonomous_execution" in self.PROVIDER_SETTINGS:
+                self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
+                    "autonomous_execution"
+                ]
+            else:
+                self.AUTONOMOUS_EXECUTION = True
             self.commands = self.load_commands()
             self.available_commands = Extensions(
                 agent_config=self.AGENT_CONFIG
@@ -348,7 +355,10 @@ class Agent:
             history = []
             for interaction in yaml_history["interactions"]:
                 role = interaction["role"]
-                message = interaction["timestamp"] + "\n" + interaction["message"]
+                if "timestamp" in interaction:
+                    message = interaction["timestamp"] + "\n" + interaction["message"]
+                else:
+                    message = interaction["message"]
                 history.append({role: message})
             return history
         except:

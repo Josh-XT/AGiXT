@@ -1,16 +1,15 @@
 {
-    "chain_name": "Smart Instruct",
+    "chain_name": "Generate Task Chain",
     "steps": [
         {
             "step": 1,
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SmartInstruct-StepByStep",
+                "prompt_name": "Get Task List",
                 "websearch": true,
                 "websearch_depth": 3,
-                "context_results": 5,
-                "shots": 3
+                "context_results": 5
             }
         },
         {
@@ -18,19 +17,19 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SmartInstruct-Researcher",
-                "shots": "3",
-                "task": "{STEP1}"
+                "prompt_name": "Get Task Description"
             }
         },
         {
             "step": 3,
             "agent_name": "gpt4free",
-            "prompt_type": "Prompt",
+            "prompt_type": "Command",
             "prompt": {
-                "prompt_name": "SmartInstruct-Resolver",
-                "shots": "3",
-                "task": "{STEP2}"
+                "command_name": "Create Task Chain",
+                "agent": "gpt4free",
+                "primary_objective": "{user_input}",
+                "numbered_list_of_tasks": "{STEP1}",
+                "short_task_description": "{STEP2}"
             }
         }
     ]

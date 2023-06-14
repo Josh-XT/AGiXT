@@ -18,6 +18,7 @@ chain_names = ApiClient.get_chains()
 agents = ApiClient.get_agents()
 st.header("Chain Management")
 chain_action = st.selectbox("Action", ["Create Chain", "Modify Chain", "Delete Chain"])
+
 if chain_action == "Create Chain":
     chain_name = st.text_input("Chain Name")
 else:

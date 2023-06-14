@@ -33,8 +33,10 @@ if "chat_history" not in st.session_state:
 
 agent_name = agent_selection() if mode != "Chains" else None
 
-if agent_name:
-    st.session_state["chat_history"] = get_history(agent_name=agent_name)
+
+with st.container():
+    if agent_name:
+        st.session_state["chat_history"] = get_history(agent_name=agent_name)
 
 
 # If the user selects Prompt, then show the prompt functionality
@@ -51,7 +53,7 @@ if mode == "Prompt":
     skip_args = ["command_list", "context", "COMMANDS", "date"]
     for arg in prompt_args:
         if arg not in skip_args:
-            prompt_args_values[arg] = st.text_input(arg)
+            prompt_args_values[arg] = st.text_area(arg)
 
     # Add a checkbox for websearch option
     websearch = st.checkbox("Enable websearch")
@@ -87,7 +89,7 @@ if mode == "Prompt":
 if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
-    chat_prompt = st.text_input("Enter your message", key="chat_prompt")
+    chat_prompt = st.text_area("Enter your message", key="chat_prompt")
     send_button = st.button("Send Message")
 
     if send_button:
@@ -108,7 +110,7 @@ if mode == "Chat":
 if mode == "Instruct":
     st.markdown("### Choose an Agent to Instruct")
     smart_instruct_toggle = st.checkbox("Enable Smart Instruct")
-    instruct_prompt = st.text_input("Enter your instruction", key="instruct_prompt")
+    instruct_prompt = st.text_area("Enter your instruction", key="instruct_prompt")
     send_button = st.button("Send Message")
 
     if send_button:
@@ -136,7 +138,7 @@ if mode == "Chains":
     chain_names = ApiClient.get_chains()
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
-    user_input = st.text_input("User Input")
+    user_input = st.text_area("User Input")
 
     if st.button("Perform Action"):
         if chain_name:
