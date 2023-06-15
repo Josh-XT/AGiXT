@@ -1,6 +1,7 @@
 from Chain import Chain
 from Extensions import Extensions
 from Interactions import Interactions
+        import datetime
 
 
 class agixt_chain(Extensions):
@@ -22,11 +23,9 @@ class agixt_chain(Extensions):
         agent: str,
         primary_objective: str,
         numbered_list_of_tasks: str,
-        short_task_description: str,
         short_chain_description: str,
     ):
-        import datetime
-        now = datetime.datetime.now()  
+        now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
         task_list = [
@@ -48,7 +47,7 @@ class agixt_chain(Extensions):
                 prompt_type="Prompt",
                 prompt={
                     "prompt_name": "Task Execution",
-                    "user_input": primary_objective,
+                    "primary_objective": primary_objective,
                     "task": task,
                     "websearch": True,
                     "websearch_depth": 3,
@@ -63,10 +62,9 @@ class agixt_chain(Extensions):
         agent: str,
         primary_objective: str,
         numbered_list_of_tasks: str,
-        short_task_description: str,
+        short_chain_description: str,
     ):
-        import datetime
-        now = datetime.datetime.now()  
+        now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
         task_list = [
@@ -76,7 +74,9 @@ class agixt_chain(Extensions):
             and task[0]
             in [str(i) for i in range(10)]  # Check for task starting with a digit (0-9)
         ]
-        chain_name = f"AI Generated Smart Task - {short_chain_description} - {timestamp}"
+        chain_name = (
+            f"AI Generated Smart Task - {short_chain_description} - {timestamp}"
+        )
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         i = 1
