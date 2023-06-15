@@ -51,4 +51,4 @@ COPY . .
 WORKDIR /agixt
 
 # Set entry point
-ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py & uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS"]
+ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py --server.headless true & uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS"]
