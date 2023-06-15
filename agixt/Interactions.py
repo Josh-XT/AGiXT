@@ -344,8 +344,8 @@ class Interactions:
                     )
                 elif prompt_type == "Chain":
                     result = await self.run_chain(
-                        chain_name=step["prompt"]["chain_name"],
-                        user_input=user_input,
+                        chain_name=args["chain"],
+                        user_input=args["input"],
                         all_responses=False,
                     )
         if result:
