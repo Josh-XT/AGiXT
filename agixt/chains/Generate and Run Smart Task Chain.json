@@ -37,7 +37,8 @@
             "agent_name": "gpt4free",
             "prompt_type": "Chain",
             "prompt": {
-                "chain_name": "{STEP3}"
+                "chain": "{STEP3}",
+                "input": "{user_input}"
             }
         }
     ]
