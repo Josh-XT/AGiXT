@@ -65,6 +65,9 @@ class agixt_chain(Extensions):
         numbered_list_of_tasks: str,
         short_task_description: str,
     ):
+        import datetime
+        now = datetime.datetime.now()  
+        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
         task_list = [
             task.lstrip("0123456789.")  # Strip leading digits and periods
@@ -73,7 +76,7 @@ class agixt_chain(Extensions):
             and task[0]
             in [str(i) for i in range(10)]  # Check for task starting with a digit (0-9)
         ]
-        chain_name = f"AI Generated Smart Task - {short_task_description}"
+        chain_name = f"AI Generated Smart Task - {short_chain_description} - {timestamp}"
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         i = 1
