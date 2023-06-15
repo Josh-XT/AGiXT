@@ -80,15 +80,13 @@ class agixt_chain(Extensions):
                 step_number=i,
                 prompt_type="Chain",
                 prompt={
-                    "chain_name": "Smart Instruct",
-                    "user_input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
+                    "chain": "Smart Instruct",
+                    "input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
                 },
             )
             i += 1
         return chain_name
 
-    async def run_chain(self, chain_name: str = "", user_input: str = ""):
-        await Interactions(agent_name="").run_chain(
-            chain_name=chain_name, user_input=user_input
-        )
+    async def run_chain(self, chain: str = "", input: str = ""):
+        await Interactions(agent_name="").run_chain(chain_name=chain, user_input=input)
         return "Chain started successfully."
