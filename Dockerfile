@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update ; \
     apt-get upgrade -y ; \
-    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev && \
+    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Update pip
@@ -35,7 +35,14 @@ COPY requirements.txt .
 ARG HNSWLIB_NO_NATIVE=1
 RUN pip install -r requirements.txt
 RUN pip install --force-reinstall hnswlib protobuf==3.20.*
-RUN playwright install --with-deps
+
+# Install Node.js
+RUN curl -sL https://deb.nodesource.com/setup_14.x | bash -
+RUN apt-get install -y nodejs
+
+# Install Playwright
+RUN npm install -g playwright
+RUN npx playwright install
 
 # Copy local code to the container image.
 COPY . .
