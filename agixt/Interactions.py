@@ -288,7 +288,7 @@ class Interactions:
                 self.agent.log_interaction(role="USER", message=formatted_prompt)
             self.agent.log_interaction(role=self.agent_name, message=self.response)
 
-        if shots > 1:
+        if int(shots) > 1:
             responses = [self.response]
             for shot in range(shots - 1):
                 shot_response = await self.run(
