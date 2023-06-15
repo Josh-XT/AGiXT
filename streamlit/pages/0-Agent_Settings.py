@@ -7,7 +7,6 @@ from components.docs import agixt_docs
 
 verify_backend()
 
-
 st.set_page_config(
     page_title="Agent Settings",
     page_icon=":hammer_and_wrench:",
@@ -195,13 +194,18 @@ if agent_name and not new_agent:
                 for command_name, command_status in available_commands.items()
             }
 
+            all_commands_selected = st.checkbox("Select All Commands")
+
             for command_name, command_status in available_commands.items():
-                toggle_status = st.checkbox(
-                    command_name,
-                    value=command_status,
-                    key=command_name,
-                )
-                available_commands[command_name] = toggle_status
+                if all_commands_selected:
+                    available_commands[command_name] = True
+                else:
+                    toggle_status = st.checkbox(
+                        command_name,
+                        value=command_status,
+                        key=command_name,
+                    )
+                    available_commands[command_name] = toggle_status
             if st.form_submit_button("Update Agent Commands"):
                 ApiClient.update_agent_commands(
                     agent_name=agent_name, commands=available_commands
