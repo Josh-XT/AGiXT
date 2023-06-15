@@ -24,7 +24,6 @@ class Gpt4freeProvider:
             "UseLess",
             "ForeFront",
             "Theb",
-            "Poe",
             "AiColors",
         ]
         self.account_tokens = {}
