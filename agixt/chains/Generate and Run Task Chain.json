@@ -17,19 +17,11 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "Get Task Description"
-            }
-        },
-        {
-            "step": 3,
-            "agent_name": "gpt4free",
-            "prompt_type": "Prompt",
-            "prompt": {
                 "prompt_name": "Title a Chain"
             }
         },
         {
-            "step": 4,
+            "step": 3,
             "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
@@ -37,12 +29,11 @@
                 "agent": "gpt4free",
                 "primary_objective": "{user_input}",
                 "numbered_list_of_tasks": "{STEP1}",
-                "short_task_description": "{STEP2}",
-                "short_chain_description": "{STEP3}"
+                "short_chain_description": "{STEP2}"
             }
         },
         {
-            "step": 5,
+            "step": 4,
             "agent_name": "gpt4free",
             "prompt_type": "Chain",
             "prompt": {
