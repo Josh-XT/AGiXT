@@ -83,7 +83,7 @@ body:
       description: 'Select the container setup on which you experienced this bug.'
       options:
         - label: 'Using docker compose'
-        - label: 'Using poetry'
+        - label: 'Using local'
         - label: 'Custom setup (please describe above!)'
     validations:
       required: true
