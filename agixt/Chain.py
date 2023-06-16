@@ -1,8 +1,5 @@
 import os
 import json
-import argparse
-import logging
-from datetime import datetime
 
 
 def create_command_suggestion_chain(agent_name, command_name, command_args):
@@ -44,6 +41,14 @@ def get_chain_responses_file_path(chain_name):
     if not file_path.startswith(base_path):
         raise ValueError("Invalid path, chain name must not contain slashes.")
     return file_path
+
+
+def import_chain(chain_name: str, steps: dict):
+    file_path = get_chain_file_path(chain_name=chain_name)
+    steps = steps["steps"] if "steps" in steps else steps
+    with open(file_path, "w") as f:
+        json.dump({"chain_name": chain_name, "steps": steps}, f)
+    return f"Chain '{chain_name}' imported."
 
 
 class Chain:
