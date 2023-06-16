@@ -76,7 +76,7 @@ class PromptList(BaseModel):
 
 
 class Completions(BaseModel):
-    # Everything in this class except prompt, n, and agent_name are unused currently.
+    # Everything in this class except prompt, n, and model (agent_name) are unused currently.
     prompt: str
     max_tokens: int = 100
     temperature: float = 0.9
@@ -90,10 +90,9 @@ class Completions(BaseModel):
     best_of: int = 1
     echo: bool = False
     user: str = None
-    model: str = None
+    model: str = None  # Model is actually the agent_name
     stop_sequence: List[str] = None
     metadata: Dict[str, str] = None
-    agent_name: str = ""
 
 
 class ChainNewName(BaseModel):
@@ -363,9 +362,10 @@ async def chat(agent_name: str, prompt: Prompt):
 
 
 @app.post("/api/v1/completions", tags=["Agent"])
-async def completion(agent_name: str, prompt: Completions):
-    agent = Interactions(agent_name=agent_name)
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
+async def completion(prompt: Completions):
+    # prompt.model is the agent name
+    agent = Interactions(agent_name=prompt.model)
+    agent_config = Agent(agent_name=prompt.model).get_agent_config()
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]
@@ -400,9 +400,10 @@ async def completion(agent_name: str, prompt: Completions):
 
 
 @app.post("/api/v1/chat/completions", tags=["Agent"])
-async def chat_completion(agent_name: str, prompt: Completions):
-    agent = Interactions(agent_name=agent_name)
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
+async def chat_completion(prompt: Completions):
+    # prompt.model is the agent name
+    agent = Interactions(agent_name=prompt.model)
+    agent_config = Agent(agent_name=prompt.model).get_agent_config()
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]
