@@ -223,6 +223,14 @@ class ApiClient:
         return response.json()["message"]
 
     @staticmethod
+    def import_chain(chain_name: str, steps: dict) -> str:
+        response = requests.post(
+            f"{base_uri}/api/chain/import",
+            json={"chain_name": chain_name, "steps": steps},
+        )
+        return response.json()["message"]
+
+    @staticmethod
     def rename_chain(chain_name: str, new_name: str) -> str:
         response = requests.put(
             f"{base_uri}/api/chain/{chain_name}",

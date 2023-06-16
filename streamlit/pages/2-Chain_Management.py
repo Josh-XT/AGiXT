@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 from ApiClient import ApiClient
 from components.verify_backend import verify_backend
@@ -26,6 +27,15 @@ else:
 
 if chain_action == "Create Chain":
     action_button = st.button("Create New Chain")
+    # Import Chain
+    chain_file = st.file_uploader("Import Chain", type=["json"])
+    if chain_file:
+        chain_name = chain_file.name.split(".")[0]
+        chain_content = chain_file.read().decode("utf-8")
+        steps = json.loads(chain_content)
+        ApiClient.import_chain(chain_name=chain_name, steps=steps)
+        st.success(f"Chain '{chain_name}' added.")
+        chain_file = None
     if action_button:
         if chain_name:
             ApiClient.add_chain(chain_name=chain_name)
