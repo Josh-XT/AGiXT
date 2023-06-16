@@ -311,11 +311,16 @@ class Interactions:
             )
         return self.response
 
-    async def run_chain_step(self, step: dict = {}, chain_name="", user_input=""):
+    async def run_chain_step(
+        self, step: dict = {}, chain_name="", user_input="", agent_override=""
+    ):
         logging.info(step)
         if step:
             if "prompt_type" in step:
-                self.agent_name = step["agent_name"]
+                if agent_override != "":
+                    self.agent_name = agent_override
+                else:
+                    self.agent_name = step["agent_name"]
                 self.agent = Agent(self.agent_name)
                 self.agent_commands = self.agent.get_commands_string()
                 prompt_type = step["prompt_type"]
@@ -347,6 +352,7 @@ class Interactions:
                     result = await self.run_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
+                        agent_override=self.agent_name,
                         all_responses=False,
                     )
         if result:
@@ -354,7 +360,9 @@ class Interactions:
         else:
             return None
 
-    async def run_chain(self, chain_name, user_input=None, all_responses=True):
+    async def run_chain(
+        self, chain_name, user_input=None, all_responses=True, agent_override=""
+    ):
         chain = Chain()
         file_path = get_chain_responses_file_path(chain_name=chain_name)
         chain_data = chain.get_chain(chain_name=chain_name)
@@ -368,7 +376,10 @@ class Interactions:
                 logging.info(f"Running step {step_data['step']}")
                 step = {}
                 step_response = await self.run_chain_step(
-                    step=step_data, chain_name=chain_name, user_input=user_input
+                    step=step_data,
+                    chain_name=chain_name,
+                    user_input=user_input,
+                    agent_override=agent_override,
                 )  # Get the response of the current step.
                 step["response"] = step_response
                 step["agent_name"] = step_data["agent_name"]

@@ -80,6 +80,11 @@ class ChainName(BaseModel):
     chain_name: str
 
 
+class RunChain(BaseModel):
+    prompt: str
+    agent_override: Optional[str] = ""
+
+
 class StepInfo(BaseModel):
     step_number: int
     agent_name: str
@@ -383,9 +388,11 @@ async def get_chain_responses(chain_name: str):
 
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
-async def run_chain(chain_name: str, user_input: Prompt):
+async def run_chain(chain_name: str, user_input: RunChain):
     chain_response = await Interactions(agent_name="").run_chain(
-        chain_name=chain_name, user_input=user_input.prompt
+        chain_name=chain_name,
+        user_input=user_input.prompt,
+        agent_override=user_input.agent_override,
     )
     return chain_response
 
