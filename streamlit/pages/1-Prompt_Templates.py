@@ -19,8 +19,16 @@ prompt_list = ApiClient.get_prompts()
 action = st.selectbox("Action", ["Create New Prompt", "Modify Prompt", "Delete Prompt"])
 
 if action == "Create New Prompt":
+    # Import prompt button
+    prompt_file = st.file_uploader("Import Prompt", type=["txt"])
+    if prompt_file:
+        prompt_name = prompt_file.name.split(".")[0]
+        prompt_content = prompt_file.read().decode("utf-8")
+        ApiClient.add_prompt(prompt_name=prompt_name, prompt=prompt_content)
+        st.success(f"Prompt '{prompt_name}' added.")
     prompt_name = st.text_input("Prompt Name")
     prompt_content = st.text_area("Prompt Content", height=300)
+
 elif action == "Modify Prompt":
     prompt_name = st.selectbox("Existing Prompts", prompt_list)
     prompt_content = st.text_area(
@@ -38,10 +46,10 @@ elif action == "Delete Prompt":
 if st.button("Perform Action"):
     if prompt_name and (prompt_content or action == "Delete Prompt"):
         if action == "Create New Prompt":
-            ApiClient.add_prompt(prompt_name, prompt_content)
+            ApiClient.add_prompt(prompt_name=prompt_name, prompt=prompt_content)
             st.success(f"Prompt '{prompt_name}' added.")
         elif action == "Modify Prompt":
-            ApiClient.update_prompt(prompt_name, prompt_content)
+            ApiClient.update_prompt(prompt_name=prompt_name, prompt=prompt_content)
             st.success(f"Prompt '{prompt_name}' updated.")
         elif action == "Delete Prompt":
             ApiClient.delete_prompt(prompt_name)
