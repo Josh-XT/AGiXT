@@ -34,7 +34,7 @@ def get_agent_file_paths(agent_name):
     return config_path, history_path, folder_path
 
 
-def add_agent(agent_name, provider_settings=None):
+def add_agent(agent_name, provider_settings=None, commands={}):
     if not agent_name:
         return "Agent name cannot be empty."
     provider_settings = (
@@ -47,7 +47,7 @@ def add_agent(agent_name, provider_settings=None):
         provider_settings = DEFAULT_SETTINGS
     settings = json.dumps(
         {
-            "commands": {},
+            "commands": commands,
             "settings": provider_settings,
         }
     )

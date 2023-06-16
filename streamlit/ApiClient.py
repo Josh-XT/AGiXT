@@ -32,6 +32,16 @@ class ApiClient:
         return response.json()
 
     @staticmethod
+    def import_agent(
+        agent_name: str, settings: Dict[str, Any] = {}, commands: Dict[str, Any] = {}
+    ) -> Dict[str, Any]:
+        response = requests.post(
+            f"{base_uri}/api/agent/import",
+            json={"agent_name": agent_name, "settings": settings, "commands": commands},
+        )
+        return response.json()
+
+    @staticmethod
     def rename_agent(agent_name: str, new_name: str) -> str:
         response = requests.patch(
             f"{base_uri}/api/agent/{agent_name}",

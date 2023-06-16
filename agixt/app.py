@@ -144,6 +144,12 @@ class AgentSettings(BaseModel):
     settings: Dict[str, Any]
 
 
+class AgentConfig(BaseModel):
+    agent_name: str
+    settings: Dict[str, Any]
+    commands: Dict[str, Any]
+
+
 class AgentCommands(BaseModel):
     agent_name: str
     commands: Dict[str, Any]
@@ -170,6 +176,15 @@ async def get_embed_providers():
 @app.post("/api/agent", tags=["Agent"])
 async def addagent(agent: AgentSettings) -> Dict[str, str]:
     return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
+
+
+@app.post("/api/agent/import", tags=["Agent"])
+async def import_agent(agent: AgentConfig) -> Dict[str, str]:
+    return add_agent(
+        agent_name=agent.agent_name,
+        provider_settings=agent.settings,
+        commands=agent.commands,
+    )
 
 
 @app.patch("/api/agent/{agent_name}", tags=["Agent"])
