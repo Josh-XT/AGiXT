@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 from ApiClient import ApiClient
 from components.selectors import agent_selection
@@ -121,6 +122,12 @@ if not agent_name:
 if agent_name and not new_agent:
     try:
         agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
+        export_button = st.download_button(
+            "Export Agent Config",
+            data=json.dumps(agent_config, indent=4),
+            file_name=f"{agent_name}.json",
+            mime="application/json",
+        )
         agent_settings = agent_config.get("settings", {})
         provider_name = agent_settings.get("provider", "")
         provider_name = st.selectbox(
@@ -210,7 +217,6 @@ if agent_name and not new_agent:
                 ApiClient.update_agent_commands(
                     agent_name=agent_name, commands=available_commands
                 )
-
     except Exception as e:
         st.error(f"Error loading agent configuration: {str(e)}")
 

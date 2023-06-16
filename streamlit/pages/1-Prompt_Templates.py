@@ -28,6 +28,9 @@ elif action == "Modify Prompt":
         ApiClient.get_prompt(prompt_name=prompt_name) if prompt_name else "",
         height=300,
     )
+    export_button = st.download_button(
+        "Export Prompt", data=prompt_content, file_name=f"{prompt_name}.txt"
+    )
 elif action == "Delete Prompt":
     prompt_name = st.selectbox("Existing Prompts", prompt_list)
     prompt_content = None
