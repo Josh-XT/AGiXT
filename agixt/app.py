@@ -13,6 +13,9 @@ from Extensions import Extensions
 import os
 import logging
 import base64
+import time
+import string
+import random
 
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
@@ -70,6 +73,27 @@ class PromptName(BaseModel):
 
 class PromptList(BaseModel):
     prompts: List[str]
+
+
+class Completions(BaseModel):
+    # Everything in this class except prompt, n, and agent_name are unused currently.
+    prompt: str
+    max_tokens: int = 100
+    temperature: float = 0.9
+    top_p: float = 1.0
+    n: int = 1
+    stream: bool = False
+    logprobs: int = None
+    stop: List[str] = None
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    best_of: int = 1
+    echo: bool = False
+    user: str = None
+    model: str = None
+    stop_sequence: List[str] = None
+    metadata: Dict[str, str] = None
+    agent_name: str = ""
 
 
 class ChainNewName(BaseModel):
@@ -336,6 +360,84 @@ async def chat(agent_name: str, prompt: Prompt):
         user_input=prompt.prompt, prompt="Chat", context_results=6
     )
     return {"response": str(response)}
+
+
+@app.post("/api/v1/completions", tags=["Agent"])
+async def completion(agent_name: str, prompt: Completions):
+    agent = Interactions(agent_name=agent_name)
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    if "settings" in agent_config:
+        if "AI_MODEL" in agent_config["settings"]:
+            model = agent_config["settings"]["AI_MODEL"]
+        else:
+            model = "undefined"
+    else:
+        model = "undefined"
+    response = await agent.run(
+        user_input=prompt.prompt,
+        prompt="Custom Input",
+        context_results=3,
+        shots=prompt.n,
+    )
+    characters = string.ascii_letters + string.digits
+    random_chars = "".join(random.choice(characters) for _ in range(15))
+    res_model = {
+        "id": f"cmpl-{random_chars}",
+        "object": "text_completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "text": response,
+                "index": 0,
+                "logprobs": None,
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+    return res_model
+
+
+@app.post("/api/v1/chat/completions", tags=["Agent"])
+async def chat_completion(agent_name: str, prompt: Completions):
+    agent = Interactions(agent_name=agent_name)
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    if "settings" in agent_config:
+        if "AI_MODEL" in agent_config["settings"]:
+            model = agent_config["settings"]["AI_MODEL"]
+        else:
+            model = "undefined"
+    else:
+        model = "undefined"
+    response = await agent.run(
+        user_input=prompt.prompt,
+        prompt="Custom Input",
+        context_results=3,
+        shots=prompt.n,
+    )
+    characters = string.ascii_letters + string.digits
+    random_chars = "".join(random.choice(characters) for _ in range(15))
+    res_model = {
+        "id": f"chatcmpl-{random_chars}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": [
+                    {
+                        "role": "assistant",
+                        "content": response,
+                    },
+                ],
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+    return res_model
 
 
 @app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
