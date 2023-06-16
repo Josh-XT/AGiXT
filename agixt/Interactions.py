@@ -203,6 +203,7 @@ class Interactions:
         shots: int = 1,
         **kwargs,
     ):
+        shots = int(shots)
         memories = self.agent.get_memories()
         if learn_file != "":
             learning_file = await memories.mem_read_file(file_path=learn_file)
@@ -288,7 +289,7 @@ class Interactions:
                 self.agent.log_interaction(role="USER", message=formatted_prompt)
             self.agent.log_interaction(role=self.agent_name, message=self.response)
 
-        if int(shots) > 1:
+        if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
                 shot_response = await self.run(
