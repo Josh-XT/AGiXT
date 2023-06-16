@@ -139,12 +139,17 @@ if mode == "Chains":
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
     user_input = st.text_area("User Input")
-
+    # Need a checkbox for agent override
+    agent_override = st.checkbox("Override Agent")
+    if agent_override:
+        agent_name = agent_selection()
+    else:
+        agent_name = ""
     if st.button("Perform Action"):
         if chain_name:
             if chain_action == "Run Chain":
                 responses = ApiClient.run_chain(
-                    chain_name=chain_name, user_input=user_input
+                    chain_name=chain_name, user_input=user_input, agent_name=agent_name
                 )
                 st.success(f"Chain '{chain_name}' executed.")
                 st.write(responses)
