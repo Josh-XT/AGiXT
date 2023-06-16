@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-from Chain import Chain
+from Chain import Chain, import_chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
@@ -78,6 +78,11 @@ class ChainNewName(BaseModel):
 
 class ChainName(BaseModel):
     chain_name: str
+
+
+class ChainData(BaseModel):
+    chain_name: str
+    steps: Dict[str, Any]
 
 
 class RunChain(BaseModel):
@@ -416,6 +421,13 @@ async def run_chain(chain_name: str, user_input: RunChain):
 async def add_chain(chain_name: ChainName) -> ResponseMessage:
     Chain().add_chain(chain_name=chain_name.chain_name)
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
+
+
+@app.post("/api/chain/import", tags=["Chain"])
+async def importchain(chain: ChainData) -> ResponseMessage:
+    print(chain)
+    response = import_chain(chain_name=chain.chain_name, steps=chain.steps)
+    return ResponseMessage(message=response)
 
 
 @app.put("/api/chain/{chain_name}", tags=["Chain"])
