@@ -97,6 +97,17 @@ if (
     st.session_state["new_agent_name"] = ""
 
 if not agent_name:
+    agent_file = st.file_uploader("Import Agent", type=["json"])
+    if agent_file:
+        agent_name = agent_file.name.split(".")[0]
+        agent_settings = agent_file.read().decode("utf-8")
+        agent_config = json.loads(agent_settings)
+        ApiClient.import_agent(
+            agent_name=agent_name,
+            settings=agent_config["settings"],
+            commands=agent_config["commands"],
+        )
+        st.success(f"Agent '{agent_name}' imported.")
     new_agent_name = st.text_input("New Agent Name")
 
     # Add an "Add Agent" button
