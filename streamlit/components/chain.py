@@ -1,5 +1,6 @@
 from ApiClient import ApiClient
 import streamlit as st
+import json
 from components.selectors import command_selection, prompt_selection, chain_selection
 
 
@@ -92,6 +93,12 @@ def modify_step(chain_name, step, agents):
 def modify_chain(chain_name, agents):
     if chain_name:
         chain = ApiClient.get_chain(chain_name=chain_name)
+        export_button = st.download_button(
+            "Export Chain",
+            data=json.dumps(chain, indent=4),
+            file_name=f"{chain_name}.json",
+            mime="application/json",
+        )
         st.markdown(f"## Modifying Chain: {chain_name}")
         if chain:
             for step in chain["steps"]:
