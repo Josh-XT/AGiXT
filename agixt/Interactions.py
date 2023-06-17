@@ -88,15 +88,16 @@ class Interactions:
                                 chain_name=chain_name, step_number=new_step_number
                             )
                             # replace the {STEPx} with the response
-                            resp = (
-                                step_response["response"]
-                                if "response" in step_response
-                                else f"{step_response}"
-                            )
-                            value = value.replace(
-                                f"{{STEP{new_step_number}}}",
-                                f"{resp}",
-                            )
+                            if step_response:
+                                resp = (
+                                    step_response["response"]
+                                    if "response" in step_response
+                                    else f"{step_response}"
+                                )
+                                value = value.replace(
+                                    f"{{STEP{new_step_number}}}",
+                                    f"{resp}",
+                                )
                 new_prompt_content[arg] = value
         elif isinstance(prompt_content, str):
             new_prompt_content = prompt_content
