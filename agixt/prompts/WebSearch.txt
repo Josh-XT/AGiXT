@@ -4,4 +4,4 @@ You are a web search suggestion agent. Suggest 5 web searches for the task given
 
 Return the suggestions in a numbered list with no other comments.
 
-Task: {task}
+Task: {user_input}
