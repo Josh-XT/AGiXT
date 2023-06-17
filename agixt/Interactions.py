@@ -219,7 +219,15 @@ class Interactions:
             **kwargs,
         )
         if websearch:
-            await self.websearch_agent(user_input=user_input, depth=websearch_depth)
+            if user_input == "":
+                if "primary_objective" in kwargs and "task" in kwargs:
+                    search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+            else:
+                search_string = user_input
+            if search_string != "":
+                await self.websearch_agent(
+                    user_input=search_string, depth=websearch_depth
+                )
         try:
             # Workaround for non-threaded providers
             run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
