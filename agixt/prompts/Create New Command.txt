@@ -6,6 +6,7 @@ All functions should be asynchronous.
 Do not explain, this is not a conversation, put any usage examples necessary in the code comments in one single code block.
 
 Framework example:
+```python
 # pip install agixt
 from typing import List
 from Extensions import Extensions
@@ -20,3 +21,4 @@ class agent_interactions(Commands):
             }
     async def ask_the_agent(self, prompt: str) -> List[str]:       
         return await agixt().run(prompt, commands_enabled=False)
+```
