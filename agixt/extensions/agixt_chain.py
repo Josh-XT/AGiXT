@@ -160,7 +160,7 @@ class agixt_chain(Extensions):
         # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
-        endpoints = self.parse_openapi(openapi_data=openapi_data)
+        endpoints = self.parse_openapi(data=openapi_data)
         auth_type = self.get_auth_type(openapi_data=openapi_data)
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
@@ -198,7 +198,7 @@ class agixt_chain(Extensions):
                 prompt_type="Command",
                 prompt={
                     "command_name": "Indent String for Python Code",
-                    "response": "{STEP" + str(i - 1) + "}",
+                    "string": "{STEP" + str(i - 1) + "}",
                 },
             )
             i += 1
@@ -209,7 +209,7 @@ class agixt_chain(Extensions):
                 prompt_type="Command",
                 prompt={
                     "command_name": "Append to File",
-                    "file_name": f"{extension_name}_functions.py",
+                    "filename": f"{extension_name}_functions.py",
                     "text": "\n\n{STEP" + str(i - 1) + "}",
                 },
             )
