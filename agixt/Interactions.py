@@ -656,6 +656,8 @@ class Interactions:
                                 collected_data,
                                 link_list,
                             ) = await memories.read_website(url)
+                            # TODO: Move read_website playwright functionality to Interactions.py
+                            # TODO: Use "Summarize Web Content" prompt to summarize the content of the website before chunking to memory.
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:
