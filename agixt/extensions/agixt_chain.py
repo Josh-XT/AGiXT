@@ -217,11 +217,23 @@ class agixt_chain(Extensions):
                 "python_file_content": "{STEP" + str(i - 1) + "}",
             },
         )
+        i += 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent,
+            step_number=i,
+            prompt_type="Prompt",
+            prompt={
+                "prompt_name": "Get ezsession Auth Type",
+                "software_name": f"{extension_name}",
+            },
+        )
         new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
         new_extension.format(
             extension_name=extension_name,
-            extension_commands="{STEP" + str(i) + "}",
+            extension_commands="{STEP" + str(i - 1) + "}",
             extension_functions="{STEP" + str(i - 2) + "}",
+            auth_type="{STEP" + str(i) + "}",
         )
         i += 1
         chain.add_chain_step(

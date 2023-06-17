@@ -115,4 +115,4 @@ def get_session(**auth):
     return session
 ```
 
-Review which auth type is used by {software_name} and show me a function to use the `get_session` function with {software_name} . Respond only with a Python code block.
+Review which auth type is used by {software_name} and respond only with the type that should be used with the `get_session` function.  Only a single word response is required.
