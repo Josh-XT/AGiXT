@@ -213,6 +213,7 @@ class Interactions:
         chain_name: str = "",
         step_number: int = 0,
         shots: int = 1,
+        disable_memory: bool = False,
         **kwargs,
     ):
         shots = int(shots)
@@ -299,10 +300,11 @@ class Interactions:
             self.response = return_response
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
-            try:
-                await memories.store_result(input=user_input, result=self.response)
-            except:
-                pass
+            if disable_memory == False:
+                try:
+                    await memories.store_result(input=user_input, result=self.response)
+                except:
+                    pass
             if prompt == "Chat":
                 self.agent.log_interaction(role="USER", message=user_input)
             else:
@@ -666,7 +668,7 @@ class Interactions:
                                         )
                                         if not pick_a_link.startswith("None"):
                                             await resursive_browsing(
-                                                user_input, pick_a_link
+                                                user_input=user_input, links=pick_a_link
                                             )
                                     except:
                                         logging.info(
@@ -690,4 +692,4 @@ class Interactions:
             except:
                 links = None
             if links is not None:
-                await resursive_browsing(user_input, links)
+                await resursive_browsing(user_input=user_input, links=links)
