@@ -7,6 +7,7 @@ import subprocess
 import docker
 from docker.errors import ImageNotFound
 import logging
+import ast
 
 
 class file_system(Extensions):
@@ -28,6 +29,8 @@ class file_system(Extensions):
             "Execute Python File": self.execute_python_file,
             "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
+            "Indent String for Python Code": self.indent_string,
+            "Generate Commands Dictionary": self.generate_commands_dict,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
@@ -150,8 +153,12 @@ class file_system(Extensions):
     async def append_to_file(self, filename: str, text: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
-            with open(filepath, "a") as f:
-                f.write(text)
+            if not os.path.exists(filepath):
+                with open(filepath, "w") as f:
+                    f.write(text)
+            else:
+                with open(filepath, "a") as f:
+                    f.write(text)
             return "Text appended successfully."
         except Exception as e:
             return f"Error: {str(e)}"
@@ -184,3 +191,29 @@ class file_system(Extensions):
                 found_files.append(relative_path)
 
         return found_files
+
+    async def indent_string(self, string):
+        lines = string.split("\n")
+        indented_lines = [("    " + line) for line in lines]
+        indented_string = "\n".join(indented_lines)
+        return indented_string
+
+    def extract_function_names(self, source_code):
+        module = ast.parse(source_code)
+        function_names = [
+            node.name
+            for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef) and node.name != "__init__"
+        ]
+        return function_names
+
+    async def generate_commands_dict(self, python_file_content):
+        function_names = self.extract_function_names(python_file_content)
+        commands_dict = {
+            f_name.replace("_", " "): f"self.{f_name}" for f_name in function_names
+        }
+        commands_string = "self.commands = {\n"
+        for key, value in commands_dict.items():
+            commands_string += f'    "{key.capitalize()}": {value},\n'
+        commands_string += "}"
+        return commands_string

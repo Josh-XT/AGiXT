@@ -1,0 +1,11 @@
+import requests
+import json
+from ezsession import get_session
+
+class {extension_name}(Extensions):
+    def __init__(self, **kwargs):
+        kwargs['type'] = '{auth_type}'
+        self.session = get_session(**kwargs)
+        {extension_commands}
+
+{extension_functions}
