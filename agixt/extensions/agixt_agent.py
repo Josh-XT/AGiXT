@@ -8,6 +8,7 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 import torch
 from PIL import Image
 import requests
+import subprocess
 
 
 class agixt_agent(Extensions):
@@ -22,6 +23,7 @@ class agixt_agent(Extensions):
             "Write Tests": self.write_tests,
             "Create a new command": self.create_command,
             "Describe Image": self.describe_image,
+            "Execute Python Code": self.execute_python_code,
         }
         if agents != None:
             for agent in agents:
@@ -147,3 +149,32 @@ class agixt_agent(Extensions):
 
             # Return the caption
             return caption
+
+    async def execute_python_code(self, code: str) -> str:
+        # Check if the code is enclosed in "```python" and "```"
+        if "```python" in code:
+            code = code.split("```python")[1].split("```")[0]
+
+        # Create the WORKSPACE directory if it doesn't exist
+        workspace_dir = os.path.join(os.getcwd(), "WORKSPACE")
+        os.makedirs(workspace_dir, exist_ok=True)
+
+        # Create a temporary Python file in the WORKSPACE directory
+        temp_file = os.path.join(workspace_dir, "temp.py")
+        with open(temp_file, "w") as f:
+            f.write(code)
+
+        try:
+            # Execute the Python script and capture its output
+            response = subprocess.check_output(
+                ["python", temp_file], stderr=subprocess.STDOUT
+            )
+        except subprocess.CalledProcessError as e:
+            # If the script raises an exception, return the error message
+            response = e.output
+
+        # Delete the temporary Python file
+        os.remove(temp_file)
+
+        # Decode the output from bytes to string and return it
+        return response.decode("utf-8")
