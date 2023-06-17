@@ -19,4 +19,4 @@ class agent_interactions(Commands):
                 "Ask AGiXT": self.ask_the_agent
             }
     async def ask_the_agent(self, prompt: str) -> List[str]:       
-        return agixt().run(prompt, commands_enabled=False)
+        return await agixt().run(prompt, commands_enabled=False)
