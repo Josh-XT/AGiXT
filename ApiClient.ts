@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from "axios";
 
 export interface ApiResponse<T = any> {
   message: string;
@@ -16,29 +16,45 @@ export interface CommandArgs {
 export class ApiClient {
   private baseUri: string;
 
-  constructor(baseUri: string = 'http://localhost:7437') {
+  constructor(baseUri: string = "http://localhost:7437") {
     this.baseUri = baseUri;
   }
 
   public getProviders(): Promise<string[]> {
-    return axios.get(`${this.baseUri}/api/provider`).then((response) => response.data.providers);
+    return axios
+      .get(`${this.baseUri}/api/provider`)
+      .then((response) => response.data.providers);
   }
 
   public getProviderSettings(providerName: string): Promise<any> {
-    return axios.get(`${this.baseUri}/api/provider/${providerName}`).then((response) => response.data.settings);
+    return axios
+      .get(`${this.baseUri}/api/provider/${providerName}`)
+      .then((response) => response.data.settings);
   }
 
   public getEmbedProviders(): Promise<string[]> {
-    return axios.get(`${this.baseUri}/api/embedding_providers`).then((response) => response.data.providers);
+    return axios
+      .get(`${this.baseUri}/api/embedding_providers`)
+      .then((response) => response.data.providers);
   }
 
   public addAgent(agentName: string, settings: any = {}): Promise<any> {
-    return axios.post(`${this.baseUri}/api/agent`, { agent_name: agentName, settings }).then((response) => response.data);
+    return axios
+      .post(`${this.baseUri}/api/agent`, { agent_name: agentName, settings })
+      .then((response) => response.data);
   }
 
-  public importAgent(agentName: string, settings: any = {}, commands: any = {}): Promise<any> {
+  public importAgent(
+    agentName: string,
+    settings: any = {},
+    commands: any = {}
+  ): Promise<any> {
     return axios
-      .post(`${this.baseUri}/api/agent/import`, { agent_name: agentName, settings, commands })
+      .post(`${this.baseUri}/api/agent/import`, {
+        agent_name: agentName,
+        settings,
+        commands,
+      })
       .then((response) => response.data);
   }
 
@@ -48,53 +64,82 @@ export class ApiClient {
       .then((response) => response.data);
   }
 
-  public updateAgentSettings(agentName: string, settings: any): Promise<string> {
+  public updateAgentSettings(
+    agentName: string,
+    settings: any
+  ): Promise<string> {
     return axios
-      .put(`${this.baseUri}/api/agent/${agentName}`, { settings, agent_name: agentName })
+      .put(`${this.baseUri}/api/agent/${agentName}`, {
+        settings,
+        agent_name: agentName,
+      })
       .then((response) => response.data.message);
   }
 
-  public updateAgentCommands(agentName: string, commands: any): Promise<string> {
+  public updateAgentCommands(
+    agentName: string,
+    commands: any
+  ): Promise<string> {
     return axios
-      .put(`${this.baseUri}/api/agent/${agentName}/commands`, { commands, agent_name: agentName })
+      .put(`${this.baseUri}/api/agent/${agentName}/commands`, {
+        commands,
+        agent_name: agentName,
+      })
       .then((response) => response.data.message);
   }
 
   public deleteAgent(agentName: string): Promise<string> {
-    return axios.delete(`${this.baseUri}/api/agent/${agentName}`).then((response) => response.data.message);
+    return axios
+      .delete(`${this.baseUri}/api/agent/${agentName}`)
+      .then((response) => response.data.message);
   }
 
   public getAgents(): Promise<any[]> {
-    return axios.get(`${this.baseUri}/api/agent`).then((response) => response.data.agents);
+    return axios
+      .get(`${this.baseUri}/api/agent`)
+      .then((response) => response.data.agents);
   }
 
   public getAgentConfig(agentName: string): Promise<any> {
-    return axios.get(`${this.baseUri}/api/agent/${agentName}`).then((response) => response.data.agent);
+    return axios
+      .get(`${this.baseUri}/api/agent/${agentName}`)
+      .then((response) => response.data.agent);
   }
 
   public getChatHistory(agentName: string): Promise<any[]> {
-    return axios.get(`${this.baseUri}/api/${agentName}/chat`).then((response) => response.data.chat_history);
+    return axios
+      .get(`${this.baseUri}/api/${agentName}/chat`)
+      .then((response) => response.data.chat_history);
   }
 
   public deleteAgentHistory(agentName: string): Promise<string> {
-    return axios.delete(`${this.baseUri}/api/agent/${agentName}/history`).then((response) => response.data.message);
+    return axios
+      .delete(`${this.baseUri}/api/agent/${agentName}/history`)
+      .then((response) => response.data.message);
   }
 
-  public deleteHistoryMessage(agentName: string, message: string): Promise<string> {
+  public deleteHistoryMessage(
+    agentName: string,
+    message: string
+  ): Promise<string> {
     return axios
-      .delete(`${this.baseUri}/api/agent/${agentName}/history/message`, { data: { message } })
+      .delete(`${this.baseUri}/api/agent/${agentName}/history/message`, {
+        data: { message },
+      })
       .then((response) => response.data.message);
   }
 
   public wipeAgentMemories(agentName: string): Promise<string> {
-    return axios.delete(`${this.baseUri}/api/agent/${agentName}/memory`).then((response) => response.data.message);
+    return axios
+      .delete(`${this.baseUri}/api/agent/${agentName}/memory`)
+      .then((response) => response.data.message);
   }
 
   public promptAgent(
     agentName: string,
     promptName: number,
     promptArgs: any,
-    userInput: string = '',
+    userInput: string = "",
     websearch: boolean = false,
     websearchDepth: number = 3,
     contextResults: number = 5,
@@ -129,7 +174,7 @@ export class ApiClient {
             responses.forEach((res) => {
               responses.push(res.data.response);
             });
-            return responses.join('\n');
+            return responses.join("\n");
           });
         } else {
           return response.data.response;
@@ -143,9 +188,15 @@ export class ApiClient {
       .then((response) => response.data.response);
   }
 
-  public smartinstruct(agentName: string, shots: number, prompt: string): Promise<string> {
+  public smartinstruct(
+    agentName: string,
+    shots: number,
+    prompt: string
+  ): Promise<string> {
     return axios
-      .post(`${this.baseUri}/api/agent/${agentName}/smartinstruct/${shots}`, { prompt })
+      .post(`${this.baseUri}/api/agent/${agentName}/smartinstruct/${shots}`, {
+        prompt,
+      })
       .then((response) => response.data.response);
   }
 
@@ -155,47 +206,80 @@ export class ApiClient {
       .then((response) => response.data.response);
   }
 
-  public smartchat(agentName: string, shots: number, prompt: string): Promise<string> {
+  public smartchat(
+    agentName: string,
+    shots: number,
+    prompt: string
+  ): Promise<string> {
     return axios
-      .post(`${this.baseUri}/api/agent/${agentName}/smartchat/${shots}`, { prompt })
+      .post(`${this.baseUri}/api/agent/${agentName}/smartchat/${shots}`, {
+        prompt,
+      })
       .then((response) => response.data.response);
   }
 
   public getCommands(agentName: string): Promise<{ [key: string]: boolean }> {
-    return axios.get(`${this.baseUri}/api/agent/${agentName}/command`).then((response) => response.data.commands);
+    return axios
+      .get(`${this.baseUri}/api/agent/${agentName}/command`)
+      .then((response) => response.data.commands);
   }
 
-  public toggleCommand(agentName: string, commandName: string, enable: boolean): Promise<string> {
+  public toggleCommand(
+    agentName: string,
+    commandName: string,
+    enable: boolean
+  ): Promise<string> {
     return axios
-      .patch(`${this.baseUri}/api/agent/${agentName}/command`, { command_name: commandName, enable })
+      .patch(`${this.baseUri}/api/agent/${agentName}/command`, {
+        command_name: commandName,
+        enable,
+      })
       .then((response) => response.data.message);
   }
 
   public getChains(): Promise<string[]> {
-    return axios.get(`${this.baseUri}/api/chain`).then((response) => response.data);
+    return axios
+      .get(`${this.baseUri}/api/chain`)
+      .then((response) => response.data);
   }
 
   public getChain(chainName: string): Promise<any> {
-    return axios.get(`${this.baseUri}/api/chain/${chainName}`).then((response) => response.data.chain);
+    return axios
+      .get(`${this.baseUri}/api/chain/${chainName}`)
+      .then((response) => response.data.chain);
   }
 
   public getChainResponses(chainName: string): Promise<any> {
-    return axios.get(`${this.baseUri}/api/chain/${chainName}/responses`).then((response) => response.data.chain);
+    return axios
+      .get(`${this.baseUri}/api/chain/${chainName}/responses`)
+      .then((response) => response.data.chain);
   }
 
-  public runChain(chainName: string, userInput: string, agentName: string = ''): Promise<string> {
+  public runChain(
+    chainName: string,
+    userInput: string,
+    agentName: string = ""
+  ): Promise<string> {
     return axios
-      .post(`${this.baseUri}/api/chain/${chainName}/run`, { prompt: userInput, agent_override: agentName })
+      .post(`${this.baseUri}/api/chain/${chainName}/run`, {
+        prompt: userInput,
+        agent_override: agentName,
+      })
       .then((response) => response.data);
   }
 
   public addChain(chainName: string): Promise<string> {
-    return axios.post(`${this.baseUri}/api/chain`, { chain_name: chainName }).then((response) => response.data.message);
+    return axios
+      .post(`${this.baseUri}/api/chain`, { chain_name: chainName })
+      .then((response) => response.data.message);
   }
 
   public importChain(chainName: string, steps: any): Promise<string> {
     return axios
-      .post(`${this.baseUri}/api/chain/import`, { chain_name: chainName, steps })
+      .post(`${this.baseUri}/api/chain/import`, {
+        chain_name: chainName,
+        steps,
+      })
       .then((response) => response.data.message);
   }
 
@@ -206,7 +290,9 @@ export class ApiClient {
   }
 
   public deleteChain(chainName: string): Promise<string> {
-    return axios.delete(`${this.baseUri}/api/chain/${chainName}`).then((response) => response.data.message);
+    return axios
+      .delete(`${this.baseUri}/api/chain/${chainName}`)
+      .then((response) => response.data.message);
   }
 
   public addStep(
@@ -246,68 +332,95 @@ export class ApiClient {
   public moveStep(
     chainName: string,
     oldStepNumber: number,
-    newStepNumber: number): Promise<string> {
-        return axios
-          .patch(`${this.baseUri}/api/chain/${chainName}/step/move`, {
-            old_step_number: oldStepNumber,
-            new_step_number: newStepNumber,
-          })
-          .then((response) => response.data.message);
-      }
-    
-      public deleteStep(chainName: string, stepNumber: number): Promise<string> {
-        return axios
-          .delete(`${this.baseUri}/api/chain/${chainName}/step/${stepNumber}`)
-          .then((response) => response.data.message);
-      }
-        
-      public addPrompt(promptName: string, prompt: string): Promise<string> {
-        return axios.post(`${this.baseUri}/api/prompt`, { prompt_name: promptName, prompt }).then((response) => response.data.message);
-      }
-    
-      public getPrompt(promptName: string): Promise<any> {
-        return axios.get(`${this.baseUri}/api/prompt/${promptName}`).then((response) => response.data.prompt);
-      }
-    
-      public getPrompts(): Promise<string[]> {
-        return axios.get(`${this.baseUri}/api/prompt`).then((response) => response.data.prompts);
-      }
-    
-      public getPromptArgs(promptName: string): Promise<any> {
-        return axios.get(`${this.baseUri}/api/prompt/${promptName}/args`).then((response) => response.data.prompt_args);
-      }
-    
-      public deletePrompt(promptName: string): Promise<string> {
-        return axios.delete(`${this.baseUri}/api/prompt/${promptName}`).then((response) => response.data.message);
-      }
-    
-      public updatePrompt(promptName: string, prompt: string): Promise<string> {
-        return axios
-          .put(`${this.baseUri}/api/prompt/${promptName}`, { prompt, prompt_name: promptName })
-          .then((response) => response.data.message);
-      }
-    
-      public getExtensionSettings(): Promise<any> {
-        return axios.get(`${this.baseUri}/api/extensions/settings`).then((response) => response.data.extension_settings);
-      }
-    
-      public getExtensions(): Promise<[string, any][]> {
-        return axios.get(`${this.baseUri}/api/extensions`).then((response) => response.data.extensions);
-      }
-    
-      public getCommandArgs(commandName: string): Promise<any> {
-        return axios.get(`${this.baseUri}/api/extensions/${commandName}/args`).then((response) => response.data.command_args);
-      }
-    
-      public learnUrl(agentName: string, url: string): Promise<string> {
-        return axios
-          .post(`${this.baseUri}/api/agent/${agentName}/learn/url`, { url })
-          .then((response) => response.data.message);
-      }
-    
-      public learnFile(agentName: string, fileName: string, fileContent: string): Promise<string> {
-        return axios
-          .post(`${this.baseUri}/api/agent/${agentName}/learn/file`, { file_name: fileName, file_content: fileContent })
-          .then((response) => response.data.message);
-      }
-    }
+    newStepNumber: number
+  ): Promise<string> {
+    return axios
+      .patch(`${this.baseUri}/api/chain/${chainName}/step/move`, {
+        old_step_number: oldStepNumber,
+        new_step_number: newStepNumber,
+      })
+      .then((response) => response.data.message);
+  }
+
+  public deleteStep(chainName: string, stepNumber: number): Promise<string> {
+    return axios
+      .delete(`${this.baseUri}/api/chain/${chainName}/step/${stepNumber}`)
+      .then((response) => response.data.message);
+  }
+
+  public addPrompt(promptName: string, prompt: string): Promise<string> {
+    return axios
+      .post(`${this.baseUri}/api/prompt`, { prompt_name: promptName, prompt })
+      .then((response) => response.data.message);
+  }
+
+  public getPrompt(promptName: string): Promise<any> {
+    return axios
+      .get(`${this.baseUri}/api/prompt/${promptName}`)
+      .then((response) => response.data.prompt);
+  }
+
+  public getPrompts(): Promise<string[]> {
+    return axios
+      .get(`${this.baseUri}/api/prompt`)
+      .then((response) => response.data.prompts);
+  }
+
+  public getPromptArgs(promptName: string): Promise<any> {
+    return axios
+      .get(`${this.baseUri}/api/prompt/${promptName}/args`)
+      .then((response) => response.data.prompt_args);
+  }
+
+  public deletePrompt(promptName: string): Promise<string> {
+    return axios
+      .delete(`${this.baseUri}/api/prompt/${promptName}`)
+      .then((response) => response.data.message);
+  }
+
+  public updatePrompt(promptName: string, prompt: string): Promise<string> {
+    return axios
+      .put(`${this.baseUri}/api/prompt/${promptName}`, {
+        prompt,
+        prompt_name: promptName,
+      })
+      .then((response) => response.data.message);
+  }
+
+  public getExtensionSettings(): Promise<any> {
+    return axios
+      .get(`${this.baseUri}/api/extensions/settings`)
+      .then((response) => response.data.extension_settings);
+  }
+
+  public getExtensions(): Promise<[string, any][]> {
+    return axios
+      .get(`${this.baseUri}/api/extensions`)
+      .then((response) => response.data.extensions);
+  }
+
+  public getCommandArgs(commandName: string): Promise<any> {
+    return axios
+      .get(`${this.baseUri}/api/extensions/${commandName}/args`)
+      .then((response) => response.data.command_args);
+  }
+
+  public learnUrl(agentName: string, url: string): Promise<string> {
+    return axios
+      .post(`${this.baseUri}/api/agent/${agentName}/learn/url`, { url })
+      .then((response) => response.data.message);
+  }
+
+  public learnFile(
+    agentName: string,
+    fileName: string,
+    fileContent: string
+  ): Promise<string> {
+    return axios
+      .post(`${this.baseUri}/api/agent/${agentName}/learn/file`, {
+        file_name: fileName,
+        file_content: fileContent,
+      })
+      .then((response) => response.data.message);
+  }
+}
