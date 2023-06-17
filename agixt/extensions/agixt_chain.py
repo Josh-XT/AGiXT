@@ -1,6 +1,7 @@
 from Chain import Chain
 from Extensions import Extensions
 from Interactions import Interactions
+from Prompts import Prompts
 import datetime
 import json
 import requests
@@ -139,6 +140,7 @@ class agixt_chain(Extensions):
     async def generate_openapi_chain(
         self, agent: str, extension_name: str, openapi_json_url: str
     ):
+        # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
         endpoints = self.parse_openapi(openapi_data)
@@ -147,17 +149,6 @@ class agixt_chain(Extensions):
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         i = 1
-        chain.add_chain_step(
-            chain_name=chain_name,
-            agent_name=agent,
-            step_number=i,
-            prompt_type="Command",
-            prompt={
-                "command_name": "Write to File",
-                "filename": f"{extension_name}.py",
-                "content": f"import requests\nimport json\n\nclass {extension_name}(Extensions):\n\n",
-            },
-        )
         for endpoint in endpoints:
             i += 1
             chain.add_chain_step(
@@ -200,8 +191,48 @@ class agixt_chain(Extensions):
                 prompt_type="Command",
                 prompt={
                     "command_name": "Append to File",
-                    "file_name": f"{extension_name}.py",
+                    "file_name": f"{extension_name}_functions.py",
                     "text": "\n\n{STEP" + str(i - 1) + "}",
                 },
             )
+        i += 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Read File",
+                "filename": f"{extension_name}_functions.py",
+            },
+        )
+        i += 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Generate Commands Dictionary",
+                "python_file_content": "{STEP" + str(i - 1) + "}",
+            },
+        )
+        new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
+        new_extension.format(
+            extension_name=extension_name,
+            extension_commands="{STEP" + str(i) + "}",
+            extension_functions="{STEP" + str(i - 2) + "}",
+        )
+        i += 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Write to File",
+                "filename": f"{extension_name}.py",
+                "content": new_extension,
+            },
+        )
         return chain_name

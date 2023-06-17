@@ -7,6 +7,7 @@ import subprocess
 import docker
 from docker.errors import ImageNotFound
 import logging
+import ast
 
 
 class file_system(Extensions):
@@ -29,6 +30,7 @@ class file_system(Extensions):
             "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
             "Indent String for Python Code": self.indent_string,
+            "Generate Commands Dictionary": self.generate_commands_dict,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
@@ -195,3 +197,23 @@ class file_system(Extensions):
         indented_lines = [("    " + line) for line in lines]
         indented_string = "\n".join(indented_lines)
         return indented_string
+
+    def extract_function_names(self, source_code):
+        module = ast.parse(source_code)
+        function_names = [
+            node.name
+            for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef) and node.name != "__init__"
+        ]
+        return function_names
+
+    async def generate_commands_dict(self, python_file_content):
+        function_names = self.extract_function_names(python_file_content)
+        commands_dict = {
+            f_name.replace("_", " "): f"self.{f_name}" for f_name in function_names
+        }
+        commands_string = "self.commands = {\n"
+        for key, value in commands_dict.items():
+            commands_string += f'    "{key.capitalize()}": {value},\n'
+        commands_string += "}"
+        return commands_string

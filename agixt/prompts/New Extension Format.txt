@@ -1,0 +1,10 @@
+import requests
+import json
+from ezsession import get_session
+
+class {extension_name}(Extensions):
+    def __init__(self, **kwargs):
+        self.session = get_session(**kwargs)
+        {extension_commands}
+
+{extension_functions}
