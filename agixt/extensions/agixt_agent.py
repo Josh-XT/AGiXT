@@ -24,6 +24,7 @@ class agixt_agent(Extensions):
             "Create a new command": self.create_command,
             "Describe Image": self.describe_image,
             "Execute Python Code": self.execute_python_code,
+            "Get Python Code from Response": self.get_python_code_from_response,
         }
         if agents != None:
             for agent in agents:
@@ -150,11 +151,13 @@ class agixt_agent(Extensions):
             # Return the caption
             return caption
 
-    async def execute_python_code(self, code: str) -> str:
-        # Check if the code is enclosed in "```python" and "```"
-        if "```python" in code:
-            code = code.split("```python")[1].split("```")[0]
+    async def get_python_code_from_response(self, response: str):
+        if "```python" in response:
+            response = response.split("```python")[1].split("```")[0]
+        return response
 
+    async def execute_python_code(self, code: str) -> str:
+        code = await self.get_python_code_from_response(code)
         # Create the WORKSPACE directory if it doesn't exist
         workspace_dir = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(workspace_dir, exist_ok=True)

@@ -2,6 +2,8 @@ from Chain import Chain
 from Extensions import Extensions
 from Interactions import Interactions
 import datetime
+import json
+import requests
 
 
 class agixt_chain(Extensions):
@@ -10,6 +12,7 @@ class agixt_chain(Extensions):
         self.commands = {
             "Create Task Chain": self.create_task_chain,
             "Create Smart Task Chain": self.create_smart_task_chain,
+            "Generate Extension from OpenAPI": self.generate_openapi_chain,
         }
         if self.chains != None:
             for chain in self.chains:
@@ -97,3 +100,108 @@ class agixt_chain(Extensions):
     async def run_chain(self, chain: str = "", input: str = ""):
         await Interactions(agent_name="").run_chain(chain_name=chain, user_input=input)
         return "Chain started successfully."
+
+    def parse_openapi(self, data):
+        endpoints = []
+        if "paths" in data:
+            for path, path_info in data["paths"].items():
+                for method, method_info in path_info.items():
+                    endpoint_info = {
+                        "endpoint": path,
+                        "method": method.upper(),
+                        "summary": method_info.get("summary", ""),
+                        "parameters": [],
+                        "responses": [],
+                    }
+                    if "parameters" in method_info:
+                        for param in method_info["parameters"]:
+                            param_info = {
+                                "name": param.get("name", ""),
+                                "in": param.get("in", ""),
+                                "description": param.get("description", ""),
+                                "required": param.get("required", False),
+                                "type": param.get("schema", {}).get("type", "")
+                                if "schema" in param
+                                else "",
+                            }
+                            endpoint_info["parameters"].append(param_info)
+
+                    if "responses" in method_info:
+                        for response, response_info in method_info["responses"].items():
+                            response_info = {
+                                "code": response,
+                                "description": response_info.get("description", ""),
+                            }
+                            endpoint_info["responses"].append(response_info)
+                    endpoints.append(endpoint_info)
+        return endpoints
+
+    async def generate_openapi_chain(
+        self, agent: str, extension_name: str, openapi_json_url: str
+    ):
+        openapi_str = requests.get(openapi_json_url).text
+        openapi_data = json.loads(openapi_str)
+        endpoints = self.parse_openapi(openapi_data)
+        extension_name = extension_name.lower().replace(" ", "_")
+        chain_name = f"OpenAPI to Python Chain - {extension_name}"
+        chain = Chain()
+        chain.add_chain(chain_name=chain_name)
+        i = 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=agent,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Write to File",
+                "filename": f"{extension_name}.py",
+                "content": f"import requests\nimport json\n\nclass {extension_name}(Extensions):\n\n",
+            },
+        )
+        for endpoint in endpoints:
+            i += 1
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=i,
+                prompt_type="Prompt",
+                prompt={
+                    "prompt_name": "Convert OpenAPI Endpoint",
+                    "api_endpoint_info": f"{endpoint}",
+                },
+            )
+            i += 1
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=i,
+                prompt_type="Command",
+                prompt={
+                    "command_name": "Get Python Code from Response",
+                    "response": "{STEP" + str(i - 1) + "}",
+                },
+            )
+            i += 1
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=i,
+                prompt_type="Command",
+                prompt={
+                    "command_name": "Indent String for Python Code",
+                    "response": "{STEP" + str(i - 1) + "}",
+                },
+            )
+            i += 1
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=i,
+                prompt_type="Command",
+                prompt={
+                    "command_name": "Append to File",
+                    "file_name": f"{extension_name}.py",
+                    "text": "\n\n{STEP" + str(i - 1) + "}",
+                },
+            )
+        return chain_name

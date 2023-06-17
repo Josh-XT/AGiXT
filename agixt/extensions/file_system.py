@@ -28,6 +28,7 @@ class file_system(Extensions):
             "Execute Python File": self.execute_python_file,
             "Delete File": self.delete_file,
             "Execute Shell": self.execute_shell,
+            "Indent String for Python Code": self.indent_string,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
@@ -150,8 +151,12 @@ class file_system(Extensions):
     async def append_to_file(self, filename: str, text: str) -> str:
         try:
             filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
-            with open(filepath, "a") as f:
-                f.write(text)
+            if not os.path.exists(filepath):
+                with open(filepath, "w") as f:
+                    f.write(text)
+            else:
+                with open(filepath, "a") as f:
+                    f.write(text)
             return "Text appended successfully."
         except Exception as e:
             return f"Error: {str(e)}"
@@ -184,3 +189,9 @@ class file_system(Extensions):
                 found_files.append(relative_path)
 
         return found_files
+
+    async def indent_string(self, string):
+        lines = string.split("\n")
+        indented_lines = [("    " + line) for line in lines]
+        indented_string = "\n".join(indented_lines)
+        return indented_string
