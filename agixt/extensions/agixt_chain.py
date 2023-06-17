@@ -137,13 +137,31 @@ class agixt_chain(Extensions):
                     endpoints.append(endpoint_info)
         return endpoints
 
+    def get_auth_type(self, openapi_data):
+        # The "components" section contains the security schemes
+        if (
+            "components" in openapi_data
+            and "securitySchemes" in openapi_data["components"]
+        ):
+            security_schemes = openapi_data["components"]["securitySchemes"]
+
+            # Iterate over all security schemes
+            for scheme_name, scheme_details in security_schemes.items():
+                # The "type" field specifies the type of the scheme
+                if "type" in scheme_details and scheme_details["type"] == "http":
+                    # The "scheme" field provides more specific information
+                    if "scheme" in scheme_details:
+                        return scheme_details["scheme"]
+        return "basic"
+
     async def generate_openapi_chain(
         self, agent: str, extension_name: str, openapi_json_url: str
     ):
         # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
-        endpoints = self.parse_openapi(openapi_data)
+        endpoints = self.parse_openapi(openapi_data=openapi_data)
+        auth_type = self.get_auth_type(openapi_data=openapi_data)
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
         chain = Chain()
@@ -217,23 +235,12 @@ class agixt_chain(Extensions):
                 "python_file_content": "{STEP" + str(i - 1) + "}",
             },
         )
-        i += 1
-        chain.add_chain_step(
-            chain_name=chain_name,
-            agent_name=agent,
-            step_number=i,
-            prompt_type="Prompt",
-            prompt={
-                "prompt_name": "Get ezsession Auth Type",
-                "software_name": f"{extension_name}",
-            },
-        )
         new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
         new_extension.format(
             extension_name=extension_name,
-            extension_commands="{STEP" + str(i - 1) + "}",
-            extension_functions="{STEP" + str(i - 2) + "}",
-            auth_type="{STEP" + str(i) + "}",
+            extension_commands="{STEP" + str(i) + "}",
+            extension_functions="{STEP" + str(i - 1) + "}",
+            auth_type=auth_type,
         )
         i += 1
         chain.add_chain_step(
