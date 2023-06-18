@@ -353,6 +353,7 @@ class Interactions:
                     self.agent_name = step["agent_name"]
                 self.agent = Agent(self.agent_name)
                 self.agent_commands = self.agent.get_commands_string()
+                self.memories = self.agent.get_memories()
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
