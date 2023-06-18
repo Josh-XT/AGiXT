@@ -19,7 +19,7 @@ class LlamacppapiProvider:
         self.STOP_SEQUENCE = STOP_SEQUENCE
         self.MAX_TOKENS = int(self.MAX_TOKENS)
 
-    def instruct(self, prompt, tokens: int = 0):
+    async def instruct(self, prompt, tokens: int = 0):
         params = {
             "prompt": prompt,
             "temperature": float(self.AI_TEMPERATURE),
