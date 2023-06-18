@@ -12,6 +12,8 @@ from Chain import Chain, get_chain_responses_file_path, create_command_suggestio
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
+from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 
 
 class Interactions:
@@ -622,6 +624,31 @@ class Interactions:
         else:
             return "\nNo commands were executed.\n"
 
+    async def get_web_content(self, url):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                context = await browser.new_context()
+                page = await context.new_page()
+                await page.goto(url)
+                content = await page.content()
+
+                # Scrape links and their titles
+                links = await page.query_selector_all("a")
+                link_list = []
+                for link in links:
+                    title = await page.evaluate("(link) => link.textContent", link)
+                    href = await page.evaluate("(link) => link.href", link)
+                    link_list.append((title, href))
+
+                await browser.close()
+                soup = BeautifulSoup(content, "html.parser")
+                text_content = soup.get_text()
+                text_content = " ".join(text_content.split())
+                return text_content, link_list
+        except:
+            return None, None
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
@@ -655,9 +682,28 @@ class Interactions:
                             (
                                 collected_data,
                                 link_list,
-                            ) = await memories.read_website(url)
-                            # TODO: Move read_website playwright functionality to Interactions.py
-                            # TODO: Use "Summarize Web Content" prompt to summarize the content of the website before chunking to memory.
+                            ) = await self.get_web_content(url=url)
+                            # Split the collected data into 2000 character chunks
+                            if collected_data is not None:
+                                if len(collected_data) > 0:
+                                    chunks = [
+                                        collected_data[i : i + 2000]
+                                        for i in range(0, len(collected_data), 2000)
+                                    ]
+                                    for chunk in chunks:
+                                        summarized_content = await self.run(
+                                            user_input=user_input,
+                                            prompt="Summarize Web Content",
+                                            link=url,
+                                            chunk=chunk,
+                                            disable_memory=True,
+                                        )
+                                        if not summarized_content.startswith("None"):
+                                            memories.store_result(
+                                                input=user_input,
+                                                result=summarized_content,
+                                                external_source_name=url,
+                                            )
                             if link_list is not None:
                                 if len(link_list) > 0:
                                     if len(link_list) > 5:
