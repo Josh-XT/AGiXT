@@ -94,7 +94,6 @@ class Memories:
                 collection_name="memories",
                 record=record,
             )
-            self.chroma_client._client.persist()
         except Exception as e:
             logging.info(f"Failed to store memory: {e}")
 
