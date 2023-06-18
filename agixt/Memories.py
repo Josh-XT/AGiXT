@@ -217,7 +217,9 @@ class Memories:
             else:
                 with open(file_path, "r") as f:
                     content = f.read()
-            await self.store_result(input=file_path, result=content)
+            await self.store_result(
+                input=file_path, result=content, external_source_name=file_path
+            )
             return True
         except:
             return False
@@ -244,7 +246,9 @@ class Memories:
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
                 if text_content:
-                    await self.store_result(input=url, result=text_content)
+                    await self.store_result(
+                        input=url, result=text_content, external_source_name=url
+                    )
                 return text_content, link_list
         except:
             return None, None
