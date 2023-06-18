@@ -22,10 +22,12 @@ class Interactions:
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
+            self.memories = self.agent.get_memories()
         else:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
+            self.memories = None
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -219,9 +221,11 @@ class Interactions:
         **kwargs,
     ):
         shots = int(shots)
-        memories = self.agent.get_memories()
         if learn_file != "":
-            learning_file = await memories.mem_read_file(file_path=learn_file)
+            try:
+                learning_file = await self.memories.mem_read_file(file_path=learn_file)
+            except:
+                return "Failed to read file."
             if learning_file == False:
                 return "Failed to read file."
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
@@ -230,7 +234,7 @@ class Interactions:
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
-            memories=memories,
+            memories=self.memories,
             **kwargs,
         )
         if websearch:
@@ -304,7 +308,9 @@ class Interactions:
         if self.response != "" and self.response != None:
             if disable_memory == False:
                 try:
-                    await memories.store_result(input=user_input, result=self.response)
+                    await self.memories.store_result(
+                        input=user_input, result=self.response
+                    )
                 except:
                     pass
             if prompt == "Chat":
@@ -649,81 +655,84 @@ class Interactions:
         except:
             return None, None
 
+    async def resursive_browsing(self, user_input, links):
+        try:
+            words = links.split()
+            links = [
+                word for word in words if urlparse(word).scheme in ["http", "https"]
+            ]
+        except:
+            links = links
+        if links is not None:
+            for link in links:
+                if "href" in link:
+                    try:
+                        url = link["href"]
+                    except:
+                        url = link
+                else:
+                    url = link
+                url = re.sub(r"^.*?(http)", r"http", url)
+                # Check if url is an actual url
+                if url.startswith("http"):
+                    logging.info(f"Scraping: {url}")
+                    if url not in self.browsed_links:
+                        self.browsed_links.append(url)
+                        (
+                            collected_data,
+                            link_list,
+                        ) = await self.get_web_content(url=url)
+                        # Split the collected data into 2000 character chunks
+                        if collected_data is not None:
+                            if len(collected_data) > 0:
+                                chunks = [
+                                    collected_data[i : i + 2000]
+                                    for i in range(0, len(collected_data), 2000)
+                                ]
+                                for chunk in chunks:
+                                    summarized_content = await self.run(
+                                        user_input=user_input,
+                                        prompt="Summarize Web Content",
+                                        link=url,
+                                        chunk=chunk,
+                                        disable_memory=True,
+                                    )
+                                    if not summarized_content.startswith("None"):
+                                        try:
+                                            self.memories.store_result(
+                                                input=user_input,
+                                                result=summarized_content,
+                                                external_source_name=url,
+                                            )
+                                        except:
+                                            logging.info(
+                                                f"Failed to store result for {url}. Moving on..."
+                                            )
+                        if link_list is not None:
+                            if len(link_list) > 0:
+                                if len(link_list) > 5:
+                                    link_list = link_list[:3]
+                                try:
+                                    pick_a_link = await self.run(
+                                        user_input=user_input,
+                                        prompt="Pick-a-Link",
+                                        links=link_list,
+                                    )
+                                    if not pick_a_link.startswith("None"):
+                                        await self.resursive_browsing(
+                                            user_input=user_input, links=pick_a_link
+                                        )
+                                except:
+                                    logging.info(f"Issues reading {url}. Moving on...")
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
         depth: int = 3,
     ):
-        memories = self.agent.get_memories()
-
-        async def resursive_browsing(user_input, links):
-            try:
-                words = links.split()
-                links = [
-                    word for word in words if urlparse(word).scheme in ["http", "https"]
-                ]
-            except:
-                links = links
-            if links is not None:
-                for link in links:
-                    if "href" in link:
-                        try:
-                            url = link["href"]
-                        except:
-                            url = link
-                    else:
-                        url = link
-                    url = re.sub(r"^.*?(http)", r"http", url)
-                    # Check if url is an actual url
-                    if url.startswith("http"):
-                        logging.info(f"Scraping: {url}")
-                        if url not in self.browsed_links:
-                            self.browsed_links.append(url)
-                            (
-                                collected_data,
-                                link_list,
-                            ) = await self.get_web_content(url=url)
-                            # Split the collected data into 2000 character chunks
-                            if collected_data is not None:
-                                if len(collected_data) > 0:
-                                    chunks = [
-                                        collected_data[i : i + 2000]
-                                        for i in range(0, len(collected_data), 2000)
-                                    ]
-                                    for chunk in chunks:
-                                        summarized_content = await self.run(
-                                            user_input=user_input,
-                                            prompt="Summarize Web Content",
-                                            link=url,
-                                            chunk=chunk,
-                                            disable_memory=True,
-                                        )
-                                        if not summarized_content.startswith("None"):
-                                            memories.store_result(
-                                                input=user_input,
-                                                result=summarized_content,
-                                                external_source_name=url,
-                                            )
-                            if link_list is not None:
-                                if len(link_list) > 0:
-                                    if len(link_list) > 5:
-                                        link_list = link_list[:3]
-                                    try:
-                                        pick_a_link = await self.run(
-                                            user_input=user_input,
-                                            prompt="Pick-a-Link",
-                                            links=link_list,
-                                        )
-                                        if not pick_a_link.startswith("None"):
-                                            await resursive_browsing(
-                                                user_input=user_input, links=pick_a_link
-                                            )
-                                    except:
-                                        logging.info(
-                                            f"Issues reading {url}. Moving on..."
-                                        )
-
-        results = await self.run(user_input=user_input, prompt="WebSearch")
+        results = await self.run(
+            user_input=user_input, prompt="WebSearch", disable_memory=True
+        )
         results = results.split("\n")
         for result in results:
             search_string = result.lstrip("0123456789. ")
@@ -733,11 +742,11 @@ class Interactions:
                 searx_server = ""
             try:
                 links = await searxng(SEARXNG_INSTANCE_URL=searx_server).search(
-                    search_string
+                    query=search_string
                 )
                 if len(links) > depth:
                     links = links[:depth]
             except:
                 links = None
             if links is not None:
-                await resursive_browsing(user_input=user_input, links=links)
+                await self.resursive_browsing(user_input=user_input, links=links)
