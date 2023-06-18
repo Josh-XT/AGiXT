@@ -18,7 +18,7 @@ playsound==1.2.2
 PyYAML==6.0
 PyGithub==1.58.2
 random-password-generator==2.2.0
-requests==2.31.0
+requests==2.28.2
 selenium==4.9.1
 sendgrid==6.10.0
 spacy==3.5.3
