@@ -11,4 +11,4 @@ semantic-kernel==0.3.1.dev0
 tweepy==4.14.0
 pillow==9.5.0
 poe-api==0.4.6
--e git+https://github.com/xtekky/gpt4free.git@6d0328c20bb58107a3de4a42054fc048aed2c4ee#egg=gpt4free
+-e git+https://github.com/xtekky/gpt4free.git@94412b0dbbf8659242c4a422291408126bf7861e#egg=gpt4free
