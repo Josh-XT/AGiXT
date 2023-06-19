@@ -9,7 +9,7 @@ class BardProvider:
 
     async def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Chatbot(self.BARD_TOKEN)
+            bot = Chatbot(session_id=self.BARD_TOKEN)
             response = bot.ask(prompt)
             return response["content"].replace("\n", "\n")
         except Exception as e:

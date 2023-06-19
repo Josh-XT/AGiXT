@@ -1,5 +1,6 @@
 import requests
 import time
+import logging
 
 
 # Custom OpenAI Style Provider
@@ -61,6 +62,7 @@ class CustomProvider:
                     if "message" in data["choices"][0]:
                         return data["choices"][0]["message"]["content"].strip()
             if "error" in data:
+                logging.info(f"Custom API Error: {data}")
                 time.sleep(3)
                 return await self.instruct(prompt=prompt, tokens=tokens)
-            return data
+            return str(data)
