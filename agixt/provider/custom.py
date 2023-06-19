@@ -33,17 +33,17 @@ class CustomProvider:
                 "top_p": float(self.AI_TOP_P),
                 "frequency_penalty": 0,
                 "presence_penalty": 0,
+                "stream": False,
             }
         else:
             # Use chat completion API
             params = {
-                "prompt": prompt,
+                "messages": [{"role": "user", "content": prompt}],
                 "model": self.AI_MODEL,
                 "temperature": float(self.AI_TEMPERATURE),
                 "max_tokens": max_new_tokens,
                 "top_p": float(self.AI_TOP_P),
-                "n": 1,
-                "stop": None,
+                "stream": False,
             }
 
         response = requests.post(
