@@ -5,6 +5,7 @@ from Prompts import Prompts
 import datetime
 import json
 import requests
+import re
 
 
 class agixt_chain(Extensions):
@@ -31,6 +32,14 @@ class agixt_chain(Extensions):
     ):
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+        numbered_list_of_tasks = [
+            task for task in numbered_list_of_tasks.split("\n") if task.strip()
+        ]
+        # Replace bullet points, hyphens, and asterisks with numbers
+        numbered_list_of_tasks = [
+            re.sub(r"^[-*•]\s*", f"{i+1}. ", task)
+            for i, task in enumerate(numbered_list_of_tasks)
+        ]
         task_list = numbered_list_of_tasks.split("\n")
         task_list = [
             task.lstrip("0123456789.")  # Strip leading digits and periods
