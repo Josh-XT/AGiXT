@@ -27,6 +27,7 @@ class CustomProvider:
             # Use completion API
             params = {
                 "prompt": prompt,
+                "model": self.AI_MODEL,
                 "temperature": float(self.AI_TEMPERATURE),
                 "max_tokens": max_new_tokens,
                 "top_p": float(self.AI_TOP_P),
@@ -37,6 +38,7 @@ class CustomProvider:
             # Use chat completion API
             params = {
                 "prompt": prompt,
+                "model": self.AI_MODEL,
                 "temperature": float(self.AI_TEMPERATURE),
                 "max_tokens": max_new_tokens,
                 "top_p": float(self.AI_TOP_P),
