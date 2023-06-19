@@ -10,5 +10,5 @@
 2. Set `OPENAI_API_KEY` to your OpenAI API key.
 3. Set `AI_MODEL` to `gpt-3.5-turbo` for ChatGPT.
 4. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.  The maximum for `gpt-3.5-turbo` is 4000, `gpt-4` is 8000.
+5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.  The maximum for `gpt-3.5-turbo` is 4000, `gpt-4` is 8000, `gpt-3.5-turbo-16k` is 16000.
 
