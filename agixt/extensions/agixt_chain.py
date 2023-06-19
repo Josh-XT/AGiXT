@@ -166,7 +166,7 @@ class agixt_chain(Extensions):
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
-        i = 1
+        i = 0
         for endpoint in endpoints:
             i += 1
             chain.add_chain_step(
