@@ -129,11 +129,16 @@ local_install() {
   playwright install --with-deps
   sleep 1
 
-  echo "${BOLD}${YELLOW}Step 5: Running AGiXT Back End...${RESET}"
+  echo "${BOLD}${YELLOW}Step 5: Set Token Env Var...${RESET}"
+  export TOKENIZERS_PARALLELISM=true &
+  sleep 1
+
+  echo "${BOLD}${YELLOW}Step 6: Running AGiXT Back End...${RESET}"
   cd agixt && uvicorn app:app --host 0.0.0.0 --port 7437 --workers 4 &
   sleep 1
 
-  echo "${BOLD}${YELLOW}Step 6: Running Streamlit Front End...${RESET}"
+  
+  echo "${BOLD}${YELLOW}Step 7: Running Streamlit Front End...${RESET}"
   cd streamlit && streamlit run Main.py
 }
 
