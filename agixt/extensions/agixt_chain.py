@@ -236,12 +236,14 @@ class agixt_chain(Extensions):
             },
         )
         new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
-        new_extension.format(
-            extension_name=extension_name,
-            extension_commands="{STEP" + str(i) + "}",
-            extension_functions="{STEP" + str(i - 1) + "}",
-            auth_type=auth_type,
+        new_extension = new_extension.replace(
+            "extension_name", "{" + extension_name + "}"
         )
+        new_extension = new_extension.replace("extension_commands", "STEP" + str(i))
+        new_extension = new_extension.replace(
+            "extension_functions", "STEP" + str(i - 1)
+        )
+        new_extension = new_extension.replace("{auth_type}", auth_type)
         i += 1
         chain.add_chain_step(
             chain_name=chain_name,
@@ -251,7 +253,7 @@ class agixt_chain(Extensions):
             prompt={
                 "command_name": "Write to File",
                 "filename": f"{extension_name}.py",
-                "content": new_extension,
+                "text": new_extension,
             },
         )
         return chain_name
