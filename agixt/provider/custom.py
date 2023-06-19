@@ -1,4 +1,5 @@
 import requests
+import time
 
 
 # Custom OpenAI Style Provider
@@ -59,4 +60,7 @@ class CustomProvider:
                         return data["choices"][0]["text"].strip()
                     if "message" in data["choices"][0]:
                         return data["choices"][0]["message"]["content"].strip()
+            if "error" in data:
+                time.sleep(3)
+                return await self.instruct(prompt=prompt, tokens=tokens)
             return data
