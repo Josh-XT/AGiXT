@@ -90,17 +90,9 @@ class OobaboogaProvider:
         }
         response = requests.post(f"{self.AI_PROVIDER_URI}/api/v1/generate", json=params)
         data = None
-        prefixes = ["ASSISTANT: ", f"agent_name: ", "Assistant: ", "AI: ", "Bot: "]
-
-        def strip_prefix(text):
-            for prefix in prefixes:
-                if prefix in text:
-                    return text.split(prefix)[-1]
-            return text
 
         if response.status_code == 200:
             data = response.json()["results"][0]["text"]
             data = re.sub(r"(?<!\\)\\(?!n)", "", data)
-            data = strip_prefix(data)
 
         return data
