@@ -13,6 +13,8 @@ class CustomProvider:
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 4096,
+        WAIT_BETWEEN_REQUESTS: int = 0,
+        WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.requirements = ["requests"]
@@ -22,8 +24,12 @@ class CustomProvider:
         self.MAX_TOKENS = MAX_TOKENS
         self.API_KEY = API_KEY
         self.API_URI = API_URI
+        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE
+        self.WAIT_BETWEEN_REQUESTS = WAIT_BETWEEN_REQUESTS
 
     async def instruct(self, prompt, tokens: int = 0):
+        if self.WAIT_BETWEEN_REQUESTS > 0:
+            time.sleep(self.WAIT_BETWEEN_REQUESTS)
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if not self.AI_MODEL.startswith("gpt-"):
             # Use completion API
@@ -63,6 +69,7 @@ class CustomProvider:
                         return data["choices"][0]["message"]["content"].strip()
             if "error" in data:
                 logging.info(f"Custom API Error: {data}")
-                time.sleep(3)
-                return await self.instruct(prompt=prompt, tokens=tokens)
+                if int(self.WAIT_AFTER_FAILURE) > 0:
+                    time.sleep(int(self.WAIT_AFTER_FAILURE))
+                    return await self.instruct(prompt=prompt, tokens=tokens)
             return str(data)
