@@ -45,28 +45,26 @@ def get_history(agent_name):
     st.write(message_container_css, unsafe_allow_html=True)
 
     with st.container():
-        # Get chat history from API
-        history = ApiClient.get_chat_history(agent_name=agent_name)
-        history = reversed(history)
-
-        # Create a container for messages
         message_container = "<div class='message-container'>"
+        try:
+            history = ApiClient.get_chat_history(agent_name=agent_name)
+            history = reversed(history)
 
-        for item in history:
-            item["message"] = html.escape(item["message"])
-            item["message"] = item["message"].replace(r"\n", "<br>")
-            message = (
-                f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
-            )
+            for item in history:
+                item["message"] = html.escape(item["message"])
+                item["message"] = item["message"].replace(r"\n", "<br>")
+                message = f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
 
-            if agent_name in item["role"]:
-                message_container += (
-                    f"<div class='message agent-message'>{message}</div>"
-                )
-            else:
-                message_container += (
-                    f"<div class='message user-message'>{message}</div>"
-                )
+                if agent_name in item["role"]:
+                    message_container += (
+                        f"<div class='message agent-message'>{message}</div>"
+                    )
+                else:
+                    message_container += (
+                        f"<div class='message user-message'>{message}</div>"
+                    )
 
+        except Exception as e:
+            print(e)
         message_container += "</div>"
         st.write(message_container, unsafe_allow_html=True)
