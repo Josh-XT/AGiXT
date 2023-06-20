@@ -25,11 +25,13 @@
             "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Create Smart Task Chain",
+                "command_name": "Create Task Chain",
                 "agent": "gpt4free",
                 "primary_objective": "{user_input}",
                 "numbered_list_of_tasks": "{STEP1}",
-                "short_chain_description": "{STEP2}"
+                "short_chain_description": "{STEP2}",
+                "smart_chain": true,
+                "researching": true
             }
         }
     ]
