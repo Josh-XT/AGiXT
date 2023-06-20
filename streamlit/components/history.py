@@ -55,6 +55,14 @@ def get_history(agent_name):
                 item["message"] = item["message"].replace(r"\n", "<br>")
                 message = f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
 
+                # Check if the message is a code block
+                if item["message"].startswith("```") and item["message"].endswith(
+                    "```"
+                ):
+                    # Remove the backticks and wrap the message in <pre><code> tags
+                    code_message = item["message"][3:-3]
+                    message = f"{item['timestamp']}<br><b>{item['role']}:</b><br><pre><code>{code_message}</code></pre>"
+
                 if agent_name in item["role"]:
                     message_container += (
                         f"<div class='message agent-message'>{message}</div>"
