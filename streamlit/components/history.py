@@ -1,6 +1,7 @@
 from ApiClient import ApiClient
 import streamlit as st
 import html
+import re
 
 
 def get_history(agent_name):
@@ -53,15 +54,22 @@ def get_history(agent_name):
             for item in history:
                 item["message"] = html.escape(item["message"])
                 item["message"] = item["message"].replace(r"\n", "<br>")
-                message = f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
 
                 # Check if the message is a code block
-                if item["message"].startswith("```") and item["message"].endswith(
-                    "```"
-                ):
-                    # Remove the backticks and wrap the message in <pre><code> tags
-                    code_message = item["message"][3:-3]
-                    message = f"{item['timestamp']}<br><b>{item['role']}:</b><br><pre><code>{code_message}</code></pre>"
+                code_block_match = re.search(r"```(.*)```", item["message"], re.DOTALL)
+
+                if code_block_match:
+                    # Extract the code block from the match object
+                    code_message = code_block_match.group(1)
+                    # Replace the code block in the original message with the code block wrapped in <pre><code> tags
+                    item["message"] = re.sub(
+                        r"```.*```",
+                        f"<pre><code>{code_message}</code></pre>",
+                        item["message"],
+                        flags=re.DOTALL,
+                    )
+
+                message = f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
 
                 if agent_name in item["role"]:
                     message_container += (
