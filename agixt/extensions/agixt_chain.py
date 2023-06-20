@@ -13,7 +13,6 @@ class agixt_chain(Extensions):
         self.chains = Chain().get_chains()
         self.commands = {
             "Create Task Chain": self.create_task_chain,
-            "Create Smart Task Chain": self.create_smart_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
         }
         if self.chains != None:
@@ -29,6 +28,8 @@ class agixt_chain(Extensions):
         primary_objective: str,
         numbered_list_of_tasks: str,
         short_chain_description: str,
+        smart_chain: bool = False,
+        researching: bool = False,
     ):
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -45,57 +46,36 @@ class agixt_chain(Extensions):
         chain.add_chain(chain_name=chain_name)
         i = 1
         for task in task_list:
-            chain.add_chain_step(
-                chain_name=chain_name,
-                agent_name=agent,
-                step_number=i,
-                prompt_type="Prompt",
-                prompt={
-                    "prompt_name": "Task Execution",
-                    "primary_objective": primary_objective,
-                    "task": task,
-                    "websearch": True,
-                    "websearch_depth": 3,
-                    "context_results": 5,
-                },
-            )
-            i += 1
-        return chain_name
-
-    async def create_smart_task_chain(
-        self,
-        agent: str,
-        primary_objective: str,
-        numbered_list_of_tasks: str,
-        short_chain_description: str,
-    ):
-        now = datetime.datetime.now()
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-        task_list = numbered_list_of_tasks.split("\n")
-        task_list = [
-            task.lstrip("0123456789.")  # Strip leading digits and periods
-            for task in task_list
-            if task
-            and task[0]
-            in [str(i) for i in range(10)]  # Check for task starting with a digit (0-9)
-        ]
-        chain_name = (
-            f"AI Generated Smart Task - {short_chain_description} - {timestamp}"
-        )
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
-        i = 1
-        for task in task_list:
-            chain.add_chain_step(
-                chain_name=chain_name,
-                agent_name=agent,
-                step_number=i,
-                prompt_type="Chain",
-                prompt={
-                    "chain": "Smart Instruct",
-                    "input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
-                },
-            )
+            if smart_chain:
+                if researching:
+                    step_chain = "Smart Instruct"
+                else:
+                    step_chain = "Smart Instruct - No Research"
+                chain.add_chain_step(
+                    chain_name=chain_name,
+                    agent_name=agent,
+                    step_number=i,
+                    prompt_type="Chain",
+                    prompt={
+                        "chain": step_chain,
+                        "input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
+                    },
+                )
+            else:
+                chain.add_chain_step(
+                    chain_name=chain_name,
+                    agent_name=agent,
+                    step_number=i,
+                    prompt_type="Prompt",
+                    prompt={
+                        "prompt_name": "Task Execution",
+                        "primary_objective": primary_objective,
+                        "task": task,
+                        "websearch": researching,
+                        "websearch_depth": 3,
+                        "context_results": 5,
+                    },
+                )
             i += 1
         return chain_name
 
