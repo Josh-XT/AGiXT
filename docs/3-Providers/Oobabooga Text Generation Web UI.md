@@ -12,5 +12,7 @@ _Note: AI_MODEL should stay `default` unless there is a folder in `prompts` spec
 
 ### Create Agent 
 1. Create a new agent
-1. Set `AI_PROVIDER` to `oobabooga`.
-1. Set `AI_PROVIDER_URI` to the URI of your Oobabooga server.
+2. Set `AI_PROVIDER` to `oobabooga`.
+3. Set `AI_PROVIDER_URI` to the URI of your Oobabooga server.
+4. Set `PROMPT_PREFIX` and `PROMPT_SUFFIX` if your model requires it.  For example, for models like Vicuna, you will want to enter the `PROMPT_PREFIX` to `User: ` and `PROMPT_SUFFIX` to `\nAssistant: `.
+5. Review and set any of the other settings as you see fit from the agent settings page.
