@@ -28,6 +28,8 @@ class OobaboogaProvider:
         MIROSTAT_ETA: float = 0.1,
         TRUNCATION_LENGTH: int = 2048,
         AI_MODEL: str = "default",
+        PROMPT_PREFIX: str = "",
+        PROMPT_SUFFIX: str = "",
         **kwargs,
     ):
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
@@ -53,10 +55,13 @@ class OobaboogaProvider:
         self.MIROSTAT_TAU = MIROSTAT_TAU
         self.MIROSTAT_ETA = MIROSTAT_ETA
         self.TRUNCATION_LENGTH = TRUNCATION_LENGTH
+        self.PROMPT_PREFIX = PROMPT_PREFIX
+        self.PROMPT_SUFFIX = PROMPT_SUFFIX
         self.requirements = []
 
     async def instruct(self, prompt, tokens: int = 0):
         new_tokens = int(self.MAX_TOKENS) - tokens
+        prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         params = {
             "prompt": prompt,
             "max_new_tokens": new_tokens,
