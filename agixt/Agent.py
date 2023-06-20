@@ -352,15 +352,9 @@ class Agent:
         try:
             with open(self.history_file, "r") as f:
                 yaml_history = yaml.safe_load(f)
-            history = []
-            for interaction in yaml_history["interactions"]:
-                role = interaction["role"]
-                if "timestamp" in interaction:
-                    message = interaction["timestamp"] + "\n" + interaction["message"]
-                else:
-                    message = interaction["message"]
-                history.append({role: message})
-            return history
+            if "interactions" in yaml_history:
+                return yaml_history["interactions"]
+            return []
         except:
             return []
 
