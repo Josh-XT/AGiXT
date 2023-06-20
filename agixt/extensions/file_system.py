@@ -192,9 +192,13 @@ class file_system(Extensions):
 
         return found_files
 
-    async def indent_string(self, string):
+    async def indent_string(self, string: str, indents: int = 1):
+        if indents == 1:
+            indent = "    "
+        else:
+            indent = "    " * indents
         lines = string.split("\n")
-        indented_lines = [("    " + line) for line in lines]
+        indented_lines = [(indent + line) for line in lines]
         indented_string = "\n".join(indented_lines)
         return indented_string
 
@@ -203,8 +207,9 @@ class file_system(Extensions):
         commands_dict = {
             f_name.replace("_", " "): f"self.{f_name}" for f_name in function_names
         }
-        commands_string = "self.commands = {\n"
+        commands_string = "self.commands = {"
         for key, value in commands_dict.items():
-            commands_string += f'    "{key.capitalize()}": {value},\n'
+            commands_string += f' "{key.capitalize()}": {value},'
+        commands_string = commands_string[:-1]
         commands_string += "}"
         return commands_string

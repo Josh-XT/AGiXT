@@ -105,6 +105,15 @@ class agixt_chain(Extensions):
 
     def parse_openapi(self, data):
         endpoints = []
+        schemas = data.get("components", {}).get(
+            "schemas", {}
+        )  # get the global schemas
+
+        def resolve_schema(ref):
+            # remove the '#/components/schemas/' part
+            schema_name = ref.replace("#/components/schemas/", "")
+            return schemas.get(schema_name, {})
+
         if "paths" in data:
             for path, path_info in data["paths"].items():
                 for method, method_info in path_info.items():
@@ -114,6 +123,7 @@ class agixt_chain(Extensions):
                         "summary": method_info.get("summary", ""),
                         "parameters": [],
                         "responses": [],
+                        "requestBody": {},
                     }
                     if "parameters" in method_info:
                         for param in method_info["parameters"]:
@@ -127,7 +137,20 @@ class agixt_chain(Extensions):
                                 else "",
                             }
                             endpoint_info["parameters"].append(param_info)
-
+                    if "requestBody" in method_info:
+                        request_body = method_info["requestBody"]
+                        content = request_body.get("content", {})
+                        for content_type, content_info in content.items():
+                            if "$ref" in content_info.get("schema", {}):
+                                # resolve the reference into the actual schema
+                                content_info["schema"] = resolve_schema(
+                                    content_info["schema"]["$ref"]
+                                )
+                        endpoint_info["requestBody"] = {
+                            "description": request_body.get("description", ""),
+                            "required": request_body.get("required", False),
+                            "content": content,
+                        }
                     if "responses" in method_info:
                         for response, response_info in method_info["responses"].items():
                             response_info = {
@@ -200,6 +223,7 @@ class agixt_chain(Extensions):
                 prompt={
                     "command_name": "Indent String for Python Code",
                     "string": "{STEP" + str(i - 1) + "}",
+                    "indents": 1,
                 },
             )
             i += 1
@@ -237,9 +261,7 @@ class agixt_chain(Extensions):
             },
         )
         new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
-        new_extension = new_extension.replace(
-            "extension_name", "{" + extension_name + "}"
-        )
+        new_extension = new_extension.replace("{extension_name}", extension_name)
         new_extension = new_extension.replace("extension_commands", "STEP" + str(i))
         new_extension = new_extension.replace(
             "extension_functions", "STEP" + str(i - 1)

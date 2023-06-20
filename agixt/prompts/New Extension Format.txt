@@ -1,6 +1,10 @@
-import requests
-import json
 from ezsession import get_session
+from Extensions import Extensions
+import aiohttp
+import json
+import requests
+import aiohttp
+import json
 
 class {extension_name}(Extensions):
     def __init__(self, **kwargs):
