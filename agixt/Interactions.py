@@ -344,7 +344,6 @@ class Interactions:
     async def run_chain_step(
         self, step: dict = {}, chain_name="", user_input="", agent_override=""
     ):
-        logging.info(step)
         if step:
             if "prompt_type" in step:
                 if agent_override != "":
@@ -404,8 +403,15 @@ class Interactions:
         last_response = ""
         for step_data in chain_data["steps"]:
             if "prompt" in step_data and "step" in step_data:
-                logging.info(f"Running step {step_data['step']}")
                 step = {}
+                step["agent_name"] = (
+                    agent_override if agent_override != "" else step_data["agent_name"]
+                )
+                step["prompt_type"] = step_data["prompt_type"]
+                step["prompt"] = step_data["prompt"]
+                logging.info(
+                    f"Running step {step_data['step']} with agent {step['agent_name']}."
+                )
                 step_response = await self.run_chain_step(
                     step=step_data,
                     chain_name=chain_name,
@@ -413,9 +419,6 @@ class Interactions:
                     agent_override=agent_override,
                 )  # Get the response of the current step.
                 step["response"] = step_response
-                step["agent_name"] = step_data["agent_name"]
-                step["prompt"] = step_data["prompt"]
-                step["prompt_type"] = step_data["prompt_type"]
                 last_response = step_response
                 responses[step_data["step"]] = step  # Store the response.
                 logging.info(f"Response: {step_response}")
