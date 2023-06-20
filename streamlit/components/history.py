@@ -53,6 +53,8 @@ def get_history(agent_name):
         message_container = "<div class='message-container'>"
 
         for item in history:
+            item["message"] = html.escape(item["message"])
+            item["message"] = item["message"].replace(r"\n", "<br>")
             message = (
                 f"{item['timestamp']}<br><b>{item['role']}:</b><br>{item['message']}"
             )
