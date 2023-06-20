@@ -91,7 +91,7 @@ class OobaboogaProvider:
             "mirostat_eta": float(self.MIROSTAT_ETA),
             "seed": -1,
             "add_bos_token": True,
-            "truncation_length": 2048,
+            "truncation_length": int(self.TRUNCATION_LENGTH),
             "ban_eos_token": False,
             "skip_special_tokens": True,
             "custom_stopping_strings": "",  # leave this blank
