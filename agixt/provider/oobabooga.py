@@ -95,7 +95,7 @@ class OobaboogaProvider:
             "ban_eos_token": False,
             "skip_special_tokens": True,
             "custom_stopping_strings": "",  # leave this blank
-            "stopping_strings": [],
+            "stopping_strings": ["</s>"],
         }
         print(params)
         response = requests.post(f"{self.AI_PROVIDER_URI}/api/v1/generate", json=params)
