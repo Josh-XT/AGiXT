@@ -114,6 +114,7 @@ class agixt_chain(Extensions):
                         "summary": method_info.get("summary", ""),
                         "parameters": [],
                         "responses": [],
+                        "requestBody": {},
                     }
                     if "parameters" in method_info:
                         for param in method_info["parameters"]:
@@ -127,7 +128,13 @@ class agixt_chain(Extensions):
                                 else "",
                             }
                             endpoint_info["parameters"].append(param_info)
-
+                    if "requestBody" in method_info:
+                        request_body = method_info["requestBody"]
+                        endpoint_info["requestBody"] = {
+                            "description": request_body.get("description", ""),
+                            "required": request_body.get("required", False),
+                            "content": request_body.get("content", {}),
+                        }
                     if "responses" in method_info:
                         for response, response_info in method_info["responses"].items():
                             response_info = {
@@ -200,6 +207,7 @@ class agixt_chain(Extensions):
                 prompt={
                     "command_name": "Indent String for Python Code",
                     "string": "{STEP" + str(i - 1) + "}",
+                    "indents": 1,
                 },
             )
             i += 1
@@ -237,9 +245,7 @@ class agixt_chain(Extensions):
             },
         )
         new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
-        new_extension = new_extension.replace(
-            "extension_name", "{" + extension_name + "}"
-        )
+        new_extension = new_extension.replace("{extension_name}", extension_name)
         new_extension = new_extension.replace("extension_commands", "STEP" + str(i))
         new_extension = new_extension.replace(
             "extension_functions", "STEP" + str(i - 1)
