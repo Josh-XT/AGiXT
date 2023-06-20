@@ -28,8 +28,8 @@ class CustomProvider:
         self.WAIT_BETWEEN_REQUESTS = WAIT_BETWEEN_REQUESTS
 
     async def instruct(self, prompt, tokens: int = 0):
-        if self.WAIT_BETWEEN_REQUESTS > 0:
-            time.sleep(self.WAIT_BETWEEN_REQUESTS)
+        if int(self.WAIT_BETWEEN_REQUESTS) > 0:
+            time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if not self.AI_MODEL.startswith("gpt-"):
             # Use completion API

@@ -6,7 +6,7 @@ class OobaboogaProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",
-        MAX_TOKENS: int = 2000,
+        MAX_TOKENS: int = 2048,
         DO_SAMPLE: str = "True",
         AI_TEMPERATURE: float = 0.7,
         TOP_P: float = 0.9,
@@ -28,35 +28,44 @@ class OobaboogaProvider:
         MIROSTAT_ETA: float = 0.1,
         TRUNCATION_LENGTH: int = 2048,
         AI_MODEL: str = "default",
+        PROMPT_PREFIX: str = "",
+        PROMPT_SUFFIX: str = "",
         **kwargs,
     ):
-        self.AI_PROVIDER_URI = AI_PROVIDER_URI
-        self.MAX_TOKENS = MAX_TOKENS
-        self.DO_SAMPLE = DO_SAMPLE
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.AI_MODEL = AI_MODEL
-        self.TOP_P = TOP_P
-        self.TYPICAL_P = TYPICAL_P
-        self.EPSILON_CUTOFF = EPSILON_CUTOFF
-        self.ETA_CUTOFF = ETA_CUTOFF
-        self.TFS = TFS
-        self.TOP_A = TOP_A
-        self.REPETITION_PENALTY = REPETITION_PENALTY
-        self.ENCODER_REPETITION_PENALTY = ENCODER_REPETITION_PENALTY
-        self.TOP_K = TOP_K
-        self.MIN_LENGTH = MIN_LENGTH
-        self.NO_REPEAT_NGRAM_SIZE = NO_REPEAT_NGRAM_SIZE
-        self.NUM_BEAMS = NUM_BEAMS
-        self.PENALTY_ALPHA = PENALTY_ALPHA
-        self.LENGTH_PENALTY = LENGTH_PENALTY
-        self.MIROSTAT_MODE = MIROSTAT_MODE
-        self.MIROSTAT_TAU = MIROSTAT_TAU
-        self.MIROSTAT_ETA = MIROSTAT_ETA
-        self.TRUNCATION_LENGTH = TRUNCATION_LENGTH
+        self.AI_PROVIDER_URI = (
+            AI_PROVIDER_URI if AI_PROVIDER_URI else "http://localhost:5000"
+        )
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
+        self.DO_SAMPLE = DO_SAMPLE if DO_SAMPLE else "True"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
+        self.TOP_P = TOP_P if TOP_P else 0.9
+        self.TYPICAL_P = TYPICAL_P if TYPICAL_P else 0.2
+        self.EPSILON_CUTOFF = EPSILON_CUTOFF if EPSILON_CUTOFF else 0
+        self.ETA_CUTOFF = ETA_CUTOFF if ETA_CUTOFF else 0
+        self.TFS = TFS if TFS else 1
+        self.TOP_A = TOP_A if TOP_A else 0
+        self.REPETITION_PENALTY = REPETITION_PENALTY if REPETITION_PENALTY else 1.05
+        self.ENCODER_REPETITION_PENALTY = (
+            ENCODER_REPETITION_PENALTY if ENCODER_REPETITION_PENALTY else 1
+        )
+        self.TOP_K = TOP_K if TOP_K else 200
+        self.MIN_LENGTH = MIN_LENGTH if MIN_LENGTH else 0
+        self.NO_REPEAT_NGRAM_SIZE = NO_REPEAT_NGRAM_SIZE if NO_REPEAT_NGRAM_SIZE else 0
+        self.NUM_BEAMS = NUM_BEAMS if NUM_BEAMS else 1
+        self.PENALTY_ALPHA = PENALTY_ALPHA if PENALTY_ALPHA else 0
+        self.LENGTH_PENALTY = LENGTH_PENALTY if LENGTH_PENALTY else 1
+        self.MIROSTAT_MODE = MIROSTAT_MODE if MIROSTAT_MODE else 0
+        self.MIROSTAT_TAU = MIROSTAT_TAU if MIROSTAT_TAU else 5
+        self.MIROSTAT_ETA = MIROSTAT_ETA if MIROSTAT_ETA else 0.1
+        self.TRUNCATION_LENGTH = TRUNCATION_LENGTH if TRUNCATION_LENGTH else 2048
+        self.PROMPT_PREFIX = PROMPT_PREFIX if PROMPT_PREFIX else ""
+        self.PROMPT_SUFFIX = PROMPT_SUFFIX if PROMPT_SUFFIX else ""
         self.requirements = []
 
     async def instruct(self, prompt, tokens: int = 0):
         new_tokens = int(self.MAX_TOKENS) - tokens
+        prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         params = {
             "prompt": prompt,
             "max_new_tokens": new_tokens,
@@ -88,11 +97,11 @@ class OobaboogaProvider:
             "custom_stopping_strings": "",  # leave this blank
             "stopping_strings": [],
         }
+        print(params)
         response = requests.post(f"{self.AI_PROVIDER_URI}/api/v1/generate", json=params)
         data = None
 
         if response.status_code == 200:
             data = response.json()["results"][0]["text"]
             data = re.sub(r"(?<!\\)\\(?!n)", "", data)
-
         return data
