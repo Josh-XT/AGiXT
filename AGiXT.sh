@@ -130,7 +130,7 @@ local_install() {
   sleep 1
 
   echo "${BOLD}${YELLOW}Step 5: Set Token Env Var...${RESET}"
-  export TOKENIZERS_PARALLELISM=true &
+  export TOKENIZERS_PARALLELISM=false &
   sleep 1
 
   echo "${BOLD}${YELLOW}Step 6: Running AGiXT Back End...${RESET}"
