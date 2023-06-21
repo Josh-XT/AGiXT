@@ -686,12 +686,12 @@ class Interactions:
                             collected_data,
                             link_list,
                         ) = await self.get_web_content(url=url)
-                        # Split the collected data into 2000 character chunks
+                        # Split the collected data into agent max tokens character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
                                 chunks = [
-                                    collected_data[i : i + 2000]
-                                    for i in range(0, len(collected_data), 2000)
+                                    collected_data[i : i + self.agent.MAX_TOKENS]
+                                    for i in range(0, len(collected_data), self.agent.MAX_TOKENS)
                                 ]
                                 for chunk in chunks:
                                     summarized_content = await self.run(
