@@ -9,6 +9,11 @@ def cached_get_extensions():
     return ApiClient.get_extensions()
 
 
+@st.cache_data
+def cached_get_prompts():
+    return ApiClient.get_prompts()
+
+
 def build_args(args: dict = {}, prompt: dict = {}, step_number: int = 0):
     return {
         arg: st.text_input(arg, value=prompt.get(arg, ""), key=f"{arg}_{step_number}")
@@ -21,7 +26,7 @@ def build_args(args: dict = {}, prompt: dict = {}, step_number: int = 0):
 
 
 def prompt_selection(prompt: dict = {}, step_number: int = 0):
-    available_prompts = ApiClient.get_prompts()
+    available_prompts = cached_get_prompts()
     prompt_name = st.selectbox(
         "Select Custom Prompt",
         [""] + available_prompts,
