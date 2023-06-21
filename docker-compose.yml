@@ -5,6 +5,7 @@ services:
     init: true
     environment:
       - UVICORN_WORKERS=4
+      - TOKENIZERS_PARALLELISM=False
     ports:
       - "8501:8501"
       - "7437:7437"
