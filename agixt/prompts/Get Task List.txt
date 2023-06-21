@@ -1,4 +1,3 @@
-{command_list}
 {context}
 
 Today's date is {date}. 
