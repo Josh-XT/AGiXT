@@ -207,10 +207,21 @@ class ApiClient:
         return response.json()["chain"]
 
     @staticmethod
-    def run_chain(chain_name: str, user_input: str, agent_name: str = "") -> str:
+    def run_chain(
+        chain_name: str,
+        user_input: str,
+        agent_name: str = "",
+        all_responses: bool = False,
+        from_step: int = 1,
+    ) -> str:
         response = requests.post(
             f"{base_uri}/api/chain/{chain_name}/run",
-            json={"prompt": user_input, "agent_override": agent_name},
+            json={
+                "prompt": user_input,
+                "agent_override": agent_name,
+                "all_responses": all_responses,
+                "from_step": int(from_step),
+            },
         )
         return response.json()
 
