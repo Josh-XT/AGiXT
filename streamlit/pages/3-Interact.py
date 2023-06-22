@@ -138,6 +138,10 @@ if mode == "Chains":
     chain_names = ApiClient.get_chains()
     chain_action = "Run Chain"
     chain_name = st.selectbox("Chains", chain_names)
+    from_step = st.number_input("Start from Step", min_value=1, value=1)
+    all_responses = st.checkbox(
+        "Show All Responses (If not checked, you will only be shown the last step's response in the chain when done.)"
+    )
     user_input = st.text_area("User Input")
     # Need a checkbox for agent override
     agent_override = st.checkbox("Override Agent")
@@ -149,7 +153,11 @@ if mode == "Chains":
         if chain_name:
             if chain_action == "Run Chain":
                 responses = ApiClient.run_chain(
-                    chain_name=chain_name, user_input=user_input, agent_name=agent_name
+                    chain_name=chain_name,
+                    user_input=user_input,
+                    agent_name=agent_name,
+                    all_responses=all_responses,
+                    from_step=from_step,
                 )
                 st.success(f"Chain '{chain_name}' executed.")
                 st.write(responses)
