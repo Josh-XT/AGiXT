@@ -668,6 +668,7 @@ class Interactions:
             return None, None
 
     async def resursive_browsing(self, user_input, links):
+        chunk_size = int(self.agent.MAX_TOKENS) / 2
         try:
             words = links.split()
             links = [
@@ -698,11 +699,11 @@ class Interactions:
                         if collected_data is not None:
                             if len(collected_data) > 0:
                                 chunks = [
-                                    collected_data[i : i + self.agent.MAX_TOKENS / 2]
+                                    collected_data[i : i + chunk_size]
                                     for i in range(
                                         0,
                                         len(collected_data),
-                                        self.agent.MAX_TOKENS / 2,
+                                        chunk_size,
                                     )
                                 ]
                                 for chunk in chunks:
