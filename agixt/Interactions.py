@@ -391,7 +391,12 @@ class Interactions:
             return None
 
     async def run_chain(
-        self, chain_name, user_input=None, all_responses=True, agent_override=""
+        self,
+        chain_name,
+        user_input=None,
+        all_responses=True,
+        agent_override="",
+        from_step=1,
     ):
         chain = Chain()
         file_path = get_chain_responses_file_path(chain_name=chain_name)
@@ -402,30 +407,33 @@ class Interactions:
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
         for step_data in chain_data["steps"]:
-            if "prompt" in step_data and "step" in step_data:
-                step = {}
-                step["agent_name"] = (
-                    agent_override if agent_override != "" else step_data["agent_name"]
-                )
-                step["prompt_type"] = step_data["prompt_type"]
-                step["prompt"] = step_data["prompt"]
-                logging.info(
-                    f"Running step {step_data['step']} with agent {step['agent_name']}."
-                )
-                step_response = await self.run_chain_step(
-                    step=step_data,
-                    chain_name=chain_name,
-                    user_input=user_input,
-                    agent_override=agent_override,
-                )  # Get the response of the current step.
-                step["response"] = step_response
-                last_response = step_response
-                responses[step_data["step"]] = step  # Store the response.
-                logging.info(f"Response: {step_response}")
-                # Write the responses to the json file.
-                dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                with open(file_path, "w") as f:
-                    json.dump(responses, f)
+            if int(step_data["step"]) >= int(from_step):
+                if "prompt" in step_data and "step" in step_data:
+                    step = {}
+                    step["agent_name"] = (
+                        agent_override
+                        if agent_override != ""
+                        else step_data["agent_name"]
+                    )
+                    step["prompt_type"] = step_data["prompt_type"]
+                    step["prompt"] = step_data["prompt"]
+                    logging.info(
+                        f"Running step {step_data['step']} with agent {step['agent_name']}."
+                    )
+                    step_response = await self.run_chain_step(
+                        step=step_data,
+                        chain_name=chain_name,
+                        user_input=user_input,
+                        agent_override=agent_override,
+                    )  # Get the response of the current step.
+                    step["response"] = step_response
+                    last_response = step_response
+                    responses[step_data["step"]] = step  # Store the response.
+                    logging.info(f"Response: {step_response}")
+                    # Write the responses to the json file.
+                    dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    with open(file_path, "w") as f:
+                        json.dump(responses, f)
         if all_responses == True:
             return responses
         else:
