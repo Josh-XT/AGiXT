@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from Extensions import Extensions
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
+
 class web_playwright(Extensions):
     def __init__(self, **kwargs):
         self.commands = {
@@ -53,7 +54,7 @@ class web_playwright(Extensions):
                     f"{link_text} ({link_url})" for link_text, link_url in hyperlinks
                 ]
                 await browser.close()
-                
+
         except Exception as e:
             formatted_links = f"Error: {str(e)}"
         return formatted_links
