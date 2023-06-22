@@ -149,7 +149,7 @@ if mode == "Chains":
         agent_name = agent_selection()
     else:
         agent_name = ""
-    if st.button("Perform Action"):
+    if st.button("Run Chain"):
         if chain_name:
             if chain_action == "Run Chain":
                 responses = ApiClient.run_chain(
