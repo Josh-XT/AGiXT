@@ -111,6 +111,8 @@ class ChainData(BaseModel):
 class RunChain(BaseModel):
     prompt: str
     agent_override: Optional[str] = ""
+    all_responses: Optional[bool] = False
+    from_step: Optional[int] = 1
 
 
 class StepInfo(BaseModel):
@@ -516,6 +518,8 @@ async def run_chain(chain_name: str, user_input: RunChain):
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
+        all_responses=user_input.all_responses,
+        from_step=user_input.from_step,
     )
     return chain_response
 

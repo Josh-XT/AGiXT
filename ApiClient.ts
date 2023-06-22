@@ -258,12 +258,16 @@ export class ApiClient {
   public runChain(
     chainName: string,
     userInput: string,
-    agentName: string = ""
+    agentName: string = "",
+    all_responses: boolean = false,
+    from_step: number = 1
   ): Promise<string> {
     return axios
       .post(`${this.baseUri}/api/chain/${chainName}/run`, {
         prompt: userInput,
         agent_override: agentName,
+        all_responses: all_responses,
+        from_step: from_step,
       })
       .then((response) => response.data);
   }
