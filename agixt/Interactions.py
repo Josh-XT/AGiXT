@@ -716,7 +716,7 @@ class Interactions:
                                     )
                                     if not summarized_content.startswith("None"):
                                         try:
-                                            self.memories.store_result(
+                                            await self.memories.store_result(
                                                 input=user_input,
                                                 result=summarized_content,
                                                 external_source_name=url,
