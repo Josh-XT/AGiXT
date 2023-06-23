@@ -37,7 +37,7 @@ class github(Extensions):
                 url=auth_repo_url,
                 to_path=repo_dir,
             )
-            return f"""Cloned {repo_url} to {os.path.join(self.WORKING_DIRECTORY, repo_name)}"""
+            return f"Cloned {repo_url} to {repo_dir}"
         except Exception as e:
             return f"Error: {str(e)}"
 
