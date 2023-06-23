@@ -30,8 +30,12 @@ class github(Extensions):
             auth_repo_url = "//".join(split_url)
         try:
             repo_name = repo_url.split("/")[-1]
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
+            if os.path.exists(repo_dir):
+                return f"""{repo_dir} already exists"""
             git.Repo.clone_from(
-                auth_repo_url, os.path.join(self.WORKING_DIRECTORY, repo_name)
+                url=auth_repo_url,
+                to_path=repo_dir,
             )
             return f"""Cloned {repo_url} to {os.path.join(self.WORKING_DIRECTORY, repo_name)}"""
         except Exception as e:
