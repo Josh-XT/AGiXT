@@ -668,7 +668,7 @@ class Interactions:
             return None, None
 
     async def resursive_browsing(self, user_input, links):
-        chunk_size = int(self.agent.MAX_TOKENS / 2)
+        chunk_size = int(int(self.agent.MAX_TOKENS) / 2)
         try:
             words = links.split()
             links = [
