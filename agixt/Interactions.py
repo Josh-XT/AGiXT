@@ -189,6 +189,11 @@ class Interactions:
                     chain_name=chain_name, step_number=step_number
                 )
                 user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
+        try:
+            working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
+        except:
+            working_directory = "./WORKSPACE"
+
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -197,6 +202,7 @@ class Interactions:
             context=context,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
+            working_directory=working_directory,
             **kwargs,
         )
 
