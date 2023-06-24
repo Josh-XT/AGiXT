@@ -4,12 +4,10 @@
         {
             "step": 1,
             "agent_name": "gpt4free",
-            "prompt_type": "Prompt",
+            "prompt_type": "Chain",
             "prompt": {
-                "prompt_name": "Get Task List",
-                "websearch": true,
-                "websearch_depth": 3,
-                "context_results": 5
+                "chain": "Smart Prompt",
+                "input": "{user_input}"
             }
         },
         {
@@ -17,30 +15,42 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "Title a Chain"
+                "prompt_name": "Break into steps",
+                "introduction": "{STEP1}",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5
             }
         },
         {
             "step": 3,
             "agent_name": "gpt4free",
-            "prompt_type": "Command",
+            "prompt_type": "Prompt",
             "prompt": {
-                "command_name": "Create Task Chain",
-                "agent": "gpt4free",
-                "primary_objective": "{user_input}",
-                "numbered_list_of_tasks": "{STEP1}",
-                "short_chain_description": "{STEP2}",
-                "smart_chain": false,
-                "researching": false
+                "prompt_name": "Title a Chain"
             }
         },
         {
             "step": 4,
             "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Create Task Chain",
+                "agent": "gpt4free",
+                "primary_objective": "{STEP1}",
+                "numbered_list_of_tasks": "{STEP2}",
+                "short_chain_description": "{STEP3}",
+                "smart_chain": false,
+                "researching": false
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "gpt4free",
             "prompt_type": "Chain",
             "prompt": {
-                "chain": "{STEP3}",
-                "input": "{user_input}"
+                "chain": "{STEP4}",
+                "input": "{STEP1}"
             }
         }
     ]

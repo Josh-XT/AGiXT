@@ -5,7 +5,6 @@ from Prompts import Prompts
 import datetime
 import json
 import requests
-import re
 
 
 class agixt_chain(Extensions):
@@ -34,18 +33,47 @@ class agixt_chain(Extensions):
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
-        task_list = [
-            task.lstrip("0123456789.")  # Strip leading digits and periods
-            for task in task_list
-            if task
-            and task[0]
-            in [str(i) for i in range(10)]  # Check for task starting with a digit (0-9)
-        ]
+        new_task_list = []
+        current_task = ""
+        for task in task_list:
+            if task and task[0] in [
+                str(i) for i in range(10)
+            ]:  # Check for task starting with a digit (0-9)
+                if current_task:  # If there's a current task, add it to the list
+                    new_task_list.append(
+                        current_task.lstrip("0123456789.")
+                    )  # Strip leading digits and periods
+                current_task = task  # Start a new current task
+            else:
+                current_task += (
+                    "\n" + task
+                )  # If the line doesn't start with a number, it's a subtask - add it to the current task
+
+        if current_task:  # Add the last task if it exists
+            if "\n\n" in current_task:
+                current_task = current_task.split("\n\n")[0]
+            new_task_list.append(
+                current_task.lstrip("0123456789.")
+            )  # Strip leading digits and periods
+
+        task_list = new_task_list
+
         chain_name = f"AI Generated Task - {short_chain_description} - {timestamp}"
         chain = Chain()
         chain.add_chain(chain_name=chain_name)
         i = 1
         for task in task_list:
+            chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=agent,
+                step_number=i,
+                prompt_type="Chain",
+                prompt={
+                    "chain": "Smart Prompt",
+                    "input": f"Primary Objective to keep in mind while working on the task: {primary_objective} \nThe only task to complete to move towards the objective: {task}",
+                },
+            )
+            i += 1
             if smart_chain:
                 if researching:
                     step_chain = "Smart Instruct"
@@ -58,7 +86,7 @@ class agixt_chain(Extensions):
                     prompt_type="Chain",
                     prompt={
                         "chain": step_chain,
-                        "input": f"Primary Objective: {primary_objective}\nYour Task: {task}",
+                        "input": "{STEP" + str(i - 1) + "}",
                     },
                 )
             else:
@@ -69,8 +97,7 @@ class agixt_chain(Extensions):
                     prompt_type="Prompt",
                     prompt={
                         "prompt_name": "Task Execution",
-                        "primary_objective": primary_objective,
-                        "task": task,
+                        "introduction": "{STEP" + str(i - 1) + "}",
                         "websearch": researching,
                         "websearch_depth": 3,
                         "context_results": 5,
