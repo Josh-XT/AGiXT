@@ -5,17 +5,17 @@ class OpenaiProvider:
     def __init__(
         self,
         OPENAI_API_KEY: str = "",
-        AI_MODEL: str = "gpt-3.5-turbo",
+        AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 4096,
         **kwargs
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.AI_TOP_P = AI_TOP_P
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo-16k-0613"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 16000
         openai.api_key = OPENAI_API_KEY
 
     async def instruct(self, prompt, tokens: int = 0):
