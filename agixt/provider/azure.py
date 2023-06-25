@@ -24,10 +24,10 @@ class AzureProvider:
         self.requirements = ["openai"]
         self.DEPLOYMENT_ID = DEPLOYMENT_ID
         self.AZURE_API_KEY = AZURE_API_KEY
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.AI_TOP_P = AI_TOP_P
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-35-turbo"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
 
     async def instruct(self, prompt: str, tokens: int = 0) -> str:

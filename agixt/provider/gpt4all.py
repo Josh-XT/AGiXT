@@ -19,9 +19,9 @@ class Gpt4allProvider:
     ):
         self.model = GPT4All(model=MODEL_NAME)
         self.model.open()
-        self.MAX_TOKENS = MAX_TOKENS
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2000
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         # TODO: Need to research to add temperature, no obvious flag.
 
     async def instruct(self, prompt):
