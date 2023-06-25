@@ -23,17 +23,17 @@ except ImportError:
 class TransformerProvider:
     def __init__(
         self,
-        MODEL_PATH: str = "HuggingFaceH4/starchat-alpha",
+        MODEL_PATH: str = "HuggingFaceH4/starchat-beta",
         AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4096,
         AI_MODEL: str = "starchat",
         **kwargs,
     ):
         self.requirements = ["transformers", "accelerate"]
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
-        self.MODEL_PATH = MODEL_PATH
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "starchat"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
+        self.MODEL_PATH = MODEL_PATH if MODEL_PATH else "HuggingFaceH4/starchat-beta"
 
     async def instruct(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - tokens

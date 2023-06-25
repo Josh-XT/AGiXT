@@ -15,9 +15,9 @@ class HuggingfaceProvider:
     ):
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.HUGGINGFACE_API_URL = HUGGINGFACE_API_URL
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt2"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
 
     async def instruct(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3

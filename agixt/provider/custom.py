@@ -9,7 +9,7 @@ class CustomProvider:
         self,
         API_KEY: str = "",
         API_URI: str = "https://api.openai.com/v1/engines/davinci/completions",
-        AI_MODEL: str = "gpt-3.5-turbo",
+        AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 4096,
@@ -18,14 +18,16 @@ class CustomProvider:
         **kwargs,
     ):
         self.requirements = ["requests"]
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.AI_TOP_P = AI_TOP_P
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo-16k-0613"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 16000
         self.API_KEY = API_KEY
         self.API_URI = API_URI
-        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE
-        self.WAIT_BETWEEN_REQUESTS = WAIT_BETWEEN_REQUESTS
+        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+        self.WAIT_BETWEEN_REQUESTS = (
+            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 0
+        )
 
     async def instruct(self, prompt, tokens: int = 0):
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:

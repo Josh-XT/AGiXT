@@ -22,7 +22,7 @@ class Gpugpt4allProvider:
         except:
             self.max_tokens = 2000
         self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         # GPT4All will just download the model, maybe save it in our workspace?
         self.model = GPT4All(llama_path=MODEL_PATH)
         self.config = {

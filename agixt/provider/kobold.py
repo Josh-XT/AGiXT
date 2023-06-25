@@ -12,8 +12,8 @@ class KoboldProvider:
     ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
-        self.MAX_TOKENS = MAX_TOKENS
-        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2000
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.AI_MODEL = AI_MODEL
 
     async def instruct(self, prompt, tokens: int = 0):

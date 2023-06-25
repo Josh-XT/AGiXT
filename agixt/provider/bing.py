@@ -7,7 +7,7 @@ class BingProvider:
     def __init__(self, AI_TEMPERATURE: float = 0.7, **kwargs):
         self.AI_MODEL = "bing"
         self.requirements = ["EdgeGPT"]
-        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
     async def instruct(self, prompt, tokens: int = 0):
         cookie_path = "./cookies.json"

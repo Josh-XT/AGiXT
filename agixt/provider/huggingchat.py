@@ -12,10 +12,14 @@ class HuggingchatProvider:
         **kwargs,
     ):
         self.requirements = []
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = int(MAX_TOKENS)
-        self.AI_MODEL = AI_MODEL
-        self.HUGGINGCHAT_COOKIE_PATH = HUGGINGCHAT_COOKIE_PATH
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = int(MAX_TOKENS) if MAX_TOKENS else 2000
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "openassistant"
+        self.HUGGINGCHAT_COOKIE_PATH = (
+            HUGGINGCHAT_COOKIE_PATH
+            if HUGGINGCHAT_COOKIE_PATH
+            else "./huggingchat-cookies.json"
+        )
 
     async def instruct(self, prompt: str, tokens: int = 0) -> str:
         try:
