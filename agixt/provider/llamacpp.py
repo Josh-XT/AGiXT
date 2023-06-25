@@ -25,13 +25,13 @@ class LlamacppProvider:
         **kwargs,
     ):
         self.requirements = ["llama-cpp-python"]
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
-        self.AI_MODEL = AI_MODEL
-        self.GPU_LAYERS = GPU_LAYERS
-        self.BATCH_SIZE = BATCH_SIZE
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
+        self.GPU_LAYERS = GPU_LAYERS if GPU_LAYERS else 0
+        self.BATCH_SIZE = BATCH_SIZE if BATCH_SIZE else 2048
         self.THREADS = THREADS if THREADS != 0 else None
-        self.STOP_SEQUENCE = STOP_SEQUENCE
+        self.STOP_SEQUENCE = STOP_SEQUENCE if STOP_SEQUENCE else "</s>"
         self.MODEL_PATH = MODEL_PATH
         if self.MODEL_PATH:
             try:

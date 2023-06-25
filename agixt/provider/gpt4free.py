@@ -14,9 +14,9 @@ class Gpt4freeProvider:
         **kwargs,
     ):
         self.requirements = ["gpt4free"]
-        self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4000
         self.FAILED_PROVIDERS = []
         self.providers = [
             "DeepAI",

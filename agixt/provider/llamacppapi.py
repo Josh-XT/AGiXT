@@ -12,12 +12,14 @@ class LlamacppapiProvider:
         STOP_SEQUENCE: str = "</s>",
         **kwargs,
     ):
-        self.AI_PROVIDER_URI = AI_PROVIDER_URI
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
-        self.AI_MODEL = AI_MODEL
-        self.STOP_SEQUENCE = STOP_SEQUENCE
-        self.MAX_TOKENS = int(self.MAX_TOKENS)
+        self.AI_PROVIDER_URI = (
+            AI_PROVIDER_URI if AI_PROVIDER_URI else "http://localhost:8000"
+        )
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
+        self.STOP_SEQUENCE = STOP_SEQUENCE if STOP_SEQUENCE else "</s>"
+        self.MAX_TOKENS = int(self.MAX_TOKENS) if self.MAX_TOKENS else 2048
 
     async def instruct(self, prompt, tokens: int = 0):
         params = {

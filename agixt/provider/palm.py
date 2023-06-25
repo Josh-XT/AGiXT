@@ -13,8 +13,8 @@ class PalmProvider:
         self.requirements = []
         self.PALM_API_KEY = PALM_API_KEY
         self.AI_MODEL = AI_MODEL
-        self.AI_TEMPERATURE = AI_TEMPERATURE
-        self.MAX_TOKENS = MAX_TOKENS
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4000
         palm.configure(api_key=self.PALM_API_KEY)
 
     async def instruct(self, prompt, tokens: int = 0):
