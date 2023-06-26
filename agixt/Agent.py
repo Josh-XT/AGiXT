@@ -18,7 +18,7 @@ DEFAULT_SETTINGS = {
     "AI_TEMPERATURE": "0.7",
     "MAX_TOKENS": "4096",
     "embedder": "default",
-    "autonomous_execution": "false",
+    "autonomous_execution": False,
 }
 
 
@@ -147,6 +147,11 @@ class Agent:
                 self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
                     "autonomous_execution"
                 ]
+                if isinstance(self.AUTONOMOUS_EXECUTION, str):
+                    self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
+                    self.AUTONOMOUS_EXECUTION = (
+                        True if self.AUTONOMOUS_EXECUTION == "true" else False
+                    )
             else:
                 self.AUTONOMOUS_EXECUTION = True
             self.commands = self.load_commands()
