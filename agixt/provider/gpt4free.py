@@ -17,17 +17,17 @@ from g4f.Provider import (
     H2o,
     ChatgptLogin,
     DeepAi,
-    GetGpt
+    GetGpt,
 )
 
 
 class Gpt4freeProvider:
     def __init__(
-            self,
-            AI_MODEL: str = "gpt-3.5-turbo",
-            AI_TEMPERATURE: float = 0.7,
-            MAX_TOKENS: int = 4000,
-            **kwargs,
+        self,
+        AI_MODEL: str = "gpt-3.5-turbo",
+        AI_TEMPERATURE: float = 0.7,
+        MAX_TOKENS: int = 4000,
+        **kwargs,
     ):
         self.requirements = ["gpt4free"]
         self.AI_MODEL = AI_MODEL
@@ -65,8 +65,11 @@ class Gpt4freeProvider:
         for provider in self.providers:
             try:
                 if provider not in self.FAILED_PROVIDERS:
-                    response = g4f.ChatCompletion.create(model=g4f.Model.gpt_35_turbo, provider=provider, messages=[
-                        {"role": "user", "content": prompt}])
+                    response = g4f.ChatCompletion.create(
+                        model=g4f.Model.gpt_35_turbo,
+                        provider=provider,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
                     if response:
                         if provider == Ails:
                             if "error" in response and "message" in response:
@@ -74,7 +77,10 @@ class Gpt4freeProvider:
                         elif provider == Vercel:
                             if response == "Vercel is currently not working.":
                                 response = None
-                        if response == "Unable to fetch the response, Please try again.":
+                        if (
+                            response
+                            == "Unable to fetch the response, Please try again."
+                        ):
                             response = None
                     if response and len(response) > 1:
                         return response
