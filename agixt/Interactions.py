@@ -456,50 +456,29 @@ class Interactions:
         objective: str = None,
         **kwargs,
     ):
-        answers = []
-        # Do multi shots of prompt to get N different answers to be validated
-        answers.append(
-            await self.run(
-                user_input=user_input,
-                prompt="SmartInstruct-StepByStep"
-                if objective == None
-                else "SmartTask-StepByStep",
-                context_results=6,
-                websearch=True,
-                websearch_depth=3,
-                shots=shots,
-                learn_file=learn_file,
-                objective=objective,
-                **kwargs,
-            )
+        answer_str = await self.run(
+            user_input=user_input,
+            prompt="SmartInstruct-StepByStep"
+            if objective == None
+            else "SmartTask-StepByStep",
+            context_results=6,
+            websearch=True,
+            websearch_depth=3,
+            shots=shots,
+            learn_file=learn_file,
+            objective=objective,
+            **kwargs,
         )
-        if shots > 1:
-            for i in range(shots - 1):
-                answers.append(
-                    await self.run(
-                        user_input=user_input,
-                        prompt="SmartInstruct-StepByStep"
-                        if objective == None
-                        else "SmartTask-StepByStep",
-                        context_results=6,
-                        shots=shots,
-                        objective=objective,
-                        **kwargs,
-                    )
-                )
-        answer_str = ""
-        for i, answer in enumerate(answers):
-            answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = await self.run(
             user_input=answer_str,
             prompt="SmartInstruct-Researcher",
-            shots=shots,
+            shot_count=shots,
             **kwargs,
         )
         resolver = await self.run(
             user_input=researcher,
             prompt="SmartInstruct-Resolver",
-            shots=shots,
+            shot_count=shots,
             **kwargs,
         )
         execution_response = await self.run(
@@ -517,46 +496,28 @@ class Interactions:
         learn_file: str = "",
         **kwargs,
     ):
-        answers = []
-        answers.append(
-            await self.run(
-                user_input=user_input,
-                prompt="SmartChat-StepByStep",
-                context_results=6,
-                websearch=True,
-                websearch_depth=3,
-                shots=shots,
-                learn_file=learn_file,
-                **kwargs,
-            )
+        answer_str = await self.run(
+            user_input=user_input,
+            prompt="SmartChat-StepByStep",
+            context_results=6,
+            websearch=True,
+            websearch_depth=3,
+            shots=shots,
+            learn_file=learn_file,
+            **kwargs,
         )
-        # Do multi shots of prompt to get N different answers to be validated
-        if shots > 1:
-            for i in range(shots - 1):
-                answers.append(
-                    await self.run(
-                        user_input=user_input,
-                        prompt="SmartChat-StepByStep",
-                        context_results=6,
-                        shots=shots,
-                        **kwargs,
-                    )
-                )
-        answer_str = ""
-        for i, answer in enumerate(answers):
-            answer_str += f"Answer {i + 1}:\n{answer}\n\n"
         researcher = await self.run(
             user_input=answer_str,
             prompt="SmartChat-Researcher",
             context_results=6,
-            shots=shots,
+            shot_count=shots,
             **kwargs,
         )
         resolver = await self.run(
             user_input=researcher,
             prompt="SmartChat-Resolver",
             context_results=6,
-            shots=shots,
+            shot_count=shots,
             **kwargs,
         )
         return resolver
@@ -706,11 +667,12 @@ class Interactions:
                         # Split the collected data into agent max tokens / 2 character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
+                                tokens = len(self.nlp(collected_data))
                                 chunks = [
                                     collected_data[i : i + chunk_size]
                                     for i in range(
                                         0,
-                                        len(collected_data),
+                                        int(tokens),
                                         chunk_size,
                                     )
                                 ]

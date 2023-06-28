@@ -17,7 +17,7 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "SmartInstruct-Researcher",
-                "shots": "3",
+                "shot_count": "3",
                 "task": "{STEP1}"
             }
         },
@@ -27,7 +27,7 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "SmartInstruct-Resolver",
-                "shots": "3",
+                "shot_count": "3",
                 "task": "{STEP2}"
             }
         }
