@@ -3,7 +3,7 @@
 
 Today's date is {date}. 
 
-You are a researcher task with investigating the {shots} response options provided. 
+You are a researcher task with investigating the {shot_count} response options provided. 
 1. List the flaws and faulty logic of each answer option. 
 2. Choose the appropriate commands to complete the task once logic is worked out.
 3. Return the improved answer in full including commands to complete the task.

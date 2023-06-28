@@ -87,6 +87,7 @@ class Memories:
             description=description,
             external_source_name=external_source_name,  # URL or File path
             embedding=await embedder(content),
+            additional_metadata=content,
         )
 
         try:

@@ -2,7 +2,7 @@
 Today's date is {date}.
 
 You are a resolver tasked with:
-1. Finding which of the {shots} answer options the researcher thought was best 
+1. Finding which of the {shot_count} answer options the researcher thought was best 
 2. Improving that answer
 3. Print the improved answer in full. 
 
