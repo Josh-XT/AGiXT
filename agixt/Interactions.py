@@ -14,6 +14,10 @@ import logging
 from concurrent.futures import Future
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
+from agixtsdk import AGiXTSDK
+
+base_uri = "http://localhost:7437"
+ApiClient = AGiXTSDK(base_uri=base_uri)
 
 
 class Interactions:
@@ -276,11 +280,18 @@ class Interactions:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            self.response = await self.run(
+            self.response = ApiClient.prompt_agent(
+                agent_name=self.agent_name,
                 user_input=user_input,
-                prompt=prompt,
+                prompt_name=prompt,
                 context_results=context_results,
-                **kwargs,
+                prompt_args={
+                    "chain_name": chain_name,
+                    "step_number": step_number,
+                    "shots": shots,
+                    "disable_memory": disable_memory,
+                    **kwargs,
+                },
             )
 
         # Handle commands if the prompt contains the {COMMANDS} placeholder
@@ -330,14 +341,16 @@ class Interactions:
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
-                shot_response = await self.run(
+                shot_response = ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
                     user_input=user_input,
-                    prompt=prompt,
+                    prompt_name=prompt,
                     context_results=context_results,
-                    shots=shots - 1,
-                    chain_name=chain_name,
-                    step_number=step_number,
-                    **kwargs,
+                    prompt_args={
+                        "chain_name": chain_name,
+                        "step_number": step_number,
+                        **kwargs,
+                    },
                 )
                 time.sleep(1)
                 responses.append(shot_response)
@@ -379,19 +392,23 @@ class Interactions:
                         command_args=args,
                     )
                 elif prompt_type == "Prompt":
-                    result = await self.run(
+                    result = ApiClient.prompt_agent(
+                        agent_name=self.agent_name,
+                        prompt_name=prompt_name,
                         user_input=user_input,
-                        prompt=prompt_name,
-                        chain_name=chain_name,
-                        step_number=step_number,
-                        **args,
+                        prompt_args={
+                            "chain_name": chain_name,
+                            "step_number": step_number,
+                            **args,
+                        },
                     )
                 elif prompt_type == "Chain":
-                    result = await self.run_chain(
+                    result = ApiClient.run_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
-                        agent_override=self.agent_name,
+                        agent_name=self.agent_name,
                         all_responses=False,
+                        from_step=1,
                     )
         if result:
             return result
@@ -451,76 +468,28 @@ class Interactions:
     async def smart_instruct(
         self,
         user_input: str = "Write a tweet about AI.",
-        shots: int = 3,
-        learn_file: str = "",
-        objective: str = None,
         **kwargs,
     ):
-        answer_str = await self.run(
+        return ApiClient.run_chain(
+            chain_name="Smart Instruct",
             user_input=user_input,
-            prompt="SmartInstruct-StepByStep"
-            if objective == None
-            else "SmartTask-StepByStep",
-            context_results=6,
-            websearch=True,
-            websearch_depth=3,
-            shots=shots,
-            learn_file=learn_file,
-            objective=objective,
-            **kwargs,
+            agent_name=self.agent_name,
+            all_responses=False,
+            from_step=1,
         )
-        researcher = await self.run(
-            user_input=answer_str,
-            prompt="SmartInstruct-Researcher",
-            shot_count=shots,
-            **kwargs,
-        )
-        resolver = await self.run(
-            user_input=researcher,
-            prompt="SmartInstruct-Resolver",
-            shot_count=shots,
-            **kwargs,
-        )
-        execution_response = await self.run(
-            user_input=f"{user_input}\nContext:\n{resolver}",
-            prompt="instruct",
-            **kwargs,
-        )
-        response = f"{resolver}\n\n{execution_response}"
-        return response
 
     async def smart_chat(
         self,
         user_input: str = "Write a tweet about AI.",
-        shots: int = 3,
-        learn_file: str = "",
         **kwargs,
     ):
-        answer_str = await self.run(
+        return ApiClient.run_chain(
+            chain_name="Smart Chat",
             user_input=user_input,
-            prompt="SmartChat-StepByStep",
-            context_results=6,
-            websearch=True,
-            websearch_depth=3,
-            shots=shots,
-            learn_file=learn_file,
-            **kwargs,
+            agent_name=self.agent_name,
+            all_responses=False,
+            from_step=1,
         )
-        researcher = await self.run(
-            user_input=answer_str,
-            prompt="SmartChat-Researcher",
-            context_results=6,
-            shot_count=shots,
-            **kwargs,
-        )
-        resolver = await self.run(
-            user_input=researcher,
-            prompt="SmartChat-Resolver",
-            context_results=6,
-            shot_count=shots,
-            **kwargs,
-        )
-        return resolver
 
     # Worker Sub-Agents
     async def validation_agent(
@@ -543,8 +512,12 @@ class Interactions:
                 context_results = context_results - 1
             else:
                 context_results = 0
-            execution_response = await self.run(
-                user_input=user_input, context_results=context_results, **kwargs
+            execution_response = ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                user_input=user_input,
+                context_results=context_results,
+                prompt_name="JSONFormatter",
+                prompt_args=kwargs,
             )
             return await self.validation_agent(
                 user_input=user_input,
@@ -583,14 +556,17 @@ class Interactions:
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
-                                validate_command = await self.run(
+                                validate_command = ApiClient.prompt_agent(
+                                    agent_name=self.agent_name,
                                     user_input=user_input,
-                                    prompt="ValidationFailed",
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                    command_output=e,
                                     context_results=context_results,
-                                    **kwargs,
+                                    prompt_name="ValidationFailed",
+                                    prompt_args={
+                                        "command_name": command_name,
+                                        "command_args": command_args,
+                                        "command_output": e,
+                                        **kwargs,
+                                    },
                                 )
                                 return await self.execution_agent(
                                     execution_response=validate_command,
@@ -677,12 +653,15 @@ class Interactions:
                                     )
                                 ]
                                 for chunk in chunks:
-                                    summarized_content = await self.run(
+                                    summarized_content = ApiClient.prompt_agent(
+                                        agent_name=self.agent_name,
                                         user_input=user_input,
-                                        prompt="Summarize Web Content",
-                                        link=url,
-                                        chunk=chunk,
-                                        disable_memory=True,
+                                        prompt_name="Summarize Web Content",
+                                        prompt_args={
+                                            "link": url,
+                                            "chunk": chunk,
+                                            "disable_memory": True,
+                                        },
                                     )
                                     if not summarized_content.startswith("None"):
                                         await self.memories.store_result(
@@ -695,10 +674,14 @@ class Interactions:
                                 if len(link_list) > 5:
                                     link_list = link_list[:3]
                                 try:
-                                    pick_a_link = await self.run(
+                                    pick_a_link = ApiClient.prompt_agent(
+                                        agent_name=self.agent_name,
                                         user_input=user_input,
-                                        prompt="Pick-a-Link",
-                                        links=link_list,
+                                        prompt_name="Pick-a-Link",
+                                        prompt_args={
+                                            "links": link_list,
+                                            "disable_memory": True,
+                                        },
                                     )
                                     if not pick_a_link.startswith("None"):
                                         await self.resursive_browsing(
@@ -712,8 +695,13 @@ class Interactions:
         user_input: str = "What are the latest breakthroughs in AI?",
         depth: int = 3,
     ):
-        results = await self.run(
-            user_input=user_input, prompt="WebSearch", disable_memory=True
+        results = ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            user_input=user_input,
+            prompt_name="WebSearch",
+            prompt_args={
+                "disable_memory": True,
+            },
         )
         results = results.split("\n")
         for result in results:
