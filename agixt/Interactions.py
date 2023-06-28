@@ -685,16 +685,11 @@ class Interactions:
                                         disable_memory=True,
                                     )
                                     if not summarized_content.startswith("None"):
-                                        try:
-                                            await self.memories.store_result(
-                                                input=user_input,
-                                                result=summarized_content,
-                                                external_source_name=url,
-                                            )
-                                        except:
-                                            logging.info(
-                                                f"Failed to store result for {url}. Moving on..."
-                                            )
+                                        await self.memories.store_result(
+                                            input=user_input,
+                                            result=summarized_content,
+                                            external_source_name=url,
+                                        )
                         if link_list is not None:
                             if len(link_list) > 0:
                                 if len(link_list) > 5:

@@ -17,6 +17,8 @@ import time
 import string
 import random
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 this_directory = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
