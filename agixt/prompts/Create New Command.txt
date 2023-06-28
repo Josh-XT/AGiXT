@@ -12,7 +12,7 @@ from typing import List
 from Extensions import Extensions
 from agixt import agixt
 
-class agent_interactions(Commands):
+class agent_interactions(Extensions):
     def __init__(self, AGENT_API_KEY: str = None):
         self.AGENT_API_KEY = AGENT_API_KEY
         if self.AGENT_API_KEY:
