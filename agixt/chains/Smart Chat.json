@@ -19,7 +19,7 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "SmartChat-Researcher",
-                "shots": "3",
+                "shot_count": "3",
                 "task": "{STEP1}"
             }
         },
@@ -29,7 +29,7 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "SmartChat-Resolver",
-                "shots": "3",
+                "shot_count": "3",
                 "task": "{STEP2}"
             }
         }
