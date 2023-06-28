@@ -1,11 +1,13 @@
 {
-    "commands": {},
+    "commands": {
+        "Ask for Help or Further Clarification to Complete Task": true
+    },
     "settings": {
         "provider": "gpt4free",
         "AI_MODEL": "gpt-3.5-turbo",
         "AI_TEMPERATURE": "0.4",
         "MAX_TOKENS": "4000",
         "embedder": "default",
-        "AUTONOMOUS_EXECUTION": "false"
+        "AUTONOMOUS_EXECUTION": false
     }
 }
