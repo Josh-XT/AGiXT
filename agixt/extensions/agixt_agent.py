@@ -1,9 +1,7 @@
 from Extensions import Extensions
 from Agent import get_agents
-from Interactions import Interactions
-import json
 import os
-from typing import List, Optional
+from typing import List
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import torch
 from PIL import Image
@@ -37,7 +35,7 @@ class agixt_agent(Extensions):
                     )
 
     def command_exists(self, file_name: str) -> bool:
-        return os.path.exists(f"commands/{file_name}.py")
+        return os.path.exists(f"extensions/{file_name}.py")
 
     async def create_command(
         self, function_description: str, agent: str = "AGiXT"
@@ -47,15 +45,17 @@ class agixt_agent(Extensions):
             prompt_name="Create New Command",
             prompt_args={"NEW_FUNCTION_DESCRIPTION": function_description},
         )
-        file_name = response.split("class ")[1].split("(")[0]
-        code = code.replace("```", "")
-
-        if not self.command_exists(file_name):
-            with open(f"extensions/{file_name}.py", "w") as f:
-                f.write(code)
-            return f"Created new command: {file_name}."
-        else:
-            return f"Command {file_name} already exists. No changes were made."
+        try:
+            file_name = response.split("class ")[1].split("(")[0]
+            code = await self.get_python_code_from_response(code)
+            if not self.command_exists(file_name):
+                with open(f"extensions/{file_name}.py", "w") as f:
+                    f.write(code)
+                return f"Created new command: {file_name}."
+            else:
+                return f"Command {file_name} already exists. No changes were made."
+        except Exception as e:
+            return f"Unable to create command: {e}"
 
     async def ask_for_help(
         self,
