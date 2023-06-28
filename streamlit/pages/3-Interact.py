@@ -20,10 +20,9 @@ agixt_docs()
 
 st.header("Interact with Agents")
 # Create an instance of the API Client
-api_client = ApiClient()
 
 # Fetch available prompts
-prompts = api_client.get_prompts()
+prompts = ApiClient.get_prompts()
 
 # Add a dropdown to select a mode
 mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "Chains"])
@@ -45,7 +44,7 @@ if mode == "Prompt":
     # Add a dropdown to select a prompt
     prompt_name = st.selectbox("Choose a prompt", prompts)
     # Fetch arguments for the selected prompt
-    prompt_args = api_client.get_prompt_args(prompt_name=prompt_name)
+    prompt_args = ApiClient.get_prompt_args(prompt_name=prompt_name)
 
     # Add input fields for prompt arguments
     st.markdown("### Prompt Variables")
@@ -73,7 +72,7 @@ if mode == "Prompt":
     # Button to execute the prompt
     if st.button("Execute"):
         # Call the prompt_agent function
-        agent_prompt_resp = api_client.prompt_agent(
+        agent_prompt_resp = ApiClient.prompt_agent(
             agent_name=agent_name,
             prompt_name=prompt_name,
             prompt_args=prompt_args_values,
