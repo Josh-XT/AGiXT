@@ -247,6 +247,8 @@ class Interactions:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
                     search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+                else:
+                    search_string = ""
             else:
                 search_string = user_input
             if search_string != "":
