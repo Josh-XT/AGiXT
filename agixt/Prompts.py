@@ -68,8 +68,3 @@ class Prompts:
         prompt_file = get_prompt_file_path(prompt_name=prompt_name)
         with open(prompt_file, "w") as f:
             f.write(prompt)
-
-    def get_model_prompt(self, prompt_name, model="default"):
-        prompt_file = get_prompt_file_path(prompt_name=prompt_name, model=model)
-        with open(prompt_file, "r") as f:
-            return f.read()
