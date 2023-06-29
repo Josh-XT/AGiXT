@@ -98,7 +98,6 @@ if mode == "Chat":
                     response = ApiClient.smartchat(
                         agent_name=agent_name,
                         prompt=chat_prompt,
-                        shots=3,
                     )
                 else:
                     response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
@@ -119,7 +118,6 @@ if mode == "Instruct":
                     response = ApiClient.smartinstruct(
                         agent_name=agent_name,
                         prompt=instruct_prompt,
-                        shots=3,
                     )
                 else:
                     response = ApiClient.instruct(
