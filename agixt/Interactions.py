@@ -465,32 +465,6 @@ class Interactions:
             # Return only the last response in the chain.
             return last_response
 
-    async def smart_instruct(
-        self,
-        user_input: str = "Write a tweet about AI.",
-        **kwargs,
-    ):
-        return ApiClient.run_chain(
-            chain_name="Smart Instruct",
-            user_input=user_input,
-            agent_name=self.agent_name,
-            all_responses=False,
-            from_step=1,
-        )
-
-    async def smart_chat(
-        self,
-        user_input: str = "Write a tweet about AI.",
-        **kwargs,
-    ):
-        return ApiClient.run_chain(
-            chain_name="Smart Chat",
-            user_input=user_input,
-            agent_name=self.agent_name,
-            all_responses=False,
-            from_step=1,
-        )
-
     # Worker Sub-Agents
     async def validation_agent(
         self, user_input, execution_response, context_results, **kwargs
