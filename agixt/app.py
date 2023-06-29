@@ -56,9 +56,6 @@ class AgentPrompt(BaseModel):
     user_input: str
     prompt_name: str
     prompt_args: dict
-    websearch: bool
-    websearch_depth: int
-    context_results: int
 
 
 class Objective(BaseModel):
@@ -326,38 +323,12 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
-@app.post("/api/agent/{agent_name}/instruct", tags=["Agent"])
-async def instruct(agent_name: str, prompt: Prompt):
-    agent = Interactions(agent_name=agent_name)
-    response = await agent.run(
-        user_input=prompt.prompt,
-        prompt="instruct",
-    )
-    return {"response": str(response)}
-
-
 @app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
-    )
-    return {"response": str(response)}
-
-
-@app.post("/api/agent/{agent_name}/smartinstruct/{shots}", tags=["Agent"])
-async def smartinstruct(agent_name: str, shots: int, prompt: Prompt):
-    agent = Interactions(agent_name=agent_name)
-    response = await agent.smart_instruct(user_input=prompt.prompt, shots=int(shots))
-    return {"response": str(response)}
-
-
-@app.post("/api/agent/{agent_name}/chat", tags=["Agent"])
-async def chat(agent_name: str, prompt: Prompt):
-    agent = Interactions(agent_name=agent_name)
-    response = await agent.run(
-        user_input=prompt.prompt, prompt="Chat", context_results=6
     )
     return {"response": str(response)}
 
@@ -440,13 +411,6 @@ async def chat_completion(prompt: Completions):
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     }
     return res_model
-
-
-@app.post("/api/agent/{agent_name}/smartchat/{shots}", tags=["Agent"])
-async def smartchat(agent_name: str, shots: int, prompt: Prompt):
-    agent = Interactions(agent_name=agent_name)
-    response = await agent.smart_chat(user_input=prompt.prompt, shots=shots)
-    return {"response": str(response)}
 
 
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
