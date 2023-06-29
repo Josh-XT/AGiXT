@@ -13,6 +13,7 @@ class agixt_chain(Extensions):
         self.commands = {
             "Create Task Chain": self.create_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
+            "Generate Agent Helper Chain": self.generate_helper_chain,
         }
         if self.chains != None:
             for chain in self.chains:
@@ -286,4 +287,35 @@ class agixt_chain(Extensions):
                 "text": new_extension,
             },
         )
+        return chain_name
+
+    async def generate_helper_chain(
+        self, user_agent, helper_agent, task_in_question, question_about_task
+    ):
+        chain_name = f"Help Chain - {user_agent} to {helper_agent}"
+        chain = Chain()
+        chain.add_chain(chain_name=chain_name)
+        i = 1
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=user_agent,
+            step_number=i,
+            prompt_type="Prompt",
+            prompt={
+                "prompt_name": "Get Clarification",
+                "task_in_question": task_in_question,
+            },
+        )
+        chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=helper_agent,
+            step_number=i,
+            prompt_type="Prompt",
+            prompt={
+                "prompt_name": "Ask for Help",
+                "task_in_question": task_in_question,
+                "question": question_about_task,
+            },
+        )
+
         return chain_name
