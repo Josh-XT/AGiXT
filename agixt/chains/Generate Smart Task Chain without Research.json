@@ -17,8 +17,6 @@
             "prompt": {
                 "prompt_name": "Break into steps",
                 "introduction": "{STEP1}",
-                "websearch": true,
-                "websearch_depth": 3,
                 "context_results": 5
             }
         },
