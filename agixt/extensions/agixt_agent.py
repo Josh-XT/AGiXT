@@ -64,8 +64,7 @@ class agixt_agent(Extensions):
             prompt_name="Ask for Help",
             prompt_args={
                 "question": your_detailed_question,
-                "task": your_current_task,
-                "disable_memory": True,
+                "task_in_question": your_current_task,
             },
         )
 
