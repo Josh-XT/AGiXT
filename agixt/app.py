@@ -516,7 +516,7 @@ async def get_chain_responses(chain_name: str):
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str, user_input: RunChain):
-    chain_response = await Interactions(agent_name="").run_chain(
+    chain_response = await Interactions(agent_name=user_input.agent_override).run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
