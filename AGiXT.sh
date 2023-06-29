@@ -124,6 +124,8 @@ local_install() {
   sleep 1
   pip install -r requirements.txt
   sleep 1
+  pip install agixtsdk --upgrade
+  sleep 1
 
   echo "${BOLD}${YELLOW}Step 4: Installing Playwright dependencies...${RESET}"
   playwright install --with-deps
