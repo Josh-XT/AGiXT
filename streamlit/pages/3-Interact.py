@@ -72,14 +72,14 @@ if mode == "Prompt":
     # Button to execute the prompt
     if st.button("Execute"):
         # Call the prompt_agent function
+        prompt_args_values["websearch"] = websearch
+        prompt_args_values["websearch_depth"] = websearch_depth
+        prompt_args_values["context_results"] = context_results
+        prompt_args_values["shots"] = 1
         agent_prompt_resp = ApiClient.prompt_agent(
             agent_name=agent_name,
             prompt_name=prompt_name,
             prompt_args=prompt_args_values,
-            websearch=websearch,
-            websearch_depth=websearch_depth,
-            context_results=context_results,
-            shots=1,
         )
 
         # Print the response
@@ -98,7 +98,6 @@ if mode == "Chat":
                     response = ApiClient.smartchat(
                         agent_name=agent_name,
                         prompt=chat_prompt,
-                        shots=3,
                     )
                 else:
                     response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
@@ -119,7 +118,6 @@ if mode == "Instruct":
                     response = ApiClient.smartinstruct(
                         agent_name=agent_name,
                         prompt=instruct_prompt,
-                        shots=3,
                     )
                 else:
                     response = ApiClient.instruct(
