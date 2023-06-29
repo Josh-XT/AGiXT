@@ -341,9 +341,6 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = Interactions(agent_name=agent_name)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
-        websearch=agent_prompt.websearch,
-        websearch_depth=agent_prompt.websearch_depth,
-        context_results=agent_prompt.context_results,
         **agent_prompt.prompt_args,
     )
     return {"response": str(response)}
