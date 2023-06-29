@@ -34,26 +34,17 @@ class agixt_agent(Extensions):
                         }
                     )
 
-    def command_exists(self, file_name: str) -> bool:
-        return os.path.exists(f"extensions/{file_name}.py")
-
     async def create_command(
         self, function_description: str, agent: str = "AGiXT"
     ) -> List[str]:
-        response = ApiClient.prompt_agent(
-            agent_name=agent,
-            prompt_name="Create New Command",
-            prompt_args={"NEW_FUNCTION_DESCRIPTION": function_description},
-        )
         try:
-            file_name = response.split("class ")[1].split("(")[0]
-            code = await self.get_python_code_from_response(code)
-            if not self.command_exists(file_name):
-                with open(f"extensions/{file_name}.py", "w") as f:
-                    f.write(code)
-                return f"Created new command: {file_name}."
-            else:
-                return f"Command {file_name} already exists. No changes were made."
+            return ApiClient.run_chain(
+                chain_name="Create New Command",
+                user_input=function_description,
+                agent_name=agent,
+                all_responses=False,
+                from_step=1,
+            )
         except Exception as e:
             return f"Unable to create command: {e}"
 
