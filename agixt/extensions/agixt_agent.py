@@ -21,7 +21,6 @@ class agixt_agent(Extensions):
             "Describe Image": self.describe_image,
             "Execute Python Code": self.execute_python_code,
             "Get Python Code from Response": self.get_python_code_from_response,
-            "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
         }
         if agents != None:
             for agent in agents:
@@ -47,26 +46,6 @@ class agixt_agent(Extensions):
             )
         except Exception as e:
             return f"Unable to create command: {e}"
-
-    async def ask_for_help(
-        self,
-        agent: str,
-        your_primary_objective: str,
-        your_current_task: str,
-        your_detailed_question: str,
-    ) -> str:
-        """
-        Ask for Help or Further Clarification to Complete Task
-        """
-        return await ApiClient.prompt_agent(
-            agent_name=agent,
-            prompt_name="Ask for Help",
-            prompt_args={
-                "user_input": your_primary_objective,
-                "question": your_detailed_question,
-                "task_in_question": your_current_task,
-            },
-        )
 
     async def ask(self, user_input: str, agent: str = "AGiXT") -> str:
         response = ApiClient.prompt_agent(
