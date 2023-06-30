@@ -62,7 +62,8 @@ def render_provider_settings(agent_settings, provider_name: str):
     if isinstance(required_settings, dict):
         required_settings = list(required_settings.keys())
     rendered_settings["helper_agent_name"] = agent_selection(
-        key="select_helper_agent", heading="Select Helper Agent"
+        key="select_helper_agent",
+        heading="Select Helper Agent (Your agent will ask this one for help when it needs something.)",
     )
     for key in required_settings:
         if key in agent_settings:

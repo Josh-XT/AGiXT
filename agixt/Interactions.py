@@ -197,7 +197,13 @@ class Interactions:
             working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
         except:
             working_directory = "./WORKSPACE"
-
+        if "helper_agent_name" not in kwargs:
+            if "helper_agent_name" in self.agent.AGENT_CONFIG["settings"]:
+                helper_agent_name = self.agent.AGENT_CONFIG["settings"][
+                    "helper_agent_name"
+                ]
+            else:
+                helper_agent_name = self.agent_name
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -207,6 +213,7 @@ class Interactions:
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
+            helper_agent_name=helper_agent_name,
             **kwargs,
         )
 
