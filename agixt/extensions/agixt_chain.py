@@ -1,19 +1,21 @@
-from Chain import Chain
 from Extensions import Extensions
-from Interactions import Interactions
-from Prompts import Prompts
+from agixtsdk import AGiXTSDK
 import datetime
 import json
 import requests
 
+base_uri = "http://localhost:7437"
+ApiClient = AGiXTSDK(base_uri=base_uri)
+
 
 class agixt_chain(Extensions):
     def __init__(self, **kwargs):
-        self.chains = Chain().get_chains()
+        self.chains = ApiClient.get_chains()
         self.commands = {
             "Create Task Chain": self.create_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Generate Agent Helper Chain": self.generate_helper_chain,
+            "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
         }
         if self.chains != None:
             for chain in self.chains:
@@ -60,11 +62,10 @@ class agixt_chain(Extensions):
         task_list = new_task_list
 
         chain_name = f"AI Generated Task - {short_chain_description} - {timestamp}"
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
+        ApiClient.add_chain(chain_name=chain_name)
         i = 1
         for task in task_list:
-            chain.add_chain_step(
+            ApiClient.add_step(
                 chain_name=chain_name,
                 agent_name=agent,
                 step_number=i,
@@ -80,7 +81,7 @@ class agixt_chain(Extensions):
                     step_chain = "Smart Instruct"
                 else:
                     step_chain = "Smart Instruct - No Research"
-                chain.add_chain_step(
+                ApiClient.add_step(
                     chain_name=chain_name,
                     agent_name=agent,
                     step_number=i,
@@ -91,7 +92,7 @@ class agixt_chain(Extensions):
                     },
                 )
             else:
-                chain.add_chain_step(
+                ApiClient.add_step(
                     chain_name=chain_name,
                     agent_name=agent,
                     step_number=i,
@@ -108,7 +109,7 @@ class agixt_chain(Extensions):
         return chain_name
 
     async def run_chain(self, chain: str = "", input: str = ""):
-        await Interactions(agent_name="").run_chain(chain_name=chain, user_input=input)
+        await ApiClient.run_chain(chain_name=chain, user_input=input)
         return "Chain started successfully."
 
     def parse_openapi(self, data):
@@ -196,12 +197,11 @@ class agixt_chain(Extensions):
         auth_type = self.get_auth_type(openapi_data=openapi_data)
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
+        ApiClient.add_chain(chain_name=chain_name)
         i = 0
         for endpoint in endpoints:
             i += 1
-            chain.add_chain_step(
+            ApiClient.add_step(
                 chain_name=chain_name,
                 agent_name=agent,
                 step_number=i,
@@ -212,7 +212,7 @@ class agixt_chain(Extensions):
                 },
             )
             i += 1
-            chain.add_chain_step(
+            ApiClient.add_step(
                 chain_name=chain_name,
                 agent_name=agent,
                 step_number=i,
@@ -223,7 +223,7 @@ class agixt_chain(Extensions):
                 },
             )
             i += 1
-            chain.add_chain_step(
+            ApiClient.add_step(
                 chain_name=chain_name,
                 agent_name=agent,
                 step_number=i,
@@ -235,7 +235,7 @@ class agixt_chain(Extensions):
                 },
             )
             i += 1
-            chain.add_chain_step(
+            ApiClient.add_step(
                 chain_name=chain_name,
                 agent_name=agent,
                 step_number=i,
@@ -247,7 +247,7 @@ class agixt_chain(Extensions):
                 },
             )
         i += 1
-        chain.add_chain_step(
+        ApiClient.add_step(
             chain_name=chain_name,
             agent_name=agent,
             step_number=i,
@@ -258,7 +258,7 @@ class agixt_chain(Extensions):
             },
         )
         i += 1
-        chain.add_chain_step(
+        ApiClient.add_step(
             chain_name=chain_name,
             agent_name=agent,
             step_number=i,
@@ -268,7 +268,7 @@ class agixt_chain(Extensions):
                 "python_file_content": "{STEP" + str(i - 1) + "}",
             },
         )
-        new_extension = Prompts().get_prompt(prompt_name="New Extension Format")
+        new_extension = ApiClient.get_prompt(prompt_name="New Extension Format")
         new_extension = new_extension.replace("{extension_name}", extension_name)
         new_extension = new_extension.replace("extension_commands", "STEP" + str(i))
         new_extension = new_extension.replace(
@@ -276,7 +276,7 @@ class agixt_chain(Extensions):
         )
         new_extension = new_extension.replace("{auth_type}", auth_type)
         i += 1
-        chain.add_chain_step(
+        ApiClient.add_step(
             chain_name=chain_name,
             agent_name=agent,
             step_number=i,
@@ -289,14 +289,11 @@ class agixt_chain(Extensions):
         )
         return chain_name
 
-    async def generate_helper_chain(
-        self, user_agent, helper_agent, task_in_question, question_about_task
-    ):
+    async def generate_helper_chain(self, user_agent, helper_agent, task_in_question):
         chain_name = f"Help Chain - {user_agent} to {helper_agent}"
-        chain = Chain()
-        chain.add_chain(chain_name=chain_name)
+        ApiClient.add_chain(chain_name=chain_name)
         i = 1
-        chain.add_chain_step(
+        ApiClient.add_step(
             chain_name=chain_name,
             agent_name=user_agent,
             step_number=i,
@@ -306,7 +303,8 @@ class agixt_chain(Extensions):
                 "task_in_question": task_in_question,
             },
         )
-        chain.add_chain_step(
+        i += 1
+        ApiClient.add_step(
             chain_name=chain_name,
             agent_name=helper_agent,
             step_number=i,
@@ -314,8 +312,17 @@ class agixt_chain(Extensions):
             prompt={
                 "prompt_name": "Ask for Help",
                 "task_in_question": task_in_question,
-                "question": question_about_task,
+                "question": "{STEP" + str(i - 1) + "}",
             },
         )
-
+        # run the chain and return the result
         return chain_name
+
+    async def ask_for_help(self, your_agent_name, your_task):
+        return ApiClient.run_chain(
+            chain_name="Ask Helper Agent for Help",
+            user_input=your_task,
+            agent_name=your_agent_name,
+            all_responses=False,
+            from_step=1,
+        )

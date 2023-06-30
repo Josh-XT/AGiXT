@@ -89,7 +89,7 @@ def chain_selection(prompt: dict = {}, step_number: int = 0):
         return new_prompt
 
 
-def agent_selection():
+def agent_selection(key: str = "select_learning_agent", heading: str = "Agent Name"):
     # Load the previously selected agent name
     try:
         with open(os.path.join("session.txt"), "r") as f:
@@ -110,18 +110,18 @@ def agent_selection():
 
     # Create the selectbox
     selected_agent = st.selectbox(
-        "Agent Name",
+        heading,
         options=[""] + agent_names,
         index=default_index,
-        key="select_learning_agent",
+        key=key,
     )
-
-    # If the selected agent has changed, save the new selection
-    if selected_agent != previously_selected_agent:
-        with open(os.path.join("session.txt"), "w") as f:
-            f.write(selected_agent)
-        try:
-            st.experimental_rerun()
-        except Exception as e:
-            logging.info(e)
+    if key == "select_learning_agent":
+        # If the selected agent has changed, save the new selection
+        if selected_agent != previously_selected_agent:
+            with open(os.path.join("session.txt"), "w") as f:
+                f.write(selected_agent)
+            try:
+                st.experimental_rerun()
+            except Exception as e:
+                logging.info(e)
     return selected_agent

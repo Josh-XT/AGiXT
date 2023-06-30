@@ -44,6 +44,8 @@ extension_setting_keys = get_extension_settings()
 def render_provider_settings(agent_settings, provider_name: str):
     try:
         required_settings = provider_settings(provider_name)
+        # remove "provider" from required settings
+        required_settings.pop("provider")
     except (TypeError, ValueError):
         st.error(
             f"Error loading provider settings: expected a list or a dictionary, but got {required_settings}"
@@ -59,7 +61,10 @@ def render_provider_settings(agent_settings, provider_name: str):
 
     if isinstance(required_settings, dict):
         required_settings = list(required_settings.keys())
-
+    rendered_settings["helper_agent_name"] = agent_selection(
+        key="select_helper_agent",
+        heading="Select Helper Agent (Your agent will ask this one for help when it needs something.)",
+    )
     for key in required_settings:
         if key in agent_settings:
             default_value = agent_settings[key]
