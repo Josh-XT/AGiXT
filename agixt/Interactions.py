@@ -282,14 +282,14 @@ class Interactions:
                 context_results = context_results - 1
             self.response = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                user_input=user_input,
                 prompt_name=prompt,
-                context_results=context_results,
                 prompt_args={
                     "chain_name": chain_name,
                     "step_number": step_number,
                     "shots": shots,
                     "disable_memory": disable_memory,
+                    "user_input": user_input,
+                    "context_results": context_results,
                     **kwargs,
                 },
             )
@@ -343,12 +343,12 @@ class Interactions:
             for shot in range(shots - 1):
                 shot_response = ApiClient.prompt_agent(
                     agent_name=self.agent_name,
-                    user_input=user_input,
                     prompt_name=prompt,
-                    context_results=context_results,
                     prompt_args={
                         "chain_name": chain_name,
                         "step_number": step_number,
+                        "user_input": user_input,
+                        "context_results": context_results,
                         **kwargs,
                     },
                 )
@@ -395,10 +395,10 @@ class Interactions:
                     result = ApiClient.prompt_agent(
                         agent_name=self.agent_name,
                         prompt_name=prompt_name,
-                        user_input=user_input,
                         prompt_args={
                             "chain_name": chain_name,
                             "step_number": step_number,
+                            "user_input": user_input,
                             **args,
                         },
                     )
@@ -488,10 +488,12 @@ class Interactions:
                 context_results = 0
             execution_response = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                user_input=user_input,
-                context_results=context_results,
                 prompt_name="JSONFormatter",
-                prompt_args=kwargs,
+                prompt_args={
+                    "user_input": user_input,
+                    "context_results": context_results,
+                    **kwargs,
+                },
             )
             return await self.validation_agent(
                 user_input=user_input,
@@ -532,13 +534,13 @@ class Interactions:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = ApiClient.prompt_agent(
                                     agent_name=self.agent_name,
-                                    user_input=user_input,
-                                    context_results=context_results,
                                     prompt_name="ValidationFailed",
                                     prompt_args={
                                         "command_name": command_name,
                                         "command_args": command_args,
                                         "command_output": e,
+                                        "user_input": user_input,
+                                        "context_results": context_results,
                                         **kwargs,
                                     },
                                 )
@@ -629,12 +631,12 @@ class Interactions:
                                 for chunk in chunks:
                                     summarized_content = ApiClient.prompt_agent(
                                         agent_name=self.agent_name,
-                                        user_input=user_input,
                                         prompt_name="Summarize Web Content",
                                         prompt_args={
                                             "link": url,
                                             "chunk": chunk,
                                             "disable_memory": True,
+                                            "user_input": user_input,
                                         },
                                     )
                                     if not summarized_content.startswith("None"):
@@ -650,11 +652,11 @@ class Interactions:
                                 try:
                                     pick_a_link = ApiClient.prompt_agent(
                                         agent_name=self.agent_name,
-                                        user_input=user_input,
                                         prompt_name="Pick-a-Link",
                                         prompt_args={
                                             "links": link_list,
                                             "disable_memory": True,
+                                            "user_input": user_input,
                                         },
                                     )
                                     if not pick_a_link.startswith("None"):
@@ -671,9 +673,9 @@ class Interactions:
     ):
         results = ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            user_input=user_input,
             prompt_name="WebSearch",
             prompt_args={
+                "user_input": user_input,
                 "disable_memory": True,
             },
         )
