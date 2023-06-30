@@ -60,9 +60,9 @@ class agixt_agent(Extensions):
         """
         return await ApiClient.prompt_agent(
             agent_name=agent,
-            user_input=your_primary_objective,
             prompt_name="Ask for Help",
             prompt_args={
+                "user_input": your_primary_objective,
                 "question": your_detailed_question,
                 "task_in_question": your_current_task,
             },
@@ -71,20 +71,24 @@ class agixt_agent(Extensions):
     async def ask(self, user_input: str, agent: str = "AGiXT") -> str:
         response = ApiClient.prompt_agent(
             agent_name=agent,
-            user_input=user_input,
             prompt_name="Chat",
-            websearch=True,
-            websearch_depth=3,
+            prompt_args={
+                "user_input": user_input,
+                "websearch": True,
+                "websearch_depth": 3,
+            },
         )
         return response
 
     async def instruct(self, user_input: str, agent: str = "AGiXT") -> str:
         response = ApiClient.prompt_agent(
             agent_name=agent,
-            user_input=user_input,
             prompt_name="instruct",
-            websearch=True,
-            websearch_depth=3,
+            prompt_args={
+                "user_input": user_input,
+                "websearch": True,
+                "websearch_depth": 3,
+            },
         )
         return response
 

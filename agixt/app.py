@@ -53,7 +53,6 @@ class AgentNewName(BaseModel):
 
 
 class AgentPrompt(BaseModel):
-    user_input: str
     prompt_name: str
     prompt_args: dict
 

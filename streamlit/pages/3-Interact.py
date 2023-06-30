@@ -100,7 +100,13 @@ if mode == "Chat":
                         prompt=chat_prompt,
                     )
                 else:
-                    response = ApiClient.chat(agent_name=agent_name, prompt=chat_prompt)
+                    response = ApiClient.prompt_agent(
+                        agent_name=agent_name,
+                        prompt_name="Chat",
+                        prompt_args={
+                            "user_input": chat_prompt,
+                        },
+                    )
                 if response:
                     st.experimental_rerun()
 
