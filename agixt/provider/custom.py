@@ -8,7 +8,7 @@ class CustomProvider:
     def __init__(
         self,
         API_KEY: str = "",
-        API_URI: str = "https://api.openai.com/v1/engines/davinci/completions",
+        API_URI: str = "https://api.openai.com/v1/chat/completions",
         AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,

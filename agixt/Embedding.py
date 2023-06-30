@@ -124,9 +124,14 @@ class Embedding:
 
     async def openai(self):
         chunk_size = 1000
+        if "API_URI" in self.AGENT_CONFIG["settings"]:
+            api_base = self.AGENT_CONFIG["settings"]["API_URI"]
+        else:
+            api_base = None
         embed = OpenAITextEmbedding(
             model_id="text-embedding-ada-002",
             api_key=self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
+            endpoint=api_base,
             log=logging,
         ).generate_embeddings_async
         return embed, chunk_size
