@@ -61,10 +61,7 @@ def render_provider_settings(agent_settings, provider_name: str):
 
     if isinstance(required_settings, dict):
         required_settings = list(required_settings.keys())
-    rendered_settings["helper_agent_name"] = agent_selection(
-        key="select_helper_agent",
-        heading="Select Helper Agent (Your agent will ask this one for help when it needs something.)",
-    )
+
     for key in required_settings:
         if key in agent_settings:
             default_value = agent_settings[key]
@@ -155,7 +152,10 @@ if agent_name and not new_agent:
         agent_settings[
             "provider"
         ] = provider_name  # Update the agent_settings with the selected provider
-
+        agent_settings["helper_agent_name"] = agent_selection(
+            key="select_helper_agent",
+            heading="Select Helper Agent (Your agent will ask this one for help when it needs something.)",
+        )
         embedder_name = agent_settings.get("embedder", "")
         embedder_name = st.selectbox(
             "Select Embedder",
