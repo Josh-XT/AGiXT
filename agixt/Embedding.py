@@ -129,9 +129,13 @@ class Embedding:
         else:
             # Use default if not specified
             embedding_uri = None
+        if "API_KEY" in self.AGENT_CONFIG["settings"]:
+            api_key = self.AGENT_CONFIG["settings"]["API_KEY"]
+        else:
+            api_key = self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"]
         embed = OpenAITextEmbedding(
             model_id="text-embedding-ada-002",
-            api_key=self.AGENT_CONFIG["settings"]["OPENAI_API_KEY"],
+            api_key=api_key,
             endpoint=embedding_uri,
             log=logging,
         ).generate_embeddings_async
