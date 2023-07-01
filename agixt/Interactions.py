@@ -485,6 +485,28 @@ class Interactions:
                 **kwargs,
             )
 
+    def create_command_suggestion_chain(agent_name, command_name, command_args):
+        chains = ApiClient.get_chains()
+        chain_name = f"{agent_name} Command Suggestions"
+        if chain_name in chains:
+            step = (
+                int(ApiClient.get_chain(chain_name=chain_name)["steps"][-1]["step"]) + 1
+            )
+        else:
+            ApiClient.add_chain(chain_name=chain_name)
+            step = 1
+        ApiClient.add_step(
+            chain_name=chain_name,
+            agent_name=agent_name,
+            step_number=step,
+            prompt_type="Command",
+            prompt={
+                "command_name": command_name,
+                **command_args,
+            },
+        )
+        return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
+
     async def execution_agent(
         self, execution_response, user_input, context_results, **kwargs
     ):
