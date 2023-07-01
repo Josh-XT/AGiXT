@@ -1,13 +1,18 @@
 import uvicorn
+import os
+import logging
+import base64
+import string
+import random
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import time
 
 try:
     from Interactions import Interactions
 except ImportError:
-    time.sleep(5)
+    time.sleep(10)
     from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
@@ -16,13 +21,6 @@ from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-import os
-import logging
-import base64
-
-import string
-import random
-import json
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
