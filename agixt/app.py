@@ -8,6 +8,10 @@ import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from Migrations import Migrations
+
+Migrations()
+
 from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain

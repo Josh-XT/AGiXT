@@ -1,6 +1,5 @@
 import os
 import uuid
-import logging
 from sqlalchemy import (
     create_engine,
     Column,
@@ -15,8 +14,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
-from Extensions import Extensions
-from provider import get_providers, get_provider_options
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -54,223 +51,6 @@ class DBConnection:
                 print(f"Error creating database: {e}")
                 raise e
         return engine
-
-    def populate_extensions_and_commands(self):
-        extensions_data = Extensions().get_extensions()
-
-        # Get the existing extensions and commands from the database
-        existing_extensions = session.query(Extension).all()
-        existing_commands = session.query(Command).all()
-
-        # Delete commands that don't exist in the extensions data
-        for command in existing_commands:
-            command_exists = any(
-                extension_data["extension_name"] == command.extension.name
-                and any(
-                    cmd["friendly_name"] == command.name
-                    for cmd in extension_data["commands"]
-                )
-                for extension_data in extensions_data
-            )
-            if not command_exists:
-                session.delete(command)
-
-        # Add new extensions and commands, and update existing commands
-        for extension_data in extensions_data:
-            extension_name = extension_data["extension_name"]
-            description = extension_data["description"]
-
-            # Find the existing extension or create a new one
-            extension = next(
-                (ext for ext in existing_extensions if ext.name == extension_name),
-                None,
-            )
-            if extension is None:
-                extension = Extension(name=extension_name, description=description)
-                session.add(extension)
-                session.flush()
-                existing_extensions.append(extension)
-                logging.info(f"Adding extension: {extension_name}")
-
-            commands = extension_data["commands"]
-
-            for command_data in commands:
-                if "friendly_name" not in command_data:
-                    continue
-
-                command_name = command_data["friendly_name"]
-
-                # Find the existing command or create a new one
-                command = next(
-                    (
-                        cmd
-                        for cmd in existing_commands
-                        if cmd.extension_id == extension.id and cmd.name == command_name
-                    ),
-                    None,
-                )
-                if command is None:
-                    command = Command(
-                        extension_id=extension.id,
-                        name=command_name,
-                    )
-                    session.add(command)
-                    session.flush()
-                    existing_commands.append(command)
-                    logging.info(f"Adding command: {command_name}")
-
-                # Add command arguments
-                if "command_args" in command_data:
-                    command_args = command_data["command_args"]
-                    for arg, arg_type in command_args.items():
-                        if (
-                            self.session.query(Argument)
-                            .filter_by(command_id=command.id, name=arg)
-                            .first()
-                        ):
-                            continue
-                        command_arg = Argument(
-                            command_id=command.id,
-                            name=arg,
-                        )
-                        session.add(command_arg)
-                        logging.info(
-                            f"Adding argument: {arg} to command: {command_name}"
-                        )
-
-        session.commit()
-
-    def populate_prompts(self):
-        # Add default category if it doesn't exist
-        default_category = (
-            self.session.query(PromptCategory).filter_by(name="Default").first()
-        )
-
-        if not default_category:
-            default_category = PromptCategory(
-                name="Default", description="Default category"
-            )
-            self.session.add(default_category)
-            self.session.commit()
-            logging.info("Adding Default prompt category")
-
-        # Get all prompt files in the specified folder
-        for root, dirs, files in os.walk("prompts"):
-            for file in files:
-                prompt_category = None
-                if root != "prompts":
-                    # Use subfolder name as the prompt category
-                    category_name = os.path.basename(root)
-                    prompt_category = (
-                        self.session.query(PromptCategory)
-                        .filter_by(name=category_name)
-                        .first()
-                    )
-                    if not prompt_category:
-                        prompt_category = PromptCategory(
-                            name=category_name, description=f"{category_name} category"
-                        )
-                        self.session.add(prompt_category)
-                        self.session.commit()
-                else:
-                    # Assign to "Uncategorized" category if prompt is in the root folder
-                    prompt_category = default_category
-
-                # Read the prompt content from the file
-                with open(os.path.join(root, file), "r") as f:
-                    prompt_content = f.read()
-
-                # Check if prompt with the same name and category already exists
-                prompt_name = os.path.splitext(file)[0]
-                prompt = (
-                    self.session.query(Prompt)
-                    .filter_by(name=prompt_name, prompt_category=prompt_category)
-                    .first()
-                )
-                prompt_args = self.get_prompt_args(prompt_content)
-                if not prompt:
-                    # Create the prompt entry in the database
-                    prompt = Prompt(
-                        name=prompt_name,
-                        description="",
-                        content=prompt_content,
-                        prompt_category=prompt_category,
-                    )
-                    self.session.add(prompt)
-                    self.session.commit()
-                    logging.info(f"Adding prompt: {prompt_name}")
-
-                # Populate prompt arguments
-                for arg in prompt_args:
-                    if (
-                        self.session.query(Argument)
-                        .filter_by(prompt_id=prompt.id, name=arg)
-                        .first()
-                    ):
-                        continue
-                    argument = Argument(
-                        prompt_id=prompt.id,
-                        name=arg,
-                    )
-                    self.session.add(argument)
-                    self.session.commit()
-                    logging.info(f"Adding prompt argument: {arg} for {prompt_name}")
-
-    def get_prompt_args(self, prompt_text):
-        # Find anything in the file between { and } and add them to a list to return
-        prompt_vars = []
-        for word in prompt_text.split():
-            if word.startswith("{") and word.endswith("}"):
-                prompt_vars.append(word[1:-1])
-        return prompt_vars
-
-    def populate_providers(self):
-        providers = get_providers()
-        existing_providers = self.session.query(Provider).all()
-        existing_provider_names = [provider.name for provider in existing_providers]
-
-        for provider in existing_providers:
-            if provider.name not in providers:
-                self.session.delete(provider)
-
-        for provider_name in providers:
-            provider_options = get_provider_options(provider_name)
-
-            provider = (
-                self.session.query(Provider).filter_by(name=provider_name).one_or_none()
-            )
-
-            if provider:
-                logging.info(f"Updating provider: {provider_name}")
-            else:
-                provider = Provider(name=provider_name)
-                self.session.add(provider)
-                existing_provider_names.append(provider_name)
-                logging.info(f"Adding provider: {provider_name}")
-
-            for option_name, option_value in provider_options.items():
-                provider_setting = (
-                    self.session.query(ProviderSetting)
-                    .filter_by(provider_id=provider.id, name=option_name)
-                    .one_or_none()
-                )
-                if provider_setting:
-                    provider_setting.value = option_value
-                    logging.info(
-                        f"Updating provider setting: {option_name} for provider: {provider_name}"
-                    )
-                else:
-                    provider_setting = ProviderSetting(
-                        provider_id=provider.id,
-                        name=option_name,
-                        value=option_value,
-                    )
-                    self.session.add(provider_setting)
-                    logging.info(
-                        f"Adding provider setting: {option_name} for provider: {provider_name}"
-                    )
-
-        self.session.commit()
 
 
 db = DBConnection()
@@ -318,9 +98,11 @@ class AgentProvider(Base):
 
 class Agent(Base):
     __tablename__ = "agent"
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=True)
+    provider_id = Column(
+        UUID(as_uuid=True), ForeignKey("provider.id"), nullable=True, default=None
+    )
 
 
 class Command(Base):
@@ -333,7 +115,7 @@ class Command(Base):
 
 class AgentCommand(Base):
     __tablename__ = "agent_command"
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     command_id = Column(UUID(as_uuid=True), ForeignKey("command.id"), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     state = Column(Boolean, nullable=False)
@@ -366,10 +148,11 @@ class Setting(Base):
 
 class AgentSetting(Base):
     __tablename__ = "agent_setting"
-    id = Column(UUID(as_uuid=True), primary_key=True)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
-    name = Column(Text, nullable=False)
-    value = Column(String, nullable=False)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True))
+    name = Column(String)
+    value = Column(String)
 
 
 class Chain(Base):
@@ -450,23 +233,3 @@ class Prompt(Base):
     content = Column(Text, nullable=False)
 
     prompt_category = relationship("PromptCategory", backref="prompts")
-
-
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    print(e)
-
-try:
-    db.populate_extensions_and_commands()
-except Exception as e:
-    print(e)
-
-try:
-    db.populate_prompts()
-except Exception as e:
-    print(e)
-try:
-    db.populate_providers()
-except Exception as e:
-    print(e)
