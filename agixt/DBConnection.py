@@ -123,6 +123,9 @@ class DBConnection:
                 # Add command arguments
                 if "command_args" in command_data:
                     command_args = command_data["command_args"]
+                    print(
+                        f"Adding command arguments: {command_args} for {command_name}"
+                    )
                     for arg, arg_type in command_args.items():
                         command_arg = Argument(
                             command_id=command.id,
@@ -137,6 +140,7 @@ class DBConnection:
         default_category = (
             self.session.query(PromptCategory).filter_by(name="Default").first()
         )
+
         if not default_category:
             default_category = PromptCategory(
                 name="Default", description="Default category"
@@ -170,10 +174,12 @@ class DBConnection:
                 with open(os.path.join(root, file), "r") as f:
                     prompt_content = f.read()
 
-                # Check if prompt with the same name already exists in the database
+                # Check if prompt with the same name and category already exists
                 prompt_name = os.path.splitext(file)[0]
                 existing_prompt = (
-                    self.session.query(Prompt).filter_by(name=prompt_name).first()
+                    self.session.query(Prompt)
+                    .filter_by(name=prompt_name, prompt_category=prompt_category)
+                    .first()
                 )
                 if not existing_prompt:
                     # Create the prompt entry in the database
@@ -185,6 +191,25 @@ class DBConnection:
                     )
                     self.session.add(prompt)
                     self.session.commit()
+
+                    # Populate prompt arguments
+                    prompt_args = self.get_prompt_args(prompt_content)
+                    print(f"Adding prompt arguments: {prompt_args} for {prompt_name}")
+                    for arg in prompt_args:
+                        argument = Argument(
+                            prompt_id=prompt.id,
+                            name=arg,
+                        )
+                        self.session.add(argument)
+                    self.session.commit()
+
+    def get_prompt_args(self, prompt_text):
+        # Find anything in the file between { and } and add them to a list to return
+        prompt_vars = []
+        for word in prompt_text.split():
+            if word.startswith("{") and word.endswith("}"):
+                prompt_vars.append(word[1:-1])
+        return prompt_vars
 
 
 db = DBConnection()
@@ -344,7 +369,7 @@ class Argument(Base):
 
 class PromptCategory(Base):
     __tablename__ = "prompt_category"
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
 
@@ -358,6 +383,8 @@ class Prompt(Base):
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
+
+    prompt_category = relationship("PromptCategory", backref="prompts")
 
 
 Base.metadata.create_all(bind=engine)
