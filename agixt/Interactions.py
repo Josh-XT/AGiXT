@@ -8,7 +8,6 @@ from Prompts import Prompts
 from Embedding import get_tokens
 from extensions.searxng import searxng
 from Chain import (
-    Chain,
     get_chain_responses_file_path,
     create_command_suggestion_chain,
     get_step_response,
@@ -408,9 +407,8 @@ class Interactions:
         agent_override="",
         from_step=1,
     ):
-        chain = Chain()
         file_path = get_chain_responses_file_path(chain_name=chain_name)
-        chain_data = chain.get_chain(chain_name=chain_name)
+        chain_data = ApiClient.get_chain(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
