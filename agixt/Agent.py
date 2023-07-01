@@ -3,8 +3,13 @@ import json
 import glob
 import shutil
 import importlib
-import yaml
 from inspect import signature, Parameter
+from DBConnection import (
+    DBConnection,
+    Agent as AgentModel,
+    AgentSetting as AgentSettingModel,
+    Message as MessageModel,
+)
 from provider import Provider
 from Memories import Memories
 from Extensions import Extensions
@@ -20,18 +25,6 @@ DEFAULT_SETTINGS = {
 }
 
 
-def get_agent_file_paths(agent_name):
-    base_path = os.path.join(os.getcwd(), "agents")
-    folder_path = os.path.normpath(os.path.join(base_path, agent_name))
-    config_path = os.path.normpath(os.path.join(folder_path, "config.json"))
-    history_path = os.path.normpath(os.path.join(folder_path, "history.yaml"))
-    if not config_path.startswith(base_path) or not folder_path.startswith(base_path):
-        raise ValueError("Invalid path, agent name must not contain slashes.")
-    if not os.path.exists(folder_path):
-        os.mkdir(folder_path)
-    return config_path, history_path, folder_path
-
-
 def add_agent(agent_name, provider_settings=None, commands={}):
     if not agent_name:
         return "Agent name cannot be empty."
@@ -40,77 +33,87 @@ def add_agent(agent_name, provider_settings=None, commands={}):
         if not provider_settings or provider_settings == {}
         else provider_settings
     )
-    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
+    db = DBConnection()
+    session = db.session
+
+    agent = AgentModel(name=agent_name)
+    session.add(agent)
+
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
+
     settings = json.dumps(
         {
             "commands": commands,
             "settings": provider_settings,
         }
     )
-    # Write the settings to the agent config file
-    with open(config_path, "w") as f:
-        f.write(settings)
-    with open(history_path, "w") as f:
-        f.write("")
+    agent_setting = AgentSettingModel(
+        agent_id=agent.id,
+        name="config",
+        value=settings,
+    )
+    session.add(agent_setting)
+
+    session.commit()
+    session.close()
+
     return {"message": f"Agent {agent_name} created."}
 
 
 def delete_agent(agent_name):
-    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
-    try:
-        if os.path.exists(folder_path):
-            shutil.rmtree(folder_path)
-        return {"message": f"Agent {agent_name} deleted."}, 200
-    except:
-        return {"message": f"Agent {agent_name} could not be deleted."}, 400
+    db = DBConnection()
+    session = db.session
+
+    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    if not agent:
+        session.close()
+        return {"message": f"Agent {agent_name} not found."}, 404
+
+    session.delete(agent)
+    session.commit()
+    session.close()
+
+    return {"message": f"Agent {agent_name} deleted."}, 200
 
 
 def rename_agent(agent_name, new_name):
-    config_path, history_path, folder_path = get_agent_file_paths(agent_name=agent_name)
-    base_path = os.path.join(os.getcwd(), "agents")
-    new_agent_folder = os.path.normpath(os.path.join(base_path, new_name))
-    if not new_agent_folder.startswith(base_path):
-        raise ValueError("Invalid path, agent name must not contain slashes.")
+    db = DBConnection()
+    session = db.session
 
-    if os.path.exists(folder_path):
-        # Check if the new name is already taken
-        if os.path.exists(new_agent_folder):
-            # Add a number to the end of the new name
-            i = 1
-            while os.path.exists(new_agent_folder):
-                i += 1
-                new_name = f"{new_name}_{i}"
-                new_agent_folder = os.path.normpath(os.path.join(base_path, new_name))
-            if not new_agent_folder.startswith(base_path):
-                raise ValueError("Invalid path, agent name must not contain slashes.")
-        os.rename(folder_path, new_agent_folder)
-        return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
+    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    if not agent:
+        session.close()
+        return {"message": f"Agent {agent_name} not found."}, 404
+
+    agent.name = new_name
+    session.commit()
+    session.close()
+
+    return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
 def get_agents():
-    agents_dir = "agents"
-    if not os.path.exists(agents_dir):
-        os.makedirs(agents_dir)
-    agents = [
-        dir_name
-        for dir_name in os.listdir(agents_dir)
-        if os.path.isdir(os.path.join(agents_dir, dir_name))
-    ]
+    db = DBConnection()
+    session = db.session
+
+    agents = session.query(AgentModel).all()
     output = []
-    if agents:
-        for agent in agents:
-            output.append({"name": agent, "status": False})
+
+    for agent in agents:
+        output.append({"name": agent.name, "status": False})
+
+    session.close()
+
     return output
 
 
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
-        self.config_path, self.history_file, self.folder_path = get_agent_file_paths(
-            agent_name=self.agent_name
-        )
+        self.db = DBConnection()
+        self.session = self.db.session
+
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -185,8 +188,17 @@ class Agent:
         for command in list(self.AGENT_CONFIG["commands"]):
             if command not in [cmd[0] for cmd in self.commands]:
                 del self.AGENT_CONFIG["commands"][command]
-        with open(self.config_path, "w") as f:
-            json.dump(self.AGENT_CONFIG, f)
+        agent_setting = (
+            self.session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == "config",
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        agent_setting.value = json.dumps(self.AGENT_CONFIG)
+        self.session.commit()
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -236,22 +248,32 @@ class Agent:
         return commands
 
     def get_agent_config(self):
-        while True:
-            if os.path.exists(self.config_path):
-                try:
-                    with open(self.config_path, "r") as f:
-                        file_content = f.read().strip()
-                        if file_content:
-                            return json.loads(file_content)
-                except:
-                    None
-            add_agent(agent_name=self.agent_name)
-            return self.get_agent_config()
+        agent_setting = (
+            self.session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == "config",
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        if agent_setting:
+            return json.loads(agent_setting.value)
+        else:
+            return {}
 
     def update_agent_config(self, new_config, config_key):
-        if os.path.exists(self.config_path):
-            with open(self.config_path, "r") as f:
-                current_config = json.load(f)
+        agent_setting = (
+            self.session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == "config",
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        if agent_setting:
+            current_config = json.loads(agent_setting.value)
 
             # Ensure the config_key is present in the current configuration
             if config_key not in current_config:
@@ -261,9 +283,8 @@ class Agent:
             for key, value in new_config.items():
                 current_config[config_key][key] = value
 
-            # Save the updated configuration back to the file
-            with open(self.config_path, "w") as f:
-                json.dump(current_config, f)
+            agent_setting.value = json.dumps(current_config)
+            self.session.commit()
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} configuration not found."
@@ -279,18 +300,47 @@ class Agent:
             shutil.rmtree(memories_folder)
 
     def load_history(self):
-        if os.path.exists(self.history_file):
-            with open(self.history_file, "r") as file:
-                memory = yaml.safe_load(file)
+        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+
+        if agent:
+            messages = (
+                self.session.query(MessageModel)
+                .filter(MessageModel.agent_id == agent.id)
+                .all()
+            )
+            history = {"interactions": []}
+
+            for message in messages:
+                history["interactions"].append(
+                    {
+                        "role": message.role,
+                        "message": message.content,
+                        "timestamp": message.timestamp.strftime("%B %d, %Y %I:%M %p"),
+                    }
+                )
+
+            return history
         else:
-            with open(self.history_file, "w") as file:
-                yaml.safe_dump({"interactions": []}, file)
-            memory = {"interactions": []}
-        return memory
+            return {"interactions": []}
 
     def save_history(self):
-        with open(self.history_file, "w") as file:
-            yaml.safe_dump(self.history, file)
+        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+
+        if agent:
+            messages = []
+            for interaction in self.history["interactions"]:
+                message = MessageModel(
+                    role=interaction["role"],
+                    content=interaction["message"],
+                    timestamp=datetime.strptime(
+                        interaction["timestamp"], "%B %d, %Y %I:%M %p"
+                    ),
+                    agent_id=agent.id,
+                )
+                messages.append(message)
+
+            self.session.add_all(messages)
+            self.session.commit()
 
     def log_interaction(self, role: str, message: str):
         if self.history is None:
@@ -305,21 +355,42 @@ class Agent:
         self.save_history()
 
     def delete_history(self):
-        try:
-            self.history = {"interactions": []}
-            self.save_history()
+        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+
+        if agent:
+            messages = (
+                self.session.query(MessageModel)
+                .filter(MessageModel.agent_id == agent.id)
+                .all()
+            )
+
+            for message in messages:
+                self.session.delete(message)
+
+            self.session.commit()
+
             return "History deleted."
-        except:
+        else:
             return "History not found."
 
     def delete_history_message(self, message: str):
-        try:
-            self.history["interactions"] = [
-                interaction
-                for interaction in self.history["interactions"]
-                if interaction["message"] != message
-            ]
-            self.save_history()
+        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+
+        if agent:
+            messages = (
+                self.session.query(MessageModel)
+                .filter(
+                    MessageModel.agent_id == agent.id,
+                    MessageModel.content == message,
+                )
+                .all()
+            )
+
+            for message in messages:
+                self.session.delete(message)
+
+            self.session.commit()
+
             return "Message deleted."
-        except:
+        else:
             return "Message not found."

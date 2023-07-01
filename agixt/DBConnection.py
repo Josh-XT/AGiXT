@@ -11,7 +11,7 @@ from sqlalchemy import (
     Boolean,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
 from Extensions import Extensions
@@ -204,6 +204,12 @@ class ChainStep(Base):
     target_command_id = Column(UUID(as_uuid=True), ForeignKey("command.id"))
     target_prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompt.id"))
     step_number = Column(Integer, nullable=False)
+    responses = relationship("ChainStepResponse", backref="chain_step")
+
+    def add_response(self, content):
+        response = ChainStepResponse(content=content, chain_step=self)
+        session.add(response)
+        session.commit()
 
 
 class ChainStepArgument(Base):
