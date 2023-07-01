@@ -244,7 +244,7 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
         f.write(file_content)
     try:
         memories = Agent(agent_name=agent_name).get_memories()
-        await memories.mem_read_file(file_path=file_path)
+        await memories.read_file(file_path=file_path)
         try:
             os.remove(file_path)
         except Exception:

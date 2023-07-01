@@ -196,7 +196,7 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    async def mem_read_file(self, file_path: str):
+    async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         file_path = os.path.normpath(os.path.join(base_path, file_path))
         if not file_path.startswith(base_path):

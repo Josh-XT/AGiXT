@@ -240,7 +240,7 @@ class Interactions:
         shots = int(shots)
         if learn_file != "":
             try:
-                learning_file = await self.memories.mem_read_file(file_path=learn_file)
+                learning_file = ApiClient.learn_file(file_path=learn_file)
             except:
                 return "Failed to read file."
             if learning_file == False:
