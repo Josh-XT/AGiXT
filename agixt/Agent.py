@@ -5,10 +5,10 @@ import shutil
 import importlib
 from inspect import signature, Parameter
 from DBConnection import (
-    DBConnection,
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
     Message as MessageModel,
+    session,
 )
 from provider import Provider
 from Memories import Memories
@@ -33,8 +33,6 @@ def add_agent(agent_name, provider_settings=None, commands={}):
         if not provider_settings or provider_settings == {}
         else provider_settings
     )
-    db = DBConnection()
-    session = db.session
 
     agent = AgentModel(name=agent_name)
     session.add(agent)
@@ -62,9 +60,6 @@ def add_agent(agent_name, provider_settings=None, commands={}):
 
 
 def delete_agent(agent_name):
-    db = DBConnection()
-    session = db.session
-
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
         session.close()
@@ -78,9 +73,6 @@ def delete_agent(agent_name):
 
 
 def rename_agent(agent_name, new_name):
-    db = DBConnection()
-    session = db.session
-
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
         session.close()
@@ -94,9 +86,6 @@ def rename_agent(agent_name, new_name):
 
 
 def get_agents():
-    db = DBConnection()
-    session = db.session
-
     agents = session.query(AgentModel).all()
     output = []
 
@@ -111,9 +100,6 @@ def get_agents():
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
-        self.db = DBConnection()
-        self.session = self.db.session
-
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" in self.AGENT_CONFIG:
             self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
@@ -189,7 +175,7 @@ class Agent:
             if command not in [cmd[0] for cmd in self.commands]:
                 del self.AGENT_CONFIG["commands"][command]
         agent_setting = (
-            self.session.query(AgentSettingModel)
+            session.query(AgentSettingModel)
             .filter(
                 AgentSettingModel.agent_id == AgentModel.id,
                 AgentSettingModel.name == "config",
@@ -198,7 +184,7 @@ class Agent:
             .first()
         )
         agent_setting.value = json.dumps(self.AGENT_CONFIG)
-        self.session.commit()
+        session.commit()
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -249,7 +235,7 @@ class Agent:
 
     def get_agent_config(self):
         agent_setting = (
-            self.session.query(AgentSettingModel)
+            session.query(AgentSettingModel)
             .filter(
                 AgentSettingModel.agent_id == AgentModel.id,
                 AgentSettingModel.name == "config",
@@ -264,7 +250,7 @@ class Agent:
 
     def update_agent_config(self, new_config, config_key):
         agent_setting = (
-            self.session.query(AgentSettingModel)
+            session.query(AgentSettingModel)
             .filter(
                 AgentSettingModel.agent_id == AgentModel.id,
                 AgentSettingModel.name == "config",
@@ -284,7 +270,7 @@ class Agent:
                 current_config[config_key][key] = value
 
             agent_setting.value = json.dumps(current_config)
-            self.session.commit()
+            session.commit()
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} configuration not found."
@@ -300,11 +286,11 @@ class Agent:
             shutil.rmtree(memories_folder)
 
     def load_history(self):
-        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
 
         if agent:
             messages = (
-                self.session.query(MessageModel)
+                session.query(MessageModel)
                 .filter(MessageModel.agent_id == agent.id)
                 .all()
             )
@@ -324,7 +310,7 @@ class Agent:
             return {"interactions": []}
 
     def save_history(self):
-        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
 
         if agent:
             messages = []
@@ -339,8 +325,8 @@ class Agent:
                 )
                 messages.append(message)
 
-            self.session.add_all(messages)
-            self.session.commit()
+            session.add_all(messages)
+            session.commit()
 
     def log_interaction(self, role: str, message: str):
         if self.history is None:
@@ -355,30 +341,30 @@ class Agent:
         self.save_history()
 
     def delete_history(self):
-        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
 
         if agent:
             messages = (
-                self.session.query(MessageModel)
+                session.query(MessageModel)
                 .filter(MessageModel.agent_id == agent.id)
                 .all()
             )
 
             for message in messages:
-                self.session.delete(message)
+                session.delete(message)
 
-            self.session.commit()
+            session.commit()
 
             return "History deleted."
         else:
             return "History not found."
 
     def delete_history_message(self, message: str):
-        agent = self.session.query(AgentModel).filter_by(name=self.agent_name).first()
+        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
 
         if agent:
             messages = (
-                self.session.query(MessageModel)
+                session.query(MessageModel)
                 .filter(
                     MessageModel.agent_id == agent.id,
                     MessageModel.content == message,
@@ -387,9 +373,9 @@ class Agent:
             )
 
             for message in messages:
-                self.session.delete(message)
+                session.delete(message)
 
-            self.session.commit()
+            session.commit()
 
             return "Message deleted."
         else:

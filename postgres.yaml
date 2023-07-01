@@ -8,4 +8,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    volumes:
+      - ./data:/var/lib/postgresql/data
     command: ["postgres", "-c", "shared_buffers=256MB"]

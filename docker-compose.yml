@@ -8,6 +8,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    volumes:
+      - ./data:/var/lib/postgresql/data
   agixt:
     image: joshxt/agixt:${AGIXT_VERSION:-main}
     init: true
