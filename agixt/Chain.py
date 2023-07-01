@@ -2,28 +2,6 @@ import os
 import json
 
 
-def create_command_suggestion_chain(agent_name, command_name, command_args):
-    chain = Chain()
-    chains = chain.get_chains()
-    chain_name = f"{agent_name} Command Suggestions"
-    if chain_name in chains:
-        step = int(chain.get_chain(chain_name=chain_name)["steps"][-1]["step"]) + 1
-    else:
-        chain.add_chain(chain_name=chain_name)
-        step = 1
-    chain.add_chain_step(
-        chain_name=chain_name,
-        agent_name=agent_name,
-        step_number=step,
-        prompt_type="Command",
-        prompt={
-            "command_name": command_name,
-            **command_args,
-        },
-    )
-    return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
-
-
 def get_chain_file_path(chain_name):
     base_path = os.path.join(os.getcwd(), "chains")
     folder_path = os.path.normpath(os.path.join(base_path, chain_name))

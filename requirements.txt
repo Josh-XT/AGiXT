@@ -11,5 +11,5 @@ nomic==1.1.6
 semantic-kernel==0.3.1.dev0
 tweepy==4.14.0
 pillow==9.5.0
-poe-api==0.4.6
+poe-api==0.4.7
 -e git+https://github.com/xtekky/gpt4free.git#egg=gpt4free
