@@ -244,7 +244,7 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
         f.write(file_content)
     try:
         memories = Agent(agent_name=agent_name).get_memories()
-        await memories.mem_read_file(file_path=file_path)
+        await memories.read_file(file_path=file_path)
         try:
             os.remove(file_path)
         except Exception:
@@ -298,7 +298,11 @@ async def get_agentconfig(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name=agent_name).get_history()
+    chat_history = Agent(agent_name=agent_name).load_history()
+    if chat_history is None:
+        chat_history = []
+    if "interactions" in chat_history:
+        chat_history = chat_history["interactions"]
     return {"chat_history": chat_history}
 
 
@@ -415,7 +419,7 @@ async def chat_completion(prompt: Completions):
 @app.get("/api/agent/{agent_name}/command", tags=["Agent"])
 async def get_commands(agent_name: str):
     agent = Agent(agent_name=agent_name)
-    return {"commands": agent.agent_config["commands"]}
+    return {"commands": agent.AGENT_CONFIG["commands"]}
 
 
 @app.patch("/api/agent/{agent_name}/command", tags=["Agent"])
@@ -425,19 +429,19 @@ async def toggle_command(
     agent = Agent(agent_name=agent_name)
     try:
         if payload.command_name == "*":
-            for each_command_name in agent.agent_config["commands"]:
-                agent.agent_config["commands"][each_command_name] = payload.enable
+            for each_command_name in agent.AGENT_CONFIG["commands"]:
+                agent.AGENT_CONFIG["commands"][each_command_name] = payload.enable
 
             agent.update_agent_config(
-                new_config=agent.agent_config["commands"], config_key="commands"
+                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
             )
             return ResponseMessage(
                 message=f"All commands enabled for agent '{agent_name}'."
             )
         else:
-            agent.agent_config["commands"][payload.command_name] = payload.enable
+            agent.AGENT_CONFIG["commands"][payload.command_name] = payload.enable
             agent.update_agent_config(
-                new_config=agent.agent_config["commands"], config_key="commands"
+                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
             )
             return ResponseMessage(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
