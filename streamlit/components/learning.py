@@ -39,8 +39,10 @@ def learning_page(agent_name):
         learn_url = st.text_input("Enter a URL for the agent to learn from..")
         if st.button("Learn from URL"):
             if learn_url:
-                _, _ = ApiClient.learn_url(agent_name=agent_name, url=learn_url)
-                st.success(f"Agent '{agent_name}' has learned from the URL.")
+                learn = ApiClient.learn_url(agent_name=agent_name, url=learn_url)
+                st.success(
+                    f"Agent '{agent_name}' has learned from the URL {learn_url}."
+                )
         st.markdown("### Wipe Agent Memory")
         st.markdown(
             "The agent can simply learn too much undesired information at times. If you're having an issue with the context being injected from memory with your agent, try wiping the memory."
