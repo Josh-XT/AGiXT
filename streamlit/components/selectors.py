@@ -48,7 +48,11 @@ def prompt_selection(prompt: dict = {}, step_number: int = 0):
 
 def command_selection(prompt: dict = {}, step_number: int = 0):
     agent_commands = cached_get_extensions()
-    available_commands = [cmd[0] for cmd in agent_commands]
+    available_commands = []
+    for commands in agent_commands:
+        for command in commands["commands"]:
+            available_commands.append(command["friendly_name"])
+
     command_name = st.selectbox(
         "Select Command",
         [""] + available_commands,

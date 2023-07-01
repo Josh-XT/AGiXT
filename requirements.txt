@@ -1,4 +1,4 @@
-agixtsdk==0.0.6
+agixtsdk==0.0.7
 cryptography==41.0.0
 EdgeGPT==0.11.1
 GoogleBard==1.1.3
