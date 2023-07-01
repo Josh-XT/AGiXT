@@ -161,7 +161,6 @@ class Agent:
             self.clean_agent_config_commands()
             self.history = self.load_history()
             self.agent_instances = {}
-            self.agent_config = self.load_agent_config()
             if self.LOG_REQUESTS:
                 Path(
                     os.path.normpath(
@@ -259,63 +258,6 @@ class Agent:
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
-    def create_agent_config_file(self, provider_settings, commands):
-        if (
-            provider_settings is None
-            or provider_settings == ""
-            or provider_settings == {}
-        ):
-            provider_settings = DEFAULT_SETTINGS
-        settings = json.dumps(
-            {
-                "commands": commands,
-                "settings": provider_settings,
-            }
-        )
-
-        # Check and create agent directory if it doesn't exist
-        if not os.path.exists(os.path.join("agents", self.agent_name)):
-            os.makedirs(os.path.join("agents", self.agent_name))
-
-        # Write the settings to the agent config file
-        with open(self.config_path, "w") as f:
-            f.write(settings)
-
-        return self.config_path
-
-    def load_agent_config(self):
-        try:
-            with open(self.config_path) as agent_config:
-                try:
-                    agent_config_data = json.load(agent_config)
-                    return agent_config_data
-                except json.JSONDecodeError:
-                    agent_config_data = {}
-                    # Populate the agent_config with all commands enabled
-                    agent_config_data["commands"] = {
-                        command_name: "false"
-                        for command_name, _, _ in self.load_commands(self.agent_name)
-                    }
-                    agent_config_data["settings"] = DEFAULT_SETTINGS
-                    # Save the updated agent_config to the file
-                    with open(self.config_path, "w") as agent_config_file:
-                        json.dump(agent_config_data, agent_config_file)
-                    return agent_config_data
-        except:
-            with open(self.config_path, "w") as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "commands": {
-                                command_name: "false"
-                                for command_name, _, _ in self.load_commands()
-                            },
-                            "settings": DEFAULT_SETTINGS,
-                        }
-                    )
-                )
-        return agent_config_data
-
     def get_agent_config(self):
         while True:
             if os.path.exists(self.config_path):
@@ -348,20 +290,6 @@ class Agent:
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} configuration not found."
-
-    def get_history(self):
-        if not os.path.exists(self.history_file):
-            with open(self.history_file, "w") as f:
-                f.write("")
-            return []
-        try:
-            with open(self.history_file, "r") as f:
-                yaml_history = yaml.safe_load(f)
-            if "interactions" in yaml_history:
-                return yaml_history["interactions"]
-            return []
-        except:
-            return []
 
     def wipe_agent_memories(self):
         memories_folder = os.path.normpath(
