@@ -17,6 +17,7 @@ from agixtsdk import AGiXTSDK
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
+chain = Chain()
 
 
 class Interactions:
@@ -84,7 +85,7 @@ class Interactions:
                 for arg, value in kwargs.items():
                     if "{STEP" in value:
                         # get the response from the step number
-                        step_response = Chain().get_step_response(
+                        step_response = chain.get_step_response(
                             chain_name=chain_name, step_number=step_number
                         )
                         # replace the {STEPx} with the response
@@ -93,12 +94,12 @@ class Interactions:
             except:
                 logging.info("No args to replace.")
             if "{STEP" in prompt:
-                step_response = Chain().get_step_response(
+                step_response = chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
             if "{STEP" in user_input:
-                step_response = Chain().get_step_response(
+                step_response = chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
