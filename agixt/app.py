@@ -16,6 +16,7 @@ import base64
 import time
 import string
 import random
+import json
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -627,7 +628,8 @@ async def get_command_args(command_name: str):
 
 @app.get("/api/extensions", tags=["Extension"])
 async def get_extensions():
-    return {"extensions": Extensions().get_extensions()}
+    extensions = Extensions().get_extensions()
+    return {"extensions": extensions}
 
 
 if __name__ == "__main__":
