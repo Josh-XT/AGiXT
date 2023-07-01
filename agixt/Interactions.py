@@ -18,6 +18,7 @@ from agixtsdk import AGiXTSDK
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
 chain = Chain()
+cp = Prompts()
 
 
 class Interactions:
@@ -62,7 +63,6 @@ class Interactions:
         memories=None,
         **kwargs,
     ):
-        cp = Prompts()
         if prompt == "":
             prompt = user_input
         else:
