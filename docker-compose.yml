@@ -18,6 +18,7 @@ services:
     environment:
       - UVICORN_WORKERS=4
       - TOKENIZERS_PARALLELISM=False
+      - POSTGRES_SERVER=db
     ports:
       - "8501:8501"
       - "7437:7437"
