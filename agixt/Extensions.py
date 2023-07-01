@@ -3,6 +3,7 @@ import os
 import glob
 from inspect import signature, Parameter
 import logging
+import inspect
 
 
 class Extensions:
@@ -46,10 +47,12 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        for command in self.get_extensions():
-            if command[0] == command_name:
-                return command[2]
-        return None
+        extensions = self.get_extensions()
+        for extension in extensions:
+            for command in extension["commands"]:
+                if command["friendly_name"] == command_name:
+                    return command["command_args"]
+        return {}
 
     def load_commands(self):
         try:
@@ -107,7 +110,7 @@ class Extensions:
             if name == "self":
                 continue
             if param.default == Parameter.empty:
-                params[name] = None
+                params[name] = param.annotation
             else:
                 params[name] = param.default
         return params
@@ -154,8 +157,36 @@ class Extensions:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
             module = importlib.import_module(f"extensions.{module_name}")
             command_class = getattr(module, module_name.lower())()
+            extension_name = command_file.split("/")[-1].split(".")[0]
+            extension_name = extension_name.replace("_", " ").title()
+            constructor = inspect.signature(command_class.__init__)
+            params = constructor.parameters
+            extension_settings = [
+                name for name in params if name != "self" and name != "kwargs"
+            ]
+            extension_commands = []
             if hasattr(command_class, "commands"):
-                for command_name, command_function in command_class.commands.items():
-                    params = self.get_command_params(command_function)
-                    commands.append((command_name, command_function.__name__, params))
+                try:
+                    for (
+                        command_name,
+                        command_function,
+                    ) in command_class.commands.items():
+                        params = self.get_command_params(command_function)
+                        extension_commands.append(
+                            {
+                                "friendly_name": command_name,
+                                "command_name": command_function.__name__,
+                                "command_args": params,
+                            }
+                        )
+                except Exception as e:
+                    logging.error(f"Error getting commands: {e}")
+            commands.append(
+                {
+                    "extension_name": extension_name,
+                    "description": extension_name,
+                    "settings": extension_settings,
+                    "commands": extension_commands,
+                }
+            )
         return commands
