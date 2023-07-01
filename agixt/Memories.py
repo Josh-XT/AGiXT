@@ -1,8 +1,7 @@
 from typing import List
-import spacy
 import os
 from hashlib import sha256
-from Embedding import Embedding
+from Embedding import Embedding, get_tokens, nlp
 from datetime import datetime
 from collections import Counter
 import pandas as pd
@@ -27,7 +26,6 @@ class Memories:
         self.agent_config = agent_config
         self.chroma_client = None
         self.collection = None
-        self.nlp = None
         self.chunk_size = 128
         memories_dir = os.path.join(os.getcwd(), "agents", self.agent_name, "memories")
         self.chroma_client = ChromaMemoryStore(
@@ -38,15 +36,6 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
-
-    def load_spacy_model(self):
-        if not self.nlp:
-            try:
-                self.nlp = spacy.load("en_core_web_sm")
-            except:
-                spacy.cli.download("en_core_web_sm")
-                self.nlp = spacy.load("en_core_web_sm")
-        self.nlp.max_length = 99999999999999999999999
 
     async def get_embedder(self):
         embedder, chunk_size = await Embedding(
@@ -134,12 +123,10 @@ class Memories:
 
     async def trim_context(self, context: List[str]) -> List[str]:
         embedder, chunk_size = await self.get_embedder()
-        if not self.nlp:
-            self.load_spacy_model()
         trimmed_context = []
         total_tokens = 0
         for item in context:
-            item_tokens = len(self.nlp(item))
+            item_tokens = get_tokens(item)
             if total_tokens + item_tokens <= chunk_size:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
@@ -149,9 +136,7 @@ class Memories:
 
     def get_keywords(self, query: str):
         """Extract keywords from a query using Spacy's part-of-speech tagging."""
-        if not self.nlp:
-            self.load_spacy_model()
-        doc = self.nlp(query)
+        doc = nlp(query)
         keywords = [
             token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
         ]
@@ -167,9 +152,7 @@ class Memories:
         self, content: str, query: str, overlap: int = 2
     ) -> List[str]:
         embedder, chunk_size = await self.get_embedder()
-        if not self.nlp:
-            self.load_spacy_model()
-        doc = self.nlp(content)
+        doc = nlp(content)
         sentences = list(doc.sents)
         content_chunks = []
         chunk = []

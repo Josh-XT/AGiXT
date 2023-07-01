@@ -3,10 +3,10 @@ import os
 import regex
 import json
 import time
-import spacy
 from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
+from Embedding import get_tokens
 from extensions.searxng import searxng
 from Chain import Chain, get_chain_responses_file_path, create_command_suggestion_chain
 from urllib.parse import urlparse
@@ -35,16 +35,6 @@ class Interactions:
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
-        self.nlp = None
-
-    def load_spacy_model(self):
-        if not self.nlp:
-            try:
-                self.nlp = spacy.load("en_core_web_sm")
-            except:
-                spacy.cli.download("en_core_web_sm")
-                self.nlp = spacy.load("en_core_web_sm")
-        self.nlp.max_length = 99999999999999999999999
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -217,9 +207,7 @@ class Interactions:
             **kwargs,
         )
 
-        if not self.nlp:
-            self.load_spacy_model()
-        tokens = len(self.nlp(formatted_prompt))
+        tokens = get_tokens(formatted_prompt)
         logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
 
@@ -626,7 +614,7 @@ class Interactions:
                         # Split the collected data into agent max tokens / 2 character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
-                                tokens = len(self.nlp(collected_data))
+                                tokens = get_tokens(collected_data)
                                 chunks = [
                                     collected_data[i : i + chunk_size]
                                     for i in range(

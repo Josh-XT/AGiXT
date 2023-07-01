@@ -8,6 +8,7 @@ from semantic_kernel.connectors.ai.open_ai import (
     OpenAITextEmbedding,
 )
 import logging
+import spacy
 
 
 class GooglePalmEmbeddingFunction(EmbeddingFunction):
@@ -172,3 +173,17 @@ def get_embedding_providers():
         for func, _ in inspect.getmembers(Embedding, predicate=inspect.isfunction)
         if not func.startswith("__")
     ]
+
+
+def nlp(text):
+    try:
+        sp = spacy.load("en_core_web_sm")
+    except:
+        spacy.cli.download("en_core_web_sm")
+        sp = spacy.load("en_core_web_sm")
+    sp.max_length = 99999999999999999999999
+    return sp(text)
+
+
+def get_tokens(text):
+    return len(nlp(text))
