@@ -1,5 +1,6 @@
 import os
 import uuid
+import logging
 from sqlalchemy import (
     create_engine,
     Column,
@@ -88,6 +89,7 @@ class DBConnection:
                 session.add(extension)
                 session.flush()
                 existing_extensions.append(extension)
+                logging.info(f"Adding extension: {extension_name}")
 
             commands = extension_data["commands"]
 
@@ -114,24 +116,26 @@ class DBConnection:
                     session.add(command)
                     session.flush()
                     existing_commands.append(command)
-
-                # Delete existing arguments of the command
-                session.query(Argument).filter(
-                    Argument.command_id == command.id
-                ).delete()
+                    logging.info(f"Adding command: {command_name}")
 
                 # Add command arguments
                 if "command_args" in command_data:
                     command_args = command_data["command_args"]
-                    print(
-                        f"Adding command arguments: {command_args} for {command_name}"
-                    )
                     for arg, arg_type in command_args.items():
+                        if (
+                            self.session.query(Argument)
+                            .filter_by(command_id=command.id, name=arg)
+                            .first()
+                        ):
+                            continue
                         command_arg = Argument(
                             command_id=command.id,
                             name=arg,
                         )
                         session.add(command_arg)
+                        logging.info(
+                            f"Adding argument: {arg} to command: {command_name}"
+                        )
 
         session.commit()
 
@@ -147,6 +151,7 @@ class DBConnection:
             )
             self.session.add(default_category)
             self.session.commit()
+            logging.info("Adding Default prompt category")
 
         # Get all prompt files in the specified folder
         for root, dirs, files in os.walk("prompts"):
@@ -176,12 +181,13 @@ class DBConnection:
 
                 # Check if prompt with the same name and category already exists
                 prompt_name = os.path.splitext(file)[0]
-                existing_prompt = (
+                prompt = (
                     self.session.query(Prompt)
                     .filter_by(name=prompt_name, prompt_category=prompt_category)
                     .first()
                 )
-                if not existing_prompt:
+                prompt_args = self.get_prompt_args(prompt_content)
+                if not prompt:
                     # Create the prompt entry in the database
                     prompt = Prompt(
                         name=prompt_name,
@@ -191,17 +197,23 @@ class DBConnection:
                     )
                     self.session.add(prompt)
                     self.session.commit()
+                    logging.info(f"Adding prompt: {prompt_name}")
 
-                    # Populate prompt arguments
-                    prompt_args = self.get_prompt_args(prompt_content)
-                    print(f"Adding prompt arguments: {prompt_args} for {prompt_name}")
-                    for arg in prompt_args:
-                        argument = Argument(
-                            prompt_id=prompt.id,
-                            name=arg,
-                        )
-                        self.session.add(argument)
+                # Populate prompt arguments
+                for arg in prompt_args:
+                    if (
+                        self.session.query(Argument)
+                        .filter_by(prompt_id=prompt.id, name=arg)
+                        .first()
+                    ):
+                        continue
+                    argument = Argument(
+                        prompt_id=prompt.id,
+                        name=arg,
+                    )
+                    self.session.add(argument)
                     self.session.commit()
+                    logging.info(f"Adding prompt argument: {arg} for {prompt_name}")
 
     def get_prompt_args(self, prompt_text):
         # Find anything in the file between { and } and add them to a list to return
@@ -387,6 +399,9 @@ class Prompt(Base):
     prompt_category = relationship("PromptCategory", backref="prompts")
 
 
-Base.metadata.create_all(bind=engine)
-db.populate_extensions_and_commands()
-db.populate_prompts()
+try:
+    Base.metadata.create_all(bind=engine)
+    db.populate_extensions_and_commands()
+    db.populate_prompts()
+except Exception as e:
+    pass

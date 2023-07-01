@@ -2,7 +2,11 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from Interactions import Interactions
+
+try:
+    from Interactions import Interactions
+except ImportError:
+    print("")
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
 from Prompts import Prompts
