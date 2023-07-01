@@ -1,5 +1,4 @@
 import re
-import os
 import regex
 import json
 import time
@@ -8,7 +7,12 @@ from Agent import Agent
 from Prompts import Prompts
 from Embedding import get_tokens
 from extensions.searxng import searxng
-from Chain import Chain, get_chain_responses_file_path, create_command_suggestion_chain
+from Chain import (
+    Chain,
+    get_chain_responses_file_path,
+    create_command_suggestion_chain,
+    get_step_response,
+)
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
@@ -52,20 +56,6 @@ class Interactions:
         result = re.sub(pattern, replace, string)
         return result
 
-    def get_step_response(self, chain_name, step_number):
-        base_path = os.path.join(os.getcwd(), "chains")
-        file_path = os.path.normpath(
-            os.path.join(base_path, chain_name, "responses.json")
-        )
-        if not file_path.startswith(base_path):
-            raise ValueError("Invalid path, chain name must not contain slashes.")
-        try:
-            with open(file_path, "r") as f:
-                responses = json.load(f)
-            return responses.get(str(step_number))
-        except:
-            return ""
-
     def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
         new_prompt_content = {}
         if isinstance(prompt_content, dict):
@@ -82,7 +72,7 @@ class Interactions:
                             # Get the step number from value between {STEP and }
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
                             # get the response from the step number
-                            step_response = self.get_step_response(
+                            step_response = get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
                             )
                             # replace the {STEPx} with the response
@@ -115,7 +105,7 @@ class Interactions:
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
                     # get the response from the step number
-                    step_response = self.get_step_response(
+                    step_response = get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
                     # replace the {STEPx} with the response
@@ -165,7 +155,7 @@ class Interactions:
                 for arg, value in kwargs.items():
                     if "{STEP" in value:
                         # get the response from the step number
-                        step_response = self.get_step_response(
+                        step_response = get_step_response(
                             chain_name=chain_name, step_number=step_number
                         )
                         # replace the {STEPx} with the response
@@ -174,12 +164,12 @@ class Interactions:
             except:
                 logging.info("No args to replace.")
             if "{STEP" in prompt:
-                step_response = self.get_step_response(
+                step_response = get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
             if "{STEP" in user_input:
-                step_response = self.get_step_response(
+                step_response = get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
@@ -233,15 +223,6 @@ class Interactions:
                 return "Failed to read file."
             if learning_file == False:
                 return "Failed to read file."
-        formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
-            user_input=user_input,
-            top_results=context_results,
-            prompt=prompt,
-            chain_name=chain_name,
-            step_number=step_number,
-            memories=self.memories,
-            **kwargs,
-        )
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
@@ -254,6 +235,15 @@ class Interactions:
                 await self.websearch_agent(
                     user_input=search_string, depth=websearch_depth
                 )
+        formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
+            user_input=user_input,
+            top_results=context_results,
+            prompt=prompt,
+            chain_name=chain_name,
+            step_number=step_number,
+            memories=self.memories,
+            **kwargs,
+        )
         try:
             # Workaround for non-threaded providers
             run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
