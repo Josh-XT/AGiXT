@@ -299,6 +299,8 @@ async def get_agentconfig(agent_name: str):
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
     chat_history = Agent(agent_name=agent_name).load_history()
+    if chat_history is None:
+        chat_history = []
     if "interactions" in chat_history:
         chat_history = chat_history["interactions"]
     return {"chat_history": chat_history}
