@@ -51,6 +51,19 @@ def import_chain(chain_name: str, steps: dict):
     return f"Chain '{chain_name}' imported."
 
 
+def get_step_response(chain_name, step_number):
+    base_path = os.path.join(os.getcwd(), "chains")
+    file_path = os.path.normpath(os.path.join(base_path, chain_name, "responses.json"))
+    if not file_path.startswith(base_path):
+        raise ValueError("Invalid path, chain name must not contain slashes.")
+    try:
+        with open(file_path, "r") as f:
+            responses = json.load(f)
+        return responses.get(str(step_number))
+    except:
+        return ""
+
+
 class Chain:
     def get_chain(self, chain_name):
         try:

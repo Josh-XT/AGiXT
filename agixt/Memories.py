@@ -1,8 +1,7 @@
 from typing import List
-import spacy
 import os
 from hashlib import sha256
-from Embedding import Embedding
+from Embedding import Embedding, get_tokens, nlp
 from datetime import datetime
 from collections import Counter
 import pandas as pd
@@ -27,7 +26,6 @@ class Memories:
         self.agent_config = agent_config
         self.chroma_client = None
         self.collection = None
-        self.nlp = None
         self.chunk_size = 128
         memories_dir = os.path.join(os.getcwd(), "agents", self.agent_name, "memories")
         self.chroma_client = ChromaMemoryStore(
@@ -38,15 +36,6 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
-
-    def load_spacy_model(self):
-        if not self.nlp:
-            try:
-                self.nlp = spacy.load("en_core_web_sm")
-            except:
-                spacy.cli.download("en_core_web_sm")
-                self.nlp = spacy.load("en_core_web_sm")
-        self.nlp.max_length = 99999999999999999999999
 
     async def get_embedder(self):
         embedder, chunk_size = await Embedding(
@@ -74,43 +63,35 @@ class Memories:
         except Exception as e:
             raise RuntimeError(f"Unable to initialize chroma client: {e}")
 
-    async def store_memory(
-        self, content: str, description: str = None, external_source_name: str = None
-    ):
-        embedder, chunk_size = await self.get_embedder()
-        collection = await self.get_collection()
-        record = MemoryRecord(
-            is_reference=False,
-            id=sha256((content + datetime.now().isoformat()).encode()).hexdigest(),
-            text=content,
-            timestamp=datetime.now().isoformat(),
-            description=description,
-            external_source_name=external_source_name,  # URL or File path
-            embedding=await embedder(content),
-            additional_metadata=content,
-        )
-
-        try:
-            await self.chroma_client.upsert_async(
-                collection_name="memories",
-                record=record,
-            )
-        except Exception as e:
-            logging.info(f"Failed to store memory: {e}")
-
     async def store_result(
         self, input: str, result: str, external_source_name: str = None
     ):
         if result:
+            embedder, chunk_size = await self.get_embedder()
+            collection = await self.get_collection()
             if not isinstance(result, str):
                 result = str(result)
-            chunks = await self.chunk_content(result, input)
+            chunks = await self.chunk_content(content=result, chunk_size=chunk_size)
             for chunk in chunks:
-                await self.store_memory(
-                    content=chunk,
+                record = MemoryRecord(
+                    is_reference=False,
+                    id=sha256(
+                        (chunk + datetime.now().isoformat()).encode()
+                    ).hexdigest(),
+                    text=chunk,
+                    timestamp=datetime.now().isoformat(),
                     description=input,
-                    external_source_name=external_source_name,
+                    external_source_name=external_source_name,  # URL or File path
+                    embedding=await embedder(chunk),
+                    additional_metadata=chunk,
                 )
+                try:
+                    await self.chroma_client.upsert_async(
+                        collection_name="memories",
+                        record=record,
+                    )
+                except Exception as e:
+                    logging.info(f"Failed to store memory: {e}")
 
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
         embedder, chunk_size = await self.get_embedder()
@@ -126,36 +107,19 @@ class Memories:
         context = []
         for memory, score in results:
             context.append(memory._text)
-        trimmed_context = await self.trim_context(context)
-        logging.info(f"CONTEXT: {trimmed_context}")
-        context_str = "\n".join(trimmed_context)
-        response = f"Context: {context_str}\n\n"
-        return response
-
-    async def trim_context(self, context: List[str]) -> List[str]:
-        embedder, chunk_size = await self.get_embedder()
-        if not self.nlp:
-            self.load_spacy_model()
         trimmed_context = []
         total_tokens = 0
         for item in context:
-            item_tokens = len(self.nlp(item))
+            item_tokens = get_tokens(item)
             if total_tokens + item_tokens <= chunk_size:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
             else:
                 break
-        return trimmed_context
-
-    def get_keywords(self, query: str):
-        """Extract keywords from a query using Spacy's part-of-speech tagging."""
-        if not self.nlp:
-            self.load_spacy_model()
-        doc = self.nlp(query)
-        keywords = [
-            token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
-        ]
-        return set(keywords)
+        logging.info(f"CONTEXT: {trimmed_context}")
+        context_str = "\n".join(trimmed_context)
+        response = f"Context: {context_str}\n\n"
+        return response
 
     def score_chunk(self, chunk: str, keywords: set):
         """Score a chunk based on the number of query keywords it contains."""
@@ -164,17 +128,16 @@ class Memories:
         return score
 
     async def chunk_content(
-        self, content: str, query: str, overlap: int = 2
+        self, content: str, chunk_size: int, overlap: int = 2
     ) -> List[str]:
-        embedder, chunk_size = await self.get_embedder()
-        if not self.nlp:
-            self.load_spacy_model()
-        doc = self.nlp(content)
+        doc = nlp(content)
         sentences = list(doc.sents)
         content_chunks = []
         chunk = []
         chunk_len = 0
-        keywords = self.get_keywords(query)
+        keywords = [
+            token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
+        ]
 
         for i, sentence in enumerate(sentences):
             sentence_tokens = len(sentence)
@@ -196,7 +159,7 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    async def mem_read_file(self, file_path: str):
+    async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         file_path = os.path.normpath(os.path.join(base_path, file_path))
         if not file_path.startswith(base_path):
