@@ -296,18 +296,19 @@ def import_agent_config(agent_name):
                     )
                     session.add(agent_provider)
                     session.flush()  # Save the agent_provider object to generate an ID
-                agent_provider_setting = AgentProviderSetting(
-                    provider_setting_id=provider_setting.id,
-                    agent_provider_id=agent_provider.id,
-                    value=setting_value,
-                )
-                session.add(agent_provider_setting)
-        else:
-            if setting_value:
-                agent_setting = AgentSetting(
-                    agent_id=agent.id, name=setting_name, value=setting_value
-                )
-                session.add(agent_setting)
+                if setting_value:
+                    agent_provider_setting = AgentProviderSetting(
+                        provider_setting_id=provider_setting.id,
+                        agent_provider_id=agent_provider.id,
+                        value=setting_value,
+                    )
+                    session.add(agent_provider_setting)
+            else:
+                if setting_value:
+                    agent_setting = AgentSetting(
+                        agent_id=agent.id, name=setting_name, value=setting_value
+                    )
+                    session.add(agent_setting)
 
     session.commit()
     logging.info(f"Agent config imported successfully for agent: {agent_name}")
