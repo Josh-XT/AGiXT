@@ -484,7 +484,7 @@ class Interactions:
                 **kwargs,
             )
 
-    def create_command_suggestion_chain(agent_name, command_name, command_args):
+    def create_command_suggestion_chain(self, agent_name, command_name, command_args):
         chains = ApiClient.get_chains()
         chain_name = f"{agent_name} Command Suggestions"
         if chain_name in chains:

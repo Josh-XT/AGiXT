@@ -8,7 +8,7 @@ from Chain import Chain, import_chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
-from Embedding import get_embedding_providers
+from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
 import os
 import logging
@@ -356,6 +356,9 @@ async def completion(prompt: Completions):
         shots=prompt.n,
     )
     characters = string.ascii_letters + string.digits
+    prompt_tokens = get_tokens(prompt.prompt)
+    completion_tokens = get_tokens(response)
+    total_tokens = int(prompt_tokens) + int(completion_tokens)
     random_chars = "".join(random.choice(characters) for _ in range(15))
     res_model = {
         "id": f"cmpl-{random_chars}",
@@ -370,7 +373,11 @@ async def completion(prompt: Completions):
                 "finish_reason": "stop",
             }
         ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
     }
     return res_model
 
@@ -394,6 +401,9 @@ async def chat_completion(prompt: Completions):
         shots=prompt.n,
     )
     characters = string.ascii_letters + string.digits
+    prompt_tokens = get_tokens(prompt.prompt)
+    completion_tokens = get_tokens(response)
+    total_tokens = int(prompt_tokens) + int(completion_tokens)
     random_chars = "".join(random.choice(characters) for _ in range(15))
     res_model = {
         "id": f"chatcmpl-{random_chars}",
@@ -412,7 +422,11 @@ async def chat_completion(prompt: Completions):
                 "finish_reason": "stop",
             }
         ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
     }
     return res_model
 
