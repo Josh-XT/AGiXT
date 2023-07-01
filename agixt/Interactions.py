@@ -9,7 +9,6 @@ from Embedding import get_tokens
 from extensions.searxng import searxng
 from Chain import (
     get_chain_responses_file_path,
-    create_command_suggestion_chain,
     get_step_response,
 )
 from urllib.parse import urlparse

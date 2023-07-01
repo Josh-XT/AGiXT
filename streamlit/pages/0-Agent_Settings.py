@@ -183,6 +183,14 @@ if agent_name and not new_agent:
 
             return rendered_settings
 
+        # Make a checkbox for autonomous_execution
+        if "autonomous_execution" not in agent_settings:
+            agent_settings["autonomous_execution"] = False
+        autonomous_execution = bool(agent_settings["autonomous_execution"])
+        autonomous_execution = st.checkbox(
+            "Autonomous Execution", value=autonomous_execution
+        )
+
         with st.form(key="update_agent_settings_form"):
             update_agent_settings_button = st.form_submit_button(
                 "Update Agent Settings"
