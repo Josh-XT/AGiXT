@@ -2,7 +2,7 @@ import os
 import json
 import streamlit as st
 from ApiClient import ApiClient
-from components.selectors import agent_selection
+from components.selectors import agent_selection, helper_agent_selection
 from components.verify_backend import verify_backend
 from components.docs import agixt_docs
 
@@ -143,7 +143,12 @@ if agent_name and not new_agent:
         agent_settings[
             "provider"
         ] = provider_name  # Update the agent_settings with the selected provider
-        agent_settings["helper_agent_name"] = agent_selection(
+        if "agent_helper_name" in agent_settings:
+            agent_helper_name = agent_settings["helper_agent_name"]
+        else:
+            agent_helper_name = agent_name
+        agent_settings["helper_agent_name"] = helper_agent_selection(
+            current_agent=agent_name,
             key="select_helper_agent",
             heading="Select Helper Agent (Your agent will ask this one for help when it needs something.)",
         )
