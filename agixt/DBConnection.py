@@ -72,14 +72,17 @@ class DBConnection:
             commands = extension_data["commands"]
 
             for command in commands:
-                command_name = command.get("friendly_name")
+                if "friendly_name" not in command:
+                    continue
+                command_name = command["friendly_name"]
                 cmd = Command(
                     extension_id=extension.id if extension else None,
                     name=command_name,
                 )
                 self.session.add(cmd)
                 self.session.flush()
-
+                if "command_args" not in command:
+                    continue
                 if command["command_args"]:
                     for arg, arg_type in command["command_args"].items():
                         command_arg = Argument(
