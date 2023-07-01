@@ -14,7 +14,6 @@ from concurrent.futures import Future
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
-from DBConnection import session, Chain as ChainDB, ChainStep, ChainStepResponse
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
