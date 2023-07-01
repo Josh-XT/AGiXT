@@ -7,16 +7,14 @@ from Agent import Agent
 from Prompts import Prompts
 from Embedding import get_tokens
 from extensions.searxng import searxng
-from Chain import (
-    get_chain_responses_file_path,
-    get_step_response,
-)
+from Chain import Chain
 from urllib.parse import urlparse
 import logging
 from concurrent.futures import Future
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
+from DBConnection import session, Chain as ChainDB, ChainStep, ChainStepResponse
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
@@ -70,7 +68,7 @@ class Interactions:
                             # Get the step number from value between {STEP and }
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
                             # get the response from the step number
-                            step_response = get_step_response(
+                            step_response = Chain().get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
                             )
                             # replace the {STEPx} with the response
@@ -103,7 +101,7 @@ class Interactions:
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
                     # get the response from the step number
-                    step_response = get_step_response(
+                    step_response = Chain().get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
                     # replace the {STEPx} with the response
@@ -153,7 +151,7 @@ class Interactions:
                 for arg, value in kwargs.items():
                     if "{STEP" in value:
                         # get the response from the step number
-                        step_response = get_step_response(
+                        step_response = Chain().get_step_response(
                             chain_name=chain_name, step_number=step_number
                         )
                         # replace the {STEPx} with the response
@@ -162,12 +160,12 @@ class Interactions:
             except:
                 logging.info("No args to replace.")
             if "{STEP" in prompt:
-                step_response = get_step_response(
+                step_response = Chain().get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
             if "{STEP" in user_input:
-                step_response = get_step_response(
+                step_response = Chain().get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
@@ -406,42 +404,45 @@ class Interactions:
         agent_override="",
         from_step=1,
     ):
-        file_path = get_chain_responses_file_path(chain_name=chain_name)
-        chain_data = ApiClient.get_chain(chain_name=chain_name)
-        if chain_data == {}:
-            return f"Chain `{chain_name}` not found."
+        chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+        if chain is None:
+            return f"Chain '{chain_name}' not found."
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
-        for step_data in chain_data["steps"]:
-            if int(step_data["step"]) >= int(from_step):
-                if "prompt" in step_data and "step" in step_data:
-                    step = {}
-                    step["agent_name"] = (
-                        agent_override
-                        if agent_override != ""
-                        else step_data["agent_name"]
-                    )
-                    step["prompt_type"] = step_data["prompt_type"]
-                    step["prompt"] = step_data["prompt"]
-                    logging.info(
-                        f"Running step {step_data['step']} with agent {step['agent_name']}."
-                    )
-                    step_response = await self.run_chain_step(
-                        step=step_data,
-                        chain_name=chain_name,
-                        user_input=user_input,
-                        agent_override=agent_override,
-                    )  # Get the response of the current step.
-                    step["response"] = step_response
-                    last_response = step_response
-                    responses[step_data["step"]] = step  # Store the response.
-                    logging.info(f"Response: {step_response}")
-                    # Write the responses to the json file.
-                    dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    with open(file_path, "w") as f:
-                        json.dump(responses, f)
-        if all_responses == True:
+        chain_steps = (
+            session.query(ChainStep)
+            .filter(ChainStep.chain_id == chain.id, ChainStep.step_number >= from_step)
+            .order_by(ChainStep.step_number)
+            .all()
+        )
+        for chain_step in chain_steps:
+            step_data = {
+                "step": chain_step.step_number,
+                "agent_name": (
+                    agent_override if agent_override else chain_step.agent_name
+                ),
+                "prompt_type": chain_step.prompt_type,
+                "prompt": chain_step.prompt,
+            }
+            logging.info(
+                f"Running step {chain_step.step_number} with agent {step_data['agent_name']}."
+            )
+            step_response = await self.run_chain_step(
+                step=step_data,
+                chain_name=chain_name,
+                user_input=user_input,
+                agent_override=agent_override,
+            )  # Get the response of the current step.
+            step_data["response"] = step_response
+            last_response = step_response
+            responses[str(chain_step.step_number)] = step_data  # Store the response.
+            logging.info(f"Response: {step_response}")
+            session.add(
+                ChainStepResponse(content=step_response, chain_step_id=chain_step.id)
+            )
+            session.commit()
+        if all_responses:
             return responses
         else:
             # Return only the last response in the chain.

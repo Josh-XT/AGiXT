@@ -9,14 +9,15 @@ from transformers import BlipProcessor, BlipForConditionalGeneration
 from PIL import Image
 from Extensions import Extensions
 from agixtsdk import AGiXTSDK
+from Chain import Chain
 
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437")
 
 
 class agixt_actions(Extensions):
     def __init__(self, **kwargs):
-        self.chains = ApiClient.get_chains()
-        agents = ApiClient.get_agents()
+        self.chains = Chain().get_chains()
+        # agents = ApiClient.get_agents()
         self.commands = {
             "Create Task Chain": self.create_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
@@ -33,6 +34,7 @@ class agixt_actions(Extensions):
                     self.commands.update(
                         {f"Run Chain: {chain['name']}": self.run_chain}
                     )
+        """
         if agents != None:
             for agent in agents:
                 if "name" in agent:
@@ -42,7 +44,7 @@ class agixt_actions(Extensions):
                             f"Ask{name}": self.ask,
                             f"Instruct{name}": self.instruct,
                         }
-                    )
+                    )"""
 
     async def create_task_chain(
         self,

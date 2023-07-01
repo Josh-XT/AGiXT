@@ -41,57 +41,96 @@ class DBConnection:
             )
             engine.execute("SELECT 1")
         except Exception as e:
-            print(f"Error connecting to PostgreSQL: {e}")
-            print("Creating SQLite database...")
+            print(f"Error connecting to database: {e}")
+            print("Creating database...")
             try:
-                engine = create_engine("sqlite:///agixt.db")
-                engine.execute("SELECT 1")
-                print("SQLite database created.")
+                engine = create_engine(
+                    f"postgresql://{self.username}:{self.password}@{self.server}:{self.port}/{self.database_name}"
+                )
+                engine.execute(f"CREATE DATABASE {self.database_name}")
             except Exception as e:
-                print(f"Error creating SQLite database: {e}")
+                print(f"Error creating database: {e}")
                 raise e
         return engine
 
     def populate_extensions_and_commands(self):
         extensions_data = Extensions().get_extensions()
 
-        # Delete existing data in Argument, Command, and Extension tables
-        self.session.query(Argument).delete()
-        self.session.query(Command).delete()
-        self.session.query(Extension).delete()
-        self.session.commit()
+        # Get the existing extensions and commands from the database
+        existing_extensions = session.query(Extension).all()
+        existing_commands = session.query(Command).all()
 
-        # Insert extensions, commands, and command arguments
+        # Delete commands that don't exist in the extensions data
+        for command in existing_commands:
+            command_exists = any(
+                extension_data["extension_name"] == command.extension.name
+                and any(
+                    cmd["friendly_name"] == command.name
+                    for cmd in extension_data["commands"]
+                )
+                for extension_data in extensions_data
+            )
+            if not command_exists:
+                session.delete(command)
+
+        # Add new extensions and commands, and update existing commands
         for extension_data in extensions_data:
             extension_name = extension_data["extension_name"]
             description = extension_data["description"]
-            extension = Extension(name=extension_name, description=description)
-            self.session.add(extension)
-            self.session.flush()
+
+            # Find the existing extension or create a new one
+            extension = next(
+                (ext for ext in existing_extensions if ext.name == extension_name),
+                None,
+            )
+            if extension is None:
+                extension = Extension(name=extension_name, description=description)
+                session.add(extension)
+                session.flush()
+                existing_extensions.append(extension)
 
             commands = extension_data["commands"]
 
-            for command in commands:
-                if "friendly_name" not in command:
+            for command_data in commands:
+                if "friendly_name" not in command_data:
                     continue
-                command_name = command["friendly_name"]
-                cmd = Command(
-                    extension_id=extension.id if extension else None,
-                    name=command_name,
+
+                command_name = command_data["friendly_name"]
+
+                # Find the existing command or create a new one
+                command = next(
+                    (
+                        cmd
+                        for cmd in existing_commands
+                        if cmd.extension_id == extension.id and cmd.name == command_name
+                    ),
+                    None,
                 )
-                self.session.add(cmd)
-                self.session.flush()
-                if "command_args" not in command:
-                    continue
-                if command["command_args"]:
-                    for arg, arg_type in command["command_args"].items():
+                if command is None:
+                    command = Command(
+                        extension_id=extension.id,
+                        name=command_name,
+                    )
+                    session.add(command)
+                    session.flush()
+                    existing_commands.append(command)
+
+                # Delete existing arguments of the command
+                session.query(Argument).filter(
+                    Argument.command_id == command.id
+                ).delete()
+
+                # Add command arguments
+                if "command_args" in command_data:
+                    command_args = command_data["command_args"]
+                    for arg, arg_type in command_args.items():
                         command_arg = Argument(
-                            command_id=cmd.id,
+                            command_id=command.id,
                             name=arg,
                         )
-                        self.session.add(command_arg)
-                        self.session.flush()
-            self.session.commit()
+                        session.add(command_arg)
+
+        session.commit()
 
 
 db = DBConnection()
@@ -137,7 +176,7 @@ class Agent(Base):
     __tablename__ = "agent"
     id = Column(UUID(as_uuid=True), primary_key=True)
     name = Column(Text, nullable=False)
-    provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
+    provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=True)
 
 
 class Command(Base):
@@ -145,6 +184,7 @@ class Command(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     extension_id = Column(UUID(as_uuid=True), ForeignKey("extension.id"))
+    extension = relationship("Extension", backref="commands")
 
 
 class AgentCommand(Base):
@@ -183,8 +223,8 @@ class Setting(Base):
 class AgentSetting(Base):
     __tablename__ = "agent_setting"
     id = Column(UUID(as_uuid=True), primary_key=True)
-    setting_id = Column(UUID(as_uuid=True), ForeignKey("setting.id"), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
+    name = Column(Text, nullable=False)
     value = Column(String, nullable=False)
 
 

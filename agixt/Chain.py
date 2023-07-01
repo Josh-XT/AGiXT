@@ -176,3 +176,22 @@ class Chain:
             step_responses = [response.content for response in chain_step_responses]
             responses[str(step.step_number)] = step_responses
         return responses
+
+    def import_chain(self, chain_name: str, steps: dict):
+        chain = ChainDB(name=chain_name)
+        session.add(chain)
+        session.commit()
+
+        steps = steps["steps"] if "steps" in steps else steps
+        for step_data in steps:
+            chain_step = ChainStep(
+                chain_id=chain.id,
+                step_number=step_data["step"],
+                agent_name=step_data["agent_name"],
+                prompt_type=step_data["prompt_type"],
+                prompt=step_data["prompt"],
+            )
+            session.add(chain_step)
+            session.commit()
+
+        return f"Chain '{chain_name}' imported."
