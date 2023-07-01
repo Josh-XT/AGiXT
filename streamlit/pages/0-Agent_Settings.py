@@ -158,7 +158,7 @@ if agent_name and not new_agent:
         if "AUTONOMOUS_EXECUTION" not in agent_settings:
             agent_settings["AUTONOMOUS_EXECUTION"] = False
         autonomous_execution = st.checkbox(
-            "Autonomous Execution",
+            "Autonomous Execution (If checked, agent will run any enabled commands automatically, if not, it will create a chain of commands it would have executed.)",
             value=bool(agent_settings["AUTONOMOUS_EXECUTION"]),
             key="AUTONOMOUS_EXECUTION",
         )
