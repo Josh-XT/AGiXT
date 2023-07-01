@@ -154,6 +154,15 @@ if agent_name and not new_agent:
             index=embedders.index(embedder_name) if embedder_name in embedders else 0,
         )
 
+        # Make a checkbox for autonomous_execution
+        if "AUTONOMOUS_EXECUTION" not in agent_settings:
+            agent_settings["AUTONOMOUS_EXECUTION"] = False
+        autonomous_execution = st.checkbox(
+            "Autonomous Execution",
+            value=bool(agent_settings["AUTONOMOUS_EXECUTION"]),
+            key="AUTONOMOUS_EXECUTION",
+        )
+        agent_settings["AUTONOMOUS_EXECUTION"] = autonomous_execution
         agent_settings[
             "embedder"
         ] = embedder_name  # Update the agent_settings with the selected embedder
@@ -182,16 +191,6 @@ if agent_name and not new_agent:
                         rendered_settings[key] = user_val
 
             return rendered_settings
-
-        # Make a checkbox for autonomous_execution
-        if "autonomous_execution" not in agent_settings:
-            agent_settings["autonomous_execution"] = False
-        autonomous_execution = bool(agent_settings["autonomous_execution"])
-        autonomous_execution = st.checkbox(
-            "Autonomous Execution",
-            value=autonomous_execution,
-            key="autonomous_execution",
-        )
 
         with st.form(key="update_agent_settings_form"):
             update_agent_settings_button = st.form_submit_button(
