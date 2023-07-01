@@ -25,7 +25,7 @@ st.header("Interact with Agents")
 prompts = ApiClient.get_prompts()
 
 # Add a dropdown to select a mode
-mode = st.selectbox("Select Mode", ["Prompt", "Chat", "Instruct", "Learning", "Chains"])
+mode = st.selectbox("Select Mode", ["Chat", "Chains", "Prompt", "Instruct", "Learning"])
 
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = ""
@@ -62,7 +62,12 @@ if mode == "Prompt":
 
     # Add an input field for websearch depth if websearch is enabled
     if websearch:
-        websearch_depth = st.number_input("Websearch depth", min_value=1, value=3)
+        websearch_depth = st.number_input(
+            "Websearch depth", min_value=1, value=3, key="websearch_depth"
+        )
+    shots = st.number_input(
+        "Shots (How many times to ask the agent)", min_value=1, value=1, key="shots"
+    )
 
     # Add an input field for context_results if 'task' is in prompt_args
     context_results = 0
@@ -75,7 +80,7 @@ if mode == "Prompt":
         prompt_args_values["websearch"] = websearch
         prompt_args_values["websearch_depth"] = websearch_depth
         prompt_args_values["context_results"] = context_results
-        prompt_args_values["shots"] = 1
+        prompt_args_values["shots"] = int(shots)
         agent_prompt_resp = ApiClient.prompt_agent(
             agent_name=agent_name,
             prompt_name=prompt_name,
@@ -88,6 +93,9 @@ if mode == "Prompt":
 if mode == "Chat":
     st.markdown("### Choose an Agent to Chat With")
     smart_chat_toggle = st.checkbox("Enable Smart Chat")
+    shots = st.number_input(
+        "Shots (How many times to ask the agent)", min_value=1, value=1, key="shots"
+    )
     chat_prompt = st.text_area("Enter your message", key="chat_prompt")
     send_button = st.button("Send Message")
 
@@ -105,6 +113,7 @@ if mode == "Chat":
                         prompt_name="Chat",
                         prompt_args={
                             "user_input": chat_prompt,
+                            "shots": int(shots),
                         },
                     )
                 if response:
