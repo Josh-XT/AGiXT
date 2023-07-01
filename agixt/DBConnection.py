@@ -132,6 +132,60 @@ class DBConnection:
 
         session.commit()
 
+    def populate_prompts(self):
+        # Add default category if it doesn't exist
+        default_category = (
+            self.session.query(PromptCategory).filter_by(name="Default").first()
+        )
+        if not default_category:
+            default_category = PromptCategory(
+                name="Default", description="Default category"
+            )
+            self.session.add(default_category)
+            self.session.commit()
+
+        # Get all prompt files in the specified folder
+        for root, dirs, files in os.walk("prompts"):
+            for file in files:
+                prompt_category = None
+                if root != "prompts":
+                    # Use subfolder name as the prompt category
+                    category_name = os.path.basename(root)
+                    prompt_category = (
+                        self.session.query(PromptCategory)
+                        .filter_by(name=category_name)
+                        .first()
+                    )
+                    if not prompt_category:
+                        prompt_category = PromptCategory(
+                            name=category_name, description=f"{category_name} category"
+                        )
+                        self.session.add(prompt_category)
+                        self.session.commit()
+                else:
+                    # Assign to "Uncategorized" category if prompt is in the root folder
+                    prompt_category = default_category
+
+                # Read the prompt content from the file
+                with open(os.path.join(root, file), "r") as f:
+                    prompt_content = f.read()
+
+                # Check if prompt with the same name already exists in the database
+                prompt_name = os.path.splitext(file)[0]
+                existing_prompt = (
+                    self.session.query(Prompt).filter_by(name=prompt_name).first()
+                )
+                if not existing_prompt:
+                    # Create the prompt entry in the database
+                    prompt = Prompt(
+                        name=prompt_name,
+                        description="",
+                        content=prompt_content,
+                        prompt_category=prompt_category,
+                    )
+                    self.session.add(prompt)
+                    self.session.commit()
+
 
 db = DBConnection()
 
