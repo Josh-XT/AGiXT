@@ -103,18 +103,6 @@ class Extensions:
                     settings[module_name] = params
         return settings
 
-    def get_command_params(self, func):
-        params = {}
-        sig = signature(func)
-        for name, param in sig.parameters.items():
-            if name == "self":
-                continue
-            if param.default == Parameter.empty:
-                params[name] = param.annotation
-            else:
-                params[name] = param.default
-        return params
-
     def find_command(self, command_name: str):
         for name, module, function_name, params in self.commands:
             if name == command_name:
@@ -149,6 +137,18 @@ class Extensions:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
         return output
+
+    def get_command_params(self, func):
+        params = {}
+        sig = signature(func)
+        for name, param in sig.parameters.items():
+            if name == "self":
+                continue
+            if param.default == Parameter.empty:
+                params[name] = ""
+            else:
+                params[name] = param.default
+        return params
 
     def get_extensions(self):
         commands = []
