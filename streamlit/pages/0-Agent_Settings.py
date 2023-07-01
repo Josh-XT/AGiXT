@@ -188,7 +188,9 @@ if agent_name and not new_agent:
             agent_settings["autonomous_execution"] = False
         autonomous_execution = bool(agent_settings["autonomous_execution"])
         autonomous_execution = st.checkbox(
-            "Autonomous Execution", value=autonomous_execution
+            "Autonomous Execution",
+            value=autonomous_execution,
+            key="autonomous_execution",
         )
 
         with st.form(key="update_agent_settings_form"):
