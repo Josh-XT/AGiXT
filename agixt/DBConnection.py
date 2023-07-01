@@ -362,3 +362,4 @@ class Prompt(Base):
 
 Base.metadata.create_all(bind=engine)
 db.populate_extensions_and_commands()
+db.populate_prompts()
