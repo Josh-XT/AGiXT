@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
 from Extensions import Extensions
+from provider import get_providers, get_provider_options
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -223,6 +224,54 @@ class DBConnection:
                 prompt_vars.append(word[1:-1])
         return prompt_vars
 
+    def populate_providers(self):
+        providers = get_providers()
+        existing_providers = self.session.query(Provider).all()
+        existing_provider_names = [provider.name for provider in existing_providers]
+
+        for provider in existing_providers:
+            if provider.name not in providers:
+                self.session.delete(provider)
+
+        for provider_name in providers:
+            provider_options = get_provider_options(provider_name)
+
+            provider = (
+                self.session.query(Provider).filter_by(name=provider_name).one_or_none()
+            )
+
+            if provider:
+                logging.info(f"Updating provider: {provider_name}")
+            else:
+                provider = Provider(name=provider_name)
+                self.session.add(provider)
+                existing_provider_names.append(provider_name)
+                logging.info(f"Adding provider: {provider_name}")
+
+            for option_name, option_value in provider_options.items():
+                provider_setting = (
+                    self.session.query(ProviderSetting)
+                    .filter_by(provider_id=provider.id, name=option_name)
+                    .one_or_none()
+                )
+                if provider_setting:
+                    provider_setting.value = option_value
+                    logging.info(
+                        f"Updating provider setting: {option_name} for provider: {provider_name}"
+                    )
+                else:
+                    provider_setting = ProviderSetting(
+                        provider_id=provider.id,
+                        name=option_name,
+                        value=option_value,
+                    )
+                    self.session.add(provider_setting)
+                    logging.info(
+                        f"Adding provider setting: {option_name} for provider: {provider_name}"
+                    )
+
+        self.session.commit()
+
 
 db = DBConnection()
 
@@ -235,6 +284,7 @@ class Provider(Base):
     __tablename__ = "provider"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
+    provider_settings = relationship("ProviderSetting", backref="provider")
 
 
 class ProviderSetting(Base):
@@ -242,6 +292,9 @@ class ProviderSetting(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
     name = Column(Text, nullable=False)
+    value = Column(
+        Text
+    )  # Add the 'value' column without the 'nullable=False' constraint
 
 
 class AgentProviderSetting(Base):
@@ -401,7 +454,19 @@ class Prompt(Base):
 
 try:
     Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(e)
+
+try:
     db.populate_extensions_and_commands()
+except Exception as e:
+    print(e)
+
+try:
     db.populate_prompts()
 except Exception as e:
-    pass
+    print(e)
+try:
+    db.populate_providers()
+except Exception as e:
+    print(e)
