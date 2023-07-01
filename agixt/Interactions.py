@@ -529,10 +529,12 @@ class Interactions:
                                         command_args=command_args,
                                     )
                                 else:
-                                    command_output = create_command_suggestion_chain(
-                                        agent_name=self.agent_name,
-                                        command_name=command_name,
-                                        command_args=command_args,
+                                    command_output = (
+                                        self.create_command_suggestion_chain(
+                                            agent_name=self.agent_name,
+                                            command_name=command_name,
+                                            command_args=command_args,
+                                        )
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
