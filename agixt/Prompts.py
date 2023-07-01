@@ -1,4 +1,4 @@
-from DBConnection import Prompt, PromptCategory, Argument, session, db
+from DBConnection import Prompt, PromptCategory, Argument, session
 
 
 class Prompts:
