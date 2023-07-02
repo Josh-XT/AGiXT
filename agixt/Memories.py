@@ -118,7 +118,9 @@ class Memories:
                 break
         logging.info(f"CONTEXT: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
-        response = f"Context: {context_str}\n\n"
+        response = (
+            f"The user's input causes you remember these things:\n {context_str} \n\n"
+        )
         return response
 
     def score_chunk(self, chunk: str, keywords: set):
