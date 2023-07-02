@@ -14,10 +14,10 @@ from DBConnection import (
     Agent,
     AgentCommand,
     AgentSetting,
+    Setting,
 )
 import os
 import json
-import uuid
 import logging
 from Extensions import Extensions
 from provider import get_providers, get_provider_options
@@ -25,6 +25,7 @@ from provider import get_providers, get_provider_options
 
 def populate_extensions_and_commands():
     extensions_data = Extensions().get_extensions()
+    extension_settings_data = Extensions().get_extension_settings()
 
     # Get the existing extensions and commands from the database
     existing_extensions = session.query(Extension).all()
@@ -46,7 +47,10 @@ def populate_extensions_and_commands():
     # Add new extensions and commands, and update existing commands
     for extension_data in extensions_data:
         extension_name = extension_data["extension_name"]
-        description = extension_data["description"]
+        description = extension_data.get(
+            "description", ""
+        )  # Assign an empty string if description is missing
+        logging.info(f"Adding Extension: {extension_name} settings")
 
         # Find the existing extension or create a new one
         extension = next(
@@ -58,7 +62,9 @@ def populate_extensions_and_commands():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            logging.info(f"Adding extension: {extension_name}")
+            logging.info(
+                f"Adding extension: {extension_name}, description: {description}"
+            )
 
         commands = extension_data["commands"]
 
@@ -103,6 +109,49 @@ def populate_extensions_and_commands():
                     )
                     session.add(command_arg)
                     logging.info(f"Adding argument: {arg} to command: {command_name}")
+
+    session.commit()
+
+    # Add extensions to the database if they don't exist
+    for extension_name in extension_settings_data.keys():
+        extension = session.query(Extension).filter_by(name=extension_name).first()
+        if not extension:
+            extension = Extension(name=extension_name)
+            session.add(extension)
+            session.flush()
+            existing_extensions.append(extension)
+            logging.info(f"Adding extension: {extension_name}")
+
+    session.commit()
+
+    # Migrate extension settings
+    for extension_name, settings in extension_settings_data.items():
+        extension = session.query(Extension).filter_by(name=extension_name).first()
+        if not extension:
+            logging.warning(f"Extension '{extension_name}' not found.")
+            continue
+
+        for setting_name, setting_value in settings.items():
+            setting = (
+                session.query(Setting)
+                .filter_by(extension_id=extension.id, name=setting_name)
+                .first()
+            )
+            if setting:
+                setting.value = setting_value
+                logging.info(
+                    f"Updating setting: {setting_name} for extension: {extension_name}"
+                )
+            else:
+                setting = Setting(
+                    extension_id=extension.id,
+                    name=setting_name,
+                    value=setting_value,
+                )
+                session.add(setting)
+                logging.info(
+                    f"Adding setting: {setting_name} for extension: {extension_name}"
+                )
 
     session.commit()
 

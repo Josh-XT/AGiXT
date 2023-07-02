@@ -141,9 +141,10 @@ class Message(Base):
 
 class Setting(Base):
     __tablename__ = "setting"
-    id = Column(UUID(as_uuid=True), primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     extension_id = Column(UUID(as_uuid=True), ForeignKey("extension.id"))
+    value = Column(Text)
 
 
 class AgentSetting(Base):
@@ -203,7 +204,7 @@ class Extension(Base):
     __tablename__ = "extension"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    description = Column(Text, nullable=False)
+    description = Column(Text, nullable=True, default="")
 
 
 class Argument(Base):
