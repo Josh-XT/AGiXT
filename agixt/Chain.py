@@ -1,6 +1,17 @@
-from DBConnection import session, Chain as ChainDB, ChainStep, ChainStepResponse
+from DBConnection import (
+    session,
+    Chain as ChainDB,
+    ChainStep,
+    ChainStepResponse,
+    Agent,
+    Argument,
+    ChainStepArgument,
+    Prompt,
+    Command,
+)
 from agixtsdk import AGiXTSDK
 import logging
+import json
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
@@ -32,9 +43,15 @@ class Chain:
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+
+        # Retrieve the agent_id based on the agent_name
+        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        agent_id = agent.id if agent else None
+
         chain_step = ChainStep(
             chain_id=chain.id,
             step_number=step_number,
+            agent_id=agent_id,  # Assign the retrieved agent_id
             agent_name=agent_name,
             prompt_type=prompt_type,
             prompt=prompt,
@@ -189,15 +206,81 @@ class Chain:
 
         steps = steps["steps"] if "steps" in steps else steps
         for step_data in steps:
+            agent_name = step_data["agent_name"]
+            agent = session.query(Agent).filter(Agent.name == agent_name).first()
+            if not agent:
+                # Handle the case where agent not found based on agent_name
+                # You can choose to skip this step or raise an exception
+                continue
+
+            prompt = step_data["prompt"]
+            if "prompt_name" in prompt:
+                argument_key = "prompt_name"
+                target_id = (
+                    session.query(Prompt)
+                    .filter(Prompt.name == prompt["prompt_name"])
+                    .first()
+                    .id
+                )
+                target_type = "prompt"
+            elif "chain_name" in prompt:
+                argument_key = "chain_name"
+                target_id = (
+                    session.query(Chain)
+                    .filter(Chain.name == prompt["chain_name"])
+                    .first()
+                    .id
+                )
+                target_type = "chain"
+            elif "command_name" in prompt:
+                argument_key = "command_name"
+                target_id = (
+                    session.query(Command)
+                    .filter(Command.name == prompt["command_name"])
+                    .first()
+                    .id
+                )
+                target_type = "command"
+            else:
+                # Handle the case where the argument key is not found
+                # You can choose to skip this step or raise an exception
+                continue
+
+            argument_value = prompt[argument_key]
+            prompt_arguments = prompt.copy()
+            del prompt_arguments[argument_key]
+
             chain_step = ChainStep(
                 chain_id=chain.id,
                 step_number=step_data["step"],
-                agent_name=step_data["agent_name"],
+                agent_id=agent.id,
                 prompt_type=step_data["prompt_type"],
-                prompt=step_data["prompt"],
+                prompt=argument_value,
+                target_chain_id=target_id if target_type == "chain" else None,
+                target_command_id=target_id if target_type == "command" else None,
+                target_prompt_id=target_id if target_type == "prompt" else None,
             )
             session.add(chain_step)
             session.commit()
+
+            for argument_name, argument_value in prompt_arguments.items():
+                argument = (
+                    session.query(Argument)
+                    .filter(Argument.name == argument_name)
+                    .first()
+                )
+                if not argument:
+                    # Handle the case where argument not found based on argument_name
+                    # You can choose to skip this argument or raise an exception
+                    continue
+
+                chain_step_argument = ChainStepArgument(
+                    chain_step_id=chain_step.id,
+                    argument_id=argument.id,
+                    value=argument_value,
+                )
+                session.add(chain_step_argument)
+                session.commit()
 
         return f"Chain '{chain_name}' imported."
 

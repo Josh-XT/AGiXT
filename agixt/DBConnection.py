@@ -160,7 +160,7 @@ class Chain(Base):
     __tablename__ = "chain"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    description = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
 
 
 class ChainStep(Base):
@@ -168,6 +168,8 @@ class ChainStep(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chain_id = Column(UUID(as_uuid=True), ForeignKey("chain.id"), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
+    prompt_type = Column(Text)  # Add the prompt_type field
+    prompt = Column(Text)  # Add the prompt field
     target_chain_id = Column(UUID(as_uuid=True), ForeignKey("chain.id"))
     target_command_id = Column(UUID(as_uuid=True), ForeignKey("command.id"))
     target_prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompt.id"))

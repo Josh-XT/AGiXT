@@ -20,6 +20,7 @@ import os
 import json
 import logging
 from Extensions import Extensions
+from Chain import Chain
 from provider import get_providers, get_provider_options
 
 
@@ -390,12 +391,46 @@ def populate_agents():
     session.commit()
 
 
+def import_chains():
+    chain_dir = os.path.abspath("chains")
+
+    chain_files = [
+        file
+        for file in os.listdir(chain_dir)
+        if os.path.isfile(os.path.join(chain_dir, file)) and file.endswith(".json")
+    ]
+
+    if not chain_files:
+        print(f"No JSON files found in chains directory.")
+        return
+
+    chain_importer = Chain()
+
+    for file in chain_files:
+        chain_name = os.path.splitext(file)[0]
+        file_path = os.path.join(chain_dir, file)
+
+        with open(file_path, "r") as f:
+            try:
+                chain_data = json.load(f)
+                result = chain_importer.import_chain(chain_name, chain_data)
+                print(result)
+            except json.JSONDecodeError as e:
+                print(f"Error importing chain from '{file}': Invalid JSON format.")
+            except Exception as e:
+                print(f"Error importing chain from '{file}': {str(e)}")
+
+
 def Migrations():
     # Create the database tables
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception as e:
+        print(f"Error creating database tables: {str(e)}")
 
     # Populate the database with data
     populate_extensions_and_commands()
     populate_prompts()
     populate_providers()
     populate_agents()
+    import_chains()
