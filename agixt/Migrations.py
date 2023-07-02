@@ -21,6 +21,7 @@ from DBConnection import (
 import os
 import json
 import yaml
+import time
 import logging
 from Extensions import Extensions
 from Chain import Chain
@@ -494,3 +495,5 @@ def Migrations():
         import_agents()
         import_chains()
         import_conversations()
+        # Wait for the database to be populated before other workers load.
+        time.sleep(5)
