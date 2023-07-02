@@ -46,6 +46,11 @@ RUN npx playwright install
 
 # Copy local code to the container image.
 COPY . .
+RUN if [ -z "$GITHUB_USER" ] || [ -z "$GITHUB_TOKEN" ]; then \
+    cd agixt && git init && git remote add origin https://github.com/$AGIXT_HUB.git && git fetch && git reset origin/main --hard; \
+    else \
+    cd agixt && git init && git remote add origin https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$AGIXT_HUB.git && git fetch && git reset origin/main --hard; \
+    fi
 
 # Set work directory
 WORKDIR /agixt
