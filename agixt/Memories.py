@@ -116,7 +116,7 @@ class Memories:
                 total_tokens += item_tokens
             else:
                 break
-        logging.info(f"CONTEXT: {trimmed_context}")
+        logging.info(f"Context Injected: {trimmed_context}")
         context_str = "\n".join(trimmed_context)
         response = (
             f"The user's input causes you remember these things:\n {context_str} \n\n"
