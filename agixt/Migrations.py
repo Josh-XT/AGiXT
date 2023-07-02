@@ -22,7 +22,6 @@ import os
 import json
 import yaml
 import time
-import logging
 from Extensions import Extensions
 from Chain import Chain
 from provider import get_providers, get_provider_options
@@ -55,7 +54,7 @@ def import_extensions():
         description = extension_data.get(
             "description", ""
         )  # Assign an empty string if description is missing
-        logging.info(f"Adding Extension: {extension_name} settings")
+        print(f"Adding Extension: {extension_name} settings")
 
         # Find the existing extension or create a new one
         extension = next(
@@ -67,9 +66,7 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            logging.info(
-                f"Adding extension: {extension_name}, description: {description}"
-            )
+            print(f"Adding extension: {extension_name}, description: {description}")
 
         commands = extension_data["commands"]
 
@@ -96,7 +93,7 @@ def import_extensions():
                 session.add(command)
                 session.flush()
                 existing_commands.append(command)
-                logging.info(f"Adding command: {command_name}")
+                print(f"Adding command: {command_name}")
 
             # Add command arguments
             if "command_args" in command_data:
@@ -113,7 +110,7 @@ def import_extensions():
                         name=arg,
                     )
                     session.add(command_arg)
-                    logging.info(f"Adding argument: {arg} to command: {command_name}")
+                    print(f"Adding argument: {arg} to command: {command_name}")
 
     session.commit()
 
@@ -125,7 +122,7 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            logging.info(f"Adding extension: {extension_name}")
+            print(f"Adding extension: {extension_name}")
 
     session.commit()
 
@@ -133,7 +130,7 @@ def import_extensions():
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
         if not extension:
-            logging.warning(f"Extension '{extension_name}' not found.")
+            print(f"Extension '{extension_name}' not found.")
             continue
 
         for setting_name, setting_value in settings.items():
@@ -144,7 +141,7 @@ def import_extensions():
             )
             if setting:
                 setting.value = setting_value
-                logging.info(
+                print(
                     f"Updating setting: {setting_name} for extension: {extension_name}"
                 )
             else:
@@ -154,9 +151,7 @@ def import_extensions():
                     value=setting_value,
                 )
                 session.add(setting)
-                logging.info(
-                    f"Adding setting: {setting_name} for extension: {extension_name}"
-                )
+                print(f"Adding setting: {setting_name} for extension: {extension_name}")
 
     session.commit()
 
@@ -171,7 +166,7 @@ def import_prompts():
         )
         session.add(default_category)
         session.commit()
-        logging.info("Adding Default prompt category")
+        print("Adding Default prompt category")
 
     # Get all prompt files in the specified folder
     for root, dirs, files in os.walk("prompts"):
@@ -215,7 +210,7 @@ def import_prompts():
                 )
                 session.add(prompt)
                 session.commit()
-                logging.info(f"Adding prompt: {prompt_name}")
+                print(f"Adding prompt: {prompt_name}")
 
             # Populate prompt arguments
             for arg in prompt_args:
@@ -231,7 +226,7 @@ def import_prompts():
                 )
                 session.add(argument)
                 session.commit()
-                logging.info(f"Adding prompt argument: {arg} for {prompt_name}")
+                print(f"Adding prompt argument: {arg} for {prompt_name}")
 
 
 def get_prompt_args(prompt_text):
@@ -258,12 +253,12 @@ def import_providers():
         provider = session.query(Provider).filter_by(name=provider_name).one_or_none()
 
         if provider:
-            logging.info(f"Updating provider: {provider_name}")
+            print(f"Updating provider: {provider_name}")
         else:
             provider = Provider(name=provider_name)
             session.add(provider)
             existing_provider_names.append(provider_name)
-            logging.info(f"Adding provider: {provider_name}")
+            print(f"Adding provider: {provider_name}")
 
         for option_name, option_value in provider_options.items():
             provider_setting = (
@@ -273,7 +268,7 @@ def import_providers():
             )
             if provider_setting:
                 provider_setting.value = option_value
-                logging.info(
+                print(
                     f"Updating provider setting: {option_name} for provider: {provider_name}"
                 )
             else:
@@ -283,7 +278,7 @@ def import_providers():
                     value=option_value,
                 )
                 session.add(provider_setting)
-                logging.info(
+                print(
                     f"Adding provider setting: {option_name} for provider: {provider_name}"
                 )
 
@@ -304,7 +299,7 @@ def import_agent_config(agent_name):
     agent = session.query(Agent).filter_by(name=agent_name).first()
 
     if not agent:
-        logging.error(f"Agent '{agent_name}' does not exist in the database.")
+        print(f"Agent '{agent_name}' does not exist in the database.")
         return
 
     # Get the provider ID based on the provider name in the config
@@ -312,7 +307,7 @@ def import_agent_config(agent_name):
     provider = session.query(Provider).filter_by(name=provider_name).first()
 
     if not provider:
-        logging.error(f"Provider '{provider_name}' does not exist in the database.")
+        print(f"Provider '{provider_name}' does not exist in the database.")
         return
 
     # Update the agent's provider_id
@@ -365,7 +360,7 @@ def import_agent_config(agent_name):
                     session.add(agent_setting)
 
     session.commit()
-    logging.info(f"Agent config imported successfully for agent: {agent_name}")
+    print(f"Agent config imported successfully for agent: {agent_name}")
 
 
 def import_agents():
@@ -382,13 +377,13 @@ def import_agents():
         agent = session.query(Agent).filter_by(name=agent_name).one_or_none()
 
         if agent:
-            logging.info(f"Updating agent: {agent_name}")
+            print(f"Updating agent: {agent_name}")
         else:
             agent = Agent(name=agent_name)
             session.add(agent)
             session.flush()  # Save the agent object to generate an ID
             existing_agent_names.append(agent_name)
-            logging.info(f"Adding agent: {agent_name}")
+            print(f"Adding agent: {agent_name}")
 
         import_agent_config(agent_name)
 
@@ -487,6 +482,7 @@ def Migrations():
     try:
         engine.execute("SELECT 1 FROM agent LIMIT 1")
     except Exception as e:
+        print("Creating tables...")
         Base.metadata.create_all(engine)
         # Populate the database with data
         import_extensions()
