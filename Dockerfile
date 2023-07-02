@@ -46,14 +46,9 @@ RUN npx playwright install
 
 # Copy local code to the container image.
 COPY . .
-RUN if [ -z "$GITHUB_USER" ] || [ -z "$GITHUB_TOKEN" ]; then \
-    cd agixt && git init && git remote add origin https://github.com/$AGIXT_HUB.git && git fetch && git reset origin/main --hard; \
-    else \
-    cd agixt && git init && git remote add origin https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$AGIXT_HUB.git && git fetch && git reset origin/main --hard; \
-    fi
 
 # Set work directory
 WORKDIR /agixt
 
 # Set entry point
-ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py --server.headless true & uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS"]
+ENTRYPOINT ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS & streamlit run /streamlit/Main.py --server.headless true"]
