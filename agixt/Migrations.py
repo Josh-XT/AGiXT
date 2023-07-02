@@ -15,16 +15,20 @@ from DBConnection import (
     AgentCommand,
     AgentSetting,
     Setting,
+    Conversation,
+    Message,
 )
 import os
 import json
+import yaml
 import logging
+from datetime import datetime
 from Extensions import Extensions
 from Chain import Chain
 from provider import get_providers, get_provider_options
 
 
-def populate_extensions_and_commands():
+def import_extensions():
     extensions_data = Extensions().get_extensions()
     extension_settings_data = Extensions().get_extension_settings()
 
@@ -157,7 +161,7 @@ def populate_extensions_and_commands():
     session.commit()
 
 
-def populate_prompts():
+def import_prompts():
     # Add default category if it doesn't exist
     default_category = session.query(PromptCategory).filter_by(name="Default").first()
 
@@ -239,7 +243,7 @@ def get_prompt_args(prompt_text):
     return prompt_vars
 
 
-def populate_providers():
+def import_providers():
     providers = get_providers()
     existing_providers = session.query(Provider).all()
     existing_provider_names = [provider.name for provider in existing_providers]
@@ -364,7 +368,7 @@ def import_agent_config(agent_name):
     logging.info(f"Agent config imported successfully for agent: {agent_name}")
 
 
-def populate_agents():
+def import_agents():
     agent_folder = "agents"
     agents = [
         f.name
@@ -421,6 +425,64 @@ def import_chains():
                 print(f"Error importing chain from '{file}': {str(e)}")
 
 
+def import_conversations():
+    agents_dir = "agents"  # Directory containing agent folders
+
+    for agent_name in os.listdir(agents_dir):
+        agent_dir = os.path.join(agents_dir, agent_name)
+        history_file = os.path.join(agent_dir, "history.yaml")
+
+        if not os.path.exists(history_file):
+            continue  # Skip agent if history file doesn't exist
+
+        # Get agent ID from the database based on agent name
+        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        if not agent:
+            print(f"Agent '{agent_name}' not found in the database.")
+            continue
+
+        # Load conversation history from the YAML file
+        with open(history_file, "r") as file:
+            history = yaml.safe_load(file)
+
+        # Process each conversation entry in history
+        for conversation_data in history.get("interactions", []):
+            role = conversation_data.get("role")
+            message = conversation_data.get("message")
+
+            if not role or not message:
+                continue  # Skip if role or message is missing
+
+            # Check if the conversation already exists for the agent
+            existing_conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.agent_id == agent.id,
+                    Conversation.name == f"{agent_name} History",
+                )
+                .first()
+            )
+            if existing_conversation:
+                continue
+
+            # Create a new conversation
+            conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
+            session.add(conversation)
+            session.commit()
+
+            # Create a new message for the conversation
+            message = Message(
+                role=role,
+                content=message,
+                timestamp=datetime.now(),
+                conversation_id=conversation.id,
+            )
+            session.add(message)
+            session.commit()
+
+        print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
+
+
 def Migrations():
     # Create the database tables
     try:
@@ -429,8 +491,9 @@ def Migrations():
         print(f"Error creating database tables: {str(e)}")
 
     # Populate the database with data
-    populate_extensions_and_commands()
-    populate_prompts()
-    populate_providers()
-    populate_agents()
+    import_extensions()
+    import_prompts()
+    import_providers()
+    import_agents()
     import_chains()
+    import_conversations()
