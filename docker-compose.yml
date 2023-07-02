@@ -15,7 +15,7 @@ services:
     depends_on:
       - db
     env_file:
-      - .env
+      - .env.example
     environment:
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
