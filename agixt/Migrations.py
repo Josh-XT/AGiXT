@@ -482,16 +482,15 @@ def import_conversations():
 
 
 def Migrations():
-    # Create the database tables
+    # Check if tables exist
     try:
-        Base.metadata.create_all(engine)
+        engine.execute("SELECT 1 FROM agent LIMIT 1")
     except Exception as e:
-        print(f"Error creating database tables: {str(e)}")
-
-    # Populate the database with data
-    import_extensions()
-    import_prompts()
-    import_providers()
-    import_agents()
-    import_chains()
-    import_conversations()
+        Base.metadata.create_all(engine)
+        # Populate the database with data
+        import_extensions()
+        import_prompts()
+        import_providers()
+        import_agents()
+        import_chains()
+        import_conversations()
