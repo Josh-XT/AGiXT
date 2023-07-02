@@ -22,7 +22,6 @@ import os
 import json
 import yaml
 import logging
-from datetime import datetime
 from Extensions import Extensions
 from Chain import Chain
 from provider import get_providers, get_provider_options
@@ -445,41 +444,40 @@ def import_conversations():
         with open(history_file, "r") as file:
             history = yaml.safe_load(file)
 
-        # Process each conversation entry in history
-        for conversation_data in history.get("interactions", []):
-            role = conversation_data.get("role")
-            message = conversation_data.get("message")
-
-            if not role or not message:
-                continue  # Skip if role or message is missing
-
-            # Check if the conversation already exists for the agent
-            existing_conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.agent_id == agent.id,
-                    Conversation.name == f"{agent_name} History",
-                )
-                .first()
+        # Check if the conversation already exists for the agent
+        existing_conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.agent_id == agent.id,
+                Conversation.name == f"{agent_name} History",
             )
-            if existing_conversation:
-                continue
+            .first()
+        )
+        if existing_conversation:
+            continue
+        if "interactions" not in history:
+            continue
+        # Create a new conversation
+        conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
+        session.add(conversation)
+        session.commit()
 
-            # Create a new conversation
-            conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
-            session.add(conversation)
-            session.commit()
-
+        for conversation_data in history["interactions"]:
             # Create a new message for the conversation
+            try:
+                role = conversation_data["role"]
+                content = conversation_data["message"]
+                timestamp = conversation_data["timestamp"]
+            except KeyError:
+                continue
             message = Message(
                 role=role,
-                content=message,
-                timestamp=datetime.now(),
+                content=content,
+                timestamp=timestamp,
                 conversation_id=conversation.id,
             )
             session.add(message)
             session.commit()
-
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
