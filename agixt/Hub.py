@@ -22,9 +22,17 @@ import os
 import json
 import yaml
 import time
+import shutil
+import requests
+import zipfile
+import hashlib
+import io
 from Extensions import Extensions
 from Chain import Chain
 from provider import get_providers, get_provider_options
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def import_extensions():
@@ -285,9 +293,6 @@ def import_providers():
     session.commit()
 
 
-from sqlalchemy import text
-
-
 def import_agent_config(agent_name):
     config_path = f"agents/{agent_name}/config.json"
 
@@ -477,19 +482,56 @@ def import_conversations():
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
-def Migrations():
-    # Check if tables exist
+def import_agixt_hub():
+    github_user = os.getenv("GITHUB_USER")
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = os.getenv("AGIXT_HUB")
+    repo_name = github_repo.split("/")[1]
+    repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
+    zip_file_name = f"{repo_name}_main.zip"
+    print(f"Updating AGiXT Hub from {github_repo}")
     try:
-        engine.execute("SELECT 1 FROM agent LIMIT 1")
+        response = requests.get(repo_url, auth=(github_user, github_token))
+        response.raise_for_status()
+
+        # Check if previous zip exists and compare it with the new one
+        new_zip_hash = hashlib.sha256(response.content).hexdigest()
+        if os.path.exists(zip_file_name):
+            with open(zip_file_name, "rb") as f:
+                old_zip_hash = hashlib.sha256(f.read()).hexdigest()
+            if old_zip_hash == new_zip_hash:
+                print("No changes detected in the AGiXT Hub, moving on...")
+                return
+
+        # Save the new zip file
+        with open(zip_file_name, "wb") as f:
+            f.write(response.content)
+
+        zip_ref = zipfile.ZipFile(io.BytesIO(response.content))
+        zip_ref.extractall(".")
+        zip_ref.close()
+
+        # Move the files and directories from the reponame-main directory to the current directory
+        for file in os.listdir(f"{repo_name}-main"):
+            src_file = os.path.join(f"{repo_name}-main", file)
+            dest_file = os.path.join(".", file)
+
+            if os.path.isdir(src_file):
+                if os.path.isdir(dest_file):
+                    shutil.rmtree(dest_file)
+                shutil.move(src_file, dest_file)
+            else:
+                shutil.move(src_file, dest_file)
+
+        # Remove the reponame-main directory
+        shutil.rmtree(f"{repo_name}-main")
+        print(f"Updated AGiXT Hub from {github_repo}")
     except Exception as e:
-        print("Creating tables...")
-        Base.metadata.create_all(engine)
-        # Populate the database with data
-        import_extensions()
-        import_prompts()
-        import_providers()
-        import_agents()
-        import_chains()
-        import_conversations()
-        # Wait for the database to be populated before other workers load.
-        time.sleep(5)
+        print(f"AGiXT Hub Import Error: {e}")
+
+    import_extensions()
+    import_prompts()
+    import_providers()
+    import_agents()
+    import_chains()
+    import_conversations()

@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -32,6 +33,15 @@ class DBConnection:
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
         self.connection = self.engine.connect()
+        try:
+            self.engine.execute("SELECT 1 FROM agent LIMIT 1")
+        except Exception as e:
+            print("Creating tables...")
+            try:
+                Base.metadata.create_all(engine)
+                time.sleep(5)
+            except Exception as e:
+                time.sleep(5)
 
     def get_engine(self):
         try:
