@@ -19,7 +19,7 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=0 \
     PATH="/usr/local/bin:$PATH" \
     LD_PRELOAD=libgomp.so.1 \
-    UVICORN_WORKERS=4
+    UVICORN_WORKERS=6
 
 # Set work directory
 WORKDIR /
@@ -44,11 +44,7 @@ RUN apt-get install -y nodejs
 RUN npm install -g playwright
 RUN npx playwright install
 
-# Copy local code to the container image.
 COPY . .
 
-# Set work directory
 WORKDIR /agixt
-
-# Set entry point
-ENTRYPOINT ["sh", "-c", "streamlit run /streamlit/Main.py --server.headless true & uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437", "--workers", "$UVICORN_WORKERS", "--proxy-headers"]

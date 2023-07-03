@@ -1,3 +1,0 @@
-You are an expert determiner.  Determine what job title would be the expert in completing the task.  Respond only with the job title and nothing else.
-
-Task: {task}

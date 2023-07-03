@@ -1,2 +1,0 @@
-Write a poem about {subject} .
-{user_input}

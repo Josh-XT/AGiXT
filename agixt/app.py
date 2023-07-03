@@ -1,22 +1,48 @@
 import uvicorn
+import os
+import logging
+import base64
+import string
+import random
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from DBConnection import DBConnection
+
+db = DBConnection()
+try:
+    db.engine.execute("SELECT 1 FROM agent LIMIT 1")
+    migrated = True
+except Exception as e:
+    migrated = False
+    # Check if migration.txt exists
+    if os.path.exists("migration.txt"):
+        while os.path.exists("migration.txt"):
+            time.sleep(2)
+    else:
+        # Create migration.txt
+        with open("migration.txt", "w") as f:
+            f.write("1")
+        from Hub import import_agixt_hub
+
+        import_agixt_hub()
+        os.remove("migration.txt")
+
+if migrated == True:
+    from Hub import import_agixt_hub
+
+    import_agixt_hub()
+
 from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-from Chain import Chain, import_chain
+from Chain import Chain
 from Prompts import Prompts
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-import os
-import logging
-import base64
-import time
-import string
-import random
-import json
+from History import get_conversation, delete_history, delete_message
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -299,7 +325,7 @@ async def get_agentconfig(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name=agent_name).load_history()
+    chat_history = get_conversation(agent_name=agent_name)
     if chat_history is None:
         chat_history = []
     if "interactions" in chat_history:
@@ -308,8 +334,8 @@ async def get_chat_history(agent_name: str):
 
 
 @app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
-async def delete_history(agent_name: str) -> ResponseMessage:
-    Agent(agent_name=agent_name).delete_history()
+async def delete_conversation_history(agent_name: str) -> ResponseMessage:
+    delete_history(agent_name=agent_name, conversation_name=f"{agent_name} History")
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
@@ -317,7 +343,11 @@ async def delete_history(agent_name: str) -> ResponseMessage:
 async def delete_history_message(
     agent_name: str, message: ResponseMessage
 ) -> ResponseMessage:
-    Agent(agent_name=agent_name).delete_history_message(message.message)
+    delete_message(
+        agent_name=agent_name,
+        message=message.message,
+        conversation_name=f"{agent_name} History",
+    )
     return ResponseMessage(message=f"Message deleted.")
 
 
@@ -477,11 +507,11 @@ async def get_chains():
 
 @app.get("/api/chain/{chain_name}", tags=["Chain"])
 async def get_chain(chain_name: str):
-    try:
-        chain_data = Chain().get_chain(chain_name=chain_name)
-        return {"chain": chain_data}
-    except:
-        raise HTTPException(status_code=404, detail="Chain not found")
+    # try:
+    chain_data = Chain().get_chain(chain_name=chain_name)
+    return {"chain": chain_data}
+    # except:
+    #    raise HTTPException(status_code=404, detail="Chain not found")
 
 
 @app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
@@ -495,7 +525,7 @@ async def get_chain_responses(chain_name: str):
 
 @app.post("/api/chain/{chain_name}/run", tags=["Chain"])
 async def run_chain(chain_name: str, user_input: RunChain):
-    chain_response = await Interactions(agent_name=user_input.agent_override).run_chain(
+    chain_response = await Chain().run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
@@ -514,7 +544,7 @@ async def add_chain(chain_name: ChainName) -> ResponseMessage:
 @app.post("/api/chain/import", tags=["Chain"])
 async def importchain(chain: ChainData) -> ResponseMessage:
     print(chain)
-    response = import_chain(chain_name=chain.chain_name, steps=chain.steps)
+    response = Chain().import_chain(chain_name=chain.chain_name, steps=chain.steps)
     return ResponseMessage(message=response)
 
 
@@ -624,7 +654,9 @@ async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
 
 @app.get("/api/prompt/{prompt_name}/args", tags=["Prompt"])
 async def get_prompt_arg(prompt_name: str):
-    return {"prompt_args": Prompts().get_prompt_args(prompt_name)}
+    prompt_name = prompt_name.replace("%20", " ")
+    prompt = Prompts().get_prompt(prompt_name=prompt_name)
+    return {"prompt_args": Prompts().get_prompt_args(prompt)}
 
 
 @app.get("/api/extensions/settings", tags=["Extensions"])
