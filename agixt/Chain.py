@@ -267,16 +267,15 @@ class Chain:
                 )
                 .first()
             )
-
             if chain_step:
                 session.delete(chain_step)  # Remove the chain step from the session
                 session.commit()
             else:
-                raise ValueError(
+                print(
                     f"No step found with number {step_number} in chain '{chain_name}'"
                 )
         else:
-            raise ValueError(f"No chain found with name '{chain_name}'")
+            print(f"No chain found with name '{chain_name}'")
 
     def delete_chain(self, chain_name):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -564,9 +563,6 @@ class Chain:
                 )
 
                 if prompt_type == "Command":
-                    print(f"Running Command in Step {step_number} of {chain_name}...")
-                    print(f"Step: {step}")
-                    print(f"Prompt Args: {args}")
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args
                     )
@@ -637,27 +633,16 @@ class Chain:
                     last_response = step_response
                     responses[step_data["step"]] = step  # Store the response.
                     logging.info(f"Response: {step_response}")
-                    # Write the responses to the json file.
-                    for step_data in chain_data["steps"]:
-                        step_response = await self.run_chain_step(
-                            step=step_data,
-                            chain_name=chain_name,
-                            user_input=user_input,
-                            agent_override=agent_override,
-                        )
-                        step["response"] = step_response
-                        last_response = step_response
+                    # Write the response to the json file.
+                    response_content = {
+                        "chain_step_id": chain_step.id,
+                        "content": step_response,
+                    }
+                    chain_step_response = ChainStepResponse(**response_content)
+                    session.add(chain_step_response)
+                    session.commit()
 
-                        # Create a ChainStepResponse instance and save it to the database
-                        response_content = {
-                            "chain_step_id": chain_step.id,
-                            "content": step_response,
-                        }
-                        chain_step_response = ChainStepResponse(**response_content)
-                        session.add(chain_step_response)
-                        session.commit()
-
-        if all_responses == True:
+        if all_responses:
             return responses
         else:
             # Return only the last response in the chain.
