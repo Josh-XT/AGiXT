@@ -1,7 +1,13 @@
+import io
+import os
+import json
+import yaml
+import shutil
+import requests
+import zipfile
+import hashlib
 from DBConnection import (
     session,
-    Base,
-    engine,
     Extension,
     Command,
     Argument,
@@ -18,15 +24,6 @@ from DBConnection import (
     Conversation,
     Message,
 )
-import os
-import json
-import yaml
-import time
-import shutil
-import requests
-import zipfile
-import hashlib
-import io
 from Extensions import Extensions
 from Chain import Chain
 from provider import get_providers, get_provider_options
