@@ -260,10 +260,16 @@ class Interactions:
                 except:
                     pass
             if prompt == "Chat":
-                log_interaction(role="USER", message=user_input)
+                log_interaction(
+                    agent_name=self.agent_name, role="USER", message=user_input
+                )
             else:
-                log_interaction(role="USER", message=formatted_prompt)
-            log_interaction(role=self.agent_name, message=self.response)
+                log_interaction(
+                    agent_name=self.agent_name, role="USER", message=formatted_prompt
+                )
+            log_interaction(
+                agent_name=self.agent_name, role=self.agent_name, message=self.response
+            )
 
         if shots > 1:
             responses = [self.response]

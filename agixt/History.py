@@ -136,8 +136,7 @@ def get_conversation(agent_name, conversation_name=None):
         print(f"[{message.timestamp}] {message.role}: {message.content}")
 
 
-def log_interaction(role, message):
-    agent_name = "your_agent_name"  # Replace with the actual agent name
+def log_interaction(agent_name, role, message):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")

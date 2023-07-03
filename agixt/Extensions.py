@@ -150,9 +150,13 @@ class Extensions:
         else:
             self.commands = []
         if agent_config != None:
+            if self.agent_config["commands"] == None:
+                self.agent_config["commands"] = {}
             self.available_commands = self.get_available_commands()
 
     def get_available_commands(self):
+        if self.commands == []:
+            return []
         available_commands = []
         for command in self.commands:
             friendly_name, command_module, command_name, command_args = command
