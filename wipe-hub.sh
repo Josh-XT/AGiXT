@@ -6,7 +6,6 @@ files=(
     "agixt/chains"
     "agixt/.github"
     "agixt/prompts"
-    "agixt/agents"
     "agixt/LICENSE"
     "agixt/README.md"
     "agixt/hub_main.zip"
