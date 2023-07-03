@@ -46,13 +46,63 @@ def import_chains():
 
 class Chain:
     def get_chain(self, chain_name):
-        chain = (
+        chain_name = chain_name.replace("%20", " ")
+        chain_db = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+        if chain_db is None:
+            return None
+
+        chain_steps = (
             session.query(ChainStep)
-            .join(ChainDB)
-            .filter(ChainDB.name == chain_name)
+            .filter(ChainStep.chain_id == chain_db.id)
+            .order_by(ChainStep.step_number)
             .all()
         )
-        return chain
+
+        steps = []
+        for step in chain_steps:
+            agent_name = session.query(Agent).get(step.agent_id).name
+            prompt = {}
+            if step.target_chain_id:
+                prompt["chain_name"] = (
+                    session.query(ChainDB).get(step.target_chain_id).name
+                )
+            elif step.target_command_id:
+                prompt["command_name"] = (
+                    session.query(Command).get(step.target_command_id).name
+                )
+            elif step.target_prompt_id:
+                prompt["prompt_name"] = (
+                    session.query(Prompt).get(step.target_prompt_id).name
+                )
+
+            # Retrieve argument data for the step
+            arguments = (
+                session.query(Argument, ChainStepArgument)
+                .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
+                .filter(ChainStepArgument.chain_step_id == step.id)
+                .all()
+            )
+
+            prompt_args = {}
+            for argument, chain_step_argument in arguments:
+                prompt_args[argument.name] = chain_step_argument.value
+
+            prompt.update(prompt_args)
+
+            step_data = {
+                "step": step.step_number,
+                "agent_name": agent_name,
+                "prompt_type": step.prompt_type,
+                "prompt": prompt,
+            }
+            steps.append(step_data)
+
+        chain_data = {
+            "chain_name": chain_db.name,
+            "steps": steps,
+        }
+
+        return chain_data
 
     def get_chains(self):
         chains = session.query(ChainDB).all()
@@ -70,21 +120,70 @@ class Chain:
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-
-        # Retrieve the agent_id based on the agent_name
         agent = session.query(Agent).filter(Agent.name == agent_name).first()
         agent_id = agent.id if agent else None
+
+        target_chain_id = None
+        target_command_id = None
+        target_prompt_id = None
+
+        if prompt_type == "Command":
+            command_name = prompt.get("command_name")
+            command_args = prompt.copy()
+            del command_args["command_name"]
+            command = (
+                session.query(Command).filter(Command.name == command_name).first()
+            )
+            if command:
+                target_command_id = command.id
+        elif prompt_type == "Prompt":
+            prompt_name = prompt.get("prompt_name")
+            prompt_args = prompt.copy()
+            del prompt_args["prompt_name"]
+            prompt_obj = (
+                session.query(Prompt).filter(Prompt.name == prompt_name).first()
+            )
+            if prompt_obj:
+                target_prompt_id = prompt_obj.id
+        elif prompt_type == "Chain":
+            chain_name = prompt.get("chain_name")
+            chain_args = prompt.copy()
+            del chain_args["chain_name"]
+            chain_obj = (
+                session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+            )
+            if chain_obj:
+                target_chain_id = chain_obj.id
 
         chain_step = ChainStep(
             chain_id=chain.id,
             step_number=step_number,
-            agent_id=agent_id,  # Assign the retrieved agent_id
-            agent_name=agent_name,
+            agent_id=agent_id,
             prompt_type=prompt_type,
-            prompt=prompt,
+            prompt=prompt.get("prompt_name", None),
+            target_chain_id=target_chain_id,
+            target_command_id=target_command_id,
+            target_prompt_id=target_prompt_id,
         )
         session.add(chain_step)
         session.commit()
+
+        prompt_args = {}  # Initialize an empty dictionary
+        for argument_name, argument_value in prompt_args.items():
+            prompt_args[argument_name] = argument_value
+
+        for argument_name, argument_value in prompt_args.items():
+            argument = (
+                session.query(Argument).filter(Argument.name == argument_name).first()
+            )
+            if argument:
+                chain_step_argument = ChainStepArgument(
+                    chain_step_id=chain_step.id,
+                    argument_id=argument.id,
+                    value=argument_value,
+                )
+                session.add(chain_step_argument)
+                session.commit()
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -95,10 +194,68 @@ class Chain:
             )
             .first()
         )
-        chain_step.agent_name = agent_name
+
+        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        agent_id = agent.id if agent else None
+
+        target_chain_id = None
+        target_command_id = None
+        target_prompt_id = None
+
+        if prompt_type == "Command":
+            command_name = prompt.get("command_name")
+            command_args = prompt.copy()
+            del command_args["command_name"]
+            command = (
+                session.query(Command).filter(Command.name == command_name).first()
+            )
+            if command:
+                target_command_id = command.id
+        elif prompt_type == "Prompt":
+            prompt_name = prompt.get("prompt_name")
+            prompt_args = prompt.copy()
+            del prompt_args["prompt_name"]
+            prompt_obj = (
+                session.query(Prompt).filter(Prompt.name == prompt_name).first()
+            )
+            if prompt_obj:
+                target_prompt_id = prompt_obj.id
+        elif prompt_type == "Chain":
+            chain_name = prompt.get("chain_name")
+            chain_args = prompt.copy()
+            del chain_args["chain_name"]
+            chain_obj = (
+                session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+            )
+            if chain_obj:
+                target_chain_id = chain_obj.id
+
+        chain_step.agent_id = agent_id
         chain_step.prompt_type = prompt_type
-        chain_step.prompt = prompt
+        chain_step.prompt = prompt.get("prompt_name", None)
+        chain_step.target_chain_id = target_chain_id
+        chain_step.target_command_id = target_command_id
+        chain_step.target_prompt_id = target_prompt_id
+
         session.commit()
+
+        # Update the arguments for the step
+        session.query(ChainStepArgument).filter(
+            ChainStepArgument.chain_step_id == chain_step.id
+        ).delete()
+
+        for argument_name, argument_value in prompt_args.items():
+            argument = (
+                session.query(Argument).filter(Argument.name == argument_name).first()
+            )
+            if argument:
+                chain_step_argument = ChainStepArgument(
+                    chain_step_id=chain_step.id,
+                    argument_id=argument.id,
+                    value=argument_value,
+                )
+                session.add(chain_step_argument)
+                session.commit()
 
     def delete_step(self, chain_name, step_number):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()

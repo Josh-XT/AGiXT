@@ -104,6 +104,7 @@ class AgentProvider(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
+    settings = relationship("AgentProviderSetting", backref="agent_provider")
 
 
 class Agent(Base):
@@ -113,6 +114,7 @@ class Agent(Base):
     provider_id = Column(
         UUID(as_uuid=True), ForeignKey("provider.id"), nullable=True, default=None
     )
+    settings = relationship("AgentSetting", backref="agent")  # One-to-many relationship
 
 
 class Command(Base):
@@ -129,6 +131,7 @@ class AgentCommand(Base):
     command_id = Column(UUID(as_uuid=True), ForeignKey("command.id"), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     state = Column(Boolean, nullable=False)
+    command = relationship("Command")  # Add this line to define the relationship
 
 
 class Conversation(Base):
@@ -159,9 +162,8 @@ class Setting(Base):
 
 class AgentSetting(Base):
     __tablename__ = "agent_setting"
-
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id = Column(UUID(as_uuid=True))
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     name = Column(String)
     value = Column(String)
 

@@ -215,36 +215,38 @@ class Agent:
                 setattr(self, key, self.AGENT_CONFIG[key])
 
     def get_agent_config(self):
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == "config",
-                AgentModel.name == self.agent_name,
-            )
-            .first()
+        agent = (
+            session.query(AgentModel).filter(AgentModel.name == self.agent_name).first()
         )
-        if agent_setting:
-            config = json.loads(agent_setting.value)
-
-            # Retrieve the enabled commands for the agent
-            agent_commands = (
-                session.query(AgentCommand)
-                .join(Command)
+        if agent:
+            agent_setting = (
+                session.query(AgentSettingModel)
                 .filter(
-                    AgentCommand.agent_id == agent_setting.agent_id,
-                    AgentCommand.state == True,  # Only get enabled commands
+                    AgentSettingModel.agent_id == agent.id,
+                    AgentSettingModel.name == "config",
                 )
-                .all()
+                .first()
             )
-            enabled_commands = [ac.command.name for ac in agent_commands]
+            if agent_setting:
+                config = json.loads(agent_setting.value)
 
-            # Add the enabled commands to the config
-            config["enabled_commands"] = enabled_commands
+                # Retrieve the enabled commands for the agent
+                agent_commands = (
+                    session.query(AgentCommand)
+                    .join(Command)
+                    .filter(
+                        AgentCommand.agent_id == agent.id,
+                        AgentCommand.state == True,  # Only get enabled commands
+                    )
+                    .all()
+                )
+                enabled_commands = [ac.command.name for ac in agent_commands]
 
-            return config
-        else:
-            return {}
+                # Add the enabled commands to the config
+                config["enabled_commands"] = enabled_commands
+
+                return config
+        return {}
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -302,16 +304,23 @@ class Agent:
                             )
                             session.add(agent_command)
             else:
-                # Update AgentProviderSetting or AgentSetting
+                provider = (
+                    session.query(ProviderModel)
+                    .filter_by(name=self.AI_PROVIDER)
+                    .first()
+                )
+                if not provider:
+                    print(
+                        f"Provider '{self.AI_PROVIDER}' does not exist in the database."
+                    )
+                    return
+
                 agent_provider = (
-                    session.query(AgentProvider).filter_by(agent_id=agent.id).first()
+                    session.query(AgentProvider)
+                    .filter_by(provider_id=provider.id, agent_id=agent.id)
+                    .first()
                 )
                 if not agent_provider:
-                    provider = (
-                        session.query(ProviderModel)
-                        .filter_by(id=agent.provider_id)
-                        .first()
-                    )
                     agent_provider = AgentProvider(
                         provider_id=provider.id, agent_id=agent.id
                     )
