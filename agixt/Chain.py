@@ -10,6 +10,7 @@ from DBConnection import (
     Command,
 )
 from agixtsdk import AGiXTSDK
+from Extensions import Extensions
 import logging
 import json
 import os
@@ -540,9 +541,9 @@ class Chain:
         if step:
             if "prompt_type" in step:
                 if agent_override != "":
-                    self.agent_name = agent_override
+                    agent_name = agent_override
                 else:
-                    self.agent_name = step["agent_name"]
+                    agent_name = step["agent_name"]
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -553,16 +554,16 @@ class Chain:
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
-                    agent_name=self.agent_name,
+                    agent_name=agent_name,
                 )
                 if prompt_type == "Command":
-                    return await self.agent.execute(
+                    return await Extensions().execute_command(
                         command_name=args["command_name"],
                         command_args=args,
                     )
                 elif prompt_type == "Prompt":
                     result = ApiClient.prompt_agent(
-                        agent_name=self.agent_name,
+                        agent_name=agent_name,
                         prompt_name=prompt_name,
                         prompt_args={
                             "chain_name": chain_name,
@@ -592,45 +593,61 @@ class Chain:
         agent_override="",
         from_step=1,
     ):
-        chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-        if chain is None:
-            return f"Chain '{chain_name}' not found."
+        chain_data = ApiClient.get_chain(chain_name=chain_name)
+        if chain_data == {}:
+            return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
-        chain_steps = (
-            session.query(ChainStep)
-            .filter(ChainStep.chain_id == chain.id, ChainStep.step_number >= from_step)
-            .order_by(ChainStep.step_number)
-            .all()
-        )
-        for chain_step in chain_steps:
-            step_data = {
-                "step": chain_step.step_number,
-                "agent_name": (
-                    agent_override if agent_override else chain_step.agent_name
-                ),
-                "prompt_type": chain_step.prompt_type,
-                "prompt": chain_step.prompt,
-            }
-            logging.info(
-                f"Running step {chain_step.step_number} with agent {step_data['agent_name']}."
-            )
-            step_response = await self.run_chain_step(
-                step=step_data,
-                chain_name=chain_name,
-                user_input=user_input,
-                agent_override=agent_override,
-            )  # Get the response of the current step.
-            step_data["response"] = step_response
-            last_response = step_response
-            responses[str(chain_step.step_number)] = step_data  # Store the response.
-            logging.info(f"Response: {step_response}")
-            session.add(
-                ChainStepResponse(content=step_response, chain_step_id=chain_step.id)
-            )
-            session.commit()
-        if all_responses:
+        for step_data in chain_data["steps"]:
+            if int(step_data["step"]) >= int(from_step):
+                if "prompt" in step_data and "step" in step_data:
+                    step = {}
+                    step["agent_name"] = (
+                        agent_override
+                        if agent_override != ""
+                        else step_data["agent_name"]
+                    )
+                    step["prompt_type"] = step_data["prompt_type"]
+                    step["prompt"] = step_data["prompt"]
+                    logging.info(
+                        f"Running step {step_data['step']} with agent {step['agent_name']}."
+                    )
+
+                    # Get the chain step based on the step number
+                    chain_step = self.get_step(chain_name, step_data["step"])
+
+                    step_response = await self.run_chain_step(
+                        step=step_data,
+                        chain_name=chain_name,
+                        user_input=user_input,
+                        agent_override=agent_override,
+                    )  # Get the response of the current step.
+                    step["response"] = step_response
+                    last_response = step_response
+                    responses[step_data["step"]] = step  # Store the response.
+                    logging.info(f"Response: {step_response}")
+                    # Write the responses to the json file.
+                    for step_data in chain_data["steps"]:
+                        step_response = await self.run_chain_step(
+                            step=step_data,
+                            chain_name=chain_name,
+                            user_input=user_input,
+                            agent_override=agent_override,
+                        )
+                        step["response"] = step_response
+                        last_response = step_response
+
+                        # Create a ChainStepResponse instance and save it to the database
+                        response_content = {
+                            "chain_step_id": chain_step.id,
+                            "content": step_response,
+                        }
+                        chain_step_response = ChainStepResponse(**response_content)
+                        session.add(chain_step_response)
+                        session.commit()
+
+        if all_responses == True:
             return responses
         else:
             # Return only the last response in the chain.
