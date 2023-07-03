@@ -40,7 +40,6 @@ def import_extensions():
         description = extension_data.get(
             "description", ""
         )  # Assign an empty string if description is missing
-        print(f"Adding Extension: {extension_name} settings")
 
         # Find the existing extension or create a new one
         extension = next(
@@ -52,7 +51,6 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            print(f"Adding extension: {extension_name}, description: {description}")
 
         commands = extension_data["commands"]
 
