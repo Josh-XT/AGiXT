@@ -31,8 +31,6 @@ services:
       - "7437:7437"
     volumes:
       - ./agixt:/agixt:rw
-      - ./streamlit:/streamlit:rw
-      - ./tests:/tests:rw
       - ./models:/model:rw
   streamlit:
     image: agixt/streamlit:latest
