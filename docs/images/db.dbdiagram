@@ -1,0 +1,128 @@
+Table provider {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    name text [not null]
+}
+
+Table provider_setting {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    provider_id uuid [ref: > provider.id, not null]
+    name text [not null]
+}
+
+Table agent_provider_setting {
+      id uuid [pk, default: `uuid_generate_v4()`]
+      provider_setting_id uuid [ref: > provider_setting.id, not null]
+      agent_provider_id uuid [ref: > agent_provider.id, not null]
+      value text [not null]
+}
+
+Table agent_provider {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  provider_id uuid [ref: > provider.id, not null]
+  agent_id uuid [ref: > agent.id, not null]
+}
+
+Table agent {
+    id uuid [pk]
+    name text [not null]
+    provider_id uuid [ref: > provider.id, not null]
+}
+
+Table command {
+      id uuid [pk]
+      name text [not null]
+      extension_id uuid [ref: > extension.id, null]
+}
+
+Table agent_command {
+    id uuid [pk]
+    command_id uuid [ref: > command.id, not null]
+    agent_id uuid [ref: > agent.id, not null]
+    state boolean [not null]
+}
+
+Table conversation {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    agent_id uuid [ref: > agent.id, not null]
+    name text [not null]
+}
+
+Table message {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    role text [not null]
+    content text [not null]
+    timestamp timestamptz [default: `now()`]
+    conversation_id uuid [ref: > conversation.id, not null]
+}
+
+Table setting {
+      id uuid [pk]
+      name text [not null]
+      extension_id uuid [ref: > extension.id, null]
+}
+
+Table agent_setting {
+    id uuid [pk]
+    setting_id uuid [ref: > setting.id, not null]
+    agent_id uuid [ref: > agent.id, not null]
+    value string [not null]
+}
+
+Table chain {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    name text [not null]
+    description text [not null]
+}
+
+Table chain_step {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    chain_id uuid [ref: > chain.id, not null]
+    agent_id uuid [ref: > agent.id, not null]
+    target_chain_id uuid [ref: > chain.id, null]
+    target_command_id uuid [ref: > command.id, null]
+    target_prompt_id uuid [ref: > prompt.id, null]
+    step_number integer [not null]
+}
+
+table chain_step_argument {
+   argument_id uuid [ref: > argument.id, not null]
+   chain_step_id uuid [ref: > chain_step.id, not null]
+   value text [not null]
+}
+
+Table chain_step_response {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    chain_step_id uuid [ref: > chain_step.id, not null]
+    timestamp timestamptz [default: `now()`]
+    content text [not null]
+}
+
+
+
+Table extension {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    name text [not null]
+    description text [not null]
+}
+
+Table argument {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    prompt_id uuid [ref: > prompt.id, null]
+    command_id uuid [ref: > command.id, null]
+    chain_id uuid [ref: > chain.id, null]
+    name text [not null]
+}
+
+Table prompt_category {
+    id uuid [pk]
+    name text [not null]
+    description text [not null]
+}
+
+Table prompt {
+    id uuid [pk, default: `uuid_generate_v4()`]
+    prompt_category_id uuid [ref: > prompt_category.id, not null]
+    name text [not null]
+    description text [not null]
+    content text [not null]
+}
