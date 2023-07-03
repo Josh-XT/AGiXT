@@ -173,6 +173,16 @@ class Chain(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
+    steps = relationship(
+        "ChainStep",
+        backref="chain",
+        cascade="all, delete",
+        passive_deletes=True,
+        foreign_keys="ChainStep.chain_id",
+    )
+    target_steps = relationship(
+        "ChainStep", backref="target_chain", foreign_keys="ChainStep.target_chain_id"
+    )
 
 
 class ChainStep(Base):

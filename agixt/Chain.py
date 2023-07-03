@@ -128,48 +128,6 @@ class Chain:
         target_command_id = None
         target_prompt_id = None
 
-        if prompt_type == "Command":
-            command_name = prompt.get("command_name")
-            command_args = prompt.copy()
-            del command_args["command_name"]
-            command = (
-                session.query(Command).filter(Command.name == command_name).first()
-            )
-            if command:
-                target_command_id = command.id
-                prompt["prompt_name"] = command_name
-            for arg_name, arg_value in command_args.items():
-                argument = (
-                    session.query(Argument).filter(Argument.name == arg_name).first()
-                )
-                if argument:
-                    chain_step_argument = ChainStepArgument(
-                        chain_step_id=chain_step.id,
-                        argument_id=argument.id,
-                        value=arg_value,
-                    )
-                    session.add(chain_step_argument)
-                    session.commit()
-        elif prompt_type == "Prompt":
-            prompt_name = prompt.get("prompt_name")
-            prompt_args = prompt.copy()
-            del prompt_args["prompt_name"]
-            prompt_obj = (
-                session.query(Prompt).filter(Prompt.name == prompt_name).first()
-            )
-            if prompt_obj:
-                target_prompt_id = prompt_obj.id
-        elif prompt_type == "Chain":
-            chain_name = prompt.get("chain_name")
-            prompt["prompt_name"] = chain_name
-            chain_args = prompt.copy()
-            del chain_args["chain_name"]
-            chain_obj = (
-                session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-            )
-            if chain_obj:
-                target_chain_id = chain_obj.id
-
         chain_step = ChainStep(
             chain_id=chain.id,
             step_number=step_number,
@@ -180,13 +138,18 @@ class Chain:
             target_command_id=target_command_id,
             target_prompt_id=target_prompt_id,
         )
+        print("Creating chain_step:", chain_step)  # Debugging print statement
         session.add(chain_step)
         session.commit()
 
-        prompt_args = {}  # Initialize an empty dictionary
-        for argument_name, argument_value in prompt_args.items():
-            prompt_args[argument_name] = argument_value
+        print("ChainStep ID:", chain_step.id)  # Debugging print statement
 
+        if chain_step.id is None:
+            # Handle the case where the chain step was not created successfully
+            # You can choose to raise an exception or handle it differently
+            return
+
+        prompt_args = {}  # Initialize an empty dictionary
         for argument_name, argument_value in prompt_args.items():
             argument = (
                 session.query(Argument).filter(Argument.name == argument_name).first()
@@ -566,19 +529,17 @@ class Chain:
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
-                    agent_name=agent_name,
+                    agent_name=step["agent_name"],
                 )
 
                 if prompt_type == "Command":
-                    print(f"Running step {step_number} of {chain_name}...")
-                    print(f"Prompt Type: {prompt_type}")
-                    print(f"Prompt Name: {prompt_name}")
+                    print(f"Running Command in Step {step_number} of {chain_name}...")
                     print(f"Prompt Args: {args}")
-                    exit()
+                    # TODO: Need to figure out why args are not being passed to the command
                     return await Extensions().execute_command(
-                        command_name=args["command_name"],
-                        command_args=args,
+                        command_name=step["prompt"]["command_name"], command_args=args
                     )
+
                 elif prompt_type == "Prompt":
                     result = ApiClient.prompt_agent(
                         agent_name=agent_name,
