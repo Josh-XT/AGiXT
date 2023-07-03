@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
-from Agent import Agent
 from typing import List
 
 base_uri = "http://localhost:7437"
@@ -24,7 +23,6 @@ class Websearch:
         **kwargs,
     ):
         self.agent_name = agent_name
-        self.agent = Agent(self.agent_name)
         self.max_tokens = max_tokens
         self.searx_instance_url = searx_instance_url
         self.requirements = ["agixtsdk"]
