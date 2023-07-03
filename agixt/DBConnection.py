@@ -36,12 +36,16 @@ class DBConnection:
         try:
             self.engine.execute("SELECT 1 FROM agent LIMIT 1")
         except Exception as e:
-            print("Creating tables...")
-            try:
-                Base.metadata.create_all(engine)
-                time.sleep(5)
-            except Exception as e:
-                time.sleep(5)
+            if os.path.exists("migration.txt"):
+                while os.path.exists("migration.txt"):
+                    time.sleep(2)
+            else:
+                print("Creating tables...")
+                try:
+                    Base.metadata.create_all(engine)
+                    time.sleep(5)
+                except Exception as e:
+                    time.sleep(5)
 
     def get_engine(self):
         try:
