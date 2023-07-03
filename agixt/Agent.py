@@ -53,16 +53,17 @@ def add_agent(agent_name, provider_settings=None, commands=None):
 
 
 def delete_agent(agent_name):
-    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    agent = session.query(Agent).filter_by(name=agent_name).first()
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
 
-    session.delete(agent)
-
     # Delete associated agent settings and provider settings
     session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete()
-    session.query(AgentProviderSetting).filter_by(agent_id=agent.id).delete()
+    session.query(AgentProviderSetting).join(AgentProvider).filter(
+        AgentProvider.agent_id == agent.id
+    ).delete()
 
+    session.delete(agent)
     session.commit()
 
     return {"message": f"Agent {agent_name} deleted."}, 200
