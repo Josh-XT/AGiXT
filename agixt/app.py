@@ -628,7 +628,9 @@ async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
 
 @app.get("/api/prompt/{prompt_name}/args", tags=["Prompt"])
 async def get_prompt_arg(prompt_name: str):
-    return {"prompt_args": Prompts().get_prompt_args(prompt_name)}
+    prompt_name = prompt_name.replace("%20", " ")
+    prompt = Prompts().get_prompt(prompt_name=prompt_name)
+    return {"prompt_args": Prompts().get_prompt_args(prompt)}
 
 
 @app.get("/api/extensions/settings", tags=["Extensions"])
