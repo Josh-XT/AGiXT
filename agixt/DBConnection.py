@@ -188,15 +188,25 @@ class Chain(Base):
 class ChainStep(Base):
     __tablename__ = "chain_step"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    chain_id = Column(UUID(as_uuid=True), ForeignKey("chain.id"), nullable=False)
+    chain_id = Column(
+        UUID(as_uuid=True), ForeignKey("chain.id", ondelete="CASCADE"), nullable=False
+    )
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     prompt_type = Column(Text)  # Add the prompt_type field
     prompt = Column(Text)  # Add the prompt field
-    target_chain_id = Column(UUID(as_uuid=True), ForeignKey("chain.id"))
-    target_command_id = Column(UUID(as_uuid=True), ForeignKey("command.id"))
-    target_prompt_id = Column(UUID(as_uuid=True), ForeignKey("prompt.id"))
+    target_chain_id = Column(
+        UUID(as_uuid=True), ForeignKey("chain.id", ondelete="SET NULL")
+    )
+    target_command_id = Column(
+        UUID(as_uuid=True), ForeignKey("command.id", ondelete="SET NULL")
+    )
+    target_prompt_id = Column(
+        UUID(as_uuid=True), ForeignKey("prompt.id", ondelete="SET NULL")
+    )
     step_number = Column(Integer, nullable=False)
-    responses = relationship("ChainStepResponse", backref="chain_step")
+    responses = relationship(
+        "ChainStepResponse", backref="chain_step", cascade="all, delete"
+    )
 
     def add_response(self, content):
         response = ChainStepResponse(content=content, chain_step=self)
@@ -258,3 +268,10 @@ class Prompt(Base):
     content = Column(Text, nullable=False)
 
     prompt_category = relationship("PromptCategory", backref="prompts")
+
+
+db = DBConnection()
+
+Base = db.Base
+engine = db.engine
+session = db.session

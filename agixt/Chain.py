@@ -535,7 +535,6 @@ class Chain:
                 if prompt_type == "Command":
                     print(f"Running Command in Step {step_number} of {chain_name}...")
                     print(f"Prompt Args: {args}")
-                    # TODO: Need to figure out why args are not being passed to the command
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args
                     )
