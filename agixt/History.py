@@ -131,9 +131,15 @@ def get_conversation(agent_name, conversation_name=None):
     messages = (
         session.query(Message).filter(Message.conversation_id == conversation.id).all()
     )
-
+    return_messages = []
     for message in messages:
-        print(f"[{message.timestamp}] {message.role}: {message.content}")
+        msg = {
+            "role": message.role,
+            "message": message.content,
+            "timestamp": message.timestamp,
+        }
+        return_messages.append(msg)
+    return return_messages
 
 
 def new_conversation(agent_name, conversation_name):
