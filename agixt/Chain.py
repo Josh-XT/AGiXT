@@ -12,6 +12,7 @@ from DBConnection import (
 from agixtsdk import AGiXTSDK
 import logging
 import json
+import os
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
