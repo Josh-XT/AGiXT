@@ -33,7 +33,7 @@ services:
       - ./agixt:/agixt:rw
       - ./models:/model:rw
   streamlit:
-    image: ghcr.io/agixt/streamlit:latest
+    image: joshxt/streamlit:latest
     env_file:
       - .env.example
     depends_on:
