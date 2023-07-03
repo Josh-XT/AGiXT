@@ -20,6 +20,7 @@ from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
+from History import get_conversation
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -302,7 +303,7 @@ async def get_agentconfig(agent_name: str):
 
 @app.get("/api/{agent_name}/chat", tags=["Agent"])
 async def get_chat_history(agent_name: str):
-    chat_history = Agent(agent_name=agent_name).load_history()
+    chat_history = get_conversation(agent_name=agent_name)
     if chat_history is None:
         chat_history = []
     if "interactions" in chat_history:

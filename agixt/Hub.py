@@ -6,7 +6,8 @@ import zipfile
 import hashlib
 from Extensions import import_extensions
 from Chain import import_chains
-from Agent import import_agents, import_conversations
+from Agent import import_agents
+from History import import_conversations
 from Prompts import import_prompts
 from provider import import_providers
 from dotenv import load_dotenv

@@ -14,6 +14,7 @@ from concurrent.futures import Future
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
+from History import log_interaction
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
@@ -248,10 +249,10 @@ class Interactions:
                 except:
                     pass
             if prompt == "Chat":
-                self.agent.log_interaction(role="USER", message=user_input)
+                log_interaction(role="USER", message=user_input)
             else:
-                self.agent.log_interaction(role="USER", message=formatted_prompt)
-            self.agent.log_interaction(role=self.agent_name, message=self.response)
+                log_interaction(role="USER", message=formatted_prompt)
+            log_interaction(role=self.agent_name, message=self.response)
 
         if shots > 1:
             responses = [self.response]

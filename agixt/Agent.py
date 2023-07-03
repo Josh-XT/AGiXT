@@ -22,13 +22,14 @@ from provider import Provider
 from Memories import Memories
 from Extensions import Extensions
 from datetime import datetime
+from History import get_conversation
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
+    "embedder": "default",
     "AI_MODEL": "gpt-3.5-turbo",
     "AI_TEMPERATURE": "0.7",
     "MAX_TOKENS": "4096",
-    "embedder": "default",
     "AUTONOMOUS_EXECUTION": False,
 }
 
@@ -194,63 +195,6 @@ def import_agent_config(agent_name):
     print(f"Agent config imported successfully for agent: {agent_name}")
 
 
-def import_conversations():
-    agents_dir = "agents"  # Directory containing agent folders
-
-    for agent_name in os.listdir(agents_dir):
-        agent_dir = os.path.join(agents_dir, agent_name)
-        history_file = os.path.join(agent_dir, "history.yaml")
-
-        if not os.path.exists(history_file):
-            continue  # Skip agent if history file doesn't exist
-
-        # Get agent ID from the database based on agent name
-        agent = session.query(Agent).filter(Agent.name == agent_name).first()
-        if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
-            continue
-
-        # Load conversation history from the YAML file
-        with open(history_file, "r") as file:
-            history = yaml.safe_load(file)
-
-        # Check if the conversation already exists for the agent
-        existing_conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.agent_id == agent.id,
-                Conversation.name == f"{agent_name} History",
-            )
-            .first()
-        )
-        if existing_conversation:
-            continue
-        if "interactions" not in history:
-            continue
-        # Create a new conversation
-        conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
-        session.add(conversation)
-        session.commit()
-
-        for conversation_data in history["interactions"]:
-            # Create a new message for the conversation
-            try:
-                role = conversation_data["role"]
-                content = conversation_data["message"]
-                timestamp = conversation_data["timestamp"]
-            except KeyError:
-                continue
-            message = Message(
-                role=role,
-                content=content,
-                timestamp=timestamp,
-                conversation_id=conversation.id,
-            )
-            session.add(message)
-            session.commit()
-        print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
-
-
 class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
@@ -266,22 +210,21 @@ class Agent:
                     ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "AUTONOMOUS_EXECUTION"]
                 )
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
-                self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
-                if self.AI_MODEL == "":
-                    self.AI_MODEL = "default"
+                self.AI_MODEL = (
+                    self.PROVIDER_SETTINGS["AI_MODEL"]
+                    if self.AI_MODEL != ""
+                    else DEFAULT_SETTINGS["AI_MODEL"]
+                )
             else:
-                self.AI_MODEL = "openassistant"
+                self.AI_MODEL = DEFAULT_SETTINGS["AI_MODEL"]
             if "embedder" in self.PROVIDER_SETTINGS:
                 self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
             else:
-                if self.AI_PROVIDER == "openai":
-                    self.EMBEDDER = "openai"
-                else:
-                    self.EMBEDDER = "default"
+                self.EMBEDDER = "openai" if self.AI_PROVIDER == "openai" else "default"
             if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
                 self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
             else:
-                self.MAX_TOKENS = 4000
+                self.MAX_TOKENS = DEFAULT_SETTINGS["MAX_TOKENS"]
             if "AUTONOMOUS_EXECUTION" in self.PROVIDER_SETTINGS:
                 self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
                     "AUTONOMOUS_EXECUTION"
@@ -292,13 +235,13 @@ class Agent:
                         True if self.AUTONOMOUS_EXECUTION == "true" else False
                     )
             else:
-                self.AUTONOMOUS_EXECUTION = True
+                self.AUTONOMOUS_EXECUTION = DEFAULT_SETTINGS["AUTONOMOUS_EXECUTION"]
             self.commands = self.load_commands()
             self.available_commands = Extensions(
                 agent_config=self.AGENT_CONFIG
             ).get_available_commands()
             self.clean_agent_config_commands()
-            self.history = self.load_history()
+            self.history = get_conversation(agent_name=self.agent_name)
             self.agent_instances = {}
 
     def get_memories(self):
@@ -438,59 +381,6 @@ class Agent:
 
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
-
-    def load_history(self):
-        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
-
-        if agent:
-            messages = (
-                session.query(MessageModel)
-                .filter(MessageModel.agent_id == agent.id)
-                .all()
-            )
-            history = {"interactions": []}
-
-            for message in messages:
-                history["interactions"].append(
-                    {
-                        "role": message.role,
-                        "message": message.content,
-                        "timestamp": message.timestamp.strftime("%B %d, %Y %I:%M %p"),
-                    }
-                )
-
-            return history
-        else:
-            return {"interactions": []}
-
-    def save_history(self):
-        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
-
-        if agent:
-            messages = []
-            for interaction in self.history["interactions"]:
-                message = MessageModel(
-                    role=interaction["role"],
-                    content=interaction["message"],
-                    timestamp=datetime.strptime(
-                        interaction["timestamp"], "%B %d, %Y %I:%M %p"
-                    ),
-                    conversation_id=None,  # Modify this as per your schema
-                    agent_id=agent.id,
-                )
-                messages.append(message)
-
-            session.add_all(messages)
-            session.commit()
-
-    def log_interaction(self, role: str, message: str):
-        if self.history is None:
-            self.history = {"interactions": []}
-
-        timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
-        self.history["interactions"].append(
-            {"role": role, "message": message, "timestamp": timestamp}
-        )
 
     def save_setting(self, setting_name, setting_value):
         agent_setting = (
