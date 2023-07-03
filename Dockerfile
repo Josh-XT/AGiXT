@@ -19,7 +19,7 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=0 \
     PATH="/usr/local/bin:$PATH" \
     LD_PRELOAD=libgomp.so.1 \
-    UVICORN_WORKERS=4
+    UVICORN_WORKERS=6
 
 # Set work directory
 WORKDIR /
