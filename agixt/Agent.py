@@ -9,6 +9,7 @@ from DBConnection import (
     ProviderSetting,
     AgentProvider,
     AgentProviderSetting,
+    Provider as ProviderModel,
     session,
 )
 from provider import Provider
@@ -128,7 +129,7 @@ def import_agent_config(agent_name):
 
     # Get the provider ID based on the provider name in the config
     provider_name = config["settings"]["provider"]
-    provider = session.query(Provider).filter_by(name=provider_name).first()
+    provider = session.query(ProviderModel).filter_by(name=provider_name).first()
 
     if not provider:
         print(f"Provider '{provider_name}' does not exist in the database.")
