@@ -2,21 +2,16 @@ import re
 import regex
 import json
 import time
-import random
-import requests
 import logging
 from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
 from Embedding import get_tokens
 from Chain import Chain
-from urllib.parse import urlparse
 from concurrent.futures import Future
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from History import log_interaction
-from typing import List
+from Websearch import Websearch
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
@@ -31,6 +26,20 @@ class Interactions:
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
             self.memories = self.agent.get_memories()
+            searx_instance_url = (
+                self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+                if "SEARXNG_INSTANCE_URL" in self.agent.PROVIDER_SETTINGS
+                else ""
+            )
+            try:
+                max_tokens = self.agent.PROVIDER_SETTINGS["MAX_TOKENS"]
+            except:
+                max_tokens = 2048
+            self.websearch = Websearch(
+                agent_name=self.agent_name,
+                searx_instance_url=searx_instance_url,
+                max_tokens=max_tokens,
+            )
         else:
             self.agent_name = ""
             self.agent = None
@@ -165,7 +174,7 @@ class Interactions:
             else:
                 search_string = user_input
             if search_string != "":
-                await self.websearch_agent(
+                await self.websearch.websearch_agent(
                     user_input=search_string, depth=websearch_depth
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
@@ -401,171 +410,3 @@ class Interactions:
                         return f"\Command not recognized: `{command_name}`."
         else:
             return "\nNo commands were executed.\n"
-
-    async def get_web_content(self, url):
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(url)
-                content = await page.content()
-
-                # Scrape links and their titles
-                links = await page.query_selector_all("a")
-                link_list = []
-                for link in links:
-                    title = await page.evaluate("(link) => link.textContent", link)
-                    href = await page.evaluate("(link) => link.href", link)
-                    link_list.append((title, href))
-
-                await browser.close()
-                soup = BeautifulSoup(content, "html.parser")
-                text_content = soup.get_text()
-                text_content = " ".join(text_content.split())
-                return text_content, link_list
-        except:
-            return None, None
-
-    async def resursive_browsing(self, user_input, links):
-        chunk_size = int(int(self.agent.MAX_TOKENS) / 2)
-        try:
-            words = links.split()
-            links = [
-                word for word in words if urlparse(word).scheme in ["http", "https"]
-            ]
-        except:
-            links = links
-        if links is not None:
-            for link in links:
-                if "href" in link:
-                    try:
-                        url = link["href"]
-                    except:
-                        url = link
-                else:
-                    url = link
-                url = re.sub(r"^.*?(http)", r"http", url)
-                # Check if url is an actual url
-                if url.startswith("http"):
-                    logging.info(f"Scraping: {url}")
-                    if url not in self.browsed_links:
-                        self.browsed_links.append(url)
-                        (
-                            collected_data,
-                            link_list,
-                        ) = await self.get_web_content(url=url)
-                        # Split the collected data into agent max tokens / 2 character chunks
-                        if collected_data is not None:
-                            if len(collected_data) > 0:
-                                tokens = get_tokens(collected_data)
-                                chunks = [
-                                    collected_data[i : i + chunk_size]
-                                    for i in range(
-                                        0,
-                                        int(tokens),
-                                        chunk_size,
-                                    )
-                                ]
-                                for chunk in chunks:
-                                    summarized_content = ApiClient.prompt_agent(
-                                        agent_name=self.agent_name,
-                                        prompt_name="Summarize Web Content",
-                                        prompt_args={
-                                            "link": url,
-                                            "chunk": chunk,
-                                            "disable_memory": True,
-                                            "user_input": user_input,
-                                        },
-                                    )
-                                    if not summarized_content.startswith("None"):
-                                        await self.memories.store_result(
-                                            input=user_input,
-                                            result=summarized_content,
-                                            external_source_name=url,
-                                        )
-                        if link_list is not None:
-                            if len(link_list) > 0:
-                                if len(link_list) > 5:
-                                    link_list = link_list[:3]
-                                try:
-                                    pick_a_link = ApiClient.prompt_agent(
-                                        agent_name=self.agent_name,
-                                        prompt_name="Pick-a-Link",
-                                        prompt_args={
-                                            "links": link_list,
-                                            "disable_memory": True,
-                                            "user_input": user_input,
-                                        },
-                                    )
-                                    if not pick_a_link.startswith("None"):
-                                        await self.resursive_browsing(
-                                            user_input=user_input, links=pick_a_link
-                                        )
-                                except:
-                                    logging.info(f"Issues reading {url}. Moving on...")
-
-    async def search(self, query: str, searx_instance_url: str = "") -> List[str]:
-        if searx_instance_url == "":
-            try:  # SearXNG - List of these at https://searx.space/
-                response = requests.get("https://searx.space/data/instances.json")
-                data = json.loads(response.text)
-                servers = list(data["instances"].keys())
-                random_index = random.randint(0, len(servers) - 1)
-                searx_instance_url = servers[random_index]
-            except:  # Select default remote server that typically works if unable to get list.
-                searx_instance_url = "https://search.us.projectsegfau.lt"
-        server = searx_instance_url.rstrip("/")
-        endpoint = f"{server}/search"
-        try:
-            response = requests.get(
-                endpoint,
-                params={
-                    "q": query,
-                    "language": "en",
-                    "safesearch": 1,
-                    "format": "json",
-                },
-            )
-            results = response.json()
-            summaries = [
-                result["title"] + " - " + result["url"] for result in results["results"]
-            ]
-            return summaries
-        except:
-            # The SearXNG server is down or refusing connection, so we will use the default one.
-            endpoint = "https://search.us.projectsegfau.lt/search"
-            return await self.search(query=query, endpoint=endpoint)
-
-    async def websearch_agent(
-        self,
-        user_input: str = "What are the latest breakthroughs in AI?",
-        depth: int = 3,
-    ):
-        results = ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="WebSearch",
-            prompt_args={
-                "user_input": user_input,
-                "disable_memory": True,
-            },
-        )
-        results = results.split("\n")
-        for result in results:
-            search_string = result.lstrip("0123456789. ")
-            try:
-                searx_instance_url = self.agent.PROVIDER_SETTINGS[
-                    "SEARXNG_INSTANCE_URL"
-                ]
-            except:
-                searx_instance_url = ""
-            try:
-                links = await self.search(
-                    query=search_string, searx_instance_url=searx_instance_url
-                )
-                if len(links) > depth:
-                    links = links[:depth]
-            except:
-                links = None
-            if links is not None:
-                await self.resursive_browsing(user_input=user_input, links=links)
