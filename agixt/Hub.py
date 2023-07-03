@@ -4,6 +4,9 @@ import shutil
 import requests
 import zipfile
 import hashlib
+from DBConnection import DBConnection
+
+db = DBConnection()
 from Extensions import import_extensions
 from Chain import import_chains
 from Agent import import_agents

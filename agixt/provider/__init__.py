@@ -6,14 +6,14 @@ import os
 import inspect
 from DBConnection import (
     session,
-    Provider,
+    Provider as ProviderModel,
     ProviderSetting,
 )
 
 
 def import_providers():
     providers = get_providers()
-    existing_providers = session.query(Provider).all()
+    existing_providers = session.query(ProviderModel).all()
     existing_provider_names = [provider.name for provider in existing_providers]
 
     for provider in existing_providers:
@@ -23,12 +23,14 @@ def import_providers():
     for provider_name in providers:
         provider_options = get_provider_options(provider_name)
 
-        provider = session.query(Provider).filter_by(name=provider_name).one_or_none()
+        provider = (
+            session.query(ProviderModel).filter_by(name=provider_name).one_or_none()
+        )
 
         if provider:
             print(f"Updating provider: {provider_name}")
         else:
-            provider = Provider(name=provider_name)
+            provider = ProviderModel(name=provider_name)
             session.add(provider)
             existing_provider_names.append(provider_name)
             print(f"Adding provider: {provider_name}")
