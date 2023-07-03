@@ -1,9 +1,6 @@
 import os
 import json
-import glob
 import shutil
-import importlib
-from inspect import signature, Parameter
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
@@ -28,7 +25,7 @@ DEFAULT_SETTINGS = {
 }
 
 
-def add_agent(agent_name, provider_settings=None, commands={}):
+def add_agent(agent_name, provider_settings=None, commands=None):
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
 
@@ -39,16 +36,14 @@ def add_agent(agent_name, provider_settings=None, commands={}):
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
 
-    settings = json.dumps(
-        {
-            "commands": commands,
-            "settings": provider_settings,
-        }
-    )
+    settings = {
+        "commands": commands,
+        "settings": provider_settings,
+    }
     agent_setting = AgentSettingModel(
         agent_id=agent.id,
         name="config",
-        value=settings,
+        value=json.dumps(settings),
     )
     session.add(agent_setting)
     session.commit()
@@ -62,6 +57,11 @@ def delete_agent(agent_name):
         return {"message": f"Agent {agent_name} not found."}, 404
 
     session.delete(agent)
+
+    # Delete associated agent settings and provider settings
+    session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete()
+    session.query(AgentProviderSetting).filter_by(agent_id=agent.id).delete()
+
     session.commit()
 
     return {"message": f"Agent {agent_name} deleted."}, 200
@@ -100,18 +100,15 @@ def import_agents():
 
     for agent_name in agents:
         agent = session.query(Agent).filter_by(name=agent_name).one_or_none()
-
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
-            agent = Agent(name=agent_name)
+            agent = AgentModel(name=agent_name)
             session.add(agent)
             session.flush()  # Save the agent object to generate an ID
             existing_agent_names.append(agent_name)
             print(f"Adding agent: {agent_name}")
-
         import_agent_config(agent_name)
-
     session.commit()
 
 
@@ -277,36 +274,6 @@ class Agent:
         )
         command_list = "\n".join(friendly_names)
         return f"Commands Available To Complete Task:\n{command_list}\n\n"
-
-    def get_provider(self):
-        config_file = self.get_agent_config()
-        if "provider" in config_file:
-            return config_file["provider"]
-        else:
-            return "openai"
-
-    def get_command_params(self, func):
-        params = {}
-        sig = signature(func)
-        for name, param in sig.parameters.items():
-            if param.default == Parameter.empty:
-                params[name] = None
-            else:
-                params[name] = param.default
-        return params
-
-    def load_commands(self):
-        commands = []
-        command_files = glob.glob("extensions/*.py")
-        for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            module = importlib.import_module(f"extensions.{module_name}")
-            command_class = getattr(module, module_name.lower())()
-            if hasattr(command_class, "commands"):
-                for command_name, command_function in command_class.commands.items():
-                    params = self.get_command_params(command_function)
-                    commands.append((command_name, command_function.__name__, params))
-        return commands
 
     def update_agent_config(self, new_config, config_key):
         agent_setting = (
