@@ -65,17 +65,19 @@ def import_conversations():
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
-def export_conversation(agent_name):
+def export_conversation(agent_name, conversation_name=None):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
-
+    conversation_name = (
+        f"{agent_name} History" if not conversation_name else conversation_name
+    )
     conversation = (
         session.query(Conversation)
         .filter(
             Conversation.agent_id == agent.id,
-            Conversation.name == f"{agent_name} History",
+            Conversation.name == conversation_name,
         )
         .first()
     )
