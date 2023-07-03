@@ -44,11 +44,7 @@ RUN apt-get install -y nodejs
 RUN npm install -g playwright
 RUN npx playwright install
 
-# Copy local code to the container image.
 COPY . .
 
-# Set work directory
 WORKDIR /agixt
-
-# Set entry point
-ENTRYPOINT ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port 7437 --workers $UVICORN_WORKERS & streamlit run /streamlit/Main.py --server.headless true"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7437", "--workers", "$UVICORN_WORKERS", "--proxy-headers"]

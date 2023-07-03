@@ -4,9 +4,9 @@ services:
     ports:
       - ${POSTGRES_PORT:-5432}:5432
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
     volumes:
       - ./data:/var/lib/postgresql/data:rw
   agixt:
@@ -28,10 +28,20 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - TOKENIZERS_PARALLELISM=False
     ports:
-      - "8501:8501"
       - "7437:7437"
     volumes:
       - ./agixt:/agixt:rw
       - ./streamlit:/streamlit:rw
       - ./tests:/tests:rw
       - ./models:/model:rw
+  streamlit:
+    image: agixt/streamlit:latest
+    env_file:
+      - .env.example
+    depends_on:
+      - agixt
+    environment:
+      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
+      - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
+    ports:
+      - "8501:8501"
