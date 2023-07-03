@@ -206,3 +206,76 @@ def log_interaction(agent_name, conversation_name, role, message):
     session.commit()
 
     print(f"Logged interaction: [{timestamp}] {role}: {message}")
+
+
+def delete_history(agent_name, conversation_name=None):
+    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    if not agent:
+        print(f"Agent '{agent_name}' not found in the database.")
+        return
+    if not conversation_name:
+        conversation_name = f"{agent_name} History"
+    conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.agent_id == agent.id,
+            Conversation.name == conversation_name,
+        )
+        .first()
+    )
+    if not conversation:
+        print(f"No conversation found for agent '{agent_name}'.")
+        return
+
+    session.query(Message).filter(Message.conversation_id == conversation.id).delete()
+    session.query(Conversation).filter(Conversation.id == conversation.id).delete()
+    session.commit()
+
+    print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
+
+
+def delete_message(agent_name, conversation_name, message_id):
+    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    if not agent:
+        print(f"Agent '{agent_name}' not found in the database.")
+        return
+
+    conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.agent_id == agent.id,
+            Conversation.name == conversation_name,
+        )
+        .first()
+    )
+
+    if not conversation:
+        print(f"No conversation found for agent '{agent_name}'.")
+        return
+
+    message = (
+        session.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.id == message_id,
+        )
+        .first()
+    )
+
+    if not message:
+        print(
+            f"No message found with ID '{message_id}' in conversation '{conversation_name}'."
+        )
+        return
+
+    session.delete(message)
+    session.commit()
+
+    print(
+        f"Deleted message with ID '{message_id}' from conversation '{conversation_name}'."
+    )
+
+
+# Example usage:
+# delete_history("Agent1")
+# delete_message("Agent1", "Agent1 History", 1)

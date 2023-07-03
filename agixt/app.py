@@ -20,7 +20,7 @@ from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-from History import get_conversation
+from History import get_conversation, delete_history, delete_message
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -312,8 +312,8 @@ async def get_chat_history(agent_name: str):
 
 
 @app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
-async def delete_history(agent_name: str) -> ResponseMessage:
-    Agent(agent_name=agent_name).delete_history()
+async def delete_conversation_history(agent_name: str) -> ResponseMessage:
+    delete_history(agent_name=agent_name, conversation_name=f"{agent_name} History")
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
@@ -321,7 +321,11 @@ async def delete_history(agent_name: str) -> ResponseMessage:
 async def delete_history_message(
     agent_name: str, message: ResponseMessage
 ) -> ResponseMessage:
-    Agent(agent_name=agent_name).delete_history_message(message.message)
+    delete_message(
+        agent_name=agent_name,
+        message=message.message,
+        conversation_name=f"{agent_name} History",
+    )
     return ResponseMessage(message=f"Message deleted.")
 
 

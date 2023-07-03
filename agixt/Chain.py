@@ -122,46 +122,67 @@ class Chain:
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
         agent = session.query(Agent).filter(Agent.name == agent_name).first()
-        agent_id = agent.id if agent else None
+        if "prompt_name" in prompt:
+            argument_key = "prompt_name"
+            target_id = (
+                session.query(Prompt)
+                .filter(Prompt.name == prompt["prompt_name"])
+                .first()
+                .id
+            )
+            target_type = "prompt"
+        elif "chain_name" in prompt:
+            argument_key = "chain_name"
+            target_id = (
+                session.query(Chain)
+                .filter(Chain.name == prompt["chain_name"])
+                .first()
+                .id
+            )
+            target_type = "chain"
+        elif "command_name" in prompt:
+            argument_key = "command_name"
+            target_id = (
+                session.query(Command)
+                .filter(Command.name == prompt["command_name"])
+                .first()
+                .id
+            )
+            target_type = "command"
 
-        target_chain_id = None
-        target_command_id = None
-        target_prompt_id = None
+        argument_value = prompt[argument_key]
+        prompt_arguments = prompt.copy()
+        del prompt_arguments[argument_key]
 
         chain_step = ChainStep(
             chain_id=chain.id,
             step_number=step_number,
-            agent_id=agent_id,
+            agent_id=agent.id,
             prompt_type=prompt_type,
-            prompt=prompt.get("prompt_name", None),
-            target_chain_id=target_chain_id,
-            target_command_id=target_command_id,
-            target_prompt_id=target_prompt_id,
+            prompt=argument_value,
+            target_chain_id=target_id if target_type == "chain" else None,
+            target_command_id=target_id if target_type == "command" else None,
+            target_prompt_id=target_id if target_type == "prompt" else None,
         )
-        print("Creating chain_step:", chain_step)  # Debugging print statement
         session.add(chain_step)
         session.commit()
 
-        print("ChainStep ID:", chain_step.id)  # Debugging print statement
-
-        if chain_step.id is None:
-            # Handle the case where the chain step was not created successfully
-            # You can choose to raise an exception or handle it differently
-            return
-
-        prompt_args = {}  # Initialize an empty dictionary
-        for argument_name, argument_value in prompt_args.items():
+        for argument_name, argument_value in prompt_arguments.items():
             argument = (
                 session.query(Argument).filter(Argument.name == argument_name).first()
             )
-            if argument:
-                chain_step_argument = ChainStepArgument(
-                    chain_step_id=chain_step.id,
-                    argument_id=argument.id,
-                    value=argument_value,
-                )
-                session.add(chain_step_argument)
-                session.commit()
+            if not argument:
+                # Handle the case where argument not found based on argument_name
+                # You can choose to skip this argument or raise an exception
+                continue
+
+            chain_step_argument = ChainStepArgument(
+                chain_step_id=chain_step.id,
+                argument_id=argument.id,
+                value=argument_value,
+            )
+            session.add(chain_step_argument)
+            session.commit()
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -534,6 +555,7 @@ class Chain:
 
                 if prompt_type == "Command":
                     print(f"Running Command in Step {step_number} of {chain_name}...")
+                    print(f"Step: {step}")
                     print(f"Prompt Args: {args}")
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args

@@ -153,6 +153,11 @@ class Prompts:
     def delete_prompt(self, prompt_name):
         prompt = session.query(Prompt).filter_by(name=prompt_name).first()
         if prompt:
+            # Delete associated arguments
+            arguments = session.query(Argument).filter_by(prompt_id=prompt.id).all()
+            for argument in arguments:
+                session.delete(argument)
+
             session.delete(prompt)
             session.commit()
 
@@ -188,7 +193,6 @@ class Prompts:
             for arg in existing_args:
                 if arg.name not in prompt_args:
                     session.delete(arg)
-            session.commit()
 
             # Add new arguments
             for arg in prompt_args:
@@ -198,4 +202,5 @@ class Prompts:
                         name=arg,
                     )
                     session.add(argument)
+
             session.commit()
