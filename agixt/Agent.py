@@ -1,28 +1,22 @@
 import os
 import json
 import glob
-import yaml
 import shutil
 import importlib
 from inspect import signature, Parameter
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
-    Message as MessageModel,
     Command,
     AgentCommand,
     ProviderSetting,
     AgentProvider,
     AgentProviderSetting,
-    Conversation,
-    Message,
     session,
 )
 from provider import Provider
 from Memories import Memories
 from Extensions import Extensions
-from datetime import datetime
-from History import get_conversation
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
@@ -199,50 +193,59 @@ class Agent:
     def __init__(self, agent_name=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
-        if "settings" in self.AGENT_CONFIG:
-            self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
-            if self.PROVIDER_SETTINGS == {}:
-                self.PROVIDER_SETTINGS = DEFAULT_SETTINGS
-            if "provider" in self.PROVIDER_SETTINGS:
-                self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-                self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
-                self._load_agent_config_keys(
-                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "AUTONOMOUS_EXECUTION"]
+        self.load_config_keys()
+        self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+        for setting in DEFAULT_SETTINGS:
+            if setting not in self.PROVIDER_SETTINGS:
+                self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
+        self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+        self.available_commands = Extensions(
+            agent_config=self.AGENT_CONFIG
+        ).get_available_commands()
+
+    def load_config_keys(self):
+        config_keys = [
+            "AI_MODEL",
+            "AI_TEMPERATURE",
+            "MAX_TOKENS",
+            "AUTONOMOUS_EXECUTION",
+            "embedder",
+        ]
+        for key in config_keys:
+            if key in self.AGENT_CONFIG:
+                setattr(self, key, self.AGENT_CONFIG[key])
+
+    def get_agent_config(self):
+        agent_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == "config",
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        if agent_setting:
+            config = json.loads(agent_setting.value)
+
+            # Retrieve the enabled commands for the agent
+            agent_commands = (
+                session.query(AgentCommand)
+                .join(Command)
+                .filter(
+                    AgentCommand.agent_id == agent_setting.agent_id,
+                    AgentCommand.state == True,  # Only get enabled commands
                 )
-            if "AI_MODEL" in self.PROVIDER_SETTINGS:
-                self.AI_MODEL = (
-                    self.PROVIDER_SETTINGS["AI_MODEL"]
-                    if self.AI_MODEL != ""
-                    else DEFAULT_SETTINGS["AI_MODEL"]
-                )
-            else:
-                self.AI_MODEL = DEFAULT_SETTINGS["AI_MODEL"]
-            if "embedder" in self.PROVIDER_SETTINGS:
-                self.EMBEDDER = self.PROVIDER_SETTINGS["embedder"]
-            else:
-                self.EMBEDDER = "openai" if self.AI_PROVIDER == "openai" else "default"
-            if "MAX_TOKENS" in self.PROVIDER_SETTINGS:
-                self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
-            else:
-                self.MAX_TOKENS = DEFAULT_SETTINGS["MAX_TOKENS"]
-            if "AUTONOMOUS_EXECUTION" in self.PROVIDER_SETTINGS:
-                self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
-                    "AUTONOMOUS_EXECUTION"
-                ]
-                if isinstance(self.AUTONOMOUS_EXECUTION, str):
-                    self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
-                    self.AUTONOMOUS_EXECUTION = (
-                        True if self.AUTONOMOUS_EXECUTION == "true" else False
-                    )
-            else:
-                self.AUTONOMOUS_EXECUTION = DEFAULT_SETTINGS["AUTONOMOUS_EXECUTION"]
-            self.commands = self.load_commands()
-            self.available_commands = Extensions(
-                agent_config=self.AGENT_CONFIG
-            ).get_available_commands()
-            self.clean_agent_config_commands()
-            self.history = get_conversation(agent_name=self.agent_name)
-            self.agent_instances = {}
+                .all()
+            )
+            enabled_commands = [ac.command.name for ac in agent_commands]
+
+            # Add the enabled commands to the config
+            config["enabled_commands"] = enabled_commands
+
+            return config
+        else:
+            return {}
 
     def get_memories(self):
         return Memories(self.agent_name, self.AGENT_CONFIG)
@@ -257,31 +260,6 @@ class Agent:
             return ""
         answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
         return answer
-
-    def _load_agent_config_keys(self, keys):
-        for key in keys:
-            if key in self.AGENT_CONFIG:
-                setattr(self, key, self.AGENT_CONFIG[key])
-
-    def clean_agent_config_commands(self):
-        for command in self.commands:
-            friendly_name = command[0]
-            if friendly_name not in self.AGENT_CONFIG["commands"]:
-                self.AGENT_CONFIG["commands"][friendly_name] = False
-        for command in list(self.AGENT_CONFIG["commands"]):
-            if command not in [cmd[0] for cmd in self.commands]:
-                del self.AGENT_CONFIG["commands"][command]
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == "config",
-                AgentModel.name == self.agent_name,
-            )
-            .first()
-        )
-        agent_setting.value = json.dumps(self.AGENT_CONFIG)
-        session.commit()
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -330,21 +308,6 @@ class Agent:
                     commands.append((command_name, command_function.__name__, params))
         return commands
 
-    def get_agent_config(self):
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == "config",
-                AgentModel.name == self.agent_name,
-            )
-            .first()
-        )
-        if agent_setting:
-            return json.loads(agent_setting.value)
-        else:
-            return {}
-
     def update_agent_config(self, new_config, config_key):
         agent_setting = (
             session.query(AgentSettingModel)
@@ -381,58 +344,3 @@ class Agent:
 
         if os.path.exists(memories_folder):
             shutil.rmtree(memories_folder)
-
-    def save_setting(self, setting_name, setting_value):
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == setting_name,
-                AgentModel.name == self.agent_name,
-            )
-            .first()
-        )
-        if agent_setting:
-            agent_setting.value = setting_value
-            session.commit()
-            return f"Agent {self.agent_name} setting {setting_name} updated."
-        else:
-            agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
-            agent_setting = AgentSettingModel(
-                agent_id=agent.id, name=setting_name, value=setting_value
-            )
-            session.add(agent_setting)
-            session.commit()
-            return f"Agent {self.agent_name} setting {setting_name} created."
-
-    def get_setting(self, setting_name):
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == setting_name,
-                AgentModel.name == self.agent_name,
-            )
-            .first()
-        )
-        if agent_setting:
-            return agent_setting.value
-        else:
-            return None
-
-    def delete_setting(self, setting_name):
-        agent_setting = (
-            session.query(AgentSettingModel)
-            .filter(
-                AgentSettingModel.agent_id == AgentModel.id,
-                AgentSettingModel.name == setting_name,
-                AgentModel.name == self.agent_name,
-            )
-            .first()
-        )
-        if agent_setting:
-            session.delete(agent_setting)
-            session.commit()
-            return f"Agent {self.agent_name} setting {setting_name} deleted."
-        else:
-            return f"Agent {self.agent_name} setting {setting_name} not found."
