@@ -136,7 +136,38 @@ def get_conversation(agent_name, conversation_name=None):
         print(f"[{message.timestamp}] {message.role}: {message.content}")
 
 
-def log_interaction(agent_name, role, message):
+def new_conversation(agent_name, conversation_name):
+    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    if not agent:
+        print(f"Agent '{agent_name}' not found in the database.")
+        return
+
+    # Check if the conversation already exists for the agent
+    existing_conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.agent_id == agent.id,
+            Conversation.name == conversation_name,
+        )
+        .first()
+    )
+    if existing_conversation:
+        print(
+            f"Conversation '{conversation_name}' already exists for agent '{agent_name}'."
+        )
+        return
+
+    # Create a new conversation
+    conversation = Conversation(agent_id=agent.id, name=conversation_name)
+    session.add(conversation)
+    session.commit()
+
+    print(
+        f"Created a new conversation: '{conversation_name}' for agent '{agent_name}'."
+    )
+
+
+def log_interaction(agent_name, conversation_name, role, message):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -146,13 +177,16 @@ def log_interaction(agent_name, role, message):
         session.query(Conversation)
         .filter(
             Conversation.agent_id == agent.id,
-            Conversation.name == f"{agent_name} History",
+            Conversation.name == conversation_name,
         )
         .first()
     )
+
     if not conversation:
-        print(f"No conversation found for agent '{agent_name}'.")
-        return
+        # Create a new conversation if it doesn't exist
+        conversation = Conversation(agent_id=agent.id, name=conversation_name)
+        session.add(conversation)
+        session.commit()
 
     timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
 

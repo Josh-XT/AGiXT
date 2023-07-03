@@ -79,13 +79,17 @@ def import_prompts():
 
 
 class Prompts:
-    def add_prompt(self, prompt_name, prompt):
+    def add_prompt(self, prompt_name, prompt, prompt_category_name=None):
+        if not prompt_category_name:
+            prompt_category_name = "Default"
+
         prompt_category = (
-            session.query(PromptCategory).filter_by(name="Default").first()
+            session.query(PromptCategory).filter_by(name=prompt_category_name).first()
         )
         if not prompt_category:
             prompt_category = PromptCategory(
-                name="Default", description="Default category"
+                name=prompt_category_name,
+                description=f"{prompt_category_name} category",
             )
             session.add(prompt_category)
             session.commit()
@@ -109,8 +113,23 @@ class Prompts:
             session.add(argument)
         session.commit()
 
-    def get_prompt(self, prompt_name, model="default"):
-        prompt = session.query(Prompt).filter_by(name=prompt_name).first()
+    def get_prompt(self, prompt_name, prompt_category="Default"):
+        prompt = (
+            session.query(Prompt)
+            .filter_by(name=prompt_name)
+            .join(PromptCategory)
+            .filter(PromptCategory.name == prompt_category)
+            .first()
+        )
+        if not prompt and prompt_category != "Default":
+            # Prompt not found in specified category, try the default category
+            prompt = (
+                session.query(Prompt)
+                .filter_by(name=prompt_name)
+                .join(PromptCategory)
+                .filter(PromptCategory.name == "Default")
+                .first()
+            )
         if prompt:
             return prompt.content
         return None
@@ -137,9 +156,24 @@ class Prompts:
             session.delete(prompt)
             session.commit()
 
-    def update_prompt(self, prompt_name, prompt):
+    def update_prompt(self, prompt_name, prompt, prompt_category_name=None):
         prompt_obj = session.query(Prompt).filter_by(name=prompt_name).first()
         if prompt_obj:
+            if prompt_category_name:
+                prompt_category = (
+                    session.query(PromptCategory)
+                    .filter_by(name=prompt_category_name)
+                    .first()
+                )
+                if not prompt_category:
+                    prompt_category = PromptCategory(
+                        name=prompt_category_name,
+                        description=f"{prompt_category_name} category",
+                    )
+                    session.add(prompt_category)
+                    session.commit()
+                prompt_obj.prompt_category = prompt_category
+
             prompt_obj.content = prompt
             session.commit()
 

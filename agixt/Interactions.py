@@ -79,7 +79,10 @@ class Interactions:
             prompt = user_input
         else:
             try:
-                prompt = cp.get_prompt(prompt_name=prompt, model=self.agent.AI_MODEL)
+                prompt = cp.get_prompt(
+                    prompt_name=prompt,
+                    prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"],
+                )
             except:
                 prompt = prompt
         if top_results == 0:
@@ -259,16 +262,25 @@ class Interactions:
                     )
                 except:
                     pass
-            if prompt == "Chat":
+            if user_input != "":
                 log_interaction(
-                    agent_name=self.agent_name, role="USER", message=user_input
+                    agent_name=self.agent_name,
+                    conversation_name=f"{self.agent_name} History",
+                    role="USER",
+                    message=user_input,
                 )
             else:
                 log_interaction(
-                    agent_name=self.agent_name, role="USER", message=formatted_prompt
+                    agent_name=self.agent_name,
+                    conversation_name=f"{self.agent_name} History",
+                    role="USER",
+                    message=formatted_prompt,
                 )
             log_interaction(
-                agent_name=self.agent_name, role=self.agent_name, message=self.response
+                agent_name=self.agent_name,
+                conversation_name=f"{self.agent_name} History",
+                role=self.agent_name,
+                message=self.response,
             )
 
         if shots > 1:
