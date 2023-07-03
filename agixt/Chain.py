@@ -137,6 +137,19 @@ class Chain:
             )
             if command:
                 target_command_id = command.id
+                prompt["prompt_name"] = command_name
+            for arg_name, arg_value in command_args.items():
+                argument = (
+                    session.query(Argument).filter(Argument.name == arg_name).first()
+                )
+                if argument:
+                    chain_step_argument = ChainStepArgument(
+                        chain_step_id=chain_step.id,
+                        argument_id=argument.id,
+                        value=arg_value,
+                    )
+                    session.add(chain_step_argument)
+                    session.commit()
         elif prompt_type == "Prompt":
             prompt_name = prompt.get("prompt_name")
             prompt_args = prompt.copy()
@@ -148,6 +161,7 @@ class Chain:
                 target_prompt_id = prompt_obj.id
         elif prompt_type == "Chain":
             chain_name = prompt.get("chain_name")
+            prompt["prompt_name"] = chain_name
             chain_args = prompt.copy()
             del chain_args["chain_name"]
             chain_obj = (
@@ -326,8 +340,8 @@ class Chain:
         session.commit()
 
     def get_step_response(self, chain_name, step_number="all"):
-        chain_data = self.get_chain(chain_name=chain_name)
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
+
         if step_number == "all":
             chain_steps = (
                 session.query(ChainStep)
@@ -335,6 +349,7 @@ class Chain:
                 .order_by(ChainStep.step_number)
                 .all()
             )
+
             responses = {}
             for step in chain_steps:
                 chain_step_responses = (
@@ -344,10 +359,8 @@ class Chain:
                     .all()
                 )
                 step_responses = [response.content for response in chain_step_responses]
+                responses[str(step.step_number)] = step_responses
 
-                step_data = chain_data["steps"][step.step_number - 1]
-                step_data["response"] = step_responses
-                responses[str(step.step_number)] = step_data
             return responses
         else:
             chain_step = (
@@ -357,6 +370,7 @@ class Chain:
                 )
                 .first()
             )
+
             if chain_step:
                 chain_step_responses = (
                     session.query(ChainStepResponse)
@@ -365,12 +379,9 @@ class Chain:
                     .all()
                 )
                 step_responses = [response.content for response in chain_step_responses]
-
-                step_data = chain_data["steps"][chain_step.step_number - 1]
-                step_data["response"] = step_responses
-                return step_data
+                return step_responses
             else:
-                return ""
+                return None
 
     def get_chain_responses(self, chain_name):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -478,8 +489,8 @@ class Chain:
         return f"Chain '{chain_name}' imported."
 
     def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
-        new_prompt_content = {}
         if isinstance(prompt_content, dict):
+            new_prompt_content = {}
             for arg, value in prompt_content.items():
                 if isinstance(value, str):
                     if "{user_input}" in value:
@@ -487,27 +498,23 @@ class Chain:
                     if "{agent_name}" in value:
                         value = value.replace("{agent_name}", agent_name)
                     if "{STEP" in value:
-                        # Count how many times {STEP is in the value
                         step_count = value.count("{STEP")
                         for i in range(step_count):
-                            # Get the step number from value between {STEP and }
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
-                            # get the response from the step number
                             step_response = self.get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
                             )
-                            # replace the {STEPx} with the response
                             if step_response:
                                 resp = (
-                                    step_response["response"]
-                                    if "response" in step_response
-                                    else f"{step_response}"
+                                    step_response[0]
+                                    if isinstance(step_response, list)
+                                    else step_response
                                 )
                                 value = value.replace(
-                                    f"{{STEP{new_step_number}}}",
-                                    f"{resp}",
+                                    f"{{STEP{new_step_number}}}", f"{resp}"
                                 )
                 new_prompt_content[arg] = value
+            return new_prompt_content
         elif isinstance(prompt_content, str):
             new_prompt_content = prompt_content
             if "{user_input}" in prompt_content:
@@ -519,29 +526,26 @@ class Chain:
                     "{agent_name}", agent_name
                 )
             if "{STEP" in prompt_content:
-                step_count = value.count("{STEP")
+                step_count = prompt_content.count("{STEP")
                 for i in range(step_count):
-                    # Get the step number from value between {STEP and }
                     new_step_number = int(
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
-                    # get the response from the step number
                     step_response = self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
-                    # replace the {STEPx} with the response
                     if step_response:
                         resp = (
-                            step_response["response"]
-                            if "response" in step_response
-                            else f"{step_response}"
+                            step_response[0]
+                            if isinstance(step_response, list)
+                            else step_response
                         )
-                        new_prompt_content = prompt_content.replace(
+                        new_prompt_content = new_prompt_content.replace(
                             f"{{STEP{new_step_number}}}", f"{resp}"
                         )
-            if new_prompt_content == {}:
-                new_prompt_content = prompt_content
-        return new_prompt_content
+            return new_prompt_content
+        else:
+            return prompt_content
 
     async def run_chain_step(
         self, step: dict = {}, chain_name="", user_input="", agent_override=""
@@ -564,7 +568,13 @@ class Chain:
                     user_input=user_input,
                     agent_name=agent_name,
                 )
+
                 if prompt_type == "Command":
+                    print(f"Running step {step_number} of {chain_name}...")
+                    print(f"Prompt Type: {prompt_type}")
+                    print(f"Prompt Name: {prompt_name}")
+                    print(f"Prompt Args: {args}")
+                    exit()
                     return await Extensions().execute_command(
                         command_name=args["command_name"],
                         command_args=args,
