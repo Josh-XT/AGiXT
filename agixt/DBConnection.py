@@ -176,7 +176,7 @@ class Chain(Base):
     steps = relationship(
         "ChainStep",
         backref="chain",
-        cascade="all, delete",
+        cascade="all, delete",  # Add the cascade option for deleting steps
         passive_deletes=True,
         foreign_keys="ChainStep.chain_id",
     )
@@ -219,7 +219,9 @@ class ChainStepArgument(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     argument_id = Column(UUID(as_uuid=True), ForeignKey("argument.id"), nullable=False)
     chain_step_id = Column(
-        UUID(as_uuid=True), ForeignKey("chain_step.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("chain_step.id", ondelete="CASCADE"),
+        nullable=False,  # Add the ondelete option
     )
     value = Column(Text, nullable=False)
 
@@ -228,7 +230,9 @@ class ChainStepResponse(Base):
     __tablename__ = "chain_step_response"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chain_step_id = Column(
-        UUID(as_uuid=True), ForeignKey("chain_step.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("chain_step.id", ondelete="CASCADE"),
+        nullable=False,  # Add the ondelete option
     )
     timestamp = Column(DateTime, server_default=text("now()"))
     content = Column(Text, nullable=False)

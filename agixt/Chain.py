@@ -258,15 +258,25 @@ class Chain:
 
     def delete_step(self, chain_name, step_number):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
-        chain_step = (
-            session.query(ChainStep)
-            .filter(
-                ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+
+        if chain:
+            chain_step = (
+                session.query(ChainStep)
+                .filter(
+                    ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+                )
+                .first()
             )
-            .first()
-        )
-        session.delete(chain_step)
-        session.commit()
+
+            if chain_step:
+                session.delete(chain_step)  # Remove the chain step from the session
+                session.commit()
+            else:
+                raise ValueError(
+                    f"No step found with number {step_number} in chain '{chain_name}'"
+                )
+        else:
+            raise ValueError(f"No chain found with name '{chain_name}'")
 
     def delete_chain(self, chain_name):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
