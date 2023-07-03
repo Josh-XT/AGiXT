@@ -4,6 +4,142 @@ import glob
 from inspect import signature, Parameter
 import logging
 import inspect
+from DBConnection import (
+    session,
+    Extension,
+    Command,
+    Argument,
+    Setting,
+)
+
+
+def import_extensions():
+    extensions_data = Extensions().get_extensions()
+    extension_settings_data = Extensions().get_extension_settings()
+
+    # Get the existing extensions and commands from the database
+    existing_extensions = session.query(Extension).all()
+    existing_commands = session.query(Command).all()
+
+    # Delete commands that don't exist in the extensions data
+    for command in existing_commands:
+        command_exists = any(
+            extension_data["extension_name"] == command.extension.name
+            and any(
+                cmd["friendly_name"] == command.name
+                for cmd in extension_data["commands"]
+            )
+            for extension_data in extensions_data
+        )
+        if not command_exists:
+            session.delete(command)
+
+    # Add new extensions and commands, and update existing commands
+    for extension_data in extensions_data:
+        extension_name = extension_data["extension_name"]
+        description = extension_data.get(
+            "description", ""
+        )  # Assign an empty string if description is missing
+        print(f"Adding Extension: {extension_name} settings")
+
+        # Find the existing extension or create a new one
+        extension = next(
+            (ext for ext in existing_extensions if ext.name == extension_name),
+            None,
+        )
+        if extension is None:
+            extension = Extension(name=extension_name, description=description)
+            session.add(extension)
+            session.flush()
+            existing_extensions.append(extension)
+            print(f"Adding extension: {extension_name}, description: {description}")
+
+        commands = extension_data["commands"]
+
+        for command_data in commands:
+            if "friendly_name" not in command_data:
+                continue
+
+            command_name = command_data["friendly_name"]
+
+            # Find the existing command or create a new one
+            command = next(
+                (
+                    cmd
+                    for cmd in existing_commands
+                    if cmd.extension_id == extension.id and cmd.name == command_name
+                ),
+                None,
+            )
+            if command is None:
+                command = Command(
+                    extension_id=extension.id,
+                    name=command_name,
+                )
+                session.add(command)
+                session.flush()
+                existing_commands.append(command)
+                print(f"Adding command: {command_name}")
+
+            # Add command arguments
+            if "command_args" in command_data:
+                command_args = command_data["command_args"]
+                for arg, arg_type in command_args.items():
+                    if (
+                        session.query(Argument)
+                        .filter_by(command_id=command.id, name=arg)
+                        .first()
+                    ):
+                        continue
+                    command_arg = Argument(
+                        command_id=command.id,
+                        name=arg,
+                    )
+                    session.add(command_arg)
+                    print(f"Adding argument: {arg} to command: {command_name}")
+
+    session.commit()
+
+    # Add extensions to the database if they don't exist
+    for extension_name in extension_settings_data.keys():
+        extension = session.query(Extension).filter_by(name=extension_name).first()
+        if not extension:
+            extension = Extension(name=extension_name)
+            session.add(extension)
+            session.flush()
+            existing_extensions.append(extension)
+            print(f"Adding extension: {extension_name}")
+
+    session.commit()
+
+    # Migrate extension settings
+    for extension_name, settings in extension_settings_data.items():
+        extension = session.query(Extension).filter_by(name=extension_name).first()
+        if not extension:
+            print(f"Extension '{extension_name}' not found.")
+            continue
+
+        for setting_name, setting_value in settings.items():
+            setting = (
+                session.query(Setting)
+                .filter_by(extension_id=extension.id, name=setting_name)
+                .first()
+            )
+            if setting:
+                setting.value = setting_value
+                print(
+                    f"Updating setting: {setting_name} for extension: {extension_name}"
+                )
+            else:
+                setting = Setting(
+                    extension_id=extension.id,
+                    name=setting_name,
+                    value=setting_value,
+                )
+                session.add(setting)
+                print(f"Adding setting: {setting_name} for extension: {extension_name}")
+
+    session.commit()
 
 
 class Extensions:

@@ -1,6 +1,7 @@
 import os
 import json
 import glob
+import yaml
 import shutil
 import importlib
 from inspect import signature, Parameter
@@ -8,6 +9,13 @@ from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
     Message as MessageModel,
+    Command,
+    AgentCommand,
+    ProviderSetting,
+    AgentProvider,
+    AgentProviderSetting,
+    Conversation,
+    Message,
     session,
 )
 from provider import Provider
@@ -83,6 +91,164 @@ def get_agents():
         output.append({"name": agent.name, "status": False})
 
     return output
+
+
+def import_agents():
+    agent_folder = "agents"
+    agents = [
+        f.name
+        for f in os.scandir(agent_folder)
+        if f.is_dir() and not f.name.startswith("__")
+    ]
+    existing_agents = session.query(Agent).all()
+    existing_agent_names = [agent.name for agent in existing_agents]
+
+    for agent_name in agents:
+        agent = session.query(Agent).filter_by(name=agent_name).one_or_none()
+
+        if agent:
+            print(f"Updating agent: {agent_name}")
+        else:
+            agent = Agent(name=agent_name)
+            session.add(agent)
+            session.flush()  # Save the agent object to generate an ID
+            existing_agent_names.append(agent_name)
+            print(f"Adding agent: {agent_name}")
+
+        import_agent_config(agent_name)
+
+    session.commit()
+
+
+def import_agent_config(agent_name):
+    config_path = f"agents/{agent_name}/config.json"
+
+    # Load the config JSON file
+    with open(config_path) as f:
+        config = json.load(f)
+
+    # Get the agent from the database
+    agent = session.query(Agent).filter_by(name=agent_name).first()
+
+    if not agent:
+        print(f"Agent '{agent_name}' does not exist in the database.")
+        return
+
+    # Get the provider ID based on the provider name in the config
+    provider_name = config["settings"]["provider"]
+    provider = session.query(Provider).filter_by(name=provider_name).first()
+
+    if not provider:
+        print(f"Provider '{provider_name}' does not exist in the database.")
+        return
+
+    # Update the agent's provider_id
+    agent.provider_id = provider.id
+
+    # Import agent commands
+    commands = config.get("commands", {})
+    for command_name, enabled in commands.items():
+        if enabled:
+            command = session.query(Command).filter_by(name=command_name).first()
+            if command:
+                agent_command = AgentCommand(
+                    agent_id=agent.id, command_id=command.id, state=True
+                )
+                session.add(agent_command)
+
+    # Import agent settings
+    settings = config.get("settings", {})
+    for setting_name, setting_value in settings.items():
+        if provider.id:
+            provider_setting = (
+                session.query(ProviderSetting)
+                .filter_by(provider_id=provider.id, name=setting_name)
+                .first()
+            )
+            if provider_setting:
+                agent_provider = (
+                    session.query(AgentProvider)
+                    .filter_by(provider_id=provider.id, agent_id=agent.id)
+                    .first()
+                )
+                if not agent_provider:
+                    agent_provider = AgentProvider(
+                        provider_id=provider.id, agent_id=agent.id
+                    )
+                    session.add(agent_provider)
+                    session.flush()  # Save the agent_provider object to generate an ID
+                if setting_value:
+                    agent_provider_setting = AgentProviderSetting(
+                        provider_setting_id=provider_setting.id,
+                        agent_provider_id=agent_provider.id,
+                        value=setting_value,
+                    )
+                    session.add(agent_provider_setting)
+            else:
+                if setting_value:
+                    agent_setting = AgentSettingModel(
+                        agent_id=agent.id, name=setting_name, value=setting_value
+                    )
+                    session.add(agent_setting)
+    session.commit()
+    print(f"Agent config imported successfully for agent: {agent_name}")
+
+
+def import_conversations():
+    agents_dir = "agents"  # Directory containing agent folders
+
+    for agent_name in os.listdir(agents_dir):
+        agent_dir = os.path.join(agents_dir, agent_name)
+        history_file = os.path.join(agent_dir, "history.yaml")
+
+        if not os.path.exists(history_file):
+            continue  # Skip agent if history file doesn't exist
+
+        # Get agent ID from the database based on agent name
+        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        if not agent:
+            print(f"Agent '{agent_name}' not found in the database.")
+            continue
+
+        # Load conversation history from the YAML file
+        with open(history_file, "r") as file:
+            history = yaml.safe_load(file)
+
+        # Check if the conversation already exists for the agent
+        existing_conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.agent_id == agent.id,
+                Conversation.name == f"{agent_name} History",
+            )
+            .first()
+        )
+        if existing_conversation:
+            continue
+        if "interactions" not in history:
+            continue
+        # Create a new conversation
+        conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
+        session.add(conversation)
+        session.commit()
+
+        for conversation_data in history["interactions"]:
+            # Create a new message for the conversation
+            try:
+                role = conversation_data["role"]
+                content = conversation_data["message"]
+                timestamp = conversation_data["timestamp"]
+            except KeyError:
+                continue
+            message = Message(
+                role=role,
+                content=content,
+                timestamp=timestamp,
+                conversation_id=conversation.id,
+            )
+            session.add(message)
+            session.commit()
+        print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
 class Agent:
