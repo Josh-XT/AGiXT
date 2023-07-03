@@ -326,6 +326,7 @@ class Chain:
         session.commit()
 
     def get_step_response(self, chain_name, step_number="all"):
+        chain_data = self.get_chain(chain_name=chain_name)
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
         if step_number == "all":
             chain_steps = (
@@ -343,7 +344,10 @@ class Chain:
                     .all()
                 )
                 step_responses = [response.content for response in chain_step_responses]
-                responses[str(step.step_number)] = step_responses
+
+                step_data = chain_data["steps"][step.step_number - 1]
+                step_data["response"] = step_responses
+                responses[str(step.step_number)] = step_data
             return responses
         else:
             chain_step = (
@@ -360,9 +364,13 @@ class Chain:
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
-                return [response.content for response in chain_step_responses]
+                step_responses = [response.content for response in chain_step_responses]
+
+                step_data = chain_data["steps"][chain_step.step_number - 1]
+                step_data["response"] = step_responses
+                return step_data
             else:
-                return []
+                return ""
 
     def get_chain_responses(self, chain_name):
         chain = session.query(ChainDB).filter(ChainDB.name == chain_name).first()
@@ -485,7 +493,7 @@ class Chain:
                             # Get the step number from value between {STEP and }
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
                             # get the response from the step number
-                            step_response = Chain().get_step_response(
+                            step_response = self.get_step_response(
                                 chain_name=chain_name, step_number=new_step_number
                             )
                             # replace the {STEPx} with the response
@@ -518,7 +526,7 @@ class Chain:
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
                     # get the response from the step number
-                    step_response = Chain().get_step_response(
+                    step_response = self.get_step_response(
                         chain_name=chain_name, step_number=new_step_number
                     )
                     # replace the {STEPx} with the response
@@ -576,7 +584,7 @@ class Chain:
                     result = ApiClient.run_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
-                        agent_name=self.agent_name,
+                        agent_name=agent_name,
                         all_responses=False,
                         from_step=1,
                     )
