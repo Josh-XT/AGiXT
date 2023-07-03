@@ -9,6 +9,9 @@ from DBConnection import (
     ProviderSetting,
     AgentProvider,
     AgentProviderSetting,
+    ChainStep,
+    ChainStepArgument,
+    ChainStepResponse,
     Provider as ProviderModel,
     session,
 )
@@ -53,16 +56,37 @@ def add_agent(agent_name, provider_settings=None, commands=None):
 
 
 def delete_agent(agent_name):
-    agent = session.query(Agent).filter_by(name=agent_name).first()
+    agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
 
-    # Delete associated agent settings and provider settings
-    session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete()
-    session.query(AgentProviderSetting).join(AgentProvider).filter(
-        AgentProvider.agent_id == agent.id
-    ).delete()
+    # Delete associated chain steps
+    chain_steps = session.query(ChainStep).filter_by(agent_id=agent.id).all()
+    for chain_step in chain_steps:
+        # Delete associated chain step arguments
+        session.query(ChainStepArgument).filter_by(chain_step_id=chain_step.id).delete()
+        # Delete associated chain step responses
+        session.query(ChainStepResponse).filter_by(chain_step_id=chain_step.id).delete()
+        session.delete(chain_step)
 
+    # Delete associated agent commands
+    agent_commands = session.query(AgentCommand).filter_by(agent_id=agent.id).all()
+    for agent_command in agent_commands:
+        session.delete(agent_command)
+
+    # Delete associated agent_provider records
+    agent_providers = session.query(AgentProvider).filter_by(agent_id=agent.id).all()
+    for agent_provider in agent_providers:
+        # Delete associated agent_provider_settings
+        session.query(AgentProviderSetting).filter_by(
+            agent_provider_id=agent_provider.id
+        ).delete()
+        session.delete(agent_provider)
+
+    # Delete associated agent settings
+    session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete()
+
+    # Delete the agent
     session.delete(agent)
     session.commit()
 
