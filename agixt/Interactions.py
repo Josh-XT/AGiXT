@@ -2,19 +2,21 @@ import re
 import regex
 import json
 import time
+import random
+import requests
+import logging
 from datetime import datetime
 from Agent import Agent
 from Prompts import Prompts
 from Embedding import get_tokens
-from extensions.searxng import searxng
 from Chain import Chain
 from urllib.parse import urlparse
-import logging
 from concurrent.futures import Future
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from History import log_interaction
+from typing import List
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
@@ -503,6 +505,38 @@ class Interactions:
                                 except:
                                     logging.info(f"Issues reading {url}. Moving on...")
 
+    async def search(self, query: str, searx_instance_url: str = "") -> List[str]:
+        if searx_instance_url == "":
+            try:  # SearXNG - List of these at https://searx.space/
+                response = requests.get("https://searx.space/data/instances.json")
+                data = json.loads(response.text)
+                servers = list(data["instances"].keys())
+                random_index = random.randint(0, len(servers) - 1)
+                searx_instance_url = servers[random_index]
+            except:  # Select default remote server that typically works if unable to get list.
+                searx_instance_url = "https://search.us.projectsegfau.lt"
+        server = searx_instance_url.rstrip("/")
+        endpoint = f"{server}/search"
+        try:
+            response = requests.get(
+                endpoint,
+                params={
+                    "q": query,
+                    "language": "en",
+                    "safesearch": 1,
+                    "format": "json",
+                },
+            )
+            results = response.json()
+            summaries = [
+                result["title"] + " - " + result["url"] for result in results["results"]
+            ]
+            return summaries
+        except:
+            # The SearXNG server is down or refusing connection, so we will use the default one.
+            endpoint = "https://search.us.projectsegfau.lt/search"
+            return await self.search(query=query, endpoint=endpoint)
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
@@ -520,12 +554,14 @@ class Interactions:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             try:
-                searx_server = self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+                searx_instance_url = self.agent.PROVIDER_SETTINGS[
+                    "SEARXNG_INSTANCE_URL"
+                ]
             except:
-                searx_server = ""
+                searx_instance_url = ""
             try:
-                links = await searxng(SEARXNG_INSTANCE_URL=searx_server).search(
-                    query=search_string
+                links = await self.search(
+                    query=search_string, searx_instance_url=searx_instance_url
                 )
                 if len(links) > depth:
                     links = links[:depth]
