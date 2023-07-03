@@ -27,15 +27,11 @@ DEFAULT_SETTINGS = {
 
 def add_agent(agent_name, provider_settings=None, commands={}):
     if not agent_name:
-        return "Agent name cannot be empty."
-    provider_settings = (
-        DEFAULT_SETTINGS
-        if not provider_settings or provider_settings == {}
-        else provider_settings
-    )
+        return {"message": "Agent name cannot be empty."}
 
     agent = AgentModel(name=agent_name)
     session.add(agent)
+    session.commit()
 
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
@@ -52,9 +48,7 @@ def add_agent(agent_name, provider_settings=None, commands={}):
         value=settings,
     )
     session.add(agent_setting)
-
     session.commit()
-    session.close()
 
     return {"message": f"Agent {agent_name} created."}
 
@@ -62,12 +56,10 @@ def add_agent(agent_name, provider_settings=None, commands={}):
 def delete_agent(agent_name):
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
-        session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
 
     session.delete(agent)
     session.commit()
-    session.close()
 
     return {"message": f"Agent {agent_name} deleted."}, 200
 
@@ -75,12 +67,10 @@ def delete_agent(agent_name):
 def rename_agent(agent_name, new_name):
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
-        session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
 
     agent.name = new_name
     session.commit()
-    session.close()
 
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
@@ -91,8 +81,6 @@ def get_agents():
 
     for agent in agents:
         output.append({"name": agent.name, "status": False})
-
-    session.close()
 
     return output
 
@@ -321,6 +309,7 @@ class Agent:
                     timestamp=datetime.strptime(
                         interaction["timestamp"], "%B %d, %Y %I:%M %p"
                     ),
+                    conversation_id=None,  # Modify this as per your schema
                     agent_id=agent.id,
                 )
                 messages.append(message)
@@ -331,52 +320,63 @@ class Agent:
     def log_interaction(self, role: str, message: str):
         if self.history is None:
             self.history = {"interactions": []}
+
+        timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
         self.history["interactions"].append(
-            {
-                "role": role,
-                "message": message,
-                "timestamp": datetime.now().strftime("%B %d, %Y %I:%M %p"),
-            }
+            {"role": role, "message": message, "timestamp": timestamp}
         )
-        self.save_history()
 
-    def delete_history(self):
-        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
-
-        if agent:
-            messages = (
-                session.query(MessageModel)
-                .filter(MessageModel.agent_id == agent.id)
-                .all()
+    def save_setting(self, setting_name, setting_value):
+        agent_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == setting_name,
+                AgentModel.name == self.agent_name,
             )
-
-            for message in messages:
-                session.delete(message)
-
+            .first()
+        )
+        if agent_setting:
+            agent_setting.value = setting_value
             session.commit()
-
-            return "History deleted."
+            return f"Agent {self.agent_name} setting {setting_name} updated."
         else:
-            return "History not found."
-
-    def delete_history_message(self, message: str):
-        agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
-
-        if agent:
-            messages = (
-                session.query(MessageModel)
-                .filter(
-                    MessageModel.agent_id == agent.id,
-                    MessageModel.content == message,
-                )
-                .all()
+            agent = session.query(AgentModel).filter_by(name=self.agent_name).first()
+            agent_setting = AgentSettingModel(
+                agent_id=agent.id, name=setting_name, value=setting_value
             )
-
-            for message in messages:
-                session.delete(message)
-
+            session.add(agent_setting)
             session.commit()
+            return f"Agent {self.agent_name} setting {setting_name} created."
 
-            return "Message deleted."
+    def get_setting(self, setting_name):
+        agent_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == setting_name,
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        if agent_setting:
+            return agent_setting.value
         else:
-            return "Message not found."
+            return None
+
+    def delete_setting(self, setting_name):
+        agent_setting = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == AgentModel.id,
+                AgentSettingModel.name == setting_name,
+                AgentModel.name == self.agent_name,
+            )
+            .first()
+        )
+        if agent_setting:
+            session.delete(agent_setting)
+            session.commit()
+            return f"Agent {self.agent_name} setting {setting_name} deleted."
+        else:
+            return f"Agent {self.agent_name} setting {setting_name} not found."
