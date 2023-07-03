@@ -95,11 +95,11 @@ def import_agents():
         for f in os.scandir(agent_folder)
         if f.is_dir() and not f.name.startswith("__")
     ]
-    existing_agents = session.query(Agent).all()
+    existing_agents = session.query(AgentModel).all()
     existing_agent_names = [agent.name for agent in existing_agents]
 
     for agent_name in agents:
-        agent = session.query(Agent).filter_by(name=agent_name).one_or_none()
+        agent = session.query(AgentModel).filter_by(name=agent_name).one_or_none()
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
@@ -120,7 +120,7 @@ def import_agent_config(agent_name):
         config = json.load(f)
 
     # Get the agent from the database
-    agent = session.query(Agent).filter_by(name=agent_name).first()
+    agent = session.query(AgentModel).filter_by(name=agent_name).first()
 
     if not agent:
         print(f"Agent '{agent_name}' does not exist in the database.")
