@@ -3,9 +3,7 @@ import json
 import random
 import requests
 import logging
-from Prompts import Prompts
 from Embedding import get_tokens
-from Chain import Chain
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -15,8 +13,6 @@ from typing import List
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
-chain = Chain()
-cp = Prompts()
 
 
 class Websearch:
