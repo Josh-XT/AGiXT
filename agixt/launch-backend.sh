@@ -12,8 +12,5 @@ done
 
 >&2 echo "Database started. Starting AGiXT"
 
-# Change into the agixt directory
-cd /agixt
-
 # Start the Uvicorn server
 exec uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
