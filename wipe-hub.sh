@@ -20,5 +20,5 @@ for file in "${files[@]}"; do
         echo "File or folder not found: $file"
     fi
 done
-docker-compose -f ./postgres.yaml down --remove-orphans
+docker-compose down --remove-orphans
 rm -rf ./data
