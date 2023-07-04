@@ -47,4 +47,4 @@ RUN npx playwright install
 COPY . .
 RUN chmod +x /agixt/launch-backend.sh
 WORKDIR /agixt
-CMD launch-backend.sh
+CMD ./launch-backend.sh
