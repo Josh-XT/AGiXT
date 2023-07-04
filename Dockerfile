@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update ; \
     apt-get upgrade -y ; \
-    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev curl && \
+    apt-get install -y --no-install-recommends git build-essential g++ libgomp1 ffmpeg python3 python3-pip python3-dev curl postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Update pip
@@ -45,6 +45,6 @@ RUN npm install -g playwright
 RUN npx playwright install
 
 COPY . .
-
+RUN chmod +x /wait-for.sh
 WORKDIR /agixt
-CMD uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
+CMD /wait-for.sh -- uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
