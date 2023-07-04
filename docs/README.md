@@ -24,6 +24,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Downloading the docker-compose file](#downloading-the-docker-compose-file)
     - [Editing the environment file](#editing-the-environment-file)
     - [Running AGiXT](#running-agixt)
+    - [Updating AGiXT](#updating-agixt)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
   - [Contributing](#contributing)
@@ -95,6 +96,14 @@ Follow the prompts to install the required dependencies.  Any time you want to r
 
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
+
+### Updating AGiXT
+To update AGiXT, run the following commands from your `AGiXT` directory:
+```
+docker-compose down
+docker-compose pull
+docker-compose up -d
+```
 
 ## Configuration
 

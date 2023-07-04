@@ -38,3 +38,11 @@ Follow the prompts to install the required dependencies.  Any time you want to r
 
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
+
+### Updating AGiXT
+To update AGiXT, run the following commands from your `AGiXT` directory:
+```
+docker-compose down
+docker-compose pull
+docker-compose up -d
+```
