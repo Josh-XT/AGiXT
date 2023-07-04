@@ -13,4 +13,5 @@ tweepy==4.14.0
 pillow==9.5.0
 poe-api==0.4.7
 SQLAlchemy==2.0.17
+psycopg2==2.9.6
 -e git+https://github.com/xtekky/gpt4free.git#egg=gpt4free
