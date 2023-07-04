@@ -275,10 +275,3 @@ class Prompt(Base):
     content = Column(Text, nullable=False)
 
     prompt_category = relationship("PromptCategory", backref="prompts")
-
-
-db = DBConnection()
-
-Base = db.Base
-engine = db.engine
-session = db.session
