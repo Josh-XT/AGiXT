@@ -1,6 +1,6 @@
 ## Quick Start Guide
 
-To get started quickly, you can use the Docker deployment. You will need [docker and docker-compose](https://docs.docker.com/compose/install/) installed on your system.
+To get started quickly, you can use the Docker deployment. You will need [docker and docker-compose](https://docs.docker.com/compose/install/) installed on your system. 
 
 Note: If you run locally without docker, it is unsupported.  Any issues you encounter will be closed without comment. Docker is the only way we can say "it works on my machine" and have it mean anything.
 
@@ -23,7 +23,7 @@ Open the `.env.example` file in a text editor, you will want to at least change 
 - `POSTGRES_USER` is the username to connect to the database with, this should be `postgres` if you are using the docker-compose file as-is.
 - `POSTGRES_PASSWORD` **is the password to connect to the database with, this should be changed from the example file.**
 - `UVICORN_WORKERS` is the number of workers to run the web server with, this is `6` by default, adjust this to your system's capabilities.
-- `AGIXT_HUB` is the name of the AGiXT hub, this should be `AGiXT/hub` if you want to use the AGiXT hub. If you want to use your own fork of AGiXT hub, change this to your username and the name of your fork.
+- `AGIXT_HUB` is the name of the AGiXT hub, this should be `AGiXT/hub` if you want to use the [Open Source AGiXT hub.](https://github.com/AGiXT/hub) If you want to use your own fork of AGiXT hub, change this to your username and the name of your fork.
 - `AGIXT_URI` is the URI of the AGiXT hub, this should be `http://agixt:7437` if you are using the docker-compose file as-is. If hosting the AGiXT server separately, change this to the URI of your AGiXT server, otherwise leave it as-is.
 - `GITHUB_USER` is your GitHub username, this is only required if using your own AGiXT hub to pull your repository data.
 - `GITHUB_TOKEN` is your GitHub personal access token, this is only required if using your own AGiXT hub to pull your repository data.
