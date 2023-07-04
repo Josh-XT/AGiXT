@@ -45,6 +45,6 @@ RUN npm install -g playwright
 RUN npx playwright install
 
 COPY . .
-RUN chmod +x /wait-for.sh
+RUN chmod +x /launch-backend.sh
 WORKDIR /agixt
-CMD /wait-for.sh -- uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
+CMD /launch-backend.sh
