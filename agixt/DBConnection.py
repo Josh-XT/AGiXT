@@ -63,7 +63,6 @@ class DBConnection:
                 engine.execute(f"CREATE DATABASE {self.database_name}")
             except Exception as e:
                 print(f"Error creating database: {e}")
-                raise e
         return engine
 
 
