@@ -28,7 +28,7 @@ class DBConnection:
         self.port = os.getenv("POSTGRES_PORT", "5432")
         self.database_name = os.getenv("POSTGRES_DB", "postgres")
         self.engine = self.get_engine()
-        self.Base = declarative_base(bind=self.engine)
+        self.Base = declarative_base()
         self.Base.metadata.create_all(bind=self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
