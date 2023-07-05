@@ -276,3 +276,7 @@ class Prompt(Base):
     content = Column(Text, nullable=False)
 
     prompt_category = relationship("PromptCategory", backref="prompts")
+
+
+if __name__ == "__main__":
+    Base.metadata.create_all(engine)

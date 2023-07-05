@@ -74,3 +74,7 @@ def import_agixt_hub():
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
     hub_migration()
+
+
+if __name__ == "__main__":
+    import_agixt_hub()
