@@ -60,14 +60,19 @@ app.add_middleware(
 
 
 async def get_api_key(authorization: str = Header(None)):
-    if authorization is None:
-        raise HTTPException(status_code=400, detail="Authorization header is missing")
-    scheme, _, api_key = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=400, detail="Authorization scheme is not Bearer"
-        )
-    return api_key
+    if AGIXT_API_KEY:
+        if authorization is None:
+            raise HTTPException(
+                status_code=400, detail="Authorization header is missing"
+            )
+        scheme, _, api_key = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            raise HTTPException(
+                status_code=400, detail="Authorization scheme is not Bearer"
+            )
+        return api_key
+    else:
+        return None
 
 
 def verify_api_key(api_key: str = Depends(get_api_key)):
