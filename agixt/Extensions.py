@@ -148,6 +148,8 @@ class Extensions:
         else:
             self.commands = []
         if agent_config != None:
+            if "commands" not in self.agent_config:
+                self.agent_config["commands"] = {}
             if self.agent_config["commands"] == None:
                 self.agent_config["commands"] = {}
             self.available_commands = self.get_available_commands()
