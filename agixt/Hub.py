@@ -16,15 +16,6 @@ from provider import import_providers
 load_dotenv()
 
 
-def hub_migration():
-    import_extensions()
-    import_prompts()
-    import_providers()
-    import_agents()
-    import_chains()
-    import_conversations()
-
-
 def import_agixt_hub():
     github_user = os.getenv("GITHUB_USER")
     github_token = os.getenv("GITHUB_TOKEN")
@@ -73,7 +64,12 @@ def import_agixt_hub():
         print(f"Updated AGiXT Hub from {github_repo}")
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
-    hub_migration()
+    import_extensions()
+    import_prompts()
+    import_providers()
+    import_agents()
+    import_chains()
+    import_conversations()
 
 
 if __name__ == "__main__":
