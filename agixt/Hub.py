@@ -2,6 +2,7 @@ import io
 import os
 import yaml
 import json
+import time
 import shutil
 import requests
 import zipfile
@@ -439,6 +440,7 @@ def import_agixt_hub():
         print(f"Updated AGiXT Hub from {github_repo}")
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
+    time.sleep(5)
     import_extensions()
     import_prompts()
     import_providers()
