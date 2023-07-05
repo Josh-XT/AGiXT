@@ -8,10 +8,8 @@ Note: If you run locally without docker, it is unsupported.  Any issues you enco
 Open a terminal and run the following commands to download the docker-compose file and the example environment file:
 
 ```
-mkdir AGiXT
+git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/docker-compose.yml
-wget https://raw.githubusercontent.com/Josh-XT/AGiXT/main/.env.example
 ```
 
 ### Editing the environment file
@@ -29,7 +27,7 @@ Open the `.env.example` file in a text editor, you will want to at least change 
 - `GITHUB_TOKEN` is your GitHub personal access token, this is only required if using your own AGiXT hub to pull your repository data.
 
 ### Running AGiXT
-Once you have edited the `.env.example` file, save it and run the following command to start AGiXT:
+Once you have edited the `.env.example` file, save it as `.env` and run the following command to start AGiXT:
 ```
 docker-compose up -d
 ```
