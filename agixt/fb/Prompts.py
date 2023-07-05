@@ -52,9 +52,12 @@ class Prompts:
     def get_prompts(self):
         # Get all files in prompts folder that end in .txt and replace .txt with empty string
         prompts = []
-        for file in os.listdir("prompts"):
-            if file.endswith(".txt"):
-                prompts.append(file.replace(".txt", ""))
+        # For each folder in prompts folder, get all files that end in .txt and replace .txt with empty string
+        for folder in os.listdir("prompts"):
+            if os.path.isdir(os.path.join("prompts", folder)):
+                for file in os.listdir(os.path.join("prompts", folder)):
+                    if file.endswith(".txt"):
+                        prompts.append(file.replace(".txt", ""))
         return prompts
 
     def get_prompt_args(self, prompt_text):

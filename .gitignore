@@ -36,6 +36,7 @@ agixt/agents
 agixt/LICENSE
 agixt/README.md
 agixt/hub_main.zip
+agixt/*_main.zip
 # docs generation
 _book/
 
