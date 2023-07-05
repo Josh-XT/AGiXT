@@ -44,6 +44,7 @@ class DBConnection:
                 try:
                     Base.metadata.create_all(engine)
                     time.sleep(5)
+                    os.remove("migration.txt")
                 except Exception as e:
                     time.sleep(5)
 

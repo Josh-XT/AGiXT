@@ -13,9 +13,7 @@ from DBConnection import DBConnection
 db = DBConnection()
 try:
     db.engine.execute("SELECT 1 FROM agent LIMIT 1")
-    migrated = True
 except Exception as e:
-    migrated = False
     # Check if migration.txt exists
     if os.path.exists("migration.txt"):
         while os.path.exists("migration.txt"):
@@ -24,15 +22,10 @@ except Exception as e:
         # Create migration.txt
         with open("migration.txt", "w") as f:
             f.write("1")
-        from Hub import import_agixt_hub
 
-        import_agixt_hub()
-        os.remove("migration.txt")
+from Hub import import_agixt_hub
 
-if migrated == True:
-    from Hub import import_agixt_hub
-
-    import_agixt_hub()
+import_agixt_hub()
 
 from Interactions import Interactions
 from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
