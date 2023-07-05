@@ -114,30 +114,6 @@ def get_agents():
     return output
 
 
-def import_agents():
-    agent_folder = "agents"
-    agents = [
-        f.name
-        for f in os.scandir(agent_folder)
-        if f.is_dir() and not f.name.startswith("__")
-    ]
-    existing_agents = session.query(AgentModel).all()
-    existing_agent_names = [agent.name for agent in existing_agents]
-
-    for agent_name in agents:
-        agent = session.query(AgentModel).filter_by(name=agent_name).one_or_none()
-        if agent:
-            print(f"Updating agent: {agent_name}")
-        else:
-            agent = AgentModel(name=agent_name)
-            session.add(agent)
-            session.flush()  # Save the agent object to generate an ID
-            existing_agent_names.append(agent_name)
-            print(f"Adding agent: {agent_name}")
-        import_agent_config(agent_name)
-    session.commit()
-
-
 def import_agent_config(agent_name):
     config_path = f"agents/{agent_name}/config.json"
 

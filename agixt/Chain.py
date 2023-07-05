@@ -12,37 +12,9 @@ from DBConnection import (
 from agixtsdk import AGiXTSDK
 from Extensions import Extensions
 import logging
-import json
-import os
 
 base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri)
-
-
-def import_chains():
-    chain_dir = os.path.abspath("chains")
-    chain_files = [
-        file
-        for file in os.listdir(chain_dir)
-        if os.path.isfile(os.path.join(chain_dir, file)) and file.endswith(".json")
-    ]
-    if not chain_files:
-        print(f"No JSON files found in chains directory.")
-        return
-    chain_importer = Chain()
-    for file in chain_files:
-        chain_name = os.path.splitext(file)[0]
-        file_path = os.path.join(chain_dir, file)
-
-        with open(file_path, "r") as f:
-            try:
-                chain_data = json.load(f)
-                result = chain_importer.import_chain(chain_name, chain_data)
-                print(result)
-            except json.JSONDecodeError as e:
-                print(f"Error importing chain from '{file}': Invalid JSON format.")
-            except Exception as e:
-                print(f"Error importing chain from '{file}': {str(e)}")
 
 
 class Chain:
