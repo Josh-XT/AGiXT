@@ -23,16 +23,20 @@ password = os.getenv("POSTGRES_PASSWORD", "postgres")
 server = os.getenv("POSTGRES_SERVER", "localhost")
 port = os.getenv("POSTGRES_PORT", "5432")
 database_name = os.getenv("POSTGRES_DB", "postgres")
-try:
-    engine = create_engine(
-        f"postgresql://{username}:{password}@{server}:{port}/{database_name}"
-    )
-except Exception as e:
-    print(f"Error connecting to database: {e}")
+database_enabled = bool(os.getenv("DB_ENABLED", False))
 Base = declarative_base()
-Session = sessionmaker(bind=engine)
-session = Session()
-connection = engine.connect()
+if database_enabled:
+    try:
+        engine = create_engine(
+            f"postgresql://{username}:{password}@{server}:{port}/{database_name}"
+        )
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    connection = engine.connect()
+else:
+    session = None
 
 
 class Provider(Base):
