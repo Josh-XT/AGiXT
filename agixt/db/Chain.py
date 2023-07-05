@@ -21,7 +21,6 @@ base_uri = "http://localhost:7437"
 ApiClient = AGiXTSDK(base_uri=base_uri, api_key=agixt_api_key)
 
 
-
 class Chain:
     def get_chain(self, chain_name):
         chain_name = chain_name.replace("%20", " ")
