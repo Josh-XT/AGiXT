@@ -20,10 +20,8 @@ if [ "$DB_CONNECTED" = "true" ]; then
   python3 DBConnection.py
   sleep 10
 fi
-
+# Install AGiXT Hub
 python3 Hub.py
-sleep 5
-
 echo "Starting AGiXT..."
-# Start the Uvicorn server
+sleep 5
 uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
