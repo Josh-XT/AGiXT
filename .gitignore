@@ -29,6 +29,7 @@ agixt/models/*
 agixt/extensions
 agixt/chains
 agixt/providers
+agixt/conversations
 agixt/.github
 agixt/prompts
 agixt/agents

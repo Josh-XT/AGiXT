@@ -248,10 +248,19 @@ class Interactions:
                 **kwargs,
             )
             return_response = ""
-            if (
-                bool(self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"])
-                == True
-            ):
+            if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
+                autonomous = (
+                    True
+                    if self.agent.AGENT_CONFIG["settings"][
+                        "AUTONOMOUS_EXECUTION"
+                    ].lower()
+                    == "true"
+                    else False
+                )
+            else:
+                autonomous = False
+
+            if autonomous == True:
                 try:
                     self.response = json.loads(self.response)
                     if "response" in self.response:

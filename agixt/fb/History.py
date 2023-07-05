@@ -34,16 +34,22 @@ def new_conversation(agent_name, conversation_name):
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
+    os.makedirs(os.path.dirname(history_file), exist_ok=True)
     with open(history_file, "w") as file:
         yaml.safe_dump(history, file)
 
 
 def log_interaction(role: str, message: str, agent_name: str, conversation_name: str):
+    history = get_conversation(
+        agent_name=agent_name, conversation_name=conversation_name
+    )
     if history is None:
         history = {"interactions": []}
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
+    os.makedirs(os.path.dirname(history_file), exist_ok=True)
+
     history["interactions"].append(
         {
             "role": role,
