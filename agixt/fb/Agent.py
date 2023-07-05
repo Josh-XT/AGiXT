@@ -4,7 +4,7 @@ import glob
 import shutil
 import importlib
 from inspect import signature, Parameter
-from provider import Provider
+from Providers import Providers
 from Memories import Memories
 from Extensions import Extensions
 
@@ -113,7 +113,7 @@ class Agent:
                 self.PROVIDER_SETTINGS = DEFAULT_SETTINGS
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-                self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+                self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
                 self._load_agent_config_keys(
                     ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "autonomous_execution"]
                 )

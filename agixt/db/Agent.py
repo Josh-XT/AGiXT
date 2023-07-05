@@ -15,7 +15,7 @@ from DBConnection import (
     Provider as ProviderModel,
     session,
 )
-from provider import Provider
+from Providers import Providers
 from Memories import Memories
 from Extensions import Extensions
 
@@ -200,7 +200,7 @@ class Agent:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
         self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
-        self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+        self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
         self.available_commands = Extensions(
             agent_config=self.AGENT_CONFIG
         ).get_available_commands()

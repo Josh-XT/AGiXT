@@ -28,7 +28,7 @@ def get_provider_options(provider_name):
     return options
 
 
-class Provider:
+class Providers:
     def __init__(self, name, **kwargs):
         try:
             module = importlib.import_module(f"provider.{name}")
@@ -60,4 +60,4 @@ class Provider:
 
 
 def __getattr__(name):
-    return Provider(name)
+    return Providers(name)
