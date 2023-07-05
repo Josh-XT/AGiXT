@@ -26,9 +26,9 @@ from concurrent.futures import Future
 from agixtsdk import AGiXTSDK
 from Websearch import Websearch
 
-agixt_api_key = os.getenv("AGIXT_API_KEY")
-base_uri = "http://localhost:7437"
-ApiClient = AGiXTSDK(base_uri=base_uri, api_key=agixt_api_key)
+ApiClient = AGiXTSDK(
+    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
+)
 chain = Chain()
 cp = Prompts()
 
