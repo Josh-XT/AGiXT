@@ -1,14 +1,16 @@
 import os
 
 
-def get_prompt_file_path(prompt_name, model="default"):
+def get_prompt_file_path(prompt_name, prompt_category="Default"):
     base_path = os.path.join(os.getcwd(), "prompts")
-    base_model_path = os.path.normpath(os.path.join(os.getcwd(), "prompts", model))
+    base_model_path = os.path.normpath(
+        os.path.join(os.getcwd(), "prompts", prompt_category)
+    )
     model_prompt_file = os.path.normpath(
         os.path.join(base_model_path, f"{prompt_name}.txt")
     )
     default_prompt_file = os.path.normpath(
-        os.path.join(base_path, f"{prompt_name}.txt")
+        os.path.join(base_path, "Default", f"{prompt_name}.txt")
     )
     if (
         not base_model_path.startswith(base_path)
@@ -29,19 +31,23 @@ def get_prompt_file_path(prompt_name, model="default"):
 
 
 class Prompts:
-    def add_prompt(self, prompt_name, prompt):
+    def add_prompt(self, prompt_name, prompt, prompt_category_name="Default"):
         # if prompts folder does not exist, create it
-        file_path = get_prompt_file_path(prompt_name=prompt_name)
+        file_path = get_prompt_file_path(
+            prompt_name=prompt_name, prompt_category=prompt_category_name
+        )
         # if prompt file does not exist, create it
         if not os.path.exists(file_path):
             with open(file_path, "w") as f:
                 f.write(prompt)
 
-    def get_prompt(self, prompt_name, model="default"):
-        prompt_file = get_prompt_file_path(prompt_name=prompt_name, model=model)
+    def get_prompt(self, prompt_name, prompt_category="Default"):
+        prompt_file = get_prompt_file_path(
+            prompt_name=prompt_name, prompt_category=prompt_category
+        )
         with open(prompt_file, "r") as f:
             prompt = f.read()
-            return prompt
+        return prompt
 
     def get_prompts(self):
         # Get all files in prompts folder that end in .txt and replace .txt with empty string
@@ -51,11 +57,10 @@ class Prompts:
                 prompts.append(file.replace(".txt", ""))
         return prompts
 
-    def get_prompt_args(self, prompt_name):
-        prompt = self.get_prompt(prompt_name=prompt_name)
+    def get_prompt_args(self, prompt_text):
         # Find anything in the file between { and } and add them to a list to return
         prompt_vars = []
-        for word in prompt.split():
+        for word in prompt_text.split():
             if word.startswith("{") and word.endswith("}"):
                 prompt_vars.append(word[1:-1])
         return prompt_vars

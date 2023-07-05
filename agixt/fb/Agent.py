@@ -14,7 +14,7 @@ DEFAULT_SETTINGS = {
     "AI_TEMPERATURE": "0.7",
     "MAX_TOKENS": "4096",
     "embedder": "default",
-    "autonomous_execution": False,
+    "AUTONOMOUS_EXECUTION": False,
 }
 
 
@@ -115,7 +115,7 @@ class Agent:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
                 self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
                 self._load_agent_config_keys(
-                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "autonomous_execution"]
+                    ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "AUTONOMOUS_EXECUTION"]
                 )
             if "AI_MODEL" in self.PROVIDER_SETTINGS:
                 self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
@@ -134,9 +134,9 @@ class Agent:
                 self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
             else:
                 self.MAX_TOKENS = 4000
-            if "autonomous_execution" in self.PROVIDER_SETTINGS:
+            if "AUTONOMOUS_EXECUTION" in self.PROVIDER_SETTINGS:
                 self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS[
-                    "autonomous_execution"
+                    "AUTONOMOUS_EXECUTION"
                 ]
                 if isinstance(self.AUTONOMOUS_EXECUTION, str):
                     self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
