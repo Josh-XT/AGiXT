@@ -9,14 +9,28 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
-from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-from Chain import Chain
-from Prompts import Prompts
+from dotenv import load_dotenv
+
+load_dotenv()
+
+db_connected = bool(os.getenv("DB_CONNECTED", False))
+if db_connected:
+    from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
+    from db.Chain import Chain
+    from db.Prompts import Prompts
+    from db.History import get_conversation, delete_history, delete_message
+else:
+    from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
+    from fb.Chain import Chain
+    from fb.Prompts import Prompts
+    from fb.History import get_conversation, delete_history, delete_message
+
+
 from typing import Optional, Dict, List, Any
 from provider import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-from History import get_conversation, delete_history, delete_message
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

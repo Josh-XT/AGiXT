@@ -27,10 +27,12 @@ from DBConnection import (
     session,
 )
 from provider import get_providers, get_provider_options
-from Agent import import_agent_config
+from db.Agent import import_agent_config
 from dotenv import load_dotenv
 
 load_dotenv()
+
+db_connected = bool(os.getenv("DB_CONNECTED", False))
 
 
 def import_agents():
@@ -196,7 +198,7 @@ def import_chains():
     if not chain_files:
         print(f"No JSON files found in chains directory.")
         return
-    from Chain import Chain
+    from db.Chain import Chain
 
     chain_importer = Chain()
     for file in chain_files:
@@ -441,12 +443,13 @@ def import_agixt_hub():
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
     time.sleep(5)
-    import_extensions()
-    import_prompts()
-    import_providers()
-    import_agents()
-    import_chains()
-    import_conversations()
+    if db_connected:
+        import_extensions()
+        import_prompts()
+        import_providers()
+        import_agents()
+        import_chains()
+        import_conversations()
 
 
 if __name__ == "__main__":
