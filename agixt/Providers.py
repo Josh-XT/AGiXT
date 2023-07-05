@@ -8,7 +8,7 @@ import inspect
 
 def get_providers():
     providers = []
-    for provider in glob.glob("provider/*.py"):
+    for provider in glob.glob("providers/*.py"):
         if "__init__.py" not in provider:
             providers.append(os.path.splitext(os.path.basename(provider))[0])
     return providers
@@ -16,7 +16,7 @@ def get_providers():
 
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
-    module = importlib.import_module(f"provider.{provider_name}")
+    module = importlib.import_module(f"providers.{provider_name}")
     provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
     signature = inspect.signature(provider_class.__init__)
     options = {
@@ -31,7 +31,7 @@ def get_provider_options(provider_name):
 class Providers:
     def __init__(self, name, **kwargs):
         try:
-            module = importlib.import_module(f"provider.{name}")
+            module = importlib.import_module(f"providers.{name}")
             provider_class = getattr(module, f"{name.capitalize()}Provider")
             self.instance = provider_class(**kwargs)
 
@@ -46,7 +46,7 @@ class Providers:
 
     def get_providers(self):
         providers = []
-        for provider in glob.glob("provider/*.py"):
+        for provider in glob.glob("providers/*.py"):
             if "__init__.py" not in provider:
                 providers.append(os.path.splitext(os.path.basename(provider))[0])
         return providers
