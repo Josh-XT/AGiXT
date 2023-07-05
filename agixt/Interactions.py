@@ -251,10 +251,8 @@ class Interactions:
             if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
                 autonomous = (
                     True
-                    if self.agent.AGENT_CONFIG["settings"][
-                        "AUTONOMOUS_EXECUTION"
-                    ].lower()
-                    == "true"
+                    if self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"]
+                    == True
                     else False
                 )
             else:
