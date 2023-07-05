@@ -9,62 +9,6 @@ from DBConnection import (
 )
 
 
-def import_conversations():
-    agents_dir = "agents"  # Directory containing agent folders
-    for agent_name in os.listdir(agents_dir):
-        agent_dir = os.path.join(agents_dir, agent_name)
-        history_file = os.path.join(agent_dir, "history.yaml")
-
-        if not os.path.exists(history_file):
-            continue  # Skip agent if history file doesn't exist
-
-        # Get agent ID from the database based on agent name
-        agent = session.query(Agent).filter(Agent.name == agent_name).first()
-        if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
-            continue
-
-        # Load conversation history from the YAML file
-        with open(history_file, "r") as file:
-            history = yaml.safe_load(file)
-
-        # Check if the conversation already exists for the agent
-        existing_conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.agent_id == agent.id,
-                Conversation.name == f"{agent_name} History",
-            )
-            .first()
-        )
-        if existing_conversation:
-            continue
-
-        # Create a new conversation
-        conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
-        session.add(conversation)
-        session.commit()
-
-        for conversation_data in history["interactions"]:
-            # Create a new message for the conversation
-            try:
-                role = conversation_data["role"]
-                content = conversation_data["message"]
-                timestamp = conversation_data["timestamp"]
-            except KeyError:
-                continue
-            message = Message(
-                role=role,
-                content=content,
-                timestamp=timestamp,
-                conversation_id=conversation.id,
-            )
-            session.add(message)
-            session.commit()
-
-        print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
-
-
 def export_conversation(agent_name, conversation_name=None):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
