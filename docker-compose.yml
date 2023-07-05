@@ -14,8 +14,6 @@ services:
     init: true
     depends_on:
       - db
-    env_file:
-      - .env.example
     environment:
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -34,8 +32,6 @@ services:
       - ./models:/model:rw
   streamlit:
     image: joshxt/streamlit:latest
-    env_file:
-      - .env.example
     depends_on:
       - agixt
     environment:
