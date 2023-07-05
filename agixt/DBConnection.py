@@ -23,9 +23,9 @@ password = os.getenv("POSTGRES_PASSWORD", "postgres")
 server = os.getenv("POSTGRES_SERVER", "localhost")
 port = os.getenv("POSTGRES_PORT", "5432")
 database_name = os.getenv("POSTGRES_DB", "postgres")
-database_enabled = bool(os.getenv("DB_ENABLED", False))
+db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 Base = declarative_base()
-if database_enabled:
+if db_connected:
     try:
         engine = create_engine(
             f"postgresql://{username}:{password}@{server}:{port}/{database_name}"

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_connected = bool(os.getenv("DB_CONNECTED", False))
+db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 if db_connected:
     from db.Agent import Agent
     from db.Prompts import Prompts

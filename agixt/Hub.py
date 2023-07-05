@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-db_connected = bool(os.getenv("DB_CONNECTED", False))
+db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 
 if db_connected:
     from db.imports import (
@@ -78,6 +78,7 @@ def import_agixt_hub():
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
     if db_connected:
+        print(f"DB Connected: {db_connected}")
         time.sleep(5)
         import_extensions()
         import_prompts()
