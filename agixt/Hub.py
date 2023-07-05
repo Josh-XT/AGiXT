@@ -77,8 +77,8 @@ def import_agixt_hub():
         print(f"Updated AGiXT Hub from {github_repo}")
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
-    time.sleep(5)
     if db_connected:
+        time.sleep(5)
         import_extensions()
         import_prompts()
         import_providers()
