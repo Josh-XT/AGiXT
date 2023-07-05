@@ -15,7 +15,7 @@ from DBConnection import (
     Provider as ProviderModel,
     session,
 )
-from provider import Provider
+from Providers import Providers
 from Memories import Memories
 from Extensions import Extensions
 
@@ -114,30 +114,6 @@ def get_agents():
     return output
 
 
-def import_agents():
-    agent_folder = "agents"
-    agents = [
-        f.name
-        for f in os.scandir(agent_folder)
-        if f.is_dir() and not f.name.startswith("__")
-    ]
-    existing_agents = session.query(AgentModel).all()
-    existing_agent_names = [agent.name for agent in existing_agents]
-
-    for agent_name in agents:
-        agent = session.query(AgentModel).filter_by(name=agent_name).one_or_none()
-        if agent:
-            print(f"Updating agent: {agent_name}")
-        else:
-            agent = AgentModel(name=agent_name)
-            session.add(agent)
-            session.flush()  # Save the agent object to generate an ID
-            existing_agent_names.append(agent_name)
-            print(f"Adding agent: {agent_name}")
-        import_agent_config(agent_name)
-    session.commit()
-
-
 def import_agent_config(agent_name):
     config_path = f"agents/{agent_name}/config.json"
 
@@ -224,7 +200,7 @@ class Agent:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
         self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
-        self.PROVIDER = Provider(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+        self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
         self.available_commands = Extensions(
             agent_config=self.AGENT_CONFIG
         ).get_available_commands()

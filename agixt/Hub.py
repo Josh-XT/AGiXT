@@ -1,19 +1,32 @@
 import io
 import os
+import time
 import shutil
 import requests
 import zipfile
 import hashlib
 from dotenv import load_dotenv
-from Extensions import import_extensions
-from Chain import import_chains
-from Agent import import_agents
-from History import import_conversations
-from Prompts import import_prompts
-from provider import import_providers
-
 
 load_dotenv()
+
+db_connected = bool(os.getenv("DB_CONNECTED", False))
+
+if db_connected:
+    from db.imports import (
+        import_extensions,
+        import_prompts,
+        import_providers,
+        import_agents,
+        import_chains,
+        import_conversations,
+    )
+else:
+    import_extensions = lambda: None
+    import_prompts = lambda: None
+    import_providers = lambda: None
+    import_agents = lambda: None
+    import_chains = lambda: None
+    import_conversations = lambda: None
 
 
 def import_agixt_hub():
@@ -64,12 +77,14 @@ def import_agixt_hub():
         print(f"Updated AGiXT Hub from {github_repo}")
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
-    import_extensions()
-    import_prompts()
-    import_providers()
-    import_agents()
-    import_chains()
-    import_conversations()
+    time.sleep(5)
+    if db_connected:
+        import_extensions()
+        import_prompts()
+        import_providers()
+        import_agents()
+        import_chains()
+        import_conversations()
 
 
 if __name__ == "__main__":

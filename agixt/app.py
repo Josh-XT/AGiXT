@@ -5,18 +5,32 @@ import base64
 import string
 import random
 import time
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
-from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-from Chain import Chain
-from Prompts import Prompts
+from dotenv import load_dotenv
+
+load_dotenv()
+AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
+db_connected = bool(os.getenv("DB_CONNECTED", False))
+if db_connected:
+    from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
+    from db.Chain import Chain
+    from db.Prompts import Prompts
+    from db.History import get_conversation, delete_history, delete_message
+else:
+    from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
+    from fb.Chain import Chain
+    from fb.Prompts import Prompts
+    from fb.History import get_conversation, delete_history, delete_message
+
+
 from typing import Optional, Dict, List, Any
-from provider import get_provider_options, get_providers
+from Providers import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-from History import get_conversation, delete_history, delete_message
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -43,6 +57,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def get_api_key(authorization: str = Header(None)):
+    if authorization is None:
+        raise HTTPException(status_code=400, detail="Authorization header is missing")
+    scheme, _, api_key = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=400, detail="Authorization scheme is not Bearer"
+        )
+    return api_key
+
+
+def verify_api_key(api_key: str = Depends(get_api_key)):
+    if AGIXT_API_KEY and api_key != AGIXT_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
+    return api_key
 
 
 class AgentName(BaseModel):
@@ -184,30 +215,38 @@ class AgentCommands(BaseModel):
     commands: Dict[str, Any]
 
 
-@app.get("/api/provider", tags=["Provider"])
+@app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
 async def getproviders():
     providers = get_providers()
     return {"providers": providers}
 
 
-@app.get("/api/provider/{provider_name}", tags=["Provider"])
+@app.get(
+    "/api/provider/{provider_name}",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name=provider_name)
     return {"settings": settings}
 
 
-@app.get("/api/embedding_providers", tags=["Provider"])
+@app.get(
+    "/api/embedding_providers",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_embed_providers():
     providers = get_embedding_providers()
     return {"providers": providers}
 
 
-@app.post("/api/agent", tags=["Agent"])
+@app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def addagent(agent: AgentSettings) -> Dict[str, str]:
     return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
 
 
-@app.post("/api/agent/import", tags=["Agent"])
+@app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def import_agent(agent: AgentConfig) -> Dict[str, str]:
     return add_agent(
         agent_name=agent.agent_name,
@@ -216,13 +255,17 @@ async def import_agent(agent: AgentConfig) -> Dict[str, str]:
     )
 
 
-@app.patch("/api/agent/{agent_name}", tags=["Agent"])
+@app.patch(
+    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
     rename_agent(agent_name=agent_name, new_name=new_name.new_name)
     return ResponseMessage(message="Agent renamed.")
 
 
-@app.put("/api/agent/{agent_name}", tags=["Agent"])
+@app.put(
+    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def update_agent_settings(
     agent_name: str, settings: AgentSettings
 ) -> ResponseMessage:
@@ -232,7 +275,11 @@ async def update_agent_settings(
     return ResponseMessage(message=update_config)
 
 
-@app.post("/api/agent/{agent_name}/learn/file", tags=["Agent"])
+@app.post(
+    "/api/agent/{agent_name}/learn/file",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     # Strip any path information from the file name
     file.file_name = os.path.basename(file.file_name)
@@ -259,7 +306,11 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/agent/{agent_name}/learn/url", tags=["Agent"])
+@app.post(
+    "/api/agent/{agent_name}/learn/url",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
     try:
         memories = Agent(agent_name=agent_name).get_memories()
@@ -269,7 +320,11 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/api/agent/{agent_name}/commands", tags=["Agent"])
+@app.put(
+    "/api/agent/{agent_name}/commands",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def update_agent_commands(
     agent_name: str, commands: AgentCommands
 ) -> ResponseMessage:
@@ -279,7 +334,9 @@ async def update_agent_commands(
     return ResponseMessage(message=update_config)
 
 
-@app.delete("/api/agent/{agent_name}", tags=["Agent"])
+@app.delete(
+    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def deleteagent(agent_name: str) -> ResponseMessage:
     delete_agent(agent_name=agent_name)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
@@ -291,13 +348,17 @@ async def getagents():
     return {"agents": agents}
 
 
-@app.get("/api/agent/{agent_name}", tags=["Agent"])
+@app.get(
+    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def get_agentconfig(agent_name: str):
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     return {"agent": agent_config}
 
 
-@app.get("/api/{agent_name}/chat", tags=["Agent"])
+@app.get(
+    "/api/{agent_name}/chat", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def get_chat_history(agent_name: str):
     chat_history = get_conversation(agent_name=agent_name)
     if chat_history is None:
@@ -307,13 +368,21 @@ async def get_chat_history(agent_name: str):
     return {"chat_history": chat_history}
 
 
-@app.delete("/api/agent/{agent_name}/history", tags=["Agent"])
+@app.delete(
+    "/api/agent/{agent_name}/history",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_conversation_history(agent_name: str) -> ResponseMessage:
     delete_history(agent_name=agent_name, conversation_name=f"{agent_name} History")
     return ResponseMessage(message=f"History for agent {agent_name} deleted.")
 
 
-@app.delete("/api/agent/{agent_name}/history/message", tags=["Agent"])
+@app.delete(
+    "/api/agent/{agent_name}/history/message",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_history_message(
     agent_name: str, message: ResponseMessage
 ) -> ResponseMessage:
@@ -325,13 +394,21 @@ async def delete_history_message(
     return ResponseMessage(message=f"Message deleted.")
 
 
-@app.delete("/api/agent/{agent_name}/memory", tags=["Agent"])
+@app.delete(
+    "/api/agent/{agent_name}/memory",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     Agent(agent_name=agent_name).wipe_agent_memories()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
-@app.post("/api/agent/{agent_name}/prompt", tags=["Agent"])
+@app.post(
+    "/api/agent/{agent_name}/prompt",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     agent = Interactions(agent_name=agent_name)
     response = await agent.run(
@@ -341,7 +418,7 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     return {"response": str(response)}
 
 
-@app.post("/api/v1/completions", tags=["Agent"])
+@app.post("/api/v1/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
@@ -386,7 +463,9 @@ async def completion(prompt: Completions):
     return res_model
 
 
-@app.post("/api/v1/chat/completions", tags=["Agent"])
+@app.post(
+    "/api/v1/chat/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
 async def chat_completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
@@ -435,13 +514,21 @@ async def chat_completion(prompt: Completions):
     return res_model
 
 
-@app.get("/api/agent/{agent_name}/command", tags=["Agent"])
+@app.get(
+    "/api/agent/{agent_name}/command",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_commands(agent_name: str):
     agent = Agent(agent_name=agent_name)
     return {"commands": agent.AGENT_CONFIG["commands"]}
 
 
-@app.patch("/api/agent/{agent_name}/command", tags=["Agent"])
+@app.patch(
+    "/api/agent/{agent_name}/command",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def toggle_command(
     agent_name: str, payload: ToggleCommandPayload
 ) -> ResponseMessage:
@@ -473,13 +560,15 @@ async def toggle_command(
         )
 
 
-@app.get("/api/chain", tags=["Chain"])
+@app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def get_chains():
     chains = Chain().get_chains()
     return chains
 
 
-@app.get("/api/chain/{chain_name}", tags=["Chain"])
+@app.get(
+    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+)
 async def get_chain(chain_name: str):
     # try:
     chain_data = Chain().get_chain(chain_name=chain_name)
@@ -497,7 +586,11 @@ async def get_chain_responses(chain_name: str):
         raise HTTPException(status_code=404, detail="Chain not found")
 
 
-@app.post("/api/chain/{chain_name}/run", tags=["Chain"])
+@app.post(
+    "/api/chain/{chain_name}/run",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def run_chain(chain_name: str, user_input: RunChain):
     chain_response = await Chain().run_chain(
         chain_name=chain_name,
@@ -509,20 +602,22 @@ async def run_chain(chain_name: str, user_input: RunChain):
     return chain_response
 
 
-@app.post("/api/chain", tags=["Chain"])
+@app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def add_chain(chain_name: ChainName) -> ResponseMessage:
     Chain().add_chain(chain_name=chain_name.chain_name)
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
-@app.post("/api/chain/import", tags=["Chain"])
+@app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def importchain(chain: ChainData) -> ResponseMessage:
     print(chain)
     response = Chain().import_chain(chain_name=chain.chain_name, steps=chain.steps)
     return ResponseMessage(message=response)
 
 
-@app.put("/api/chain/{chain_name}", tags=["Chain"])
+@app.put(
+    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+)
 async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessage:
     Chain().rename_chain(chain_name=chain_name, new_name=new_name.new_name)
     return ResponseMessage(
@@ -530,13 +625,19 @@ async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessa
     )
 
 
-@app.delete("/api/chain/{chain_name}", tags=["Chain"])
+@app.delete(
+    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+)
 async def delete_chain(chain_name: str) -> ResponseMessage:
     Chain().delete_chain(chain_name=chain_name)
     return ResponseMessage(message=f"Chain '{chain_name}' deleted.")
 
 
-@app.post("/api/chain/{chain_name}/step", tags=["Chain"])
+@app.post(
+    "/api/chain/{chain_name}/step",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     Chain().add_chain_step(
         chain_name=chain_name,
@@ -548,7 +649,11 @@ async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     return {"message": f"Step {step_info.step_number} added to chain '{chain_name}'."}
 
 
-@app.put("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
+@app.put(
+    "/api/chain/{chain_name}/step/{step_number}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def update_step(
     chain_name: str, step_number: int, chain_step: ChainStep
 ) -> ResponseMessage:
@@ -564,7 +669,11 @@ async def update_step(
     }
 
 
-@app.patch("/api/chain/{chain_name}/step/move", tags=["Chain"])
+@app.patch(
+    "/api/chain/{chain_name}/step/move",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def move_step(
     chain_name: str, chain_step_new_info: ChainStepNewInfo
 ) -> ResponseMessage:
@@ -578,13 +687,17 @@ async def move_step(
     }
 
 
-@app.delete("/api/chain/{chain_name}/step/{step_number}", tags=["Chain"])
+@app.delete(
+    "/api/chain/{chain_name}/step/{step_number}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
     Chain().delete_step(chain_name=chain_name, step_number=step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}
 
 
-@app.post("/api/prompt", tags=["Prompt"])
+@app.post("/api/prompt", tags=["Prompt"], dependencies=[Depends(verify_api_key)])
 async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
         Prompts().add_prompt(prompt_name=prompt.prompt_name, prompt=prompt.prompt)
@@ -593,7 +706,12 @@ async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/prompt/{prompt_name}", tags=["Prompt"], response_model=CustomPromptModel)
+@app.get(
+    "/api/prompt/{prompt_name}",
+    tags=["Prompt"],
+    response_model=CustomPromptModel,
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_prompt(prompt_name: str):
     # try:
     prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
@@ -602,13 +720,20 @@ async def get_prompt(prompt_name: str):
     #    raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.get("/api/prompt", response_model=PromptList, tags=["Prompt"])
+@app.get(
+    "/api/prompt",
+    response_model=PromptList,
+    tags=["Prompt"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_prompts():
     prompts = Prompts().get_prompts()
     return {"prompts": prompts}
 
 
-@app.delete("/api/prompt/{prompt_name}", tags=["Prompt"])
+@app.delete(
+    "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
+)
 async def delete_prompt(prompt_name: str) -> ResponseMessage:
     try:
         Prompts().delete_prompt(prompt_name=prompt_name)
@@ -617,7 +742,9 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.put("/api/prompt/{prompt_name}", tags=["Prompt"])
+@app.put(
+    "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
+)
 async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
         Prompts().update_prompt(prompt_name=prompt.prompt_name, prompt=prompt.prompt)
@@ -626,14 +753,22 @@ async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.get("/api/prompt/{prompt_name}/args", tags=["Prompt"])
+@app.get(
+    "/api/prompt/{prompt_name}/args",
+    tags=["Prompt"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_prompt_arg(prompt_name: str):
     prompt_name = prompt_name.replace("%20", " ")
     prompt = Prompts().get_prompt(prompt_name=prompt_name)
     return {"prompt_args": Prompts().get_prompt_args(prompt)}
 
 
-@app.get("/api/extensions/settings", tags=["Extensions"])
+@app.get(
+    "/api/extensions/settings",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_extension_settings():
     try:
         return {"extension_settings": Extensions().get_extension_settings()}
@@ -641,12 +776,16 @@ async def get_extension_settings():
         raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
 
 
-@app.get("/api/extensions/{command_name}/args", tags=["Extension"])
+@app.get(
+    "/api/extensions/{command_name}/args",
+    tags=["Extension"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_command_args(command_name: str):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
-@app.get("/api/extensions", tags=["Extension"])
+@app.get("/api/extensions", tags=["Extension"], dependencies=[Depends(verify_api_key)])
 async def get_extensions():
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}

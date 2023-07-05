@@ -1,20 +1,34 @@
 import re
+import os
 import regex
 import json
 import time
 import logging
 from datetime import datetime
-from Agent import Agent
-from Prompts import Prompts
+from dotenv import load_dotenv
+
+load_dotenv()
+
+db_connected = bool(os.getenv("DB_CONNECTED", False))
+if db_connected:
+    from db.Agent import Agent
+    from db.Prompts import Prompts
+    from db.Chain import Chain
+    from db.History import log_interaction
+else:
+    from fb.Agent import Agent
+    from fb.Prompts import Prompts
+    from fb.Chain import Chain
+    from fb.History import log_interaction
+
 from Embedding import get_tokens
-from Chain import Chain
 from concurrent.futures import Future
 from agixtsdk import AGiXTSDK
-from History import log_interaction
 from Websearch import Websearch
 
+agixt_api_key = os.getenv("AGIXT_API_KEY")
 base_uri = "http://localhost:7437"
-ApiClient = AGiXTSDK(base_uri=base_uri)
+ApiClient = AGiXTSDK(base_uri=base_uri, api_key=agixt_api_key)
 chain = Chain()
 cp = Prompts()
 
