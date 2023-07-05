@@ -36,17 +36,12 @@ class DBConnection:
         try:
             self.engine.execute("SELECT 1 FROM agent LIMIT 1")
         except Exception as e:
-            if os.path.exists("migration.txt"):
-                while os.path.exists("migration.txt"):
-                    time.sleep(2)
-            else:
+            try:
+                Base.metadata.create_all(engine)
                 print("Creating tables...")
-                try:
-                    Base.metadata.create_all(engine)
-                    time.sleep(5)
-                    os.remove("migration.txt")
-                except Exception as e:
-                    time.sleep(5)
+                time.sleep(5)
+            except Exception as e:
+                time.sleep(5)
 
     def get_engine(self):
         try:
@@ -56,14 +51,7 @@ class DBConnection:
             engine.execute("SELECT 1")
         except Exception as e:
             print(f"Error connecting to database: {e}")
-            print("Creating database...")
-            try:
-                engine = create_engine(
-                    f"postgresql://{self.username}:{self.password}@{self.server}:{self.port}/{self.database_name}"
-                )
-                engine.execute(f"CREATE DATABASE {self.database_name}")
-            except Exception as e:
-                print(f"Error creating database: {e}")
+            print(f"Are you running AGiXT following the documentation?")
         return engine
 
 
