@@ -28,6 +28,7 @@ agixt/WORKSPACE/*
 agixt/models/*
 agixt/extensions
 agixt/chains
+agixt/providers
 agixt/.github
 agixt/prompts
 agixt/agents
