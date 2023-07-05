@@ -10,56 +10,29 @@ from sqlalchemy import (
     DateTime,
     Boolean,
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
 from dotenv import load_dotenv
-import time
 
 load_dotenv()
 
 
-class DBConnection:
-    def __init__(self):
-        self.username = os.getenv("POSTGRES_USER", "postgres")
-        self.password = os.getenv("POSTGRES_PASSWORD", "postgres")
-        self.server = os.getenv("POSTGRES_SERVER", "localhost")
-        self.port = os.getenv("POSTGRES_PORT", "5432")
-        self.database_name = os.getenv("POSTGRES_DB", "postgres")
-        self.engine = self.get_engine()
-        self.Base = declarative_base()
-        self.Base.metadata.create_all(bind=self.engine)
-        self.Session = sessionmaker(bind=self.engine)
-        self.session = self.Session()
-        self.connection = self.engine.connect()
-        try:
-            self.engine.execute("SELECT 1 FROM agent LIMIT 1")
-        except Exception as e:
-            try:
-                Base.metadata.create_all(engine)
-                print("Creating tables...")
-                time.sleep(5)
-            except Exception as e:
-                time.sleep(5)
-
-    def get_engine(self):
-        try:
-            engine = create_engine(
-                f"postgresql://{self.username}:{self.password}@{self.server}:{self.port}/{self.database_name}"
-            )
-            engine.execute("SELECT 1")
-        except Exception as e:
-            print(f"Error connecting to database: {e}")
-            print(f"Are you running AGiXT following the documentation?")
-        return engine
-
-
-db = DBConnection()
-
-Base = db.Base
-engine = db.engine
-session = db.session
+username = os.getenv("POSTGRES_USER", "postgres")
+password = os.getenv("POSTGRES_PASSWORD", "postgres")
+server = os.getenv("POSTGRES_SERVER", "localhost")
+port = os.getenv("POSTGRES_PORT", "5432")
+database_name = os.getenv("POSTGRES_DB", "postgres")
+try:
+    engine = create_engine(
+        f"postgresql://{username}:{password}@{server}:{port}/{database_name}"
+    )
+except Exception as e:
+    print(f"Error connecting to database: {e}")
+Base = declarative_base()
+Session = sessionmaker(bind=engine)
+session = Session()
+connection = engine.connect()
 
 
 class Provider(Base):
