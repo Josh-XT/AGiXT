@@ -217,6 +217,8 @@ class Agent:
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
+        if "settings" not in self.AGENT_CONFIG:
+            self.AGENT_CONFIG["settings"] = {}
         self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
