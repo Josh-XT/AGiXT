@@ -10,6 +10,7 @@ files=(
     "agixt/LICENSE"
     "agixt/README.md"
     "agixt/hub_main.zip"
+    "agixt/light-hub_main.zip"
 )
 
 # Recursively delete files and folders
