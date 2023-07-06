@@ -131,7 +131,7 @@ environment_setup() {
         fi
         echo "DB_CONNECTED=${db_connection:-false}" >> .env
         echo "AGIXT_HUB=${github_repo:-AGiXT/light-hub}" >> .env
-        echo "AGIXT_URI=${agixt_uri:-http://agixt:7437}" >> .env
+        echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
         echo "UVICORN_WORKERS=${agixt_workers:-4}" >> .env
         echo "GITHUB_USER=${github_username:-}" >> .env
