@@ -36,6 +36,14 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     return {"interactions": []}
 
 
+def get_conversations(agent_name):
+    agent_dir = os.path.join("conversations", agent_name)
+    if os.path.exists(agent_dir):
+        conversations = os.listdir(agent_dir)
+        return [conversation.split(".")[0] for conversation in conversations]
+    return []
+
+
 def new_conversation(agent_name, conversation_name):
     history = {"interactions": []}
     history_file = os.path.join(

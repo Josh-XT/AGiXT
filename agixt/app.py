@@ -18,12 +18,22 @@ if db_connected:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from db.Chain import Chain
     from db.Prompts import Prompts
-    from db.History import get_conversation, delete_history, delete_message
+    from db.History import (
+        get_conversation,
+        delete_history,
+        delete_message,
+        get_conversations,
+    )
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from fb.Chain import Chain
     from fb.Prompts import Prompts
-    from fb.History import get_conversation, delete_history, delete_message
+    from fb.History import (
+        get_conversation,
+        delete_history,
+        delete_message,
+        get_conversations,
+    )
 
 
 from typing import Optional, Dict, List, Any
@@ -358,6 +368,20 @@ async def deleteagent(agent_name: str) -> ResponseMessage:
 async def getagents():
     agents = get_agents()
     return {"agents": agents}
+
+
+@app.get(
+    "/api/{agent_name}/conversations",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversations_list(agent_name: str):
+    conversations = get_conversations(
+        agent_name=agent_name,
+    )
+    if conversations is None:
+        conversations = []
+    return {"conversations": conversations}
 
 
 @app.get("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
