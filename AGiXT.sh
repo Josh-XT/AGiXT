@@ -193,7 +193,7 @@ local_install() {
     echo "${BOLD}${GREEN}Running local install...${RESET}"
     display_animation
     echo "AGIXT_URI=http://localhost:7437" >> .env
-    echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
+    echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
     git pull
     sleep 1
 
