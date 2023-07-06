@@ -1,11 +1,12 @@
 #!/bin/sh
 
 set -e
+workers="${UVICORN_WORKERS:-4}"
 
 if [ "$DB_CONNECTED" = "true" ]; then
   host="${POSTGRES_SERVER:-db}"
   port="${POSTGRES_PORT:-5432}"
-  db="${POSTGRES_DB:-postgres}"
+  db="${POSTGRES_DB:-postgres}"  
   echo "Waiting for postgres server to start... $host:$port"
   sleep 15
 
@@ -24,4 +25,4 @@ fi
 python3 Hub.py
 echo "Starting AGiXT..."
 sleep 5
-uvicorn app:app --host 0.0.0.0 --port 7437 --workers "$UVICORN_WORKERS" --proxy-headers
+uvicorn app:app --host 0.0.0.0 --port 7437 --workers $workers --proxy-headers

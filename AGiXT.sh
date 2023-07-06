@@ -71,10 +71,6 @@ display_animation() {
     sleep 0.2
   done
 
-
-
-
-
   # Spinning loading indicator
   echo "${BOLD}${GREEN}Loading...${RESET}"
   for i in {1..10}; do
@@ -86,6 +82,67 @@ display_animation() {
   echo
 }
 
+# Check if .env file exists
+environment_setup() {
+    if [[ ! -f ".env" ]]; then
+        clear
+        echo "${BOLD}${CYAN}"
+        echo "    ___   _______ _  ________"
+        echo "   /   | / ____(_) |/ /_  __/"
+        echo "  / /| |/ / __/ /|   / / /   "
+        echo " / ___ / /_/ / //   | / /    "
+        echo "/_/  |_\____/_//_/|_|/_/     "
+        echo "                              "
+        echo "----------------------------------------------------${RESET}"
+        echo "${BOLD}${MAGENTA}Welcome to the AGiXT Environment Setup!${RESET}"
+        read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
+        if [[ "$use_api_key" == [Yy]* ]]; then
+            read -p "Enter API key: " api_key
+        fi
+        read -p "Do you have your own AGiXT Hub fork that you would like to install with? (Y for yes, N for No): " hub_repo
+        if [[ "$hub_repo" == [Yy]* ]]; then
+            read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/light-hub): " github_repo
+            read -p "Is your AGiXT Hub fork private? It will require credentials if it is not public. (Y for yes, N for No): " is_private
+            if [[ "$is_private" == [Yy]* ]]; then
+                read -p "Enter your GitHub username: " github_username
+                read -p "Enter your GitHub token: " github_token
+            fi
+        fi
+        read -p "Enter the number of AGiXT workers to run with, default is 4: " workers
+        if [[ "$workers" != "" ]]; then
+            if [[ $workers =~ ^[0-9]+$ && $workers -gt 0 ]]; then
+                agixt_workers=$workers
+            else
+                echo "Invalid number of workers, defaulting to 4"
+                agixt_workers=4
+            fi
+        fi
+        read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
+        if [[ "$use_db" == [Yy]* ]]; then
+            read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
+            if [[ "$use_own_db" == [Yy]* ]]; then
+                db_connection="true"
+                read -p "Enter postgres host: " postgres_host
+                read -p "Enter postgres port: " postgres_port
+                read -p "Enter postgres database name: " postgres_database
+                read -p "Enter postgres username: " postgres_username
+            fi
+            read -p "Enter postgres password: " postgres_password
+        fi
+        echo "DB_CONNECTED=${db_connection:-false}" >> .env
+        echo "AGIXT_HUB=${github_repo:-AGiXT/light-hub}" >> .env
+        echo "AGIXT_URI=${agixt_uri:-http://agixt:7437}" >> .env
+        echo "AGIXT_API_KEY=${api_key:-}" >> .env
+        echo "UVICORN_WORKERS=${agixt_workers:-4}" >> .env
+        echo "GITHUB_USER=${github_username:-}" >> .env
+        echo "GITHUB_TOKEN=${github_token:-}" >> .env
+        echo "POSTGRES_SERVER=${postgres_host:-db}" >> .env
+        echo "POSTGRES_PORT=${postgres_port:-5432}" >> .env
+        echo "POSTGRES_DB=${postgres_database:-postgres}" >> .env
+        echo "POSTGRES_USER=${postgres_username:-postgres}" >> .env
+        echo "POSTGRES_PASSWORD=${postgres_password:-postgres}" >> .env
+    fi
+}
 # Function to display the menu
 display_menu() {
   clear
@@ -193,9 +250,10 @@ update() {
   git pull
  
     echo "${BOLD}${YELLOW}Step 2: Pulling latest Docker Images...${RESET}"
-  docker compose pull
+  docker-compose pull
 }
 
+environment_setup
 # Main loop to display the menu and handle user input
 while true; do
   display_menu
