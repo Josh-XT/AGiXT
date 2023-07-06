@@ -192,7 +192,7 @@ local_install() {
     sleep 1
 
     echo "${BOLD}${YELLOW}Step 6: Running AGiXT Back End...${RESET}"
-    ./agixt/launch-backend.sh &
+    cd agixt && ./launch-backend.sh &
     sleep 1
 }
 # Function to perform the local install
