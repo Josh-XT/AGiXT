@@ -413,13 +413,12 @@ async def get_conversation_history(history: HistoryModel):
         limit=history.limit,
         page=history.page,
     )
+
     if conversation_history is None:
         conversation_history = []
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
-
-    if len(conversation_history) > 100:
-        conversation_history = conversation_history[-100:]
+    print(conversation_history)
     return {"conversation_history": conversation_history}
 
 
