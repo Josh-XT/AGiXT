@@ -184,7 +184,7 @@ docker_install() {
   display_animation
   echo "AGIXT_URI=http://agixt:7437" >> .env
 
-  echo "${BOLD}${YELLOW}Step 1: Starting Docker Compose...${RESET}"
+  echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose up
 }
 
@@ -199,17 +199,17 @@ local_install() {
 
     # Check if the directory exists
     if [ ! -d "agixt/providers" ]; then
-        echo "${BOLD}${YELLOW}Step 2: Upgrading pip...${RESET}"
+        echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
         pip install --upgrade pip
         sleep 1
 
-        echo "${BOLD}${YELLOW}Step 3: Installing requirements...${RESET}"
+        echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
         pip install -r static-requirements.txt
         sleep 1
         pip install -r requirements.txt
         sleep 1
 
-        echo "${BOLD}${YELLOW}Step 4: Installing Playwright dependencies...${RESET}"
+        echo "${BOLD}${YELLOW}Installing Playwright dependencies...${RESET}"
         playwright install --with-deps
         sleep 1
     fi
@@ -221,42 +221,17 @@ local_install() {
 
 # Function to perform the local install
 local_install_with_streamlit() {
-    echo "${BOLD}${GREEN}Running local install...${RESET}"
-    display_animation
-    echo "AGIXT_URI=http://localhost:7437" >> .env
-    echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
-    git pull
-    sleep 1
-
-    if [ ! -d "agixt/providers" ]; then
-        echo "${BOLD}${YELLOW}Step 2: Upgrading pip...${RESET}"
-        pip install --upgrade pip
-        sleep 1
-
-        echo "${BOLD}${YELLOW}Step 3: Installing requirements...${RESET}"
-        pip install -r static-requirements.txt
-        sleep 1
-        pip install -r requirements.txt
-        sleep 1
-
-        echo "${BOLD}${YELLOW}Step 4: Installing Playwright dependencies...${RESET}"
-        playwright install --with-deps
-        sleep 1
-    fi
+    local_install
 
     if [ ! -d "streamlit" ]; then
-        echo "${BOLD}${YELLOW}Step 5: Installing Streamlit dependencies...${RESET}"
+        echo "${BOLD}${YELLOW}Installing Streamlit dependencies...${RESET}"
         git clone https://github.com/AGiXT/streamlit
         cd streamlit
         pip install -r requirements.txt
         sleep 1
     fi
 
-    echo "${BOLD}${YELLOW}Step 6: Running AGiXT Core...${RESET}"
-    cd agixt && ./launch-backend.sh &
-    sleep 6
-
-    echo "${BOLD}${YELLOW}Step 7: Running Streamlit Web UI...${RESET}"
+    echo "${BOLD}${YELLOW}Running Streamlit Web UI...${RESET}"
     cd ../streamlit && streamlit run Main.py
 }
 
@@ -266,10 +241,10 @@ update() {
   echo "${BOLD}${GREEN}Running Update...${RESET}"
   display_animation
 
-  echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
+  echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
   git pull
  
-    echo "${BOLD}${YELLOW}Step 2: Pulling latest Docker Images...${RESET}"
+    echo "${BOLD}${YELLOW}Pulling latest Docker Images...${RESET}"
   docker-compose pull
 }
 
