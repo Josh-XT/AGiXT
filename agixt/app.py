@@ -220,6 +220,13 @@ class AgentCommands(BaseModel):
     commands: Dict[str, Any]
 
 
+class HistoryModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+    limit: int = 100
+    page: int = 1
+
+
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
 async def getproviders():
     providers = get_providers()
@@ -351,6 +358,24 @@ async def deleteagent(agent_name: str) -> ResponseMessage:
 async def getagents():
     agents = get_agents()
     return {"agents": agents}
+
+
+@app.get("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+async def get_conversation_history(history: HistoryModel):
+    conversation_history = get_conversation(
+        agent_name=history.agent_name,
+        conversation_name=history.conversation_name,
+        limit=history.limit,
+        page=history.page,
+    )
+    if conversation_history is None:
+        conversation_history = []
+    if "interactions" in conversation_history:
+        conversation_history = conversation_history["interactions"]
+
+    if len(conversation_history) > 100:
+        conversation_history = conversation_history[-100:]
+    return {"conversation_history": conversation_history}
 
 
 @app.get(
