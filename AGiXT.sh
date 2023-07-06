@@ -13,73 +13,87 @@ RESET=$(tput sgr0)
 # Function to display a show opening style animation
 display_animation() {
   # More dynamic smoke animation above ASCII art
-  for i in {1..10}; do
+  for i in {1..5}; do
     clear
-    echo "          (   )"
-    echo "        ( )  ( )"
-    echo "         (  )  ("
-    echo "      _____________"
-    echo "     <_____________> ___"
-    echo "     |             |/ _ \\"
-    echo "     |               | | |"
-    echo "     |               |_| |"
-    echo "  ___|             |\\___/"
-    echo " /    \\___________/    \\"
-    echo " \\_____________________/"
-    sleep 0.2
+    echo ""
+    echo ""
+    echo ""
+    echo "  ////^\\\\\\\\"
+    echo "  | ^   ^ |"
+    echo " @|(o) (o)|@"
+    echo "  |    >  |     (   )"
+    echo "  |   ___ |   ( )  ( )"
+    echo "   \___?__/    (  )  ("
+    echo "   __|  |__ _____________"
+    echo "  /        <_____________> ___"
+    echo " /    ^  ^ |             |/ _ \\"
+    echo "/  /|   ^  |               | | |"
+    echo "\_/ |  \_/ |               |_| |"
+    echo "/   |   ___|             |\\___/"
+    echo "    |  /    \\___________/    \\"
+    echo "    |  \\_____________________/"
+    sleep 0.65
 
     clear
-    echo "         (  ) ("
-    echo "        )  (   )"
-    echo "       ( )   ( )"
-    echo "      _____________"
-    echo "     <_____________> ___"
-    echo "     |             |/ _ \\"
-    echo "     |               | | |"
-    echo "     |               |_| |"
-    echo "  ___|             |\\___/"
-    echo " /    \\___________/    \\"
-    echo " \\_____________________/"
-    sleep 0.2
+    echo ""
+    echo ""
+    echo ""
+    echo "  ////^\\\\\\\\ |*********************|"
+    echo "  | ^   ^ | |AGiXT Author: Josh-XT|"
+    echo " @|(o) (o)|@| ____________________|"
+    echo "  |    >  | |/ (  ) ("
+    echo "  |   _O_ |   )  (   )"
+    echo "   \___?__/   ( )  ( )"
+    echo "   __|  |__ _____________"
+    echo "  /        <_____________> ___"
+    echo " /    ^  ^ |             |/ _ \\"
+    echo "/  /|   ^  |               | | |"
+    echo "\_/ |  \_/ |               |_| |"
+    echo "/   |   ___|             |\\___/"
+    echo "    |  /    \\___________/    \\"
+    echo "    |  \\_____________________/"
+    sleep 0.65
 
     clear
-    echo "        (  )   ("
-    echo "       )   (    )"
-    echo "      ( )    ( )"
-    echo "      _____________"
-    echo "     <_____________> ___"
-    echo "     |             |/ _ \\"
-    echo "     |               | | |"
-    echo "     |               |_| |"
-    echo "  ___|             |\\___/"
-    echo " /    \\___________/    \\"
-    echo " \\_____________________/"
-    sleep 0.2
+    echo ""
+    echo ""
+    echo ""
+    echo "  ////^\\\\\\\\ |*********************|"
+    echo "  | ^   ^ | | Join Us On Discord! |"
+    echo " @|(_) (_)|@| ____________________|"
+    echo "  |    >  | |/  )   (  )"
+    echo "  |   _o_ |  )  (  (  ("
+    echo "   \___?__/  ( )    ( )"
+    echo "   __|  |__ _____________"
+    echo "  /        <_____________> ___"
+    echo " /    ^  ^ |             |/ _ \\"
+    echo "/  /|   ^  |               | | |"
+    echo "\_/ |  \_/ |               |_| |"
+    echo "/   |   ___|             |\\___/"
+    echo "    |  /    \\___________/    \\"
+    echo "    |  \\_____________________/"
+    sleep 0.65
 
     clear
-    echo "         (  ) ("
-    echo "        )  (   )"
-    echo "       ( )   ( )"
-    echo "      _____________"
-    echo "     <_____________> ___"
-    echo "     |             |/ _ \\"
-    echo "     |               | | |"
-    echo "     |               |_| |"
-    echo "  ___|             |\\___/"
-    echo " /    \\___________/    \\"
-    echo " \\_____________________/"
-    sleep 0.2
+    echo ""
+    echo ""
+    echo ""
+    echo "  ////^\\\\\\\\ |*********************|"
+    echo "  | ^   ^ | |discord.gg/UCtYPvBdEC|"
+    echo " @|(o) (o)|@| ____________________|"
+    echo "  |    >  | |/ (  ) ("
+    echo "  |   _O_ |   ) (    )"
+    echo "   \___?__/  ( )   ( )"
+    echo "   __|  |__ _____________"
+    echo "  /        <_____________> ___"
+    echo " /    ^  ^ |             |/ _ \\"
+    echo "/  /|   ^  |               | | |"
+    echo "\_/ |  \_/ |               |_| |"
+    echo "/   |   ___|             |\\___/"
+    echo "    |  /    \\___________/    \\"
+    echo "    |  \\_____________________/"
+    sleep 0.65
   done
-
-  # Spinning loading indicator
-  echo "${BOLD}${GREEN}Loading...${RESET}"
-  for i in {1..10}; do
-    for s in / - \\ \|; do
-      printf "\r${BOLD}${GREEN}Loading %s${RESET}" "$s"
-      sleep 0.1
-    done
-  done
-  echo
 }
 
 # Check if .env file exists
@@ -164,6 +178,16 @@ display_menu() {
   echo ""
 }
 
+# Function to perform the Docker install
+docker_install() {
+  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
+  display_animation
+  echo "AGIXT_URI=http://agixt:7437" >> .env
+
+  echo "${BOLD}${YELLOW}Step 1: Starting Docker Compose...${RESET}"
+  docker-compose up
+}
+
 # Function to perform the local install
 local_install() {
     echo "${BOLD}${GREEN}Running local install...${RESET}"
@@ -235,15 +259,7 @@ local_install_with_streamlit() {
     echo "${BOLD}${YELLOW}Step 7: Running Streamlit Web UI...${RESET}"
     cd ../streamlit && streamlit run Main.py
 }
-# Function to perform the Docker install
-docker_install() {
-  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
-  display_animation
-  echo "AGIXT_URI=http://agixt:7437" >> .env
 
-  echo "${BOLD}${YELLOW}Step 1: Starting Docker Compose...${RESET}"
-  docker-compose up
-}
 
 # Function to perform the Update
 update() {
