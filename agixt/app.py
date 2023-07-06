@@ -23,6 +23,7 @@ if db_connected:
         delete_history,
         delete_message,
         get_conversations,
+        new_conversation,
     )
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
@@ -33,6 +34,7 @@ else:
         delete_history,
         delete_message,
         get_conversations,
+        new_conversation,
     )
 
 
@@ -237,6 +239,17 @@ class HistoryModel(BaseModel):
     page: int = 1
 
 
+class ConversationHistoryModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+
+
+class ConversationHistoryMessageModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+    message: str
+
+
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
 async def getproviders():
     providers = get_providers()
@@ -371,6 +384,14 @@ async def getagents():
 
 
 @app.get(
+    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+)
+async def get_agentconfig(agent_name: str):
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    return {"agent": agent_config}
+
+
+@app.get(
     "/api/{agent_name}/conversations",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
@@ -402,48 +423,43 @@ async def get_conversation_history(history: HistoryModel):
     return {"conversation_history": conversation_history}
 
 
-@app.get(
-    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def get_agentconfig(agent_name: str):
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
-    return {"agent": agent_config}
-
-
-@app.get(
-    "/api/{agent_name}/chat", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def get_chat_history(agent_name: str):
-    chat_history = get_conversation(agent_name=agent_name)
-    if chat_history is None:
-        chat_history = []
-    if "interactions" in chat_history:
-        chat_history = chat_history["interactions"]
-    return {"chat_history": chat_history}
+@app.post("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+async def new_conversation_history(history: ConversationHistoryModel):
+    new_conversation(
+        agent_name=history.agent_name,
+        conversation_name=history.conversation_name,
+    )
+    return {"conversation_history": []}
 
 
 @app.delete(
-    "/api/agent/{agent_name}/history",
+    "/api/conversation",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
-async def delete_conversation_history(agent_name: str) -> ResponseMessage:
-    delete_history(agent_name=agent_name, conversation_name=f"{agent_name} History")
-    return ResponseMessage(message=f"History for agent {agent_name} deleted.")
+async def delete_conversation_history(
+    history: ConversationHistoryModel,
+) -> ResponseMessage:
+    delete_history(
+        agent_name=history.agent_name, conversation_name=history.conversation_name
+    )
+    return ResponseMessage(
+        message=f"Conversation `{history.conversation_name}` for agent {history.agent_name} deleted."
+    )
 
 
 @app.delete(
-    "/api/agent/{agent_name}/history/message",
+    "/api/conversation/message",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_history_message(
-    agent_name: str, message: ResponseMessage
+    history: ConversationHistoryMessageModel,
 ) -> ResponseMessage:
     delete_message(
-        agent_name=agent_name,
-        message=message.message,
-        conversation_name=f"{agent_name} History",
+        agent_name=history.agent_name,
+        message=history.message,
+        conversation_name=f"{history.agent_name} History",
     )
     return ResponseMessage(message=f"Message deleted.")
 
