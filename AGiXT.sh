@@ -168,7 +168,7 @@ display_menu() {
 local_install() {
     echo "${BOLD}${GREEN}Running local install...${RESET}"
     display_animation
-
+    echo "AGIXT_URI=http://localhost:7437" >> .env
     echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
     git pull
     sleep 1
@@ -199,7 +199,7 @@ local_install() {
 local_install_with_streamlit() {
     echo "${BOLD}${GREEN}Running local install...${RESET}"
     display_animation
-
+    echo "AGIXT_URI=http://localhost:7437" >> .env
     echo "${BOLD}${YELLOW}Step 1: Updating the repository...${RESET}"
     git pull
     sleep 1
@@ -239,6 +239,7 @@ local_install_with_streamlit() {
 docker_install() {
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   display_animation
+  echo "AGIXT_URI=http://agixt:7437" >> .env
 
   echo "${BOLD}${YELLOW}Step 1: Starting Docker Compose...${RESET}"
   docker-compose up
