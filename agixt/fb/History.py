@@ -17,14 +17,21 @@ def export_conversation(agent_name, conversation_name=None):
     return {"interactions": []}
 
 
-def get_conversation(agent_name, conversation_name=None):
+def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     if conversation_name:
-        history_file = os.path.join("conversations", f"{conversation_name}.yaml")
+        history_file = os.path.join(
+            "conversations", agent_name, f"{conversation_name}.yaml"
+        )
     else:
         history_file = os.path.join("agents", agent_name, "history.yaml")
     if os.path.exists(history_file):
         with open(history_file, "r") as file:
             history = yaml.safe_load(file)
+        # Limit the number of interactions returned
+        history["interactions"] = history["interactions"][
+            (page - 1) * limit : page * limit
+        ]
+
         return history
     return {"interactions": []}
 
@@ -82,3 +89,10 @@ def delete_message(agent_name, message, conversation_name=None):
         for interaction in history["interactions"]
         if interaction["message"] != message
     ]
+    if not conversation_name:
+        conversation_name = "history"
+    history_file = os.path.join(
+        "conversations", agent_name, f"{conversation_name}.yaml"
+    )
+    with open(history_file, "w") as file:
+        yaml.safe_dump(history, file)

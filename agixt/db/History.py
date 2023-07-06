@@ -53,7 +53,7 @@ def export_conversation(agent_name, conversation_name=None):
     print(f"Exported conversation for agent '{agent_name}' to {history_file}.")
 
 
-def get_conversation(agent_name, conversation_name=None):
+def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
