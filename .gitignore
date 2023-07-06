@@ -39,7 +39,7 @@ agixt/hub_main.zip
 agixt/*_main.zip
 # docs generation
 _book/
-
+streamlit/
 # 3rd party
 package.json
 package-lock.json
