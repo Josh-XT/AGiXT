@@ -24,6 +24,12 @@ environment_setup() {
         echo "----------------------------------------------------${RESET}"
         echo "${BOLD}${MAGENTA}Visit our documentation at https://AGiXT.com ${RESET}"
         echo "${BOLD}${MAGENTA}Welcome to the AGiXT Environment Setup!${RESET}"
+        read -p "Do you want AGiXT to automatically update when launched? AGiXT Hubs always update automatically. (Y for yes, N for No): " auto_update
+        if [[ "$auto_update" == [Yy]* ]]; then
+            auto_update="true"
+        else
+            auto_update="false"
+        fi
         read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
         if [[ "$use_api_key" == [Yy]* ]]; then
             read -p "Enter API key: " api_key
@@ -59,6 +65,7 @@ environment_setup() {
             read -p "Enter postgres password: " postgres_password
         fi
         echo "DB_CONNECTED=${db_connection:-false}" >> .env
+        echo "AGIXT_AUTO_UPDATE=${auto_update:-true}" >> .env
         echo "AGIXT_HUB=${github_repo:-AGiXT/light-hub}" >> .env
         echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
@@ -86,83 +93,101 @@ display_menu() {
   echo "${BOLD}${MAGENTA}Visit our documentation at https://AGiXT.com ${RESET}"
   echo "${BOLD}${MAGENTA}Welcome to the AGiXT Installer!${RESET}"
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
-  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT Core and Streamlit Web UI with Docker (Recommended)${RESET}"
-  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Core and Streamlit Web UI Locally${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT Core Locally${RESET}"
-  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Update pulls latest from repo & pulls latest docker${RESET}"
-  echo "  ${BOLD}${RED}5.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT with Docker (Recommended)${RESET}"
+  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update AGiXT ${RESET}"
+  echo "  ${BOLD}${RED}4.${RESET} ${RED}Exit${RESET}"
   echo ""
+}
+
+# Function to perform the Update
+update() {
+  echo "${BOLD}${GREEN}Running Updates...${RESET}"
+  echo "${BOLD}${YELLOW}Updating AGiXT Core...${RESET}"
+  git pull
+  echo "${BOLD}${YELLOW}Updating AGiXT Streamlit Web UI...${RESET}"
+  if [ ! -d "streamlit" ]; then
+    git clone https://github.com/AGiXT/streamlit
+  fi
+  cd streamlit
+  git pull
+  cd ..
+  echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
+  docker-compose pull
 }
 
 # Function to perform the Docker install
 docker_install() {
+  sed -i '/^AGIXT_URI=/d' .env
+  echo "AGIXT_URI=http://agixt:7437" >> .env
+  source .env
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    update
+  fi
+
   if [ ! -d "streamlit" ]; then
       echo "${BOLD}${YELLOW}Cloning Streamlit Repository...${RESET}"
       git clone https://github.com/AGiXT/streamlit
   fi
-  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
-  echo "AGIXT_URI=http://agixt:7437" >> .env
 
+  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose up
 }
 
 # Function to perform the local install
 local_install() {
-    echo "${BOLD}${GREEN}Running local install...${RESET}"
-    echo "AGIXT_URI=http://localhost:7437" >> .env
-    echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
+  sed -i '/^AGIXT_URI=/d' .env
+  echo "AGIXT_URI=http://localhost:7437" >> .env
+  source .env
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    echo "${BOLD}${YELLOW}Checking for updates...${RESET}"
     git pull
-    sleep 1
-
-    # Check if the directory exists
-    if [ ! -d "agixt/providers" ]; then
-        echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
-        pip install --upgrade pip
-        sleep 1
-
-        echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
-        pip install -r static-requirements.txt
-        sleep 1
-        pip install -r requirements.txt
-        sleep 1
-
-        echo "${BOLD}${YELLOW}Installing Playwright dependencies...${RESET}"
-        playwright install --with-deps
-        sleep 1
-    fi
-
-    echo "${BOLD}${YELLOW}Running AGiXT Core...${RESET}"
-    cd agixt && ./launch-backend.sh &
-    sleep 1
-}
-
-# Function to perform the local install
-local_install_with_streamlit() {
-    local_install
-
     if [ ! -d "streamlit" ]; then
-        echo "${BOLD}${YELLOW}Installing Streamlit dependencies...${RESET}"
-        git clone https://github.com/AGiXT/streamlit
-        cd streamlit
-        pip install -r requirements.txt
-        sleep 1
+      echo "${BOLD}${YELLOW}Installing Streamlit dependencies...${RESET}"
+      git clone https://github.com/AGiXT/streamlit
     fi
+    cd streamlit
+    git pull
+    cd ..
+  fi
 
-    echo "${BOLD}${YELLOW}Running Streamlit Web UI...${RESET}"
-    cd ../streamlit && streamlit run Main.py
-}
-
-
-# Function to perform the Update
-update() {
-  echo "${BOLD}${GREEN}Running Updates...${RESET}"
-
+  echo "${BOLD}${GREEN}Running local install...${RESET}"
   echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
   git pull
- 
-    echo "${BOLD}${YELLOW}Pulling latest Docker Images...${RESET}"
-  docker-compose pull
+  sleep 1
+
+  # Check if the directory exists
+  if [ ! -d "agixt/providers" ]; then
+      echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
+      pip install --upgrade pip
+      sleep 1
+
+      echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
+      pip install -r static-requirements.txt
+      sleep 1
+      pip install -r requirements.txt
+      sleep 1
+
+      echo "${BOLD}${YELLOW}Installing Playwright dependencies...${RESET}"
+      playwright install --with-deps
+      sleep 1
+  fi
+
+  if [ ! -d "streamlit" ]; then
+      echo "${BOLD}${YELLOW}Installing Streamlit dependencies...${RESET}"
+      git clone https://github.com/AGiXT/streamlit
+      cd streamlit
+      pip install -r requirements.txt
+      sleep 1
+  fi
+
+  echo "${BOLD}${YELLOW}Running AGiXT Core...${RESET}"
+  cd agixt && ./launch-backend.sh &
+  echo "${BOLD}${YELLOW}Please wait...${RESET}"
+  sleep 10
+  echo "${BOLD}${YELLOW}Running Streamlit Web UI...${RESET}"
+  cd ../streamlit && streamlit run Main.py
 }
 
 environment_setup
@@ -177,19 +202,15 @@ while true; do
       break
       ;;
     2)
-      local_install_with_streamlit
-      break
-      ;;
-    3)
       local_install
       break
       ;;
-    4)
+    3)
       update
       echo "${BOLD}${GREEN}Update complete.${RESET}"
       sleep 2
       ;;
-    5)
+    4)
       echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
       break
       ;;
