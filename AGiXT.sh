@@ -193,7 +193,7 @@ local_install() {
   echo "${BOLD}${YELLOW}Please wait...${RESET}"
   sleep 10
   echo "${BOLD}${YELLOW}Running Streamlit Web UI...${RESET}"
-  cd ../streamlit && streamlit run Main.py
+  cd streamlit && streamlit run Main.py
 }
 
 wipe_hub() {
