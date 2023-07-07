@@ -3,3 +3,4 @@ _book/
 .git/
 docker/
 agixt/models/
+streamlit/
