@@ -1,6 +1,7 @@
 import io
 import os
 import time
+import stat
 import shutil
 import requests
 import zipfile
@@ -59,6 +60,19 @@ def import_agixt_hub():
         zip_ref = zipfile.ZipFile(io.BytesIO(response.content))
         zip_ref.extractall(".")
         zip_ref.close()
+        # Set permissions for the extracted files and directories
+        for root, dirs, files in os.walk(f"{repo_name}-main"):
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                os.chmod(
+                    dir_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO
+                )  # Set permissions to read, write, and execute for all
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                os.chmod(
+                    file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
+                )  # Set permissions to read for owner and group, read-only for others
+
         print(f"Updating AGiXT Hub from {github_repo}")
         # Move the files and directories from the reponame-main directory to the current directory
         for file in os.listdir(f"{repo_name}-main"):
