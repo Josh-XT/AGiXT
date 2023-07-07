@@ -134,7 +134,11 @@ docker_install() {
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  docker-compose up
+  if [[ "$DB_CONNECTED" == "true" ]]; then
+    docker-compose -f docker-compose-postgres.yml up
+  else
+    docker-compose up
+  fi
 }
 
 # Function to perform the local install
