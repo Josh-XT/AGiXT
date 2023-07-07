@@ -29,8 +29,8 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./agixt:/agixt:rw
-      - ./models:/model:rw
+      - ./agixt:/agixt
+      - ./models:/model
   streamlit:
     image: joshxt/streamlit:latest
     depends_on:
@@ -41,4 +41,4 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./streamlit:/streamlit:rw
+      - ./streamlit:/streamlit
