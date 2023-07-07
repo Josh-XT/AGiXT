@@ -58,7 +58,8 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
     os.makedirs(os.path.dirname(history_file), exist_ok=True)
-
+    if "interactions" not in history:
+        history["interactions"] = []
     history["interactions"].append(
         {
             "role": role,
