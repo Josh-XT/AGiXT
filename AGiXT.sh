@@ -83,6 +83,7 @@ display_menu() {
   echo "/_/  |_\____/_//_/|_|/_/     "
   echo "                              "
   echo "----------------------------------------------------${RESET}"
+  echo "${BOLD}${MAGENTA}Visit our documentation at https://AGiXT.com ${RESET}"
   echo "${BOLD}${MAGENTA}Welcome to the AGiXT Installer!${RESET}"
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT Core and Streamlit Web UI with Docker (Recommended)${RESET}"
