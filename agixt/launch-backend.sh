@@ -1,30 +1,25 @@
 #!/bin/sh
 
 set -e
-
-# Check if .env file exists
-if [ -f ".env" ]; then
-  echo "Sourcing .env file..."
-  source .env
-elif [ -f "../.env" ]; then
-  echo "Sourcing ../.env file..."
-  source ../.env
-else
-  # Check if .env.example file exists in the current directory
-  if [ -f ".env.example" ]; then
-    echo "No .env file found, sourcing .env.example from current directory..."
-    source .env.example
-  else
-    # Check if .env.example file exists in the parent directory
-    if [ -f "../.env.example" ]; then
-      echo "No .env or ../.env file found, sourcing .env.example from parent directory..."
-      source ../.env.example
-    else
-      echo "No .env, ../.env, or .env.example file found!"
-      exit 1
-    fi
-  fi
+# Check if $DB_CONNECTED is defined
+if [ -z "$DB_CONNECTED" ]; then
+  # Set defaults
+  echo "No .env file found, setting defaults..."
+  AGIXT_URI="http://localhost:7437"
+  DB_CONNECTED="false"
+  AGIXT_AUTO_UPDATE="true"
+  AGIXT_HUB="AGiXT/light-hub"
+  AGIXT_API_KEY=""
+  UVICORN_WORKERS="4"
+  GITHUB_USER=""
+  GITHUB_TOKEN=""
+  POSTGRES_SERVER="db"
+  POSTGRES_PORT="5432"
+  POSTGRES_DB="postgres"
+  POSTGRES_USER="postgres"
+  POSTGRES_PASSWORD="postgres"
 fi
+
 
 workers="${UVICORN_WORKERS:-4}"
 

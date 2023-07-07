@@ -3,6 +3,7 @@ services:
     image: joshxt/agixt:latest
     init: true
     environment:
+      - DB_CONNECTED=false
       - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
       - AGIXT_HUB=${AGIXT_HUB:-AGiXT/light-hub}
       - GITHUB_USER=${GITHUB_USER}
