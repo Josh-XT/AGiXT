@@ -78,6 +78,7 @@ environment_setup() {
         echo "POSTGRES_USER=${postgres_username:-postgres}" >> .env
         echo "POSTGRES_PASSWORD=${postgres_password:-postgres}" >> .env
     fi
+    source .env
 }
 # Function to display the menu
 display_menu() {
@@ -96,7 +97,8 @@ display_menu() {
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT with Docker (Recommended)${RESET}"
   echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
   echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update AGiXT ${RESET}"
-  echo "  ${BOLD}${RED}4.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${RED}4.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
+  echo "  ${BOLD}${RED}5.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
@@ -190,6 +192,34 @@ local_install() {
   cd ../streamlit && streamlit run Main.py
 }
 
+wipe_hub() {
+  read -p "Are you sure you want to wipe your AGiXT Hub? This is irreversible. (Y for yes, N for No): " wipe_hub
+  if [[ "$wipe_hub" == [Yy]* ]]; then
+    docker-compose down --remove-orphans
+    echo "${BOLD}${YELLOW}Wiping AGiXT Hub...${RESET}"
+    files=(
+      "agixt/extensions"
+      "agixt/chains"
+      "agixt/.github"
+      "agixt/prompts"
+      "agixt/providers"
+      "agixt/LICENSE"
+      "agixt/README.md"
+      "agixt/"*_main.zip
+    )
+
+    # Recursively delete files and folders
+    for file in "${files[@]}"; do
+        if [ -e "$file" ]; then
+            echo "Deleting: $file"
+            rm -rf "$file"
+        else
+            echo "File or folder not found: $file"
+        fi
+    done
+  fi
+}
+
 environment_setup
 # Main loop to display the menu and handle user input
 while true; do
@@ -211,12 +241,12 @@ while true; do
       sleep 2
       ;;
     4)
-      echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
+      wipe_hub
       break
       ;;
     *)
-      echo "${RED}Invalid option. Please try again.${RESET}"
-      sleep 2
+      echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"
+      break
       ;;
   esac
 done
