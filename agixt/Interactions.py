@@ -172,9 +172,12 @@ class Interactions:
         step_number: int = 0,
         shots: int = 1,
         disable_memory: bool = False,
+        conversation_name: str = "",
         **kwargs,
     ):
         shots = int(shots)
+        if conversation_name != "":
+            conversation_name = f"{self.agent_name} History"
         if learn_file != "":
             try:
                 learning_file = ApiClient.learn_file(file_path=learn_file)
@@ -234,6 +237,7 @@ class Interactions:
                     "disable_memory": disable_memory,
                     "user_input": user_input,
                     "context_results": context_results,
+                    "conversation_name": conversation_name,
                     **kwargs,
                 },
             )
@@ -289,20 +293,20 @@ class Interactions:
             if user_input != "":
                 log_interaction(
                     agent_name=self.agent_name,
-                    conversation_name=f"{self.agent_name} History",
+                    conversation_name=conversation_name,
                     role="USER",
                     message=user_input,
                 )
             else:
                 log_interaction(
                     agent_name=self.agent_name,
-                    conversation_name=f"{self.agent_name} History",
+                    conversation_name=conversation_name,
                     role="USER",
                     message=formatted_prompt,
                 )
             log_interaction(
                 agent_name=self.agent_name,
-                conversation_name=f"{self.agent_name} History",
+                conversation_name=conversation_name,
                 role=self.agent_name,
                 message=self.response,
             )
@@ -318,6 +322,7 @@ class Interactions:
                         "step_number": step_number,
                         "user_input": user_input,
                         "context_results": context_results,
+                        "conversation_name": conversation_name,
                         **kwargs,
                     },
                 )
