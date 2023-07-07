@@ -66,10 +66,26 @@ def import_agixt_hub():
             dest_file = os.path.join(".", file)
 
             if os.path.isdir(src_file):
-                if os.path.isdir(dest_file):
-                    shutil.rmtree(dest_file)
-                shutil.move(src_file, dest_file)
+                if os.path.exists(dest_file):
+                    for item in os.listdir(dest_file):
+                        dest_item = os.path.join(dest_file, item)
+                        if os.path.isfile(dest_item):
+                            os.remove(dest_item)
+                else:
+                    os.makedirs(dest_file, exist_ok=True)
+
+                for item in os.listdir(src_file):
+                    src_item = os.path.join(src_file, item)
+                    dest_item = os.path.join(dest_file, item)
+                    if os.path.isdir(src_item):
+                        if os.path.exists(dest_item):
+                            shutil.rmtree(dest_item)
+                        shutil.copytree(src_item, dest_item)
+                    else:
+                        shutil.copy2(src_item, dest_item)
             else:
+                if os.path.exists(dest_file):
+                    os.remove(dest_file)
                 shutil.move(src_file, dest_file)
 
         # Remove the reponame-main directory
