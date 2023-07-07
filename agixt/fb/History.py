@@ -28,10 +28,6 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
             history = yaml.safe_load(file)
         if not history:
             history = {"interactions": []}
-        if "interactions" in history:
-            history["interactions"] = history["interactions"][
-                (page - 1) * limit : page * limit
-            ]
         return history
     return new_conversation(agent_name=agent_name, conversation_name=conversation_name)
 
@@ -64,6 +60,8 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
     os.makedirs(os.path.dirname(history_file), exist_ok=True)
+    if not history:
+        history = {"interactions": []}
     if "interactions" not in history:
         history["interactions"] = []
     history["interactions"].append(
@@ -75,7 +73,7 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
     )
     logging.info(f"Logging interaction: {history['interactions'][-1]}")
     with open(history_file, "w") as file:
-        yaml.safe_dump(history)
+        yaml.safe_dump(history, file)
 
 
 def delete_history(agent_name, conversation_name=None):
