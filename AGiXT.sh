@@ -10,92 +10,6 @@ MAGENTA=$(tput setaf 5)
 BLUE=$(tput setaf 4)
 RESET=$(tput sgr0)
 
-# Function to display a show opening style animation
-display_animation() {
-  # More dynamic smoke animation above ASCII art
-  for i in {1..5}; do
-    clear
-    echo ""
-    echo ""
-    echo ""
-    echo "  ////^\\\\\\\\"
-    echo "  | ^   ^ |"
-    echo " @|(o) (o)|@"
-    echo "  |    >  |     (   )"
-    echo "  |   ___ |   ( )  ( )"
-    echo "   \___?__/    (  )  ("
-    echo "   __|  |__ _____________"
-    echo "  /        <_____________> ___"
-    echo " /    ^  ^ |             |/ _ \\"
-    echo "/  /|   ^  |               | | |"
-    echo "\_/ |  \_/ |               |_| |"
-    echo "/   |   ___|             |\\___/"
-    echo "    |  /    \\___________/    \\"
-    echo "    |  \\_____________________/"
-    sleep 0.65
-
-    clear
-    echo ""
-    echo ""
-    echo ""
-    echo "  ////^\\\\\\\\ |*********************|"
-    echo "  | ^   ^ | |AGiXT Author: Josh-XT|"
-    echo " @|(o) (o)|@| ____________________|"
-    echo "  |    >  | |/ (  ) ("
-    echo "  |   _O_ |   )  (   )"
-    echo "   \___?__/   ( )  ( )"
-    echo "   __|  |__ _____________"
-    echo "  /        <_____________> ___"
-    echo " /    ^  ^ |             |/ _ \\"
-    echo "/  /|   ^  |               | | |"
-    echo "\_/ |  \_/ |               |_| |"
-    echo "/   |   ___|             |\\___/"
-    echo "    |  /    \\___________/    \\"
-    echo "    |  \\_____________________/"
-    sleep 0.65
-
-    clear
-    echo ""
-    echo ""
-    echo ""
-    echo "  ////^\\\\\\\\ |*********************|"
-    echo "  | ^   ^ | | Join Us On Discord! |"
-    echo " @|(_) (_)|@| ____________________|"
-    echo "  |    >  | |/  )   (  )"
-    echo "  |   _o_ |  )  (  (  ("
-    echo "   \___?__/  ( )    ( )"
-    echo "   __|  |__ _____________"
-    echo "  /        <_____________> ___"
-    echo " /    ^  ^ |             |/ _ \\"
-    echo "/  /|   ^  |               | | |"
-    echo "\_/ |  \_/ |               |_| |"
-    echo "/   |   ___|             |\\___/"
-    echo "    |  /    \\___________/    \\"
-    echo "    |  \\_____________________/"
-    sleep 0.65
-
-    clear
-    echo ""
-    echo ""
-    echo ""
-    echo "  ////^\\\\\\\\ |*********************|"
-    echo "  | ^   ^ | |discord.gg/UCtYPvBdEC|"
-    echo " @|(o) (o)|@| ____________________|"
-    echo "  |    >  | |/ (  ) ("
-    echo "  |   _O_ |   ) (    )"
-    echo "   \___?__/  ( )   ( )"
-    echo "   __|  |__ _____________"
-    echo "  /        <_____________> ___"
-    echo " /    ^  ^ |             |/ _ \\"
-    echo "/  /|   ^  |               | | |"
-    echo "\_/ |  \_/ |               |_| |"
-    echo "/   |   ___|             |\\___/"
-    echo "    |  /    \\___________/    \\"
-    echo "    |  \\_____________________/"
-    sleep 0.65
-  done
-}
-
 # Check if .env file exists
 environment_setup() {
     if [[ ! -f ".env" ]]; then
@@ -108,6 +22,7 @@ environment_setup() {
         echo "/_/  |_\____/_//_/|_|/_/     "
         echo "                              "
         echo "----------------------------------------------------${RESET}"
+        echo "${BOLD}${MAGENTA}Visit our documentation at https://AGiXT.com ${RESET}"
         echo "${BOLD}${MAGENTA}Welcome to the AGiXT Environment Setup!${RESET}"
         read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
         if [[ "$use_api_key" == [Yy]* ]]; then
@@ -180,8 +95,11 @@ display_menu() {
 
 # Function to perform the Docker install
 docker_install() {
+  if [ ! -d "streamlit" ]; then
+      echo "${BOLD}${YELLOW}Cloning Streamlit Repository...${RESET}"
+      git clone https://github.com/AGiXT/streamlit
+  fi
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
-  display_animation
   echo "AGIXT_URI=http://agixt:7437" >> .env
 
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
@@ -191,7 +109,6 @@ docker_install() {
 # Function to perform the local install
 local_install() {
     echo "${BOLD}${GREEN}Running local install...${RESET}"
-    display_animation
     echo "AGIXT_URI=http://localhost:7437" >> .env
     echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
     git pull
@@ -238,8 +155,7 @@ local_install_with_streamlit() {
 
 # Function to perform the Update
 update() {
-  echo "${BOLD}${GREEN}Running Update...${RESET}"
-  display_animation
+  echo "${BOLD}${GREEN}Running Updates...${RESET}"
 
   echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
   git pull
