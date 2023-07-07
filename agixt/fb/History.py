@@ -26,12 +26,12 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     if os.path.exists(history_file):
         with open(history_file, "r") as file:
             history = yaml.safe_load(file)
+        if not history:
+            history = {"interactions": []}
         if "interactions" in history:
             history["interactions"] = history["interactions"][
                 (page - 1) * limit : page * limit
             ]
-        else:
-            history["interactions"] = []
         return history
     return new_conversation(agent_name=agent_name, conversation_name=conversation_name)
 
