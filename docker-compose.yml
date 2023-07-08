@@ -13,6 +13,9 @@ services:
       - "7437:7437"
     volumes:
       - ./models:/model
+      - ./agents:/agixt/agents
+      - ./chains:/agixt/chains
+      - ./prompts:/agixt/prompts
   streamlit:
     image: joshxt/streamlit:latest
     depends_on:
