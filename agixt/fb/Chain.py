@@ -297,6 +297,8 @@ class Chain:
                         all_responses=False,
                         from_step=1,
                     )
+                    if "response" in result:
+                        result = result["response"]
         if result:
             return result
         else:
@@ -342,6 +344,7 @@ class Chain:
                     )  # Get the response of the current step.
                     step["response"] = step_response
                     last_response = step_response
+                    logging.info(f"Last response: {last_response}")
                     responses[step_data["step"]] = step  # Store the response.
                     if step_response:
                         logging.info(
