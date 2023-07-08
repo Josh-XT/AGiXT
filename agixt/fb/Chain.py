@@ -52,15 +52,14 @@ def get_chain_responses_file_path(chain_name):
     return file_path
 
 
-def import_chain(chain_name: str, steps: dict):
-    file_path = get_chain_file_path(chain_name=chain_name)
-    steps = steps["steps"] if "steps" in steps else steps
-    with open(file_path, "w") as f:
-        json.dump({"chain_name": chain_name, "steps": steps}, f)
-    return f"Chain '{chain_name}' imported."
-
-
 class Chain:
+    def import_chain(self, chain_name: str, steps: dict):
+        file_path = get_chain_file_path(chain_name=chain_name)
+        steps = steps["steps"] if "steps" in steps else steps
+        with open(file_path, "w") as f:
+            json.dump({"chain_name": chain_name, "steps": steps}, f)
+        return f"Chain '{chain_name}' imported."
+
     def get_chain(self, chain_name):
         try:
             file_path = get_chain_file_path(chain_name=chain_name)
@@ -291,8 +290,8 @@ class Chain:
                     )
                 elif prompt_type == "Chain":
                     result = ApiClient.run_chain(
-                        chain_name=args["chain"],
-                        user_input=args["input"],
+                        chain_name=args["chain_name"],
+                        user_input=args["user_input"],
                         agent_name=agent_name,
                         all_responses=False,
                         from_step=1,
