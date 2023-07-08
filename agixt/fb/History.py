@@ -78,15 +78,14 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
 
 
 def delete_history(agent_name, conversation_name=None):
-    history = {"interactions": []}
     if not conversation_name:
         conversation_name = f"{agent_name} History"
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
 
-    with open(history_file, "w") as file:
-        yaml.safe_dump(history, file)
+    if os.path.exists(history_file):
+        os.remove(history_file)
 
 
 def delete_message(agent_name, message, conversation_name=None):
