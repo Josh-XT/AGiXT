@@ -44,6 +44,8 @@ streamlit/
 package.json
 package-lock.json
 *cookies.json
-
+chains/
+prompts/
+agents/
 # testing
 **/.ipynb_checkpoints/

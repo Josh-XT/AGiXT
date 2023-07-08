@@ -27,6 +27,7 @@ jobs:
       platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   test-agixt:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:

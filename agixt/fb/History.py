@@ -23,6 +23,7 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
+    os.makedirs(os.path.dirname(history_file), exist_ok=True)
     if os.path.exists(history_file):
         with open(history_file, "r") as file:
             history = yaml.safe_load(file)

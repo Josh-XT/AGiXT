@@ -24,3 +24,5 @@ cryptography==41.0.0
 pillow==9.5.0
 SQLAlchemy==2.0.17
 psycopg2==2.9.6
+torch==2.0.1
+transformers[accelerate]==4.30.1
