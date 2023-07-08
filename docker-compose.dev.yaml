@@ -28,7 +28,6 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./agixt:/agixt
       - ./models:/model
   streamlit:
     image: joshxt/streamlit:latest
@@ -39,5 +38,3 @@ services:
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
     ports:
       - "8501:8501"
-    volumes:
-      - ./streamlit:/app
