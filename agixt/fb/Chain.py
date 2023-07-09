@@ -290,8 +290,8 @@ class Chain:
                     )
                 elif prompt_type == "Chain":
                     result = ApiClient.run_chain(
-                        chain_name=args["chain_name"],
-                        user_input=args["user_input"],
+                        chain_name=args["chain"],
+                        user_input=args["input"],
                         agent_name=agent_name,
                         all_responses=False,
                         from_step=1,
