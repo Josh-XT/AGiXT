@@ -1,6 +1,23 @@
 #!/bin/sh
 
 set -e
+
+# Check if .env file exists and load it
+if [ -f .env ]; then
+  echo "Loading environment variables from .env file..."
+  set -a # automatically export all variables
+  . .env
+  set +a # stop automatically exporting all variables
+fi
+
+# Check if .env file exists in the parent directory and load it
+if [ -f ../.env ]; then
+  echo "Loading environment variables from .env file in parent directory..."
+  set -a # automatically export all variables
+  . ../.env
+  set +a # stop automatically exporting all variables
+fi
+
 # Check if $DB_CONNECTED is defined
 if [ -z "$DB_CONNECTED" ]; then
   # Set defaults
