@@ -418,7 +418,6 @@ async def get_conversation_history(history: HistoryModel):
         conversation_history = []
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
-    print(conversation_history)
     return {"conversation_history": conversation_history}
 
 
@@ -679,7 +678,6 @@ async def add_chain(chain_name: ChainName) -> ResponseMessage:
 
 @app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def importchain(chain: ChainData) -> ResponseMessage:
-    print(chain)
     response = Chain().import_chain(chain_name=chain.chain_name, steps=chain.steps)
     return ResponseMessage(message=response)
 

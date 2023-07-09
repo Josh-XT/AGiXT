@@ -1,7 +1,6 @@
 from datetime import datetime
 import yaml
 import os
-import logging
 
 
 def export_conversation(agent_name, conversation_name=None):
@@ -72,7 +71,6 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
             "timestamp": datetime.now().strftime("%B %d, %Y %I:%M %p"),
         }
     )
-    logging.info(f"Logging interaction: {history['interactions'][-1]}")
     with open(history_file, "w") as file:
         yaml.safe_dump(history, file)
 
