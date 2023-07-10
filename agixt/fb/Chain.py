@@ -178,7 +178,11 @@ class Chain:
             if step_number == "all":
                 return responses
             else:
-                return responses.get(str(step_number))
+                data = responses.get(str(step_number))
+                if isinstance(data, dict) and "response" in data:
+                    data = data["response"]
+                logging.info(f"Step {step_number} response: {data}")
+                return data
         except:
             return ""
 
