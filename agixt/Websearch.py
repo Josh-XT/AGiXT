@@ -4,10 +4,10 @@ import random
 import requests
 import logging
 import asyncio
+import time
 from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
-from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from typing import List
@@ -18,15 +18,6 @@ load_dotenv()
 ApiClient = AGiXTSDK(
     base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
 )
-
-
-async def ddg_search(query: str) -> List[str]:
-    links = []
-    with DDGS(timeout=5) as ddgs:
-        for r in ddgs.text(query, region="us-en", safesearch="Off", timelimit="y"):
-            links.append(f"{r['title']} - {r['href']}")
-    logging.info(f"Found {len(links)} links...")
-    return links
 
 
 class Websearch:
@@ -192,23 +183,25 @@ class Websearch:
         )
         results = results.split("\n")
         links = []
-        for result in results:
-            search_string = result.lstrip("0123456789. ")
-            logging.info(f"Searching for {search_string}...")
-            try:
-                links = await ddg_search(query=search_string)
-            except:
-                links = await self.search(query=search_string)
-            if len(links) > depth:
-                links = links[:depth]
-            if len(links) > 0:
-                logging.info(f"Browsing {len(links)} links...")
-                asyncio.create_task(
-                    self.resursive_browsing(user_input=user_input, links=links)
-                )
-        # Wait for all tasks to complete
-        logging.info(
-            "Waiting for all websearch tasks to complete... Please be patient, this can take awhile."
-        )
-        await asyncio.gather(*asyncio.all_tasks())
-        logging.info("Websearch tasks completed.")
+        if results:
+            for result in results:
+                search_string = result.lstrip("0123456789. ")
+                logging.info(f"Searching for {search_string}...")
+                try:
+                    links = await self.search(query=search_string)
+                except:
+                    links = []
+                if len(links) > depth:
+                    links = links[:depth]
+                if len(links) > 0:
+                    logging.info(f"Browsing {len(links)} links...")
+                    asyncio.create_task(
+                        self.resursive_browsing(user_input=user_input, links=links)
+                    )
+
+            # Wait for all tasks to complete
+            logging.info("Waiting 30 seconds for websearch tasks to complete...")
+            time.sleep(30)
+            logging.info("Websearch tasks completed.")
+        else:
+            logging.info("No results found.")
