@@ -3,6 +3,7 @@ import json
 import random
 import requests
 import logging
+import asyncio
 from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
@@ -17,6 +18,15 @@ load_dotenv()
 ApiClient = AGiXTSDK(
     base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
 )
+
+
+async def ddg_search(query: str) -> List[str]:
+    links = []
+    with DDGS(timeout=5) as ddgs:
+        for r in ddgs.text(query, region="us-en", safesearch="Off", timelimit="y"):
+            links.append(f"{r['title']} - {r['href']}")
+    logging.info(f"Found {len(links)} links...")
+    return links
 
 
 class Websearch:
@@ -167,13 +177,6 @@ class Websearch:
             self.searx_instance_url = "https://search.us.projectsegfau.lt/search"
             return await self.search(query=query)
 
-    def ddg_search(self, query: str):
-        links = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, region="us-en", safesearch="Off", timelimit="y"):
-                links.append(f"{r['title']} - {r['href']}")
-        return links
-
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
@@ -188,16 +191,24 @@ class Websearch:
             },
         )
         results = results.split("\n")
+        links = []
         for result in results:
             search_string = result.lstrip("0123456789. ")
+            logging.info(f"Searching for {search_string}...")
             try:
-                try:
-                    links = self.ddg_search(query=search_string)
-                except:
-                    links = await self.search(query=search_string)
-                if len(links) > depth:
-                    links = links[:depth]
+                links = await ddg_search(query=search_string)
             except:
-                links = None
-            if links is not None:
-                await self.resursive_browsing(user_input=user_input, links=links)
+                links = await self.search(query=search_string)
+            if len(links) > depth:
+                links = links[:depth]
+            if len(links) > 0:
+                logging.info(f"Browsing {len(links)} links...")
+                asyncio.create_task(
+                    self.resursive_browsing(user_input=user_input, links=links)
+                )
+        # Wait for all tasks to complete
+        logging.info(
+            "Waiting for all websearch tasks to complete... Please be patient, this can take awhile."
+        )
+        await asyncio.gather(*asyncio.all_tasks())
+        logging.info("Websearch tasks completed.")
