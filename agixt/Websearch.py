@@ -3,8 +3,6 @@ import json
 import random
 import requests
 import logging
-import asyncio
-import time
 from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
@@ -32,6 +30,8 @@ class Websearch:
         self.max_tokens = max_tokens
         self.searx_instance_url = searx_instance_url
         self.requirements = ["agixtsdk"]
+        self.failures = []
+        self.browsed_links = []
 
     async def get_web_content(self, url):
         try:
@@ -141,6 +141,10 @@ class Websearch:
             try:  # SearXNG - List of these at https://searx.space/
                 response = requests.get("https://searx.space/data/instances.json")
                 data = json.loads(response.text)
+                if self.failures != []:
+                    for failure in self.failures:
+                        if failure in data["instances"]:
+                            del data["instances"][failure]
                 servers = list(data["instances"].keys())
                 random_index = random.randint(0, len(servers) - 1)
                 self.searx_instance_url = servers[random_index]
@@ -149,6 +153,7 @@ class Websearch:
         server = self.searx_instance_url.rstrip("/")
         endpoint = f"{server}/search"
         try:
+            logging.info(f"Trying to connect to SearXNG Search at {endpoint}...")
             response = requests.get(
                 endpoint,
                 params={
@@ -162,10 +167,15 @@ class Websearch:
             summaries = [
                 result["title"] + " - " + result["url"] for result in results["results"]
             ]
+            if len(summaries) < 1:
+                self.failures.append(self.searx_instance_url)
+                self.searx_instance_url = ""
+                return await self.search(query=query)
             return summaries
         except:
+            self.failures.append(self.searx_instance_url)
+            self.searx_instance_url = ""
             # The SearXNG server is down or refusing connection, so we will use the default one.
-            self.searx_instance_url = "https://search.us.projectsegfau.lt/search"
             return await self.search(query=query)
 
     async def websearch_agent(
@@ -182,22 +192,17 @@ class Websearch:
             },
         )
         results = results.split("\n")
-        links = []
-        if results:
+        if len(results) > 0:
             for result in results:
+                links = []
                 search_string = result.lstrip("0123456789. ")
-                logging.info(f"Searching for {search_string}...")
-                try:
-                    links = await self.search(query=search_string)
-                except:
-                    links = []
+                logging.info(f"Searching for: {search_string}")
+                links = await self.search(query=search_string)
+                logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > depth:
                     links = links[:depth]
-                if len(links) > 0:
-                    logging.info(f"Browsing {len(links)} links...")
-                    asyncio.create_task(
-                        self.resursive_browsing(user_input=user_input, links=links)
-                    )
+                if links is not None and len(links) > 0:
+                    await self.resursive_browsing(user_input=user_input, links=links)
 
             # Wait for all tasks to complete
             logging.info("Waiting 30 seconds for websearch tasks to complete...")
