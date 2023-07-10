@@ -296,7 +296,7 @@ class Chain:
                         all_responses=False,
                         from_step=1,
                     )
-                    if "response" in result:
+                    if isinstance(result, dict) and "response" in result:
                         result = result["response"]
         if result:
             return result
