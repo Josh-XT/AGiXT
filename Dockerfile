@@ -45,6 +45,6 @@ RUN npm install -g playwright
 RUN npx playwright install
 
 COPY . .
-RUN chmod +x /agixt/launch-backend.sh
+
 WORKDIR /agixt
 ENTRYPOINT ["sh", "-c", "./launch-backend.sh"]
