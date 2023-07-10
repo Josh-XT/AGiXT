@@ -6,6 +6,7 @@ import logging
 from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from typing import List
@@ -166,6 +167,13 @@ class Websearch:
             self.searx_instance_url = "https://search.us.projectsegfau.lt/search"
             return await self.search(query=query)
 
+    def ddg_search(self, query: str):
+        links = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, region="us-en", safesearch="Off", timelimit="y"):
+                links.append(f"{r['title']} - {r['href']}")
+        return links
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
@@ -183,7 +191,10 @@ class Websearch:
         for result in results:
             search_string = result.lstrip("0123456789. ")
             try:
-                links = await self.search(query=search_string)
+                try:
+                    links = self.ddg_search(query=search_string)
+                except:
+                    links = await self.search(query=search_string)
                 if len(links) > depth:
                     links = links[:depth]
             except:

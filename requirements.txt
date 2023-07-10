@@ -1,3 +1,4 @@
 agixtsdk==0.0.13
+duckduckgo_search==3.8.3
 semantic-kernel==0.3.1.dev0
 -e git+https://github.com/xtekky/gpt4free.git#egg=gpt4free
