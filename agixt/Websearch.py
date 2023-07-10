@@ -4,6 +4,7 @@ import random
 import requests
 import logging
 import asyncio
+import time
 from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
