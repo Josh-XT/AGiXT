@@ -205,9 +205,7 @@ class Websearch:
                     links = links[:depth]
                 if links is not None and len(links) > 0:
                     asyncio.create_task(
-                        await self.resursive_browsing(
-                            user_input=user_input, links=links
-                        )
+                        self.resursive_browsing(user_input=user_input, links=links)
                     )
 
             # Wait for all tasks to complete
