@@ -173,6 +173,7 @@ class Interactions:
         shots: int = 1,
         disable_memory: bool = False,
         conversation_name: str = "",
+        browse_links: bool = True,
         **kwargs,
     ):
         shots = int(shots)
@@ -185,6 +186,17 @@ class Interactions:
                 return "Failed to read file."
             if learning_file == False:
                 return "Failed to read file."
+        if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
+            try:
+                websearch_timeout = int(
+                    self.agent.PROVIDER_SETTINGS["WEBSEARCH_TIMEOUT"]
+                )
+            except:
+                websearch_timeout = 0
+        if browse_links != False:
+            await self.websearch.browse_links_from_input(
+                user_input=user_input, timeout=websearch_timeout
+            )
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
@@ -194,15 +206,6 @@ class Interactions:
             else:
                 search_string = user_input
             if search_string != "":
-                if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
-                    try:
-                        websearch_timeout = int(
-                            self.agent.PROVIDER_SETTINGS["WEBSEARCH_TIMEOUT"]
-                        )
-                    except:
-                        websearch_timeout = 0
-                else:
-                    websearch_timeout = 0
                 await self.websearch.websearch_agent(
                     user_input=search_string,
                     depth=websearch_depth,
