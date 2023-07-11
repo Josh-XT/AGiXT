@@ -69,7 +69,7 @@ class Websearch:
             return None, None
 
     async def resursive_browsing(self, user_input, links):
-        chunk_size = int(int(self.max_tokens) / 2)
+        chunk_size = int(int(self.max_tokens) / 3)
         try:
             words = links.split()
             links = [
@@ -96,7 +96,7 @@ class Websearch:
                             collected_data,
                             link_list,
                         ) = await self.get_web_content(url=url)
-                        # Split the collected data into agent max tokens / 2 character chunks
+                        # Split the collected data into agent max tokens / 3 character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
                                 tokens = get_tokens(collected_data)
