@@ -41,20 +41,7 @@ class Interactions:
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
             self.memories = self.agent.get_memories()
-            searx_instance_url = (
-                self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
-                if "SEARXNG_INSTANCE_URL" in self.agent.PROVIDER_SETTINGS
-                else ""
-            )
-            try:
-                max_tokens = self.agent.PROVIDER_SETTINGS["MAX_TOKENS"]
-            except:
-                max_tokens = 2048
-            self.websearch = Websearch(
-                agent_name=self.agent_name,
-                searx_instance_url=searx_instance_url,
-                max_tokens=max_tokens,
-            )
+            self.websearch = Websearch(agent=self.agent, memories=self.memories)
         else:
             self.agent_name = ""
             self.agent = None
@@ -99,15 +86,16 @@ class Interactions:
                 )
             except:
                 prompt = prompt
+        logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
-            context = "None"
+            context = ""
         else:
-            try:
-                context = await self.memories.context_agent(
-                    query=user_input, top_results_num=top_results
-                )
-            except:
-                context = ""
+            # try:
+            context = await self.memories.context_agent(
+                query=user_input, top_results_num=top_results
+            )
+            # except:
+            # context = ""
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
@@ -176,6 +164,7 @@ class Interactions:
         **kwargs,
     ):
         shots = int(shots)
+        disable_memory = False if str(disable_memory).lower() != "true" else False
         if conversation_name != "":
             conversation_name = f"{self.agent_name} History"
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
@@ -188,9 +177,14 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            await self.websearch.browse_links_from_input(
-                user_input=user_input, timeout=websearch_timeout
-            )
+            links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
+            if links is not None and len(links) > 0:
+                for link in links:
+                    if link not in self.websearch.browsed_links:
+                        self.websearch.browsed_links.append(link)
+                        text_content, link_list = await self.memories.read_website(
+                            url=link
+                        )
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
@@ -207,7 +201,7 @@ class Interactions:
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
-            top_results=context_results,
+            top_results=int(context_results),
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
