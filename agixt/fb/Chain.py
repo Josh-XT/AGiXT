@@ -300,9 +300,11 @@ class Chain:
                         all_responses=False,
                         from_step=1,
                     )
-                    if isinstance(result, dict) and "response" in result:
-                        result = result["response"]
         if result:
+            if isinstance(result, dict) and "response" in result:
+                result = result["response"]
+            if result == "Unable to retrieve data.":
+                result = None
             return result
         else:
             return None
@@ -336,27 +338,23 @@ class Chain:
                         f"Running step {step_data['step']} with agent {step['agent_name']}."
                     )
 
-                    # Get the chain step based on the step number
-                    chain_step = self.get_step(chain_name, step_data["step"])
-
                     step_response = await self.run_chain_step(
                         step=step_data,
                         chain_name=chain_name,
                         user_input=user_input,
                         agent_override=agent_override,
                     )  # Get the response of the current step.
+                    if step_response == None:
+                        return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed."
                     step["response"] = step_response
                     last_response = step_response
                     logging.info(f"Last response: {last_response}")
                     responses[step_data["step"]] = step  # Store the response.
-                    if step_response:
-                        logging.info(
-                            f"Step {step_data['step']} response: {step_response}"
-                        )
-                        # Write the response to the chain responses file.
-                        file_path = get_chain_responses_file_path(chain_name=chain_name)
-                        with open(file_path, "w") as f:
-                            json.dump(responses, f)
+                    logging.info(f"Step {step_data['step']} response: {step_response}")
+                    # Write the response to the chain responses file.
+                    file_path = get_chain_responses_file_path(chain_name=chain_name)
+                    with open(file_path, "w") as f:
+                        json.dump(responses, f)
 
         if all_responses:
             return responses
