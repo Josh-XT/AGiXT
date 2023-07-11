@@ -130,12 +130,9 @@ class Websearch:
                                         logging.info(
                                             f"AI has decided to click: {pick_a_link}"
                                         )
-                                        task = asyncio.create_task(
-                                            self.resursive_browsing(
-                                                user_input=user_input, links=pick_a_link
-                                            )
+                                        await self.resursive_browsing(
+                                            user_input=user_input, links=pick_a_link
                                         )
-                                        self.tasks.append(task)
                                 except:
                                     logging.info(f"Issues reading {url}. Moving on...")
 
