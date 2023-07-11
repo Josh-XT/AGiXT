@@ -116,10 +116,12 @@ update() {
   git pull
   cd ..
   if [ ! -d "text-generation-webui" ]; then
-      cd text-generation-webui
-      git pull
-      cd ..
+      echo "${BOLD}${YELLOW}Cloning Oobabooga Text Generation WebUI Repository...${RESET}"
+      git clone https://github.com/oobabooga/text-generation-webui
   fi
+  cd text-generation-webui
+  git pull
+  cd ..
   echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
   docker-compose pull
 }
