@@ -337,13 +337,16 @@ class Chain:
                     logging.info(
                         f"Running step {step_data['step']} with agent {step['agent_name']}."
                     )
-
-                    step_response = await self.run_chain_step(
-                        step=step_data,
-                        chain_name=chain_name,
-                        user_input=user_input,
-                        agent_override=agent_override,
-                    )  # Get the response of the current step.
+                    try:
+                        step_response = await self.run_chain_step(
+                            step=step,
+                            chain_name=chain_name,
+                            user_input=user_input,
+                            agent_override=agent_override,
+                        )  # Get the response of the current step.
+                    except Exception as e:
+                        logging.error(e)
+                        step_response = None
                     if step_response == None:
                         return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed."
                     step["response"] = step_response
