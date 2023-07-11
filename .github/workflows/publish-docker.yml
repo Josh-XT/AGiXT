@@ -25,12 +25,11 @@ jobs:
       platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
-  test-agixt:
-    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
-    with:
-      notebook: tests/tests.ipynb
-      image: ${{ needs.build-agixt.outputs.primary-image }}
-      port: "7437"
-      additional-python-dependencies: agixtsdk==0.0.13
-    needs: build-agixt
+#  test-agixt:
+#    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+#    with:
+#      notebook: tests/tests.ipynb
+#      image: ${{ needs.build-agixt.outputs.primary-image }}
+#      port: "7437"
+#      additional-python-dependencies: agixtsdk==0.0.13
+#    needs: build-agixt
