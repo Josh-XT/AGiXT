@@ -334,6 +334,7 @@ class Chain:
                     )
                     step["prompt_type"] = step_data["prompt_type"]
                     step["prompt"] = step_data["prompt"]
+                    step["step"] = step_data["step"]
                     logging.info(
                         f"Running step {step_data['step']} with agent {step['agent_name']}."
                     )
