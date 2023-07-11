@@ -4,6 +4,7 @@ import regex
 import json
 import time
 import logging
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -197,9 +198,6 @@ class Interactions:
                 await self.websearch.websearch_agent(
                     user_input=search_string, depth=websearch_depth
                 )
-                logging.info("Web searching for 90 seconds... Please wait...")
-                time.sleep(90)
-                logging.info("Websearch tasks completed.")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=context_results,
