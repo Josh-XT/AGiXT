@@ -102,12 +102,12 @@ class Interactions:
         if top_results == 0:
             context = "None"
         else:
-            # try:
-            context = await self.memories.context_agent(
-                query=user_input, top_results_num=top_results
-            )
-            # except:
-            # context = ""
+            try:
+                context = await self.memories.context_agent(
+                    query=user_input, top_results_num=top_results
+                )
+            except:
+                context = ""
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
