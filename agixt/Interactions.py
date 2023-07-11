@@ -185,6 +185,8 @@ class Interactions:
                 )
             except:
                 websearch_timeout = 0
+        else:
+            websearch_timeout = 0
         if browse_links != False:
             await self.websearch.browse_links_from_input(
                 user_input=user_input, timeout=websearch_timeout
