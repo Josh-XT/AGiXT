@@ -116,7 +116,7 @@ update() {
   git pull
   cd ..
   if [ ! -d "text-generation-webui" ]; then
-      echo "${BOLD}${YELLOW}Cloning Oobabooga Text Generation WebUI Repository...${RESET}"
+      echo "${BOLD}${YELLOW}Updating Oobabooga Text Generation WebUI Repository...${RESET}"
       git clone https://github.com/oobabooga/text-generation-webui
   fi
   cd text-generation-webui
