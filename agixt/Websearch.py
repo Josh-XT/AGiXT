@@ -141,6 +141,9 @@ class Websearch:
                                         },
                                     )
                                     if not pick_a_link.startswith("None"):
+                                        logging.info(
+                                            f"AI has decided to click: {pick_a_link}"
+                                        )
                                         task = asyncio.create_task(
                                             await self.resursive_browsing(
                                                 user_input=user_input, links=pick_a_link
@@ -195,19 +198,13 @@ class Websearch:
     async def browse_links_from_input(self, user_input: str, timeout: int = 0):
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if len(links) > 0:
+            logging.info(f"Links: {links}")
             logging.info(
                 f"Found {len(links)} {'links' if len(links) > 1 else 'link'} in user input. Browsing..."
             )
-            task = asyncio.create_task(
-                self.resursive_browsing(user_input=user_input, links=links)
-            )
-            self.tasks.append(task)
-            if int(timeout) == 0:
-                await asyncio.gather(*self.tasks)
-            else:
-                logging.info(f"Browsing links for {timeout} seconds... Please wait...")
-                await asyncio.sleep(int(timeout))
-                logging.info("Browsing links completed.")
+            for link in links:
+                user_input = user_input.replace(link, "")
+            await self.resursive_browsing(user_input=user_input, links=links)
 
     async def websearch_agent(
         self,
