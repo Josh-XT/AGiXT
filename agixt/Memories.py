@@ -92,18 +92,23 @@ class Memories:
                     )
                 except Exception as e:
                     logging.info(f"Failed to store memory: {e}")
+            self.chroma_client._client.persist()
 
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
         embedder, chunk_size = await self.get_embedder()
         collection = await self.get_collection()
         if collection == None:
             return []
-        results = await self.chroma_client.get_nearest_matches_async(
-            collection_name="memories",
-            embedding=await embedder(query),
-            limit=top_results_num,
-            min_relevance_score=0.1,
-        )
+        embed = await Embedding(AGENT_CONFIG=self.agent_config).embed_text(text=query)
+        try:
+            results = await self.chroma_client.get_nearest_matches_async(
+                collection_name="memories",
+                embedding=embed,
+                limit=top_results_num,
+                min_relevance_score=0.1,
+            )
+        except:
+            return ""
         context = []
         for memory, score in results:
             context.append(memory._text)

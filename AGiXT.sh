@@ -96,9 +96,10 @@ display_menu() {
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT with Docker (Recommended)${RESET}"
   echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Update AGiXT ${RESET}"
-  echo "  ${BOLD}${RED}4.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
-  echo "  ${BOLD}${RED}5.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Update AGiXT ${RESET}"
+  echo "  ${BOLD}${RED}5.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
+  echo "  ${BOLD}${RED}6.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
@@ -114,6 +115,11 @@ update() {
   cd streamlit
   git pull
   cd ..
+  if [ ! -d "text-generation-webui" ]; then
+      cd text-generation-webui
+      git pull
+      cd ..
+  fi
   echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
   docker-compose pull
 }
@@ -140,7 +146,33 @@ docker_install() {
     docker-compose up
   fi
 }
+# Function to perform the Docker install
+docker_install_local_nvidia() {
+  sed -i '/^AGIXT_URI=/d' .env
+  echo "AGIXT_URI=http://agixt:7437" >> .env
+  source .env
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    update
+  fi
 
+  if [ ! -d "streamlit" ]; then
+      echo "${BOLD}${YELLOW}Cloning Streamlit Repository...${RESET}"
+      git clone https://github.com/AGiXT/streamlit
+  fi
+
+  if [ ! -d "text-generation-webui" ]; then
+      echo "${BOLD}${YELLOW}Cloning Oobabooga Text Generation WebUI Repository...${RESET}"
+      git clone https://github.com/oobabooga/text-generation-webui
+  fi
+
+  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
+  echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
+  if [[ "$DB_CONNECTED" == "true" ]]; then
+    docker-compose -f docker-compose-postgres-local-nvidia.yml up
+  else
+    docker-compose -f docker-compose-local-nvidia.yml up
+  fi
+}
 # Function to perform the local install
 local_install() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -240,11 +272,15 @@ while true; do
       break
       ;;
     3)
+      docker_install_local_nvidia
+      break
+      ;;
+    4)
       update
       echo "${BOLD}${GREEN}Update complete.${RESET}"
       sleep 2
       ;;
-    4)
+    5)
       wipe_hub
       break
       ;;
