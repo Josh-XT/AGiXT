@@ -194,8 +194,19 @@ class Interactions:
             else:
                 search_string = user_input
             if search_string != "":
+                if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
+                    try:
+                        websearch_timeout = int(
+                            self.agent.PROVIDER_SETTINGS["WEBSEARCH_TIMEOUT"]
+                        )
+                    except:
+                        websearch_timeout = 0
+                else:
+                    websearch_timeout = 0
                 await self.websearch.websearch_agent(
-                    user_input=search_string, depth=websearch_depth
+                    user_input=search_string,
+                    depth=websearch_depth,
+                    timeout=websearch_timeout,
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
