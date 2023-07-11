@@ -87,7 +87,6 @@ class Interactions:
         prompt="",
         chain_name="",
         step_number=0,
-        memories=None,
         **kwargs,
     ):
         if prompt == "":
@@ -103,12 +102,12 @@ class Interactions:
         if top_results == 0:
             context = "None"
         else:
-            try:
-                context = await memories.context_agent(
-                    query=user_input, top_results_num=top_results
-                )
-            except:
-                context = "None."
+            # try:
+            context = await self.memories.context_agent(
+                query=user_input, top_results_num=top_results
+            )
+            # except:
+            # context = ""
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
@@ -204,7 +203,6 @@ class Interactions:
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
-            memories=self.memories,
             **kwargs,
         )
         try:
@@ -284,7 +282,7 @@ class Interactions:
             self.response = return_response
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
-            if disable_memory == False:
+            if disable_memory != True:
                 try:
                     await self.memories.store_result(
                         input=user_input, result=self.response
