@@ -167,7 +167,6 @@ class Interactions:
         context_results: int = 5,
         websearch: bool = False,
         websearch_depth: int = 3,
-        learn_file: str = "",
         chain_name: str = "",
         step_number: int = 0,
         shots: int = 1,
@@ -179,13 +178,6 @@ class Interactions:
         shots = int(shots)
         if conversation_name != "":
             conversation_name = f"{self.agent_name} History"
-        if learn_file != "":
-            try:
-                learning_file = ApiClient.learn_file(file_path=learn_file)
-            except:
-                return "Failed to read file."
-            if learning_file == False:
-                return "Failed to read file."
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
                 websearch_timeout = int(
