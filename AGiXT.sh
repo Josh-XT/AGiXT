@@ -130,6 +130,7 @@ update() {
 docker_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
+  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     update
@@ -152,6 +153,7 @@ docker_install() {
 docker_install_local_nvidia() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
+  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     update
@@ -179,6 +181,7 @@ docker_install_local_nvidia() {
 local_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://localhost:7437" >> .env
+  echo "TEXTGEN_URI=http://localhost:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     echo "${BOLD}${YELLOW}Checking for updates...${RESET}"
