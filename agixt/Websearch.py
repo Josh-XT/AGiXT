@@ -41,6 +41,7 @@ class Websearch:
         self.requirements = ["agixtsdk"]
         self.failures = []
         self.browsed_links = []
+        self.tasks = []
         self.memories = Agent(agent_name=self.agent_name).get_memories()
 
     async def get_web_content(self, url):
@@ -140,9 +141,12 @@ class Websearch:
                                         },
                                     )
                                     if not pick_a_link.startswith("None"):
-                                        await self.resursive_browsing(
-                                            user_input=user_input, links=pick_a_link
+                                        task = asyncio.create_task(
+                                            await self.resursive_browsing(
+                                                user_input=user_input, links=pick_a_link
+                                            )
                                         )
+                                        self.tasks.append(task)
                                 except:
                                     logging.info(f"Issues reading {url}. Moving on...")
 
@@ -192,6 +196,7 @@ class Websearch:
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
         depth: int = 3,
+        timeout: int = 0,
     ):
         results = ApiClient.prompt_agent(
             agent_name=self.agent_name,
@@ -212,11 +217,16 @@ class Websearch:
                 if len(links) > depth:
                     links = links[:depth]
                 if links is not None and len(links) > 0:
-                    asyncio.create_task(
+                    task = asyncio.create_task(
                         self.resursive_browsing(user_input=user_input, links=links)
                     )
-            logging.info("Web searching for 90 seconds... Please wait...")
-            await asyncio.sleep(90)
-            logging.info("Websearch tasks completed.")
+                    self.tasks.append(task)
+
+            if int(timeout) == 0:
+                await asyncio.gather(*self.tasks)
+            else:
+                logging.info(f"Web searching for {timeout} seconds... Please wait...")
+                await asyncio.sleep(int(timeout))
+                logging.info("Websearch tasks completed.")
         else:
             logging.info("No results found.")
