@@ -4,6 +4,7 @@ import regex
 import json
 import time
 import logging
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 

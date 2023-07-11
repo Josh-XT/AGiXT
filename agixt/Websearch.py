@@ -215,10 +215,8 @@ class Websearch:
                     asyncio.create_task(
                         self.resursive_browsing(user_input=user_input, links=links)
                     )
-
-            # Wait for all tasks to complete
             logging.info("Web searching for 90 seconds... Please wait...")
-            time.sleep(90)
+            await asyncio.sleep(90)
             logging.info("Websearch tasks completed.")
         else:
             logging.info("No results found.")
