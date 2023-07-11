@@ -119,6 +119,7 @@ class Websearch:
                                             "link": url,
                                             "chunk": chunk,
                                             "disable_memory": True,
+                                            "browse_links": False,
                                             "user_input": user_input,
                                         },
                                     )
@@ -139,6 +140,7 @@ class Websearch:
                                         prompt_args={
                                             "links": link_list,
                                             "disable_memory": True,
+                                            "browse_links": False,
                                             "user_input": user_input,
                                         },
                                     )
