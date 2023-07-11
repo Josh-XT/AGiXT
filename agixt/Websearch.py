@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import random
@@ -11,10 +12,16 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from typing import List
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
+AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
+db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+if db_connected:
+    from db.Agent import Agent
+else:
+    from fb.Agent import Agent
+
 ApiClient = AGiXTSDK(
     base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
 )
@@ -34,6 +41,7 @@ class Websearch:
         self.requirements = ["agixtsdk"]
         self.failures = []
         self.browsed_links = []
+        self.memories = Agent(agent_name=self.agent_name).get_memories()
 
     async def get_web_content(self, url):
         try:
@@ -209,8 +217,8 @@ class Websearch:
                     )
 
             # Wait for all tasks to complete
-            logging.info("Waiting 30 seconds for websearch tasks to complete...")
-            time.sleep(30)
+            logging.info("Web searching for 90 seconds... Please wait...")
+            time.sleep(90)
             logging.info("Websearch tasks completed.")
         else:
             logging.info("No results found.")
