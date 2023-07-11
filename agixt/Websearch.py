@@ -192,6 +192,23 @@ class Websearch:
             # The SearXNG server is down or refusing connection, so we will use the default one.
             return await self.search(query=query)
 
+    async def browse_links_from_input(self, user_input: str, timeout: int = 0):
+        links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
+        if len(links) > 0:
+            logging.info(
+                f"Found {len(links)} {'links' if len(links) > 1 else 'link'} in user input. Browsing..."
+            )
+            task = asyncio.create_task(
+                self.resursive_browsing(user_input=user_input, links=links)
+            )
+            self.tasks.append(task)
+            if int(timeout) == 0:
+                await asyncio.gather(*self.tasks)
+            else:
+                logging.info(f"Browsing links for {timeout} seconds... Please wait...")
+                await asyncio.sleep(int(timeout))
+                logging.info("Browsing links completed.")
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
