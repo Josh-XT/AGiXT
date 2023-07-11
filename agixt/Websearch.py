@@ -58,6 +58,9 @@ class Websearch:
                 link_list = []
                 for link in links:
                     title = await page.evaluate("(link) => link.textContent", link)
+                    title = title.replace("\n", "")
+                    title = title.replace("\t", "")
+                    title = title.replace("  ", "")
                     href = await page.evaluate("(link) => link.href", link)
                     link_list.append((title, href))
 
@@ -99,36 +102,13 @@ class Websearch:
                             collected_data,
                             link_list,
                         ) = await self.get_web_content(url=url)
-                        # Split the collected data into agent max tokens / 3 character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
-                                tokens = get_tokens(collected_data)
-                                chunks = [
-                                    collected_data[i : i + chunk_size]
-                                    for i in range(
-                                        0,
-                                        int(tokens),
-                                        chunk_size,
-                                    )
-                                ]
-                                for chunk in chunks:
-                                    summarized_content = ApiClient.prompt_agent(
-                                        agent_name=self.agent_name,
-                                        prompt_name="Summarize Web Content",
-                                        prompt_args={
-                                            "link": url,
-                                            "chunk": chunk,
-                                            "disable_memory": True,
-                                            "browse_links": False,
-                                            "user_input": user_input,
-                                        },
-                                    )
-                                    if not summarized_content.startswith("None"):
-                                        await self.memories.store_result(
-                                            input=user_input,
-                                            result=summarized_content,
-                                            external_source_name=url,
-                                        )
+                                await self.memories.store_result(
+                                    input=user_input,
+                                    result=collected_data,
+                                    external_source_name=url,
+                                )
                         if link_list is not None:
                             if len(link_list) > 0:
                                 if len(link_list) > 5:
@@ -138,7 +118,9 @@ class Websearch:
                                         agent_name=self.agent_name,
                                         prompt_name="Pick-a-Link",
                                         prompt_args={
+                                            "url": url,
                                             "links": link_list,
+                                            "visited_links": self.browsed_links,
                                             "disable_memory": True,
                                             "browse_links": False,
                                             "user_input": user_input,
@@ -149,7 +131,7 @@ class Websearch:
                                             f"AI has decided to click: {pick_a_link}"
                                         )
                                         task = asyncio.create_task(
-                                            await self.resursive_browsing(
+                                            self.resursive_browsing(
                                                 user_input=user_input, links=pick_a_link
                                             )
                                         )
