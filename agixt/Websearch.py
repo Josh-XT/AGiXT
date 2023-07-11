@@ -88,6 +88,8 @@ class Websearch:
                 else:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
+                if url in self.browsed_links:
+                    continue
                 # Check if url is an actual url
                 if url.startswith("http"):
                     logging.info(f"Scraping: {url}")
@@ -202,8 +204,6 @@ class Websearch:
             logging.info(
                 f"Found {len(links)} {'links' if len(links) > 1 else 'link'} in user input. Browsing..."
             )
-            for link in links:
-                user_input = user_input.replace(link, "")
             await self.resursive_browsing(user_input=user_input, links=links)
 
     async def websearch_agent(
