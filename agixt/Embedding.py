@@ -70,7 +70,10 @@ class Embedding:
     async def openai(self):
         chunk_size = 1000
         if "API_URI" in self.AGENT_CONFIG["settings"]:
-            api_base = self.AGENT_CONFIG["settings"]["API_URI"]
+            if self.AGENT_CONFIG["settings"]["API_URI"] != "":
+                api_base = self.AGENT_CONFIG["settings"]["API_URI"]
+            else:
+                api_base = None
         else:
             api_base = None
         embed = OpenAITextEmbedding(

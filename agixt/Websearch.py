@@ -5,10 +5,10 @@ import random
 import requests
 import logging
 import asyncio
-import time
-from Embedding import get_tokens
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
+from Embedding import get_tokens
+from Memories import Memories
 from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from typing import List
@@ -30,19 +30,26 @@ ApiClient = AGiXTSDK(
 class Websearch:
     def __init__(
         self,
-        agent_name: str,
-        max_tokens: int = 2048,
-        searx_instance_url: str = "",
+        agent: Agent,
+        memories: Memories,
         **kwargs,
     ):
-        self.agent_name = agent_name
-        self.max_tokens = max_tokens
-        self.searx_instance_url = searx_instance_url
+        self.agent = agent
+        self.memories = memories
+        self.agent_name = self.agent.agent_name
+        try:
+            self.max_tokens = self.agent.PROVIDER_SETTINGS["MAX_TOKENS"]
+        except:
+            self.max_tokens = 2048
+        self.searx_instance_url = (
+            self.agent.PROVIDER_SETTINGS["SEARXNG_INSTANCE_URL"]
+            if "SEARXNG_INSTANCE_URL" in self.agent.PROVIDER_SETTINGS
+            else ""
+        )
         self.requirements = ["agixtsdk"]
         self.failures = []
         self.browsed_links = []
         self.tasks = []
-        self.memories = Agent(agent_name=self.agent_name).get_memories()
 
     async def get_web_content(self, url):
         try:
@@ -102,13 +109,57 @@ class Websearch:
                             collected_data,
                             link_list,
                         ) = await self.get_web_content(url=url)
+                        # Split the collected data into agent max tokens / 3 character chunks
                         if collected_data is not None:
                             if len(collected_data) > 0:
-                                await self.memories.store_result(
-                                    input=user_input,
-                                    result=collected_data,
-                                    external_source_name=url,
-                                )
+                                tokens = get_tokens(collected_data)
+                                chunks = [
+                                    collected_data[i : i + chunk_size]
+                                    for i in range(
+                                        0,
+                                        int(tokens),
+                                        chunk_size,
+                                    )
+                                ]
+                                for chunk in chunks:
+                                    summarized_content = ApiClient.prompt_agent(
+                                        agent_name=self.agent_name,
+                                        prompt_name="Summarize Web Content",
+                                        prompt_args={
+                                            "link": url,
+                                            "chunk": chunk,
+                                            "user_input": user_input,
+                                            "browse_links": False,
+                                            "disable_memory": True,
+                                        },
+                                    )
+                                    if not summarized_content.startswith("None"):
+                                        await self.memories.store_result(
+                                            input=url,
+                                            result=summarized_content,
+                                            external_source_name=url,
+                                        )
+        if links is not None:
+            for link in links:
+                if "href" in link:
+                    try:
+                        url = link["href"]
+                    except:
+                        url = link
+                else:
+                    url = link
+                url = re.sub(r"^.*?(http)", r"http", url)
+                if url in self.browsed_links:
+                    continue
+                # Check if url is an actual url
+                if url.startswith("http"):
+                    logging.info(f"Scraping: {url}")
+                    if url not in self.browsed_links:
+                        self.browsed_links.append(url)
+                        (
+                            collected_data,
+                            link_list,
+                        ) = await self.get_web_content(url=url)
                         if link_list is not None:
                             if len(link_list) > 0:
                                 if len(link_list) > 5:
@@ -124,6 +175,7 @@ class Websearch:
                                             "disable_memory": True,
                                             "browse_links": False,
                                             "user_input": user_input,
+                                            "context_results": 0,
                                         },
                                     )
                                     if not pick_a_link.startswith("None"):
@@ -177,15 +229,6 @@ class Websearch:
             self.searx_instance_url = ""
             # The SearXNG server is down or refusing connection, so we will use the default one.
             return await self.search(query=query)
-
-    async def browse_links_from_input(self, user_input: str, timeout: int = 0):
-        links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
-        if len(links) > 0:
-            logging.info(f"Links: {links}")
-            logging.info(
-                f"Found {len(links)} {'links' if len(links) > 1 else 'link'} in user input. Browsing..."
-            )
-            await self.resursive_browsing(user_input=user_input, links=links)
 
     async def websearch_agent(
         self,
