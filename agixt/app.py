@@ -162,6 +162,11 @@ class RunChain(BaseModel):
     from_step: Optional[int] = 1
 
 
+class RunChainStep(BaseModel):
+    prompt: str
+    agent_override: Optional[str] = ""
+
+
 class StepInfo(BaseModel):
     step_number: int
     agent_name: str
@@ -668,6 +673,29 @@ async def run_chain(chain_name: str, user_input: RunChain):
         from_step=user_input.from_step,
     )
     return chain_response
+
+
+@app.post(
+    "/api/chain/{chain_name}/run/step/{step_number}",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def run_chain_step(chain_name: str, step_number: str, user_input: RunChainStep):
+    chain = Chain()
+    chain_steps = chain.get_chain(chain_name=chain_name)
+    try:
+        step = chain_steps["step"][step_number]
+    except Exception as e:
+        raise HTTPException(
+            status_code=404, detail=f"Step {step_number} not found. {e}"
+        )
+    chain_step_response = await chain.run_chain_step(
+        step=step,
+        chain_name=chain_name,
+        user_input=user_input.prompt,
+        agent_override=user_input.agent_override,
+    )
+    return chain_step_response
 
 
 @app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
