@@ -20,11 +20,20 @@ from Memories import Memories
 from Extensions import Extensions
 
 DEFAULT_SETTINGS = {
-    "provider": "gpt4free",
-    "embedder": "default",
-    "AI_MODEL": "gpt-3.5-turbo",
+    "provider": "openai",
+    "embedder": "openai",
+    "AI_MODEL": "gpt-3.5-turbo-16k-0613",
     "AI_TEMPERATURE": "0.7",
-    "MAX_TOKENS": "4096",
+    "AI_TOP_P": "1",
+    "MAX_TOKENS": "16000",
+    "helper_agent_name": "OpenAI",
+    "WEBSEARCH_TIMEOUT": 0,
+    "OPENAI_API_KEY": "YOUR_OPENAI_API_KEY_HERE",
+    "WAIT_BETWEEN_REQUESTS": 1,
+    "WAIT_AFTER_FAILURE": 3,
+    "stream": False,
+    "WORKING_DIRECTORY": "./WORKSPACE",
+    "WORKING_DIRECTORY_RESTRICTED": True,
     "AUTONOMOUS_EXECUTION": False,
 }
 
