@@ -275,7 +275,8 @@ class Chain:
                     user_input=user_input,
                     agent_name=step["agent_name"],
                 )
-
+                if "conversation_name" not in args:
+                    args["conversation_name"] = f"Chain Execution History: {chain_name}"
                 if prompt_type == "Command":
                     return await Extensions().execute_command(
                         command_name=step["prompt"]["command_name"], command_args=args
@@ -297,8 +298,10 @@ class Chain:
                         chain_name=args["chain"],
                         user_input=args["input"],
                         agent_name=agent_name,
-                        all_responses=False,
-                        from_step=1,
+                        all_responses=args["all_responses"]
+                        if "all_responses" in args
+                        else False,
+                        from_step=args["from_step"] if "from_step" in args else 1,
                     )
         if result:
             if isinstance(result, dict) and "response" in result:
