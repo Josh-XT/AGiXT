@@ -82,17 +82,13 @@ def import_agixt_hub():
             if os.path.isdir(src_file):
                 if os.path.exists(dest_file):
                     for item in os.listdir(dest_file):
-                        if item == "config.json":
-                            continue
                         dest_item = os.path.join(dest_file, item)
-                        if os.path.isfile(dest_item):
+                        if os.path.isfile(dest_item) and item != "config.json":
                             os.remove(dest_item)
                 else:
                     os.makedirs(dest_file, exist_ok=True)
 
                 for item in os.listdir(src_file):
-                    if item == "config.json":
-                        continue
                     src_item = os.path.join(src_file, item)
                     dest_item = os.path.join(dest_file, item)
                     if os.path.isdir(src_item):
@@ -100,13 +96,17 @@ def import_agixt_hub():
                             shutil.rmtree(dest_item)
                         shutil.copytree(src_item, dest_item)
                     else:
-                        shutil.copy2(src_item, dest_item)
+                        if not (
+                            item == "config.json" and os.path.exists(dest_item)
+                        ):  # Don't overwrite existing config.json
+                            shutil.copy2(src_item, dest_item)
             else:
-                if src_file.split("/")[-1] == "config.json":
-                    continue
-                if os.path.exists(dest_file):
-                    os.remove(dest_file)
-                shutil.move(src_file, dest_file)
+                if src_file.split("/")[-1] != "config.json" or not os.path.exists(
+                    dest_file
+                ):  # Don't overwrite existing config.json
+                    if os.path.exists(dest_file):
+                        os.remove(dest_file)
+                    shutil.move(src_file, dest_file)
 
         # Remove the reponame-main directory
         shutil.rmtree(f"{repo_name}-main")
