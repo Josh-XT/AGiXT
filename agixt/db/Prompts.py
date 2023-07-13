@@ -127,3 +127,9 @@ class Prompts:
                     session.add(argument)
 
             session.commit()
+
+    def rename_prompt(self, prompt_name, new_prompt_name):
+        prompt = session.query(Prompt).filter_by(name=prompt_name).first()
+        if prompt:
+            prompt.name = new_prompt_name
+            session.commit()

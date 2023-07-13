@@ -76,3 +76,8 @@ class Prompts:
         prompt_file = get_prompt_file_path(prompt_name=prompt_name)
         with open(prompt_file, "w") as f:
             f.write(prompt)
+
+    def rename_prompt(self, prompt_name, new_prompt_name):
+        prompt_file = get_prompt_file_path(prompt_name=prompt_name)
+        new_prompt_file = get_prompt_file_path(prompt_name=new_prompt_name)
+        os.rename(prompt_file, new_prompt_file)
