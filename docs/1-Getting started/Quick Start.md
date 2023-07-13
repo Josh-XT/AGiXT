@@ -5,6 +5,7 @@
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
 - [Python 3.10](https://www.python.org/downloads/)
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (if using local models on GPU)
 
 If using Windows and trying to run locally, it is unsupported, but you will need [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install-win10) and [Docker Desktop](https://docs.docker.com/docker-for-windows/install/) at a minimum in addition to the above.
 ### Download and Install
@@ -37,6 +38,9 @@ During the installation, you will be prompted to enter some settings unless you 
 - `POSTGRES_USER` is the username to connect to the database with, this should be `postgres` by default.
 - `POSTGRES_PASSWORD` **is the password to connect to the database with, this should be changed from the example file if using database.**
 
+**Oobabooga Text Generation Web UI Configuration**
+- `TORCH_CUDA_ARCH_LIST` is the CUDA architecture list to use for the Oobabooga text generation web UI. Example: RTX3000-5000 series are version `7.5`. Find yours at https://developer.nvidia.com/cuda-gpus .
+- `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
 
 ### Running and Updating AGiXT
 Any time you want to run or update AGiXT, run the following commands from your `AGiXT` directory:
@@ -49,3 +53,4 @@ Then follow the prompts to run or update AGiXT either locally or with Docker. We
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
 
+If you're running with the option `Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)`, you can access the Text Generation Web UI at http://localhost:7860/?__theme=dark to download and and configure your models. The `AI_PROVIDER_URI` will be `http://text-generation-webui:5000` for your AGiXT agents.
