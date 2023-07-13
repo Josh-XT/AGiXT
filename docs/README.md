@@ -30,6 +30,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Prerequisites](#prerequisites)
     - [Download and Install](#download-and-install)
     - [Environment Setup](#environment-setup)
+    - [Install Options](#install-options)
     - [Running and Updating AGiXT](#running-and-updating-agixt)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
@@ -106,6 +107,23 @@ During the installation, you will be prompted to enter some settings unless you 
 **Oobabooga Text Generation Web UI Configuration**
 - `TORCH_CUDA_ARCH_LIST` is the CUDA architecture list to use for the Oobabooga text generation web UI. Example: RTX3000-5000 series are version `7.5`. Find yours at https://developer.nvidia.com/cuda-gpus .
 - `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
+
+### Install Options
+You will be prompted to choose an install option.  The options are as follows:
+
+1. **Run AGiXT with Docker (Recommended)**
+    - This option will run AGiXT and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
+2. **Run AGiXT Locally (Developers Only - Not Recommended or Supported)**
+    - This option will run AGiXT and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) locally. This is not recommended or supported due to it requiring you to have a lot of dependencies installed on your computer that may conflict with other software you have installed. This is only recommended for developers who want to contribute to AGiXT.
+3. **Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)**
+    - This option is only available if you have an NVIDIA GPU and will not work if you do not.
+    - This option will run AGiXT, the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit), and the [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui) in Docker containers. This is the recommended option for most users who want to use local models on GPU. You will need a powerful video card to run this option. We highly recommend reviewing their documentation before using this option unless you have run local models on GPU before.
+4. **Update AGiXT**
+    - This option will update AGiXT, AGiXT Streamlit Web UI, and Oobabooga Text Generation Web UI if you have them installed.  It is always recommended to be on the latest version on AGiXT, AGiXT Streamlit Web UI, and Oobabooga Text Generation Web UI.
+5. **Wipe AGiXT Hub (Irreversible)**
+    - This option will delete `agixt/providers`, `agixt/extensions`, `agixt/chains`, and `agixt/prompts`. The next time you start AGiXT, it will redownload all of them from the AGiXT hub. This is mostly used for development and testing purposes.  If you use it accidentally, the next time you run AGiXT, it will redownload from the hub you have configured in your `.env` file.
+6. **Exit**
+    - This option will exit the installer.
 
 ### Running and Updating AGiXT
 Any time you want to run or update AGiXT, run the following commands from your `AGiXT` directory:
