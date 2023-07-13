@@ -130,7 +130,7 @@ update() {
   cd ..
   # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update text generation webui if it is.
   if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
-    echo "${BOLD}${YELLOW}Skipping Oobabooga Text Generation WebUI update...${RESET}"
+    echo "${BOLD}${YELLOW}Please wait...${RESET}"
   else
     if [ ! -d "text-generation-webui" ]; then
         echo "${BOLD}${YELLOW}Updating Oobabooga Text Generation WebUI Repository...${RESET}"
@@ -142,6 +142,7 @@ update() {
   fi
   echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
   docker-compose pull
+  echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
 
 # Function to perform the Docker install
