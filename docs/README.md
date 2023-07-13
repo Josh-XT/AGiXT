@@ -86,6 +86,7 @@ cd AGiXT
 ### Environment Setup
 During the installation, you will be prompted to enter some settings unless you already have your `.env` file set up.  If you do not have your `.env` file set up, you can use the following as a guide:
 
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/c8ae9698-f1e0-44b8-9fb2-85cb66b684b7)
 
 - `AGIXT_API_KEY` is the API key to use for the AGiXT API.  This is empty by default, if you would like to set it, change it in the env file.  The header format for requests will be `Authorization: Bearer {your_api_key}` for any requests to your AGiXT server or you can pass the `api_key` to the AGiXT SDK.
 
@@ -110,6 +111,8 @@ During the installation, you will be prompted to enter some settings unless you 
 
 ### Install Options
 You will be prompted to choose an install option.  The options are as follows:
+
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/dd83bda7-f592-4bd8-a377-e2eb5e7e5dcb)
 
 1. **Run AGiXT with Docker (Recommended)**
     - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
