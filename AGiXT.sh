@@ -62,7 +62,7 @@ environment_setup() {
                         echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
                     fi
                 fi
-                echo "CLI_ARGS=--listen --api --chat" >> .env
+                echo "CLI_ARGS='--listen --api --chat'" >> .env
             fi
         fi
         read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
@@ -187,7 +187,7 @@ docker_install_local_nvidia() {
   fi
   
   if [[ -z "${CLI_ARGS}" ]]; then
-    echo "CLI_ARGS=--listen --api --chat" >> .env
+    echo "CLI_ARGS='--listen --api --chat'" >> .env
   fi
 
   # Check if nvidia-container-toolkit is installed
