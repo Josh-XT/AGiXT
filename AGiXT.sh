@@ -52,6 +52,19 @@ environment_setup() {
                 agixt_workers=4
             fi
         fi
+        read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
+        if [[ "$local_models" == [Yy]* ]]; then
+            read -p "Do you want to use a local text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
+            if [[ "$local_textgen" == [Yy]* ]]; then
+                read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
+                if [[ "$cuda_version" != "" ]]; then
+                    if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+                        echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
+                    fi
+                fi
+                echo "CLI_ARGS=--listen --api" >> .env
+            fi
+        fi
         read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
         if [[ "$use_db" == [Yy]* ]]; then
             read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
@@ -115,13 +128,18 @@ update() {
   cd streamlit
   git pull
   cd ..
-  if [ ! -d "text-generation-webui" ]; then
-      echo "${BOLD}${YELLOW}Updating Oobabooga Text Generation WebUI Repository...${RESET}"
-      git clone https://github.com/oobabooga/text-generation-webui
+  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update text generation webui if it is.
+  if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
+    echo "${BOLD}${YELLOW}Skipping Oobabooga Text Generation WebUI update...${RESET}"
+  else
+    if [ ! -d "text-generation-webui" ]; then
+        echo "${BOLD}${YELLOW}Updating Oobabooga Text Generation WebUI Repository...${RESET}"
+        git clone https://github.com/oobabooga/text-generation-webui
+    fi
+    cd text-generation-webui
+    git pull
+    cd ..
   fi
-  cd text-generation-webui
-  git pull
-  cd ..
   echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
   docker-compose pull
 }
@@ -130,6 +148,7 @@ update() {
 docker_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
+  sed -i '/^TEXTGEN_URI=/d' .env
   echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
@@ -153,8 +172,34 @@ docker_install() {
 docker_install_local_nvidia() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
+  sed -i '/^TEXTGEN_URI=/d' .env
   echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
+  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, ask user to enter it if not.
+  if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
+    echo "${BOLD}${YELLOW}Please enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): ${RESET}"
+    read -p "Enter your CUDA version: " cuda_version
+    if [[ "$cuda_version" != "" ]]; then
+      if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "TORCH_CUDA_ARCH_LIST=${cuda_version}" >> .env
+      fi
+    fi
+  fi
+
+  # Check if nvidia-container-toolkit is installed
+  if dpkg -l | grep -iq "nvidia-container-toolkit"; then
+      echo "Confirmed NVIDIA Container Toolkit is installed."
+  else
+      echo "NVIDIA Container Toolkit is not installed. Installing now..."
+      # Install a new GPU Docker container
+      distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+      curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+      curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+      sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+      sudo systemctl restart docker
+      echo "NVIDIA Container Toolkit has been installed."
+  fi
+
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     update
   fi
@@ -181,6 +226,7 @@ docker_install_local_nvidia() {
 local_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://localhost:7437" >> .env
+  sed -i '/^TEXTGEN_URI=/d' .env
   echo "TEXTGEN_URI=http://localhost:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
