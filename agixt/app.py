@@ -837,6 +837,20 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# Rename prompt
+@app.patch(
+    "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
+)
+async def rename_prompt(prompt_name: str, new_name: PromptName) -> ResponseMessage:
+    try:
+        Prompts().rename_prompt(prompt_name=prompt_name, new_name=new_name.prompt_name)
+        return ResponseMessage(
+            message=f"Prompt '{prompt_name}' renamed to '{new_name.prompt_name}'."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.put(
     "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
 )
