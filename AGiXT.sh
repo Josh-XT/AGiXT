@@ -185,6 +185,10 @@ docker_install_local_nvidia() {
       fi
     fi
   fi
+  
+  if [[ -z "${CLI_ARGS}" ]]; then
+    echo "CLI_ARGS=--listen --api" >> .env
+  fi
 
   # Check if nvidia-container-toolkit is installed
   if dpkg -l | grep -iq "nvidia-container-toolkit"; then
