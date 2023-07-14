@@ -83,7 +83,7 @@ def import_agixt_hub():
                 if os.path.exists(dest_file):
                     for item in os.listdir(dest_file):
                         dest_item = os.path.join(dest_file, item)
-                        if os.path.isfile(dest_item) and item != "config.json":
+                        if os.path.isfile(dest_item) and "config.json" not in dest_item:
                             os.remove(dest_item)
                 else:
                     os.makedirs(dest_file, exist_ok=True)
@@ -97,11 +97,11 @@ def import_agixt_hub():
                         shutil.copytree(src_item, dest_item)
                     else:
                         if not (
-                            item == "config.json" and os.path.exists(dest_item)
+                            "config.json" not in dest_item and os.path.exists(dest_item)
                         ):  # Don't overwrite existing config.json
                             shutil.copy2(src_item, dest_item)
             else:
-                if src_file.split("/")[-1] != "config.json" or not os.path.exists(
+                if "config.json" not in dest_file and not os.path.exists(
                     dest_file
                 ):  # Don't overwrite existing config.json
                     if os.path.exists(dest_file):
