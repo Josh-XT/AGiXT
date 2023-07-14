@@ -31,5 +31,5 @@ jobs:
       notebook: tests/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
-      additional-python-dependencies: agixtsdk==0.0.13
+      additional-python-dependencies: agixtsdk
     needs: build-agixt
