@@ -49,5 +49,8 @@ RUN playwright install
 COPY . .
 
 WORKDIR /agixt
+
+CMD ["python", "/agixt/Hub.py"]
+
 EXPOSE 7437
 ENTRYPOINT ["sh", "-c", "./launch-backend.sh"]
