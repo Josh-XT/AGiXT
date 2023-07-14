@@ -62,8 +62,10 @@ jobs:
 
       - name: Install jupyter
         run: pip3 install jupyter nbconvert[webpdf]
-      - name: Install jupyter output generation dependencies
-        run: sudo apt install -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
+      - name: Update package lists and install jupyter output generation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
 
       - name: Install additional dependencies for notebooks
         if: inputs.additional-python-dependencies
