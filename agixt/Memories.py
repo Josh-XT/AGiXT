@@ -105,7 +105,7 @@ class Memories:
                 collection_name="memories",
                 embedding=embed,
                 limit=top_results_num,
-                min_relevance_score=0.1,
+                min_relevance_score=0.0,
             )
         except:
             return ""
