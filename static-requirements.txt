@@ -20,7 +20,7 @@ webdriver_manager==3.8.6
 sentence-transformers==2.2.2
 python-dotenv==1.0.0
 ffmpeg==1.4
-cryptography==41.0.0
+cryptography==41.0.2
 pillow==9.5.0
 SQLAlchemy==2.0.17
 psycopg2==2.9.6
