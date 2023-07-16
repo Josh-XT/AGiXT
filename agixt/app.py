@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
+from Embedding import Embedding
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -199,6 +200,11 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
+
+
+class EmbeddingModel(BaseModel):
+    input: str
+    model: str
 
 
 class FileInput(BaseModel):
@@ -585,6 +591,21 @@ async def chat_completion(prompt: Completions):
         },
     }
     return res_model
+
+
+# Use agent name in the model field to use embedding.
+@app.post("/api/v1/embedding", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+async def embedding(embedding: EmbeddingModel):
+    agent_name = embedding.model
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    tokens = get_tokens(embedding.input)
+    embedding = Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
+    return {
+        "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
+        "model": agent_name,
+        "object": "list",
+        "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
+    }
 
 
 @app.get(
