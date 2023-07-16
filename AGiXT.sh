@@ -54,7 +54,7 @@ environment_setup() {
         fi
         read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
         if [[ "$local_models" == [Yy]* ]]; then
-            read -p "Do you want to use a local text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
+            read -p "Do you want to use a local Text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
             if [[ "$local_textgen" == [Yy]* ]]; then
                 read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
                 if [[ "$cuda_version" != "" ]]; then
@@ -62,14 +62,16 @@ environment_setup() {
                         echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
                     fi
                 fi
-                echo "CLI_ARGS='--listen --api --chat'" >> .env
+				cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
+				read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
+				echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
             fi
         fi
         read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
         if [[ "$use_db" == [Yy]* ]]; then
+            db_connection="true"
             read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
             if [[ "$use_own_db" == [Yy]* ]]; then
-                db_connection="true"
                 read -p "Enter postgres host: " postgres_host
                 read -p "Enter postgres port: " postgres_port
                 read -p "Enter postgres database name: " postgres_database
@@ -109,7 +111,7 @@ display_menu() {
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT with Docker (Recommended)${RESET}"
   echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT and Text generation web UI with Docker (NVIDIA Only)${RESET}"
   echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Update AGiXT ${RESET}"
   echo "  ${BOLD}${RED}5.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
   echo "  ${BOLD}${RED}6.${RESET} ${RED}Exit${RESET}"
@@ -128,12 +130,12 @@ update() {
   cd streamlit
   git pull
   cd ..
-  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update text generation webui if it is.
+  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update Text generation web UI if it is.
   if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
     echo "${BOLD}${YELLOW}Please wait...${RESET}"
   else
     if [ ! -d "text-generation-webui" ]; then
-        echo "${BOLD}${YELLOW}Updating Oobabooga Text Generation WebUI Repository...${RESET}"
+        echo "${BOLD}${YELLOW}Updating Oobabooga Text generation web UI Repository...${RESET}"
         git clone https://github.com/oobabooga/text-generation-webui
     fi
     cd text-generation-webui
@@ -186,10 +188,6 @@ docker_install_local_nvidia() {
       fi
     fi
   fi
-  
-  if [[ -z "${CLI_ARGS}" ]]; then
-    echo "CLI_ARGS='--listen --api --chat'" >> .env
-  fi
 
   # Check if nvidia-container-toolkit is installed
   if dpkg -l | grep -iq "nvidia-container-toolkit"; then
@@ -215,7 +213,7 @@ docker_install_local_nvidia() {
   fi
 
   if [ ! -d "text-generation-webui" ]; then
-      echo "${BOLD}${YELLOW}Cloning Oobabooga Text Generation WebUI Repository...${RESET}"
+      echo "${BOLD}${YELLOW}Cloning Oobabooga Text generation web UI Repository...${RESET}"
       git clone https://github.com/oobabooga/text-generation-webui
   fi
 
