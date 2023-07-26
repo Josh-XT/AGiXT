@@ -1,3 +1,3 @@
 agixtsdk==0.0.16
-semantic-kernel==0.3.1.dev0
+semantic-kernel==0.3.4.dev0
 -e git+https://github.com/xtekky/gpt4free.git#egg=gpt4free
