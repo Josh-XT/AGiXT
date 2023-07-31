@@ -187,7 +187,7 @@ class Interactions:
                         text_content, link_list = await self.memories.read_website(
                             url=link
                         )
-                        if websearch_depth > 0:
+                        if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
                                 for sublink in link_list:
