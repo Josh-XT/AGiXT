@@ -135,7 +135,7 @@ class Chains:
                     responses[step_data["step"]] = step  # Store the response.
                     logging.info(f"Step {step_data['step']} response: {step_response}")
                     # Write the response to the chain responses file.
-                    chain.update_chain_responses(
+                    await chain.update_chain_responses(
                         chain_name=chain_name, responses=responses
                     )
         if all_responses:
