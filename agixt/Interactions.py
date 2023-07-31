@@ -187,19 +187,20 @@ class Interactions:
                         text_content, link_list = await self.memories.read_website(
                             url=link
                         )
-                        if link_list is not None and len(link_list) > 0:
-                            i = 0
-                            for sublink in link_list:
-                                if sublink[1] not in self.websearch.browsed_links:
-                                    logging.info(f"Browsing link: {sublink[1]}")
-                                    if i <= 10:
-                                        (
-                                            text_content,
-                                            link_list,
-                                        ) = await self.memories.read_website(
-                                            url=sublink[1]
-                                        )
-                                        i = i + 1
+                        if websearch_depth > 0:
+                            if link_list is not None and len(link_list) > 0:
+                                i = 0
+                                for sublink in link_list:
+                                    if sublink[1] not in self.websearch.browsed_links:
+                                        logging.info(f"Browsing link: {sublink[1]}")
+                                        if i <= websearch_depth:
+                                            (
+                                                text_content,
+                                                link_list,
+                                            ) = await self.memories.read_website(
+                                                url=sublink[1]
+                                            )
+                                            i = i + 1
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
