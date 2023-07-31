@@ -4,7 +4,6 @@ import regex
 import json
 import time
 import logging
-import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -28,7 +27,7 @@ from agixtsdk import AGiXTSDK
 from Websearch import Websearch
 
 ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
+    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
 )
 chain = Chain()
 cp = Prompts()

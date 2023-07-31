@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
+    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
 )
 
 
@@ -516,110 +516,14 @@ class Chain:
         else:
             return prompt_content
 
-    async def run_chain_step(
-        self, step: dict = {}, chain_name="", user_input="", agent_override=""
-    ):
-        if step:
-            if "prompt_type" in step:
-                if agent_override != "":
-                    agent_name = agent_override
-                else:
-                    agent_name = step["agent_name"]
-                prompt_type = step["prompt_type"]
-                step_number = step["step"]
-                if "prompt_name" in step["prompt"]:
-                    prompt_name = step["prompt"]["prompt_name"]
-                else:
-                    prompt_name = ""
-                args = self.get_step_content(
-                    chain_name=chain_name,
-                    prompt_content=step["prompt"],
-                    user_input=user_input,
-                    agent_name=step["agent_name"],
-                )
-
-                if prompt_type == "Command":
-                    return await Extensions().execute_command(
-                        command_name=step["prompt"]["command_name"], command_args=args
-                    )
-
-                elif prompt_type == "Prompt":
-                    result = ApiClient.prompt_agent(
-                        agent_name=agent_name,
-                        prompt_name=prompt_name,
-                        prompt_args={
-                            "chain_name": chain_name,
-                            "step_number": step_number,
-                            "user_input": user_input,
-                            **args,
-                        },
-                    )
-                elif prompt_type == "Chain":
-                    result = ApiClient.run_chain(
-                        chain_name=args["chain"],
-                        user_input=args["input"],
-                        agent_name=agent_name,
-                        all_responses=False,
-                        from_step=1,
-                    )
-        if result:
-            return result
-        else:
-            return None
-
-    async def run_chain(
-        self,
-        chain_name,
-        user_input=None,
-        all_responses=True,
-        agent_override="",
-        from_step=1,
-    ):
-        chain_data = ApiClient.get_chain(chain_name=chain_name)
-        if chain_data == {}:
-            return f"Chain `{chain_name}` not found."
-        logging.info(f"Running chain '{chain_name}'")
-        responses = {}  # Create a dictionary to hold responses.
-        last_response = ""
-        for step_data in chain_data["steps"]:
-            if int(step_data["step"]) >= int(from_step):
-                if "prompt" in step_data and "step" in step_data:
-                    step = {}
-                    step["agent_name"] = (
-                        agent_override
-                        if agent_override != ""
-                        else step_data["agent_name"]
-                    )
-                    step["prompt_type"] = step_data["prompt_type"]
-                    step["prompt"] = step_data["prompt"]
-                    logging.info(
-                        f"Running step {step_data['step']} with agent {step['agent_name']}."
-                    )
-
-                    # Get the chain step based on the step number
-                    chain_step = self.get_step(chain_name, step_data["step"])
-
-                    step_response = await self.run_chain_step(
-                        step=step_data,
-                        chain_name=chain_name,
-                        user_input=user_input,
-                        agent_override=agent_override,
-                    )  # Get the response of the current step.
-                    step["response"] = step_response
-                    last_response = step_response
-                    responses[step_data["step"]] = step  # Store the response.
-                    logging.info(f"Response: {step_response}")
-                    # Write the response to the json file.
-                    response_content = {
-                        "chain_step_id": chain_step.id,
-                        "content": step_response,
-                    }
-                    chain_step_response = ChainStepResponse(**response_content)
-                    session.add(chain_step_response)
-                    session.commit()
-
-        if all_responses:
-            return responses
-        else:
-            # Return only the last response in the chain.
-            return last_response
+    async def update_chain_responses(self, chain_name, responses):
+        for response in responses:
+            step_data = responses[response]
+            chain_step = self.get_step(chain_name, step_data["step"])
+            response_content = {
+                "chain_step_id": chain_step.id,
+                "content": step_data["response"],
+            }
+            chain_step_response = ChainStepResponse(**response_content)
+            session.add(chain_step_response)
+            session.commit()
