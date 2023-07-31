@@ -13,7 +13,7 @@ from Embedding import Embedding
 from dotenv import load_dotenv
 
 load_dotenv()
-AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
+AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
 db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 if db_connected:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
@@ -43,7 +43,7 @@ from typing import Optional, Dict, List, Any
 from Providers import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
-
+from Chains import Chains
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -161,11 +161,13 @@ class RunChain(BaseModel):
     agent_override: Optional[str] = ""
     all_responses: Optional[bool] = False
     from_step: Optional[int] = 1
+    chain_args: Optional[dict] = {}
 
 
 class RunChainStep(BaseModel):
     prompt: str
     agent_override: Optional[str] = ""
+    chain_args: Optional[dict] = {}
 
 
 class StepInfo(BaseModel):
@@ -686,12 +688,13 @@ async def get_chain_responses(chain_name: str):
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain(chain_name: str, user_input: RunChain):
-    chain_response = await Chain().run_chain(
+    chain_response = await Chains().run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
         all_responses=user_input.all_responses,
         from_step=user_input.from_step,
+        chain_args=user_input.chain_args,
     )
     return chain_response
 
@@ -710,11 +713,12 @@ async def run_chain_step(chain_name: str, step_number: str, user_input: RunChain
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    chain_step_response = await chain.run_chain_step(
+    chain_step_response = await Chains().run_chain_step(
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
+        chain_args=user_input.chain_args,
     )
     return chain_step_response
 
