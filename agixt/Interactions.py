@@ -40,7 +40,14 @@ class Interactions:
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
             self.memories = self.agent.get_memories()
-            self.websearch = Websearch(agent_name=self.agent_name)
+            self.websearch = Websearch(
+                agent_name=self.agent_name,
+                searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
+                    "SEARXNG_INSTANCE_URL"
+                ]
+                if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
+                else "",
+            )
         else:
             self.agent_name = ""
             self.agent = None
