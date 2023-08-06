@@ -29,6 +29,8 @@ class Websearch:
     ):
         self.agent_name = agent_name
         self.searx_instance_url = searxng_instance_url
+        self.agent_config = ApiClient.get_agentconfig(agent_name=self.agent_name)
+        self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
         self.failures = []
         self.browsed_links = []
@@ -182,7 +184,15 @@ class Websearch:
                 self.searx_instance_url = servers[random_index]
             except:  # Select default remote server that typically works if unable to get list.
                 self.searx_instance_url = "https://search.us.projectsegfau.lt"
+            self.agent_settings["SEARXNG_INSTANCE_URL"] = self.searx_instance_url
+            ApiClient.update_agent_settings(
+                agent_name=self.agent_name, settings=self.agent_settings
+            )
         server = self.searx_instance_url.rstrip("/")
+        self.agent_settings["SEARXNG_INSTANCE_URL"] = server
+        ApiClient.update_agent_settings(
+            agent_name=self.agent_name, settings=self.agent_settings
+        )
         endpoint = f"{server}/search"
         try:
             logging.info(f"Trying to connect to SearXNG Search at {endpoint}...")
@@ -208,11 +218,9 @@ class Websearch:
             self.failures.append(self.searx_instance_url)
             if len(self.failures) > 5:
                 logging.info("Failed 5 times. Trying DDG...")
-                agent_config = ApiClient.get_agentconfig(agent_name=self.agent_name)
-                agent_settings = agent_config["settings"]
-                agent_settings["SEARXNG_INSTANCE_URL"] = ""
+                self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
                 ApiClient.update_agent_settings(
-                    agent_name=self.agent_name, settings=agent_settings
+                    agent_name=self.agent_name, settings=self.agent_settings
                 )
                 return await self.ddg_search(query=query)
             times = "times" if len(self.failures) != 1 else "time"
