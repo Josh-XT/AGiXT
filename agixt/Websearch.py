@@ -12,27 +12,12 @@ from bs4 import BeautifulSoup
 from agixtsdk import AGiXTSDK
 from typing import List
 from dotenv import load_dotenv
-import spacy
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
 ApiClient = AGiXTSDK(
     base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
 )
-
-
-def nlp(text):
-    try:
-        sp = spacy.load("en_core_web_sm")
-    except:
-        spacy.cli.download("en_core_web_sm")
-        sp = spacy.load("en_core_web_sm")
-    sp.max_length = 99999999999999999999999
-    return sp(text)
-
-
-def get_tokens(text):
-    return len(nlp(text))
 
 
 class Websearch:
@@ -223,6 +208,12 @@ class Websearch:
             self.failures.append(self.searx_instance_url)
             if len(self.failures) > 5:
                 logging.info("Failed 5 times. Trying DDG...")
+                agent_config = ApiClient.get_agentconfig(agent_name=self.agent_name)
+                agent_settings = agent_config["settings"]
+                agent_settings["SEARXNG_INSTANCE_URL"] = ""
+                ApiClient.update_agent_settings(
+                    agent_name=self.agent_name, settings=agent_settings
+                )
                 return await self.ddg_search(query=query)
             times = "times" if len(self.failures) != 1 else "time"
             logging.info(
