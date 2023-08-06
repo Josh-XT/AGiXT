@@ -33,7 +33,9 @@ else:
 def import_agixt_hub():
     github_user = os.getenv("GITHUB_USER")
     github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = os.getenv("AGIXT_HUB", "AGiXT/light-hub")
+    github_repo = os.getenv("AGIXT_HUB", "AGiXT/hub")
+    if github_repo == "AGiXT/light-hub":
+        github_repo = "AGiXT/hub"
     repo_name = github_repo.split("/")[1]
     repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
     zip_file_name = f"{repo_name}_main.zip"
