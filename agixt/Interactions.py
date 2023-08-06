@@ -14,12 +14,12 @@ if db_connected:
     from db.Agent import Agent
     from db.Prompts import Prompts
     from db.Chain import Chain
-    from db.History import log_interaction
+    from db.History import log_interaction, get_conversation
 else:
     from fb.Agent import Agent
     from fb.Prompts import Prompts
     from fb.Chain import Chain
-    from fb.History import log_interaction
+    from fb.History import log_interaction, get_conversation
 
 from Embedding import get_tokens
 from concurrent.futures import Future
@@ -40,7 +40,7 @@ class Interactions:
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
             self.memories = self.agent.get_memories()
-            self.websearch = Websearch(agent=self.agent, memories=self.memories)
+            self.websearch = Websearch(agent_name=self.agent_name)
         else:
             self.agent_name = ""
             self.agent = None
@@ -73,6 +73,7 @@ class Interactions:
         prompt="",
         chain_name="",
         step_number=0,
+        conversation_name="",
         **kwargs,
     ):
         if prompt == "":
@@ -130,6 +131,22 @@ class Interactions:
                 ]
             else:
                 helper_agent_name = self.agent_name
+        if conversation_name == "":
+            conversation_name = f"{self.agent_name} History"
+        conversation = get_conversation(
+            agent_name=self.agent_name,
+            conversation_name=conversation_name,
+        )
+        conversation_history = "\n".join(
+            [
+                f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
+                for interaction in conversation["interactions"]
+            ]
+        )
+        # Get only the last 5 interactions
+        conversation_history = "\n".join(
+            conversation_history.split("\n")[-5:],
+        )
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -140,6 +157,7 @@ class Interactions:
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
+            conversation_history=conversation_history,
             **kwargs,
         )
 
@@ -211,8 +229,8 @@ class Interactions:
             if search_string != "":
                 await self.websearch.websearch_agent(
                     user_input=search_string,
-                    depth=websearch_depth,
-                    timeout=websearch_timeout,
+                    websearch_depth=websearch_depth,
+                    browse_timeout=websearch_timeout,
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -220,6 +238,7 @@ class Interactions:
             prompt=prompt,
             chain_name=chain_name,
             step_number=step_number,
+            conversation_name=conversation_name,
             **kwargs,
         )
         try:
