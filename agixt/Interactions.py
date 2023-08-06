@@ -237,7 +237,7 @@ class Interactions:
                 await self.websearch.websearch_agent(
                     user_input=search_string,
                     websearch_depth=websearch_depth,
-                    browse_timeout=websearch_timeout,
+                    websearch_timeout=websearch_timeout,
                 )
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
