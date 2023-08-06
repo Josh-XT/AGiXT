@@ -154,6 +154,8 @@ class Interactions:
         conversation_history = "\n".join(
             conversation_history.split("\n")[-5:],
         )
+        if "conversation_history" in kwargs:
+            del kwargs["conversation_history"]
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
