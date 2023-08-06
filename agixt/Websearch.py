@@ -5,6 +5,7 @@ import random
 import requests
 import logging
 import asyncio
+import urllib.parse
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from Embedding import get_tokens
@@ -188,6 +189,32 @@ class Websearch:
                                 except:
                                     logging.info(f"Issues reading {url}. Moving on...")
 
+    async def ddg_search(self, query: str, proxy=None) -> List[str]:
+        async with async_playwright() as p:
+            launch_options = {}
+            if proxy:
+                launch_options["proxy"] = {"server": proxy}
+            browser = await p.chromium.launch(**launch_options)
+            context = await browser.new_context()
+            page = await context.new_page()
+            url = f"https://lite.duckduckgo.com/lite/?q={query}"
+            await page.goto(url)
+            links = await page.query_selector_all("a")
+            results = []
+            for link in links:
+                summary = await page.evaluate("(link) => link.textContent", link)
+                summary = summary.replace("\n", "").replace("\t", "").replace("  ", "")
+                href = await page.evaluate("(link) => link.href", link)
+                parsed_url = urllib.parse.urlparse(href)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                uddg = query_params.get("uddg", [None])[0]
+                if uddg:
+                    href = urllib.parse.unquote(uddg)
+                if summary:
+                    results.append(f"{summary} - {href}")
+            await browser.close()
+        return results
+
     async def search(self, query: str) -> List[str]:
         if self.searx_instance_url == "":
             try:  # SearXNG - List of these at https://searx.space/
@@ -226,8 +253,15 @@ class Websearch:
             return summaries
         except:
             self.failures.append(self.searx_instance_url)
-            self.searx_instance_url = ""
+            if len(self.failures) > 5:
+                logging.info("Failed 5 times. Trying DDG...")
+                return await self.ddg_search(query=query)
+            times = "times" if len(self.failures) != 1 else "time"
+            logging.info(
+                f"Failed to find a working SearXNG server {len(self.failures)} {times}. Trying again..."
+            )
             # The SearXNG server is down or refusing connection, so we will use the default one.
+            self.searx_instance_url = ""
             return await self.search(query=query)
 
     async def websearch_agent(
@@ -250,7 +284,10 @@ class Websearch:
                 links = []
                 search_string = result.lstrip("0123456789. ")
                 logging.info(f"Searching for: {search_string}")
-                links = await self.search(query=search_string)
+                if self.searx_instance_url != "":
+                    links = await self.search(query=search_string)
+                else:
+                    links = await self.ddg_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > depth:
                     links = links[:depth]
