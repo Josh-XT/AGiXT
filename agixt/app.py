@@ -723,6 +723,17 @@ async def run_chain_step(chain_name: str, step_number: str, user_input: RunChain
     return chain_step_response
 
 
+# Get chain args
+@app.get(
+    "/api/chain/{chain_name}/args",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_chain_args(chain_name: str):
+    chain_args = Chains().get_chain_args(chain_name=chain_name)
+    return {"chain_args": chain_args}
+
+
 @app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def add_chain(chain_name: ChainName) -> ResponseMessage:
     Chain().add_chain(chain_name=chain_name.chain_name)

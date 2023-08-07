@@ -9,8 +9,10 @@ load_dotenv()
 db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 if db_connected:
     from db.Chain import Chain
+    from db.Prompts import Prompts
 else:
     from fb.Chain import Chain
+    from fb.Prompts import Prompts
 
 ApiClient = AGiXTSDK(
     base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
@@ -143,3 +145,39 @@ class Chains:
         else:
             # Return only the last response in the chain.
             return last_response
+
+    def get_chain_args(self, chain_name):
+        skip_args = [
+            "command_list",
+            "context",
+            "COMMANDS",
+            "date",
+            "conversation_history",
+            "agent_name",
+            "working_directory",
+            "helper_agent_name",
+        ]
+        chain_data = chain.get_chain(chain_name=chain_name)
+        steps = chain_data["steps"]
+        prompt_args = []
+        args = []
+        for step in steps:
+            try:
+                prompt = step["prompt"]
+                if "prompt_name" in prompt:
+                    prompt_text = Prompts().get_prompt(
+                        prompt_name=prompt["prompt_name"]
+                    )
+                    args = Prompts().get_prompt_args(prompt_text=prompt_text)
+                elif "command_name" in prompt:
+                    args = Extensions().get_command_args(
+                        command_name=prompt["command_name"]
+                    )
+                elif "chain_name" in prompt:
+                    args = self.get_chain_args(chain_name=prompt["chain_name"])
+                for arg in args:
+                    if arg not in prompt_args and arg not in skip_args:
+                        prompt_args.append(arg)
+            except Exception as e:
+                logging.error(e)
+        return prompt_args
