@@ -36,7 +36,7 @@ environment_setup() {
         fi
         read -p "Do you have your own AGiXT Hub fork that you would like to install with? (Y for yes, N for No): " hub_repo
         if [[ "$hub_repo" == [Yy]* ]]; then
-            read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/light-hub): " github_repo
+            read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/hub): " github_repo
             read -p "Is your AGiXT Hub fork private? It will require credentials if it is not public. (Y for yes, N for No): " is_private
             if [[ "$is_private" == [Yy]* ]]; then
                 read -p "Enter your GitHub username: " github_username
@@ -81,7 +81,7 @@ environment_setup() {
         fi
         echo "DB_CONNECTED=${db_connection:-false}" >> .env
         echo "AGIXT_AUTO_UPDATE=${auto_update:-true}" >> .env
-        echo "AGIXT_HUB=${github_repo:-AGiXT/light-hub}" >> .env
+        echo "AGIXT_HUB=${github_repo:-AGiXT/hub}" >> .env
         echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
         echo "UVICORN_WORKERS=${agixt_workers:-4}" >> .env

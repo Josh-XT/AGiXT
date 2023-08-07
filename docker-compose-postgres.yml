@@ -22,7 +22,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-postgres}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
-      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/light-hub}
+      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - TOKENIZERS_PARALLELISM=False
@@ -40,7 +40,7 @@ services:
     depends_on:
       - agixt
     environment:
-      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/light-hub}
+      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
     ports:
       - "8501:8501"
