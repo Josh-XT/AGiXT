@@ -262,7 +262,7 @@ class Websearch:
             user_input=user_input, search_depth=websearch_depth
         )
         if websearch_depth > 0:
-            results = ApiClient.prompt_agent(
+            search_string = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="WebSearch",
                 prompt_args={
@@ -270,24 +270,21 @@ class Websearch:
                     "disable_memory": True,
                 },
             )
-            results = results.split("\n")
-            if len(results) > 0:
-                for result in results:
-                    links = []
-                    search_string = result.lstrip("0123456789. ")
-                    logging.info(f"Searching for: {search_string}")
-                    if self.searx_instance_url != "":
-                        links = await self.search(query=search_string)
-                    else:
-                        links = await self.ddg_search(query=search_string)
-                    logging.info(f"Found {len(links)} results for {search_string}")
-                    if len(links) > websearch_depth:
-                        links = links[:websearch_depth]
-                    if links is not None and len(links) > 0:
-                        task = asyncio.create_task(
-                            self.resursive_browsing(user_input=user_input, links=links)
-                        )
-                        self.tasks.append(task)
+            if len(search_string) > 0:
+                links = []
+                logging.info(f"Searching for: {search_string}")
+                if self.searx_instance_url != "":
+                    links = await self.search(query=search_string)
+                else:
+                    links = await self.ddg_search(query=search_string)
+                logging.info(f"Found {len(links)} results for {search_string}")
+                if len(links) > websearch_depth:
+                    links = links[:websearch_depth]
+                if links is not None and len(links) > 0:
+                    task = asyncio.create_task(
+                        self.resursive_browsing(user_input=user_input, links=links)
+                    )
+                    self.tasks.append(task)
 
                 if int(websearch_timeout) == 0:
                     await asyncio.gather(*self.tasks)
