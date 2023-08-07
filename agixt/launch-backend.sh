@@ -25,9 +25,9 @@ if [ -z "$DB_CONNECTED" ]; then
   AGIXT_URI="http://localhost:7437"
   DB_CONNECTED="false"
   AGIXT_AUTO_UPDATE="true"
-  AGIXT_HUB="AGiXT/light-hub"
+  AGIXT_HUB="AGiXT/hub"
   AGIXT_API_KEY=""
-  UVICORN_WORKERS="4"
+  UVICORN_WORKERS="10"
   GITHUB_USER=""
   GITHUB_TOKEN=""
   POSTGRES_SERVER="db"
@@ -38,7 +38,7 @@ if [ -z "$DB_CONNECTED" ]; then
 fi
 
 
-workers="${UVICORN_WORKERS:-4}"
+workers="${UVICORN_WORKERS:-10}"
 
 if [ "$DB_CONNECTED" = "true" ]; then
   host="${POSTGRES_SERVER:-db}"
