@@ -165,7 +165,10 @@ class Chains:
             try:
                 prompt = step["prompt"]
                 if "prompt_name" in prompt:
-                    args = Prompts().get_prompt_args(prompt_name=prompt["prompt_name"])
+                    prompt_text = Prompts().get_prompt(
+                        prompt_name=prompt["prompt_name"]
+                    )
+                    args = Prompts().get_prompt_args(prompt_text=prompt_text)
                 elif "command_name" in prompt:
                     args = Extensions().get_command_args(
                         command_name=prompt["command_name"]
