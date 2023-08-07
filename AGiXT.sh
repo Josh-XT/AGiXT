@@ -43,13 +43,13 @@ environment_setup() {
                 read -p "Enter your GitHub token: " github_token
             fi
         fi
-        read -p "Enter the number of AGiXT workers to run with, default is 4: " workers
+        read -p "Enter the number of AGiXT workers to run with, default is 10: " workers
         if [[ "$workers" != "" ]]; then
             if [[ $workers =~ ^[0-9]+$ && $workers -gt 0 ]]; then
                 agixt_workers=$workers
             else
-                echo "Invalid number of workers, defaulting to 4"
-                agixt_workers=4
+                echo "Invalid number of workers, defaulting to 10"
+                agixt_workers=10
             fi
         fi
         read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
@@ -84,7 +84,7 @@ environment_setup() {
         echo "AGIXT_HUB=${github_repo:-AGiXT/hub}" >> .env
         echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
-        echo "UVICORN_WORKERS=${agixt_workers:-4}" >> .env
+        echo "UVICORN_WORKERS=${agixt_workers:-10}" >> .env
         echo "GITHUB_USER=${github_username:-}" >> .env
         echo "GITHUB_TOKEN=${github_token:-}" >> .env
         echo "POSTGRES_SERVER=${postgres_host:-db}" >> .env

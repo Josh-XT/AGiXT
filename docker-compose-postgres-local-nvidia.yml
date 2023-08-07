@@ -14,7 +14,7 @@ services:
     init: true
     environment:
       - DB_CONNECTED=false
-      - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
