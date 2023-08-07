@@ -27,7 +27,6 @@ psycopg2==2.9.6
 openai==0.27.8
 torch==2.0.1
 transformers[accelerate]==4.30.1
-anthropic==0.2.9
 google-api-python-client==2.87.0
 google-auth-oauthlib==1.0.0
 gTTS==2.3.2
