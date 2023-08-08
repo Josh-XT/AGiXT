@@ -3,6 +3,7 @@ import os
 import regex
 import json
 import time
+import uuid
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -139,7 +140,7 @@ class Interactions:
             else:
                 helper_agent_name = self.agent_name
         if conversation_name == "":
-            conversation_name = f"{self.agent_name} History"
+            conversation_name = uuid.uuid4()
         conversation = get_conversation(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
@@ -193,7 +194,7 @@ class Interactions:
         disable_memory = True if str(disable_memory).lower() == "true" else False
         browse_links = True if str(browse_links).lower() == "true" else False
         if conversation_name != "":
-            conversation_name = f"{self.agent_name} History"
+            conversation_name = uuid.uuid4()
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
                 websearch_timeout = int(
