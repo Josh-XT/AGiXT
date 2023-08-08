@@ -23,9 +23,6 @@ services:
       - "7437:7437"
     volumes:
       - ./models:/model
-      - ./agents:/agixt/agents
-      - ./chains:/agixt/chains
-      - ./prompts:/agixt/prompts
       - ./WORKSPACE:/agixt/WORKSPACE
       - ./.env:/.env
   streamlit:
