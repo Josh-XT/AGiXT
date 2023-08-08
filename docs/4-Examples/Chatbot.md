@@ -11,7 +11,11 @@ pip install -U agixtsdk
 import uuid
 from agixtsdk import AGiXTSDK
 
-ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=None)
+# Your AGiXT URL and API key
+base_uri = "http://localhost:7437"
+api_key = None
+
+ApiClient = AGiXTSDK(base_uri=base_uri, api_key=api_key)
 ```
 
 ## Set your agent name and conversation ID:
