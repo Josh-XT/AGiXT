@@ -1,5 +1,6 @@
 import os
 import yaml
+import uuid
 from datetime import datetime
 from DBConnection import (
     Conversation,
@@ -14,9 +15,7 @@ def export_conversation(agent_name, conversation_name=None):
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
-    conversation_name = (
-        f"{agent_name} History" if not conversation_name else conversation_name
-    )
+    conversation_name = uuid.uuid4() if not conversation_name else conversation_name
     conversation = (
         session.query(Conversation)
         .filter(
@@ -74,7 +73,7 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
         print(f"Agent '{agent_name}' not found in the database.")
         return
     if not conversation_name:
-        conversation_name = f"{agent_name} History"
+        conversation_name = uuid.uuid4()
     conversation = (
         session.query(Conversation)
         .filter(
@@ -173,7 +172,7 @@ def delete_history(agent_name, conversation_name=None):
         print(f"Agent '{agent_name}' not found in the database.")
         return
     if not conversation_name:
-        conversation_name = f"{agent_name} History"
+        conversation_name = uuid.uuid4()
     conversation = (
         session.query(Conversation)
         .filter(
