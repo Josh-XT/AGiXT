@@ -25,6 +25,7 @@ ApiClient = AGiXTSDK(base_uri=base_uri, api_key=api_key)
 # New chatbot session
 conversation = uuid.uuid4()
 agent_name = "OpenAI"
+print(f"Conversation ID: {conversation}")
 ```
 
 ## Learn from some documentation:
