@@ -294,6 +294,8 @@ class Interactions:
                 execution_response=self.response,
                 user_input=user_input,
                 context_results=context_results,
+                disable_memory=disable_memory,
+                conversation_name=conversation_name,
                 **kwargs,
             )
             return_response = ""
@@ -368,6 +370,7 @@ class Interactions:
                         "user_input": user_input,
                         "context_results": context_results,
                         "conversation_name": conversation_name,
+                        "disable_memory": disable_memory,
                         **kwargs,
                     },
                 )
@@ -383,7 +386,13 @@ class Interactions:
 
     # Worker Sub-Agents
     async def validation_agent(
-        self, user_input, execution_response, context_results, **kwargs
+        self,
+        user_input,
+        execution_response,
+        context_results,
+        disable_memory,
+        conversation_name,
+        **kwargs,
     ):
         try:
             pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
@@ -408,6 +417,8 @@ class Interactions:
                 prompt_args={
                     "user_input": user_input,
                     "context_results": context_results,
+                    "conversation_name": conversation_name,
+                    "disable_memory": disable_memory,
                     **kwargs,
                 },
             )
@@ -415,6 +426,8 @@ class Interactions:
                 user_input=user_input,
                 execution_response=execution_response,
                 context_results=context_results,
+                disable_memory=disable_memory,
+                conversation_name=conversation_name,
                 **kwargs,
             )
 
@@ -441,12 +454,20 @@ class Interactions:
         return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
 
     async def execution_agent(
-        self, execution_response, user_input, context_results, **kwargs
+        self,
+        execution_response,
+        user_input,
+        context_results,
+        disable_memory,
+        conversation_name,
+        **kwargs,
     ):
         validated_response = await self.validation_agent(
             user_input=user_input,
             execution_response=execution_response,
             context_results=context_results,
+            disable_memory=disable_memory,
+            conversation_name=conversation_name,
             **kwargs,
         )
         if "commands" in validated_response:
@@ -481,6 +502,8 @@ class Interactions:
                                         "command_output": e,
                                         "user_input": user_input,
                                         "context_results": context_results,
+                                        "conversation_name": conversation_name,
+                                        "disable_memory": disable_memory,
                                         **kwargs,
                                     },
                                 )
@@ -488,6 +511,8 @@ class Interactions:
                                     execution_response=validate_command,
                                     user_input=user_input,
                                     context_results=context_results,
+                                    disable_memory=disable_memory,
+                                    conversation_name=conversation_name,
                                     **kwargs,
                                 )
                             logging.info(
