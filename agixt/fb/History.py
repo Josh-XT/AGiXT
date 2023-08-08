@@ -1,11 +1,12 @@
 from datetime import datetime
 import yaml
 import os
+import uuid
 
 
 def export_conversation(agent_name, conversation_name=None):
     if not conversation_name:
-        conversation_name = f"{agent_name} History"
+        conversation_name = uuid.uuid4()
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
@@ -18,7 +19,7 @@ def export_conversation(agent_name, conversation_name=None):
 
 def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     if not conversation_name:
-        conversation_name = f"{agent_name} History"
+        conversation_name = uuid.uuid4()
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )
@@ -37,8 +38,8 @@ def get_conversations(agent_name):
     if os.path.exists(agent_dir):
         conversations = os.listdir(agent_dir)
         return [conversation.split(".")[0] for conversation in conversations]
-    new_conversation(agent_name=agent_name, conversation_name=f"{agent_name} History")
-    return [f"{agent_name} History"]
+    new_conversation(agent_name=agent_name, conversation_name=uuid.uuid4())
+    return [uuid.uuid4()]
 
 
 def new_conversation(agent_name, conversation_name):
@@ -77,7 +78,7 @@ def log_interaction(role: str, message: str, agent_name: str, conversation_name=
 
 def delete_history(agent_name, conversation_name=None):
     if not conversation_name:
-        conversation_name = f"{agent_name} History"
+        conversation_name = uuid.uuid4()
     history_file = os.path.join(
         "conversations", agent_name, f"{conversation_name}.yaml"
     )

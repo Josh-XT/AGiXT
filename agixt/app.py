@@ -470,7 +470,7 @@ async def delete_history_message(
     delete_message(
         agent_name=history.agent_name,
         message=history.message,
-        conversation_name=f"{history.agent_name} History",
+        conversation_name=history.conversation_name,
     )
     return ResponseMessage(message=f"Message deleted.")
 
