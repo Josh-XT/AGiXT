@@ -48,6 +48,7 @@ chains/
 data/
 prompts/
 agents/
+memories/
 text-generation-webui/
 # testing
 **/.ipynb_checkpoints/

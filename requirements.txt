@@ -1,3 +1,2 @@
 agixtsdk==0.0.19
-semantic-kernel==0.3.7.dev0
 g4f
