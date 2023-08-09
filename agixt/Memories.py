@@ -131,14 +131,9 @@ class Memories:
                 anonymized_telemetry=False,
             )
         )
-        self.embedder, self.chunk_size = asyncio.run(self.get_embedder())
-
-    async def get_embedder(self):
-        embedder, chunk_size = await Embedding(
-            AGENT_CONFIG=self.agent_config
-        ).get_embedder()
-        self.chunk_size = chunk_size
-        return embedder
+        self.embedder, self.chunk_size = asyncio.run(
+            Embedding(AGENT_CONFIG=self.agent_config).get_embedder()
+        )
 
     async def get_collection(self):
         try:

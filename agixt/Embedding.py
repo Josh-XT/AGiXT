@@ -29,7 +29,6 @@ class LlamacppEmbeddingFunction(EmbeddingFunction):
 class Embedding:
     def __init__(self, AGENT_CONFIG=None):
         self.AGENT_CONFIG = AGENT_CONFIG
-        self.chunk_size = 128
 
     async def get_embedder(self):
         try:
