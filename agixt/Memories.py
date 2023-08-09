@@ -1,111 +1,267 @@
-from typing import List
 import os
+import pandas as pd
+import docx2txt
+import pdfplumber
+import logging
+import asyncio
+import sys
+import chromadb
+from chromadb.config import Settings
+from chromadb.api.types import QueryResult
+from playwright.async_api import async_playwright
+from numpy import array, linalg, ndarray
+from bs4 import BeautifulSoup
 from hashlib import sha256
 from Embedding import Embedding, get_tokens, nlp
 from datetime import datetime
 from collections import Counter
-import pandas as pd
-import docx2txt
-import pdfplumber
-from playwright.async_api import async_playwright
-from semantic_kernel.connectors.memory.chroma import ChromaMemoryStore
-from semantic_kernel.memory.memory_record import MemoryRecord
-from chromadb.config import Settings
-from bs4 import BeautifulSoup
-import logging
-import asyncio
-import sys
+from typing import List
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
+def camel_to_snake(camel_str):
+    snake_str = ""
+    for i, char in enumerate(camel_str):
+        if char.isupper():
+            if i != 0 and camel_str[i - 1].islower():
+                snake_str += "_"
+            if i != len(camel_str) - 1 and camel_str[i + 1].islower():
+                snake_str += "_"
+        snake_str += char.lower()
+    return snake_str
+
+
+def chroma_compute_similarity_scores(
+    embedding: ndarray, embedding_array: ndarray, logger=None
+) -> ndarray:
+    query_norm = linalg.norm(embedding)
+    collection_norm = linalg.norm(embedding_array, axis=1)
+
+    # Compute indices for which the similarity scores can be computed
+    valid_indices = (query_norm != 0) & (collection_norm != 0)
+
+    # Initialize the similarity scores with -1 to distinguish the cases
+    # between zero similarity from orthogonal vectors and invalid similarity
+    similarity_scores = array([-1.0] * embedding_array.shape[0])
+
+    if valid_indices.any():
+        similarity_scores[valid_indices] = embedding.dot(
+            embedding_array[valid_indices].T
+        ) / (query_norm * collection_norm[valid_indices])
+        if not valid_indices.all() and logger:
+            logger.warning(
+                "Some vectors in the embedding collection are zero vectors."
+                "Ignoring cosine similarity score computation for those vectors."
+            )
+    else:
+        raise ValueError(
+            f"Invalid vectors, cannot compute cosine similarity scores"
+            f"for zero vectors"
+            f"{embedding_array} or {embedding}"
+        )
+    return similarity_scores
+
+
+def query_results_to_records(results: "QueryResult", with_embedding: bool):
+    try:
+        if isinstance(results["ids"][0], str):
+            for k, v in results.items():
+                results[k] = [v]
+    except IndexError:
+        return []
+
+    if with_embedding:
+        # Lets do memory_records without using the MemoryRecord, lets use a dict instead
+
+        memory_records = [
+            {
+                "is_reference": metadata["is_reference"] == "True",
+                "external_source_name": metadata["external_source_name"],
+                "id": metadata["id"],
+                "description": metadata["description"],
+                "text": document,
+                "embedding": embedding,
+                "additional_metadata": metadata["additional_metadata"],
+                "key": id,
+                "timestamp": metadata["timestamp"],
+            }
+            for id, document, embedding, metadata in zip(
+                results["ids"][0],
+                results["documents"][0],
+                results["embeddings"][0],
+                results["metadatas"][0],
+            )
+        ]
+    else:
+        memory_records = [
+            {
+                "is_reference": metadata["is_reference"] == "True",
+                "external_source_name": metadata["external_source_name"],
+                "id": metadata["id"],
+                "description": metadata["description"],
+                "text": document,
+                "embedding": None,
+                "additional_metadata": metadata["additional_metadata"],
+                "key": id,
+                "timestamp": metadata["timestamp"],
+            }
+            for id, document, metadata in zip(
+                results["ids"][0],
+                results["documents"][0],
+                results["metadatas"][0],
+            )
+        ]
+    return memory_records
+
+
 class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
         self.agent_name = agent_name
+        self.collection_name = camel_to_snake(agent_name)
         self.agent_config = agent_config
-        self.chroma_client = None
-        self.collection = None
-        self.chunk_size = 128
-        memories_dir = os.path.join(os.getcwd(), "agents", self.agent_name, "memories")
+        memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
-        self.chroma_client = ChromaMemoryStore(
-            persist_directory=memories_dir,
-            client_settings=Settings(
+        self.chroma_client = chromadb.Client(
+            settings=Settings(
                 chroma_db_impl="chromadb.db.duckdb.PersistentDuckDB",
                 persist_directory=memories_dir,
                 anonymized_telemetry=False,
-            ),
+            )
         )
+        self.embedder, self.chunk_size = asyncio.run(self.get_embedder())
 
     async def get_embedder(self):
         embedder, chunk_size = await Embedding(
             AGENT_CONFIG=self.agent_config
         ).get_embedder()
-        return embedder, chunk_size
+        self.chunk_size = chunk_size
+        return embedder
 
     async def get_collection(self):
         try:
-            memories_exist = await self.chroma_client.does_collection_exist_async(
-                "memories"
+            # Current version of ChromeDB rejects camel case collection names.
+            return self.chroma_client.get_collection(
+                name=self.collection_name,
+                embedding_function="DisableChromaEmbeddingFunction",
             )
-            if not memories_exist:
-                await self.chroma_client.create_collection_async(
-                    collection_name="memories"
-                )
-                memories = await self.chroma_client.get_collection_async(
-                    collection_name="memories"
-                )
-            else:
-                memories = await self.chroma_client.get_collection_async(
-                    collection_name="memories"
-                )
-            return memories
-        except Exception as e:
-            raise RuntimeError(f"Unable to initialize chroma client: {e}")
+        except:
+            self.chroma_client.create_collection(
+                name=self.collection_name,
+                embedding_function="DisableChromaEmbeddingFunction",
+            )
+            return self.get_collection()
+
+    async def upsert_async(
+        self,
+        user_input: str,
+        text: str,
+        external_source_name: str = None,
+    ) -> str:
+        collection = await self.get_collection()
+        metadata = {
+            "timestamp": datetime.now().isoformat(),
+            "is_reference": str(False),
+            "external_source_name": external_source_name or "",
+            "description": user_input,
+            "additional_metadata": text,
+            "id": sha256((text + datetime.now().isoformat()).encode()).hexdigest(),
+        }
+        embedding = await self.embedder(text)
+        collection.add(
+            ids=metadata["id"],
+            embeddings=embedding.tolist(),
+            metadatas=metadata,
+            documents=text,
+        )
+        return metadata["id"]
 
     async def store_result(
         self, input: str, result: str, external_source_name: str = None
     ):
         if result:
-            embedder, chunk_size = await self.get_embedder()
-            collection = await self.get_collection()
             if not isinstance(result, str):
                 result = str(result)
-            chunks = await self.chunk_content(content=result, chunk_size=chunk_size)
+            chunks = await self.chunk_content(
+                content=result, chunk_size=self.chunk_size
+            )
             for chunk in chunks:
-                record = MemoryRecord(
-                    is_reference=False,
-                    id=sha256(
-                        (chunk + datetime.now().isoformat()).encode()
-                    ).hexdigest(),
-                    text=chunk,
-                    timestamp=datetime.now().isoformat(),
-                    description=input,
-                    external_source_name=external_source_name,  # URL or File path
-                    embedding=await embedder(chunk),
-                    additional_metadata=chunk,
-                )
                 try:
-                    await self.chroma_client.upsert_async(
-                        collection_name="memories",
-                        record=record,
+                    await self.upsert_async(
+                        user_input=input,
+                        text=chunk,
+                        external_source_name=external_source_name,
                     )
                 except Exception as e:
                     logging.info(f"Failed to store memory: {e}")
-            self.chroma_client._client.persist()
+            self.chroma_client.persist()
+
+    async def get_nearest_matches_async(
+        self,
+        text: str,
+        limit: int,
+        min_relevance_score: float = 0.0,
+        with_embeddings: bool = True,
+    ):
+        embedding = self.embedder(text)
+        if with_embeddings is False:
+            self._logger.warning(
+                "Chroma returns distance score not cosine similarity score.\
+                So embeddings are automatically queried from database for calculation."
+            )
+        collection = await self.get_collection()
+        if collection is None:
+            return []
+
+        query_results = collection.query(
+            query_embeddings=embedding.tolist(),
+            n_results=limit,
+            include=["embeddings", "metadatas", "documents"],
+        )
+
+        # Convert the collection of embeddings into a numpy array (stacked)
+        embedding_array = array(query_results["embeddings"][0])
+        embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
+
+        # If the query embedding has shape (1, embedding_size),
+        # reshape it to (embedding_size,)
+        if len(embedding.shape) == 2:
+            embedding = embedding.reshape(
+                embedding.shape[1],
+            )
+
+        similarity_score = chroma_compute_similarity_scores(embedding, embedding_array)
+
+        # Convert query results into memory records
+        record_list = [
+            (record, distance)
+            for record, distance in zip(
+                query_results_to_records(query_results, with_embeddings),
+                similarity_score,
+            )
+        ]
+
+        sorted_results = sorted(
+            record_list,
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        filtered_results = [x for x in sorted_results if x[1] >= min_relevance_score]
+        top_results = filtered_results[:limit]
+
+        return top_results
 
     async def context_agent(self, query: str, top_results_num: int) -> List[str]:
-        embedder, chunk_size = await self.get_embedder()
         collection = await self.get_collection()
         if collection == None:
             return []
-        embed = await Embedding(AGENT_CONFIG=self.agent_config).embed_text(text=query)
         try:
-            results = await self.chroma_client.get_nearest_matches_async(
-                collection_name="memories",
-                embedding=embed,
+            results = await self.get_nearest_matches_async(
+                collection_name=self.collection_name,
+                embedding=self.embedder(query),
                 limit=top_results_num,
                 min_relevance_score=0.0,
             )
@@ -118,7 +274,7 @@ class Memories:
         total_tokens = 0
         for item in context:
             item_tokens = get_tokens(item)
-            if total_tokens + item_tokens <= chunk_size:
+            if total_tokens + item_tokens <= self.chunk_size:
                 trimmed_context.append(item)
                 total_tokens += item_tokens
             else:
@@ -197,30 +353,30 @@ class Memories:
             return False
 
     async def read_website(self, url):
-        # try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(url)
-            content = await page.content()
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                context = await browser.new_context()
+                page = await context.new_page()
+                await page.goto(url)
+                content = await page.content()
 
-            # Scrape links and their titles
-            links = await page.query_selector_all("a")
-            link_list = []
-            for link in links:
-                title = await page.evaluate("(link) => link.textContent", link)
-                href = await page.evaluate("(link) => link.href", link)
-                link_list.append((title, href))
+                # Scrape links and their titles
+                links = await page.query_selector_all("a")
+                link_list = []
+                for link in links:
+                    title = await page.evaluate("(link) => link.textContent", link)
+                    href = await page.evaluate("(link) => link.href", link)
+                    link_list.append((title, href))
 
-            await browser.close()
-            soup = BeautifulSoup(content, "html.parser")
-            text_content = soup.get_text()
-            text_content = " ".join(text_content.split())
-            if text_content:
-                await self.store_result(
-                    input=url, result=text_content, external_source_name=url
-                )
-            return text_content, link_list
-        # except:
-        #    return None, None
+                await browser.close()
+                soup = BeautifulSoup(content, "html.parser")
+                text_content = soup.get_text()
+                text_content = " ".join(text_content.split())
+                if text_content:
+                    await self.store_result(
+                        input=url, result=text_content, external_source_name=url
+                    )
+                return text_content, link_list
+        except:
+            return None, None
