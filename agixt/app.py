@@ -89,7 +89,9 @@ def verify_api_key(authorization: str = Header(None)):
         # If the provided API key doesn't match the expected one, raise an error
         if api_key != AGIXT_API_KEY:
             raise HTTPException(status_code=403, detail="Invalid API Key")
-    return api_key
+        return api_key
+    else:
+        return 1
 
 
 class AgentName(BaseModel):
