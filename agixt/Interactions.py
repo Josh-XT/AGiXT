@@ -100,7 +100,7 @@ class Interactions:
         else:
             # try:
             context = await self.memories.context_agent(
-                query=user_input, top_results_num=top_results
+                user_input=user_input, limit=top_results
             )
             # except:
             # context = ""
@@ -333,7 +333,8 @@ class Interactions:
             if disable_memory != True:
                 try:
                     await self.memories.store_result(
-                        input=user_input, result=self.response
+                        input=user_input,
+                        result=self.response,
                     )
                 except:
                     pass
