@@ -28,6 +28,8 @@ class Memories:
         self.collection = None
         self.chunk_size = 128
         memories_dir = os.path.join(os.getcwd(), "agents", self.agent_name, "memories")
+        if not os.path.exists(memories_dir):
+            os.makedirs(memories_dir)
         self.chroma_client = ChromaMemoryStore(
             persist_directory=memories_dir,
             client_settings=Settings(
