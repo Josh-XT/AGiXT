@@ -39,7 +39,23 @@ def import_agixt_hub():
     repo_name = github_repo.split("/")[1]
     repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
     zip_file_name = f"{repo_name}_main.zip"
-
+    # If there are folders under the conversations folder, move all .yaml files in them to the conversations folder and delete the folders
+    try:
+        conversations_folder = os.path.join(".", "conversations")
+        if os.path.exists(conversations_folder):
+            for item in os.listdir(conversations_folder):
+                item_path = os.path.join(conversations_folder, item)
+                if os.path.isdir(item_path):
+                    for dirpath, dirnames, filenames in os.walk(item_path):
+                        for filename in filenames:
+                            if filename.endswith(".yaml"):
+                                shutil.move(
+                                    os.path.join(dirpath, filename),
+                                    os.path.join(conversations_folder, filename),
+                                )
+                    shutil.rmtree(item_path)
+    except Exception as e:
+        print(f"Error moving conversations: {e}")
     try:
         response = requests.get(repo_url, auth=(github_user, github_token))
         response.raise_for_status()
@@ -111,6 +127,7 @@ def import_agixt_hub():
 
         shutil.rmtree(f"{repo_name}-main")
         print(f"Updated AGiXT Hub from {github_repo}")
+
     except Exception as e:
         print(f"AGiXT Hub Import Error: {e}")
     if db_connected:
