@@ -64,55 +64,32 @@ def chroma_compute_similarity_scores(
     return similarity_scores
 
 
-def query_results_to_records(results: "QueryResult", with_embedding: bool):
+def query_results_to_records(results: "QueryResult"):
     try:
         if isinstance(results["ids"][0], str):
             for k, v in results.items():
                 results[k] = [v]
     except IndexError:
         return []
-
-    if with_embedding:
-        # Lets do memory_records without using the MemoryRecord, lets use a dict instead
-
-        memory_records = [
-            {
-                "is_reference": metadata["is_reference"] == "True",
-                "external_source_name": metadata["external_source_name"],
-                "id": metadata["id"],
-                "description": metadata["description"],
-                "text": document,
-                "embedding": embedding,
-                "additional_metadata": metadata["additional_metadata"],
-                "key": id,
-                "timestamp": metadata["timestamp"],
-            }
-            for id, document, embedding, metadata in zip(
-                results["ids"][0],
-                results["documents"][0],
-                results["embeddings"][0],
-                results["metadatas"][0],
-            )
-        ]
-    else:
-        memory_records = [
-            {
-                "is_reference": metadata["is_reference"] == "True",
-                "external_source_name": metadata["external_source_name"],
-                "id": metadata["id"],
-                "description": metadata["description"],
-                "text": document,
-                "embedding": None,
-                "additional_metadata": metadata["additional_metadata"],
-                "key": id,
-                "timestamp": metadata["timestamp"],
-            }
-            for id, document, metadata in zip(
-                results["ids"][0],
-                results["documents"][0],
-                results["metadatas"][0],
-            )
-        ]
+    memory_records = [
+        {
+            "is_reference": metadata["is_reference"] == "True",
+            "external_source_name": metadata["external_source_name"],
+            "id": metadata["id"],
+            "description": metadata["description"],
+            "text": document,
+            "embedding": embedding,
+            "additional_metadata": metadata["additional_metadata"],
+            "key": id,
+            "timestamp": metadata["timestamp"],
+        }
+        for id, document, embedding, metadata in zip(
+            results["ids"][0],
+            results["documents"][0],
+            results["embeddings"][0],
+            results["metadatas"][0],
+        )
+    ]
     return memory_records
 
 
@@ -153,13 +130,12 @@ class Memories:
         self,
         user_input: str,
         text: str,
-        external_source_name: str = None,
     ) -> str:
         collection = await self.get_collection()
         metadata = {
             "timestamp": datetime.now().isoformat(),
             "is_reference": str(False),
-            "external_source_name": external_source_name or "",
+            "external_source_name": user_input,
             "description": user_input,
             "additional_metadata": text,
             "id": sha256((text + datetime.now().isoformat()).encode()).hexdigest(),
@@ -173,9 +149,7 @@ class Memories:
         )
         return metadata["id"]
 
-    async def store_result(
-        self, input: str, result: str, external_source_name: str = None
-    ):
+    async def store_result(self, input: str, result: str):
         if result:
             if not isinstance(result, str):
                 result = str(result)
@@ -187,7 +161,6 @@ class Memories:
                     await self.upsert_async(
                         user_input=input,
                         text=chunk,
-                        external_source_name=external_source_name,
                     )
                 except Exception as e:
                     logging.info(f"Failed to store memory: {e}")
@@ -198,14 +171,8 @@ class Memories:
         text: str,
         limit: int,
         min_relevance_score: float = 0.0,
-        with_embeddings: bool = True,
     ):
-        embedding = self.embedder(text)
-        if with_embeddings is False:
-            self._logger.warning(
-                "Chroma returns distance score not cosine similarity score.\
-                So embeddings are automatically queried from database for calculation."
-            )
+        embedding = ndarray(self.embedder(text))
         collection = await self.get_collection()
         if collection is None:
             return []
@@ -233,7 +200,7 @@ class Memories:
         record_list = [
             (record, distance)
             for record, distance in zip(
-                query_results_to_records(query_results, with_embeddings),
+                query_results_to_records(query_results),
                 similarity_score,
             )
         ]
@@ -340,9 +307,7 @@ class Memories:
             else:
                 with open(file_path, "r") as f:
                     content = f.read()
-            await self.store_result(
-                input=file_path, result=content, external_source_name=file_path
-            )
+            await self.store_result(input=file_path, result=content)
             return True
         except:
             return False
@@ -369,9 +334,7 @@ class Memories:
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
                 if text_content:
-                    await self.store_result(
-                        input=url, result=text_content, external_source_name=url
-                    )
+                    await self.store_result(input=url, result=text_content)
                 return text_content, link_list
         except:
             return None, None

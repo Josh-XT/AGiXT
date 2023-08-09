@@ -333,7 +333,8 @@ class Interactions:
             if disable_memory != True:
                 try:
                     await self.memories.store_result(
-                        input=user_input, result=self.response
+                        input=user_input,
+                        result=self.response,
                     )
                 except:
                     pass
