@@ -22,6 +22,7 @@ if sys.platform == "win32":
 
 
 def camel_to_snake(camel_str):
+    camel_str = camel_str.replace(" ", "")
     snake_str = ""
     for i, char in enumerate(camel_str):
         if char.isupper():
@@ -30,6 +31,7 @@ def camel_to_snake(camel_str):
             if i != len(camel_str) - 1 and camel_str[i + 1].islower():
                 snake_str += "_"
         snake_str += char.lower()
+    snake_str = snake_str.strip("_")
     return snake_str
 
 
@@ -108,16 +110,14 @@ class Memories:
                 anonymized_telemetry=False,
             )
         )
-        self.embedder, self.chunk_size = Embedding(
-            AGENT_CONFIG=self.agent_config
-        ).get_embedder()
+        self.chunk_size = Embedding(AGENT_CONFIG=self.agent_config).chunk_size
+        self.embedder = Embedding(AGENT_CONFIG=self.agent_config).embedder
 
     async def get_collection(self):
         try:
             # Current version of ChromeDB rejects camel case collection names.
             return self.chroma_client.get_collection(
-                name=self.collection_name,
-                embedding_function="DisableChromaEmbeddingFunction",
+                name=self.collection_name, embedding_function=self.embedder
             )
         except:
             self.chroma_client.create_collection(
@@ -140,10 +140,9 @@ class Memories:
             "additional_metadata": text,
             "id": sha256((text + datetime.now().isoformat()).encode()).hexdigest(),
         }
-        embedding = await self.embedder(text)
+
         collection.add(
             ids=metadata["id"],
-            embeddings=embedding.tolist(),
             metadatas=metadata,
             documents=text,
         )
@@ -157,13 +156,13 @@ class Memories:
                 content=result, chunk_size=self.chunk_size
             )
             for chunk in chunks:
-                try:
-                    await self.upsert_async(
-                        user_input=input,
-                        text=chunk,
-                    )
-                except Exception as e:
-                    logging.info(f"Failed to store memory: {e}")
+                # try:
+                await self.upsert_async(
+                    user_input=input,
+                    text=chunk,
+                )
+                # except Exception as e:
+                #    logging.info(f"Failed to store memory: {e}")
             self.chroma_client.persist()
 
     async def get_nearest_matches_async(
@@ -172,7 +171,10 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ):
-        embedding = ndarray(self.embedder(user_input))
+        embedding = array(
+            Embedding(AGENT_CONFIG=self.agent_config).embed_text(text=user_input)
+        )
+
         collection = await self.get_collection()
         if collection is None:
             return []
@@ -213,38 +215,27 @@ class Memories:
 
         filtered_results = [x for x in sorted_results if x[1] >= min_relevance_score]
         top_results = filtered_results[:limit]
-
         return top_results
 
     async def context_agent(self, user_input: str, limit: int) -> List[str]:
         collection = await self.get_collection()
         if collection == None:
             return []
-        try:
-            results = await self.get_nearest_matches_async(
-                user_input=user_input,
-                limit=limit,
-                min_relevance_score=0.0,
-            )
-        except:
-            return ""
-        context = []
-        for memory, score in results:
-            context.append(memory._text)
-        trimmed_context = []
-        total_tokens = 0
-        for item in context:
-            item_tokens = get_tokens(item)
-            if total_tokens + item_tokens <= self.chunk_size:
-                trimmed_context.append(item)
-                total_tokens += item_tokens
-            else:
-                break
-        logging.info(f"Context Injected: {trimmed_context}")
-        context_str = "\n".join(trimmed_context)
-        response = (
-            f"The user's input causes you remember these things:\n {context_str} \n\n"
+
+        results = await self.get_nearest_matches_async(
+            user_input=user_input,
+            limit=limit,
+            min_relevance_score=0.0,
         )
+        response = "The user's input causes you remember these things:\n"
+
+        for result in results:
+            print(result[0]["additional_metadata"])
+            metadata = result[0]["additional_metadata"]
+            if metadata not in response:
+                response += metadata + "\n"
+
+        response += "\n"
         return response
 
     def score_chunk(self, chunk: str, keywords: set):

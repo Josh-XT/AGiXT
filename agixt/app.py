@@ -360,12 +360,13 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
-    try:
-        memories = Agent(agent_name=agent_name).get_memories()
-        await memories.read_website(url=url.url)
-        return ResponseMessage(message="Agent learned the content from the url.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # try:
+    memories = Agent(agent_name=agent_name).get_memories()
+    await memories.read_website(url=url.url)
+    return ResponseMessage(message="Agent learned the content from the url.")
+    # except Exception as e:
+    #    logging.info(e)
+    #    raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put(
@@ -601,7 +602,7 @@ async def embedding(embedding: EmbeddingModel):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     tokens = get_tokens(embedding.input)
-    embedding = await Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
+    embedding = Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,
