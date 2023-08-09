@@ -1,6 +1,6 @@
 beautifulsoup4==4.12.2
 captcha-solver==0.1.5
-chromadb==0.3.25
+chromadb==0.4.1
 docker==6.1.2
 docx2txt==0.8
 fastapi==0.95.2
