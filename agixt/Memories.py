@@ -168,11 +168,11 @@ class Memories:
 
     async def get_nearest_matches_async(
         self,
-        text: str,
+        user_input: str,
         limit: int,
         min_relevance_score: float = 0.0,
     ):
-        embedding = ndarray(self.embedder(text))
+        embedding = ndarray(self.embedder(user_input))
         collection = await self.get_collection()
         if collection is None:
             return []
@@ -216,15 +216,14 @@ class Memories:
 
         return top_results
 
-    async def context_agent(self, query: str, top_results_num: int) -> List[str]:
+    async def context_agent(self, user_input: str, limit: int) -> List[str]:
         collection = await self.get_collection()
         if collection == None:
             return []
         try:
             results = await self.get_nearest_matches_async(
-                collection_name=self.collection_name,
-                embedding=self.embedder(query),
-                limit=top_results_num,
+                user_input=user_input,
+                limit=limit,
                 min_relevance_score=0.0,
             )
         except:
