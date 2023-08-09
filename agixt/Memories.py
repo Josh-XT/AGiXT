@@ -2,7 +2,6 @@ import os
 import pandas as pd
 import docx2txt
 import pdfplumber
-import logging
 import asyncio
 import sys
 import chromadb
@@ -12,7 +11,7 @@ from playwright.async_api import async_playwright
 from numpy import array, linalg, ndarray
 from bs4 import BeautifulSoup
 from hashlib import sha256
-from Embedding import Embedding, get_tokens, nlp
+from Embedding import Embedding, nlp
 from datetime import datetime
 from collections import Counter
 from typing import List
@@ -40,12 +39,7 @@ def chroma_compute_similarity_scores(
 ) -> ndarray:
     query_norm = linalg.norm(embedding)
     collection_norm = linalg.norm(embedding_array, axis=1)
-
-    # Compute indices for which the similarity scores can be computed
     valid_indices = (query_norm != 0) & (collection_norm != 0)
-
-    # Initialize the similarity scores with -1 to distinguish the cases
-    # between zero similarity from orthogonal vectors and invalid similarity
     similarity_scores = array([-1.0] * embedding_array.shape[0])
 
     if valid_indices.any():
@@ -116,7 +110,6 @@ class Memories:
 
     async def get_collection(self):
         try:
-            # Current version of ChromeDB rejects camel case collection names.
             return self.chroma_client.get_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
@@ -127,29 +120,8 @@ class Memories:
             )
             return self.get_collection()
 
-    async def upsert_async(
-        self,
-        user_input: str,
-        text: str,
-    ) -> str:
-        collection = await self.get_collection()
-        metadata = {
-            "timestamp": datetime.now().isoformat(),
-            "is_reference": str(False),
-            "external_source_name": user_input,
-            "description": user_input,
-            "additional_metadata": text,
-            "id": sha256((text + datetime.now().isoformat()).encode()).hexdigest(),
-        }
-
-        collection.add(
-            ids=metadata["id"],
-            metadatas=metadata,
-            documents=text,
-        )
-        return metadata["id"]
-
     async def store_result(self, input: str, result: str):
+        collection = await self.get_collection()
         if result:
             if not isinstance(result, str):
                 result = str(result)
@@ -157,13 +129,21 @@ class Memories:
                 content=result, chunk_size=self.chunk_size
             )
             for chunk in chunks:
-                # try:
-                await self.upsert_async(
-                    user_input=input,
-                    text=chunk,
+                metadata = {
+                    "timestamp": datetime.now().isoformat(),
+                    "is_reference": str(False),
+                    "external_source_name": input,
+                    "description": input,
+                    "additional_metadata": chunk,
+                    "id": sha256(
+                        (chunk + datetime.now().isoformat()).encode()
+                    ).hexdigest(),
+                }
+                collection.add(
+                    ids=metadata["id"],
+                    metadatas=metadata,
+                    documents=chunk,
                 )
-                # except Exception as e:
-                #    logging.info(f"Failed to store memory: {e}")
             self.chroma_client.persist()
 
     async def get_nearest_matches_async(
