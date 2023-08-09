@@ -100,9 +100,14 @@ class Embedding:
 
 def get_embedding_providers():
     return [
-        func
-        for func, _ in inspect.getmembers(Embedding, predicate=inspect.isfunction)
-        if not func.startswith("__")
+        "default",  # SentenceTransformer
+        "large_local",  # SentenceTransformer
+        "azure",  # OpenAI
+        "openai",  # OpenAI
+        "google_palm",  # Google
+        "google_vertex",  # Google
+        "cohere",  # Cohere
+        "llamacpp",  # Llamacpp
     ]
 
 
