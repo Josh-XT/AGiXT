@@ -110,8 +110,9 @@ class Memories:
                 anonymized_telemetry=False,
             )
         )
-        self.chunk_size = Embedding(AGENT_CONFIG=self.agent_config).chunk_size
-        self.embedder = Embedding(AGENT_CONFIG=self.agent_config).embedder
+        self.embed = Embedding(AGENT_CONFIG=self.agent_config)
+        self.chunk_size = self.embed.chunk_size
+        self.embedder = self.embed.embedder
 
     async def get_collection(self):
         try:
@@ -171,9 +172,7 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ):
-        embedding = array(
-            Embedding(AGENT_CONFIG=self.agent_config).embed_text(text=user_input)
-        )
+        embedding = array(self.embed.embed_text(text=user_input))
 
         collection = await self.get_collection()
         if collection is None:
@@ -275,6 +274,9 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
+
+    async def wipe_memory(self):
+        self.chroma_client.delete_collection(name=self.collection_name)
 
     async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
