@@ -601,7 +601,7 @@ async def embedding(embedding: EmbeddingModel):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     tokens = get_tokens(embedding.input)
-    embedding = Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
+    embedding = await Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,

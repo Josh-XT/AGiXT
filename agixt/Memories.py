@@ -108,9 +108,9 @@ class Memories:
                 anonymized_telemetry=False,
             )
         )
-        self.embedder, self.chunk_size = asyncio.run(
-            Embedding(AGENT_CONFIG=self.agent_config).get_embedder()
-        )
+        self.embedder, self.chunk_size = Embedding(
+            AGENT_CONFIG=self.agent_config
+        ).get_embedder()
 
     async def get_collection(self):
         try:
@@ -312,28 +312,28 @@ class Memories:
             return False
 
     async def read_website(self, url):
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(url)
-                content = await page.content()
+        # try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto(url)
+            content = await page.content()
 
-                # Scrape links and their titles
-                links = await page.query_selector_all("a")
-                link_list = []
-                for link in links:
-                    title = await page.evaluate("(link) => link.textContent", link)
-                    href = await page.evaluate("(link) => link.href", link)
-                    link_list.append((title, href))
+            # Scrape links and their titles
+            links = await page.query_selector_all("a")
+            link_list = []
+            for link in links:
+                title = await page.evaluate("(link) => link.textContent", link)
+                href = await page.evaluate("(link) => link.href", link)
+                link_list.append((title, href))
 
-                await browser.close()
-                soup = BeautifulSoup(content, "html.parser")
-                text_content = soup.get_text()
-                text_content = " ".join(text_content.split())
-                if text_content:
-                    await self.store_result(input=url, result=text_content)
-                return text_content, link_list
-        except:
-            return None, None
+            await browser.close()
+            soup = BeautifulSoup(content, "html.parser")
+            text_content = soup.get_text()
+            text_content = " ".join(text_content.split())
+            if text_content:
+                await self.store_result(input=url, result=text_content)
+            return text_content, link_list
+        # except:
+        #    return None, None
