@@ -388,13 +388,3 @@ class Agent:
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} not found."
-
-    def wipe_agent_memories(self):
-        memories_folder = os.path.normpath(
-            os.path.join(os.getcwd(), self.agent_name, "memories")
-        )
-        if not memories_folder.startswith(os.getcwd()):
-            raise ValueError("Invalid path, agent name must not contain slashes.")
-
-        if os.path.exists(memories_folder):
-            shutil.rmtree(memories_folder)
