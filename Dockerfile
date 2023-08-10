@@ -1,5 +1,5 @@
 # Use Python 3.10
-ARG BASE_IMAGE="python:3.10-bullseye"
+ARG BASE_IMAGE="python:3.10-bookworm"
 FROM ${BASE_IMAGE}
 
 # Install system packages

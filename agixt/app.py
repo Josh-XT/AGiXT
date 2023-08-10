@@ -698,6 +698,8 @@ async def run_chain(chain_name: str, user_input: RunChain):
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
     )
+    if "Chain failed to complete" in chain_response:
+        raise HTTPException(status_code=500, detail=chain_response)
     return chain_response
 
 
@@ -722,6 +724,13 @@ async def run_chain_step(chain_name: str, step_number: str, user_input: RunChain
         agent_override=user_input.agent_override,
         chain_args=user_input.chain_args,
     )
+    if chain_step_response == None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error running step {step_number} in chain {chain_name}",
+        )
+    if "Chain failed to complete" in chain_step_response:
+        raise HTTPException(status_code=500, detail=chain_step_response)
     return chain_step_response
 
 
