@@ -119,7 +119,9 @@ class Memories:
                 name=self.collection_name,
                 embedding_function=self.embedder,
             )
-            return self.get_collection()
+            return self.chroma_client.get_collection(
+                name=self.collection_name, embedding_function=self.embedder
+            )
 
     async def store_result(self, input: str, result: str):
         collection = await self.get_collection()
