@@ -41,7 +41,7 @@ RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && \
     node -v && npm -v
 
 # Install Playwright
-RUN npm install -g playwright
+RUN npm install -g playwright --force
 RUN npx playwright install
 
 RUN playwright install
