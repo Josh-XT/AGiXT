@@ -10,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
 from Embedding import Embedding
-from Memories import Memories
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -483,7 +482,8 @@ async def delete_history_message(
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    Memories(agent_name=agent_name).wipe_memory()
+    memories = Agent(agent_name=agent_name).get_memories()
+    await memories.wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
