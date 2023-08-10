@@ -31,7 +31,7 @@ def get_embedder(agent_settings):
     if embedder == "default":
         chunk_size = 128
         embed = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_id="all-mpnet-base-v2"
+            model_name="all-mpnet-base-v2"
         )
     elif embedder == "large_local":
         chunk_size = 500
