@@ -112,7 +112,7 @@ class Memories:
         except:
             self.chroma_client.create_collection(
                 name=self.collection_name,
-                embedding_function="DisableChromaEmbeddingFunction",
+                embedding_function=self.embedder,
             )
             return self.get_collection()
 
