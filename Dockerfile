@@ -35,9 +35,10 @@ ARG HNSWLIB_NO_NATIVE=1
 RUN pip install -r requirements.txt
 RUN pip install --force-reinstall hnswlib protobuf==3.20.*
 
-# Install Node.js
-RUN curl -sL https://deb.nodesource.com/setup_14.x | bash -
-RUN apt-get install -y nodejs
+# Install Node.js, npm, and verify their installation
+RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && \
+    apt-get install -y nodejs && \
+    node -v && npm -v
 
 # Install Playwright
 RUN npm install -g playwright
