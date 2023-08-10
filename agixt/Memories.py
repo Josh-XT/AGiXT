@@ -97,8 +97,13 @@ class Memories:
         memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
-        self.chroma_client = chromadb.PersistentClient(
-            path=memories_dir, settings=Settings(anonymized_telemetry=False)
+        # self.chroma_client = chromadb.PersistentClient(
+        self.chroma_client = chromadb.Client(
+            settings=Settings(
+                chroma_db_impl="duckdb+parquet",
+                persist_directory=memories_dir,
+                anonymized_telemetry=False,
+            )
         )
         self.embed = Embedding(AGENT_CONFIG=self.agent_config)
         self.chunk_size = self.embed.chunk_size
@@ -140,6 +145,7 @@ class Memories:
                     metadatas=metadata,
                     documents=chunk,
                 )
+            self.chroma_client.persist()
 
     async def get_nearest_matches_async(
         self,
