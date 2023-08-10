@@ -22,8 +22,8 @@ def get_conversation(conversation_name=None, limit=100, page=1, agent_name=None)
         if os.path.exists(history_file):
             with open(history_file, "r") as file:
                 history = yaml.safe_load(file)
-    except Exception as e:
-        print(e)
+    except:
+        new_conversation(conversation_name=conversation_name)
     return history
 
 

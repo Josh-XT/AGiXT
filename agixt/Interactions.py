@@ -139,6 +139,8 @@ class Interactions:
                 ]
             else:
                 helper_agent_name = self.agent_name
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = uuid.uuid4()
         conversation = get_conversation(
@@ -193,6 +195,8 @@ class Interactions:
         shots = int(shots)
         disable_memory = True if str(disable_memory).lower() == "true" else False
         browse_links = True if str(browse_links).lower() == "true" else False
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
         if conversation_name != "":
             conversation_name = uuid.uuid4()
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
