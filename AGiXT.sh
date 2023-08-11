@@ -290,7 +290,6 @@ wipe_hub() {
       "agixt/chains"
       "agixt/.github"
       "agixt/prompts"
-      "agixt/providers"
       "agixt/LICENSE"
       "agixt/README.md"
       "agixt/"*_main.zip
