@@ -2,10 +2,10 @@
 ARG BASE_IMAGE="python:3.10-bullseye"
 FROM ${BASE_IMAGE}
 # Set environment variables
-ARG HNSWLIB_NO_NATIVE=1
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
     PLAYWRIGHT_BROWSERS_PATH=0 \
+    HNSWLIB_NO_NATIVE=1 \
     PATH="/usr/local/bin:$PATH" \
     LD_PRELOAD=libgomp.so.1
 
@@ -20,6 +20,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get build-dep sqlite3 -y && \
     rm -rf /var/lib/apt/lists/*
 
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install -U pip setuptools
+
+# Set work directory
+WORKDIR /
+
 # Install SQLite3
 RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     tar xzf sqlite-autoconf-3420000.tar.gz && \
@@ -31,12 +37,6 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     ldconfig && \
     cd .. && \
     rm -rf sqlite*
-
-RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install -U pip setuptools
-
-# Set work directory
-WORKDIR /
 
 # Install Python dependencies
 COPY requirements.txt .
