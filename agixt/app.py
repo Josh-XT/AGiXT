@@ -123,6 +123,10 @@ class PromptList(BaseModel):
     prompts: List[str]
 
 
+class PromptCategoryList(BaseModel):
+    prompt_categories: List[str]
+
+
 class Completions(BaseModel):
     # Everything in this class except prompt, n, and model (agent_name) are unused currently.
     prompt: str
@@ -932,6 +936,18 @@ async def get_prompt(prompt_name: str, prompt_category: str = "Default"):
 async def get_prompts():
     prompts = Prompts().get_prompts()
     return {"prompts": prompts}
+
+
+# Get prompt categories
+@app.get(
+    "/api/prompt/categories",
+    response_model=PromptCategoryList,
+    tags=["Prompt"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompt_categories():
+    prompt_categories = Prompts().get_prompt_categories()
+    return {"prompt_categories": prompt_categories}
 
 
 @app.get(
