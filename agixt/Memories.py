@@ -288,6 +288,8 @@ class Memories:
             return False
 
     async def read_website(self, url):
+        if "github.com" in url:
+            return await self.read_github_repo(github_repo=url)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             context = await browser.new_context()
@@ -313,9 +315,11 @@ class Memories:
         self, github_repo="Josh-XT/AGiXT", github_user=None, github_token=None
     ):
         github_repo = github_repo.replace("https://github.com/", "")
-        repo_name = github_repo.split("/")[1]
-        repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
-        zip_file_name = f"{repo_name}_main.zip"
+        github_repo = github_repo.replace("https://www.github.com/", "")
+        user = github_repo.split("/")[0]
+        repo = github_repo.split("/")[1]
+        repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/main.zip"
+        zip_file_name = f"{repo}_main.zip"
         response = requests.get(repo_url, auth=(github_user, github_token))
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
