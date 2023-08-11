@@ -372,7 +372,7 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
 
 
 @app.post(
-    "/api/agent/{agent_name}/learn/github_repository",
+    "/api/agent/{agent_name}/learn/github",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
