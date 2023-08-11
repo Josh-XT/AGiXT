@@ -197,7 +197,7 @@ class Interactions:
         browse_links = True if str(browse_links).lower() == "true" else False
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
-        if conversation_name != "":
+        if conversation_name == "":
             conversation_name = uuid.uuid4()
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
