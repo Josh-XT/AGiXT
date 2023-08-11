@@ -2,9 +2,8 @@ try:
     from transformers import pipeline
 except ImportError:
     import subprocess, sys
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "transformers"]
-    )
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
     from transformers import pipeline
 
 has_accelerate = True
@@ -20,10 +19,12 @@ try:
 except ImportError:
     has_bitsandbytes = False
 
+
 def is_cuda_available():
     if not torch.cuda.is_available():
         return False
     return has_accelerate
+
 
 class PipelineProvider:
     def __init__(
@@ -51,16 +52,21 @@ class PipelineProvider:
             prompt,
             temperature=self.AI_TEMPERATURE,
             return_full_text=False,
-            max_new_tokens=self.get_max_new_tokens(tokens)
+            max_new_tokens=self.get_max_new_tokens(tokens),
         )[0]["generated_text"]
-    
+
     def load_args(self):
         if is_cuda_available():
             # Use "half" = bfloat16 or float16
             if "torch_dtype" not in self.pipeline_kwargs:
-                self.pipeline_kwargs["torch_dtype"] = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                self.pipeline_kwargs["torch_dtype"] = (
+                    torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                )
             # Enable GPU support
-            if "device_map" not in self.pipeline_kwargs and "device" not in self.pipeline_kwargs:
+            if (
+                "device_map" not in self.pipeline_kwargs
+                and "device" not in self.pipeline_kwargs
+            ):
                 self.pipeline_kwargs["device_map"] = "auto"
                 # Use "quantization"
                 if has_bitsandbytes:
@@ -69,8 +75,10 @@ class PipelineProvider:
     def load_pipeline(self):
         if not self.pipeline:
             self.load_args()
-            self.pipeline = pipeline("text-generation", self.MODEL_PATH, **self.pipeline_kwargs)
-        
+            self.pipeline = pipeline(
+                "text-generation", self.MODEL_PATH, **self.pipeline_kwargs
+            )
+
     def get_max_length(self):
         self.load_pipeline()
         if self.pipeline.model.generation_config.max_length:
@@ -79,16 +87,19 @@ class PipelineProvider:
         if max_length == int(1e30):
             return 4096
         return max_length
-    
+
     def get_max_new_tokens(self, input_length: int = 0) -> int:
         max_length = self.get_max_length() - input_length
         if max_length > 0 and self.MAX_TOKENS > max_length:
             return max_length
         return self.MAX_TOKENS
 
+
 if __name__ == "__main__":
     import asyncio
+
     async def run_test():
         response = await PipelineProvider("gpt2").instruct("Hello")
         print(f"Test: {response}")
+
     asyncio.run(run_test())
