@@ -291,7 +291,7 @@ class Memories:
         if url.startswith("https://github.com/") or url.startswith(
             "https://www.github.com/"
         ):
-            return await self.read_github_repo(github_repo=url)
+            await self.read_github_repo(github_repo=url)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             context = await browser.new_context()
