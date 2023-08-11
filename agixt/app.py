@@ -267,6 +267,7 @@ class GitHubInput(BaseModel):
     github_repo: str
     github_user: str = None
     github_token: str = None
+    github_branch: str = "main"
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
@@ -382,6 +383,7 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
         github_repo=git.github_repo,
         github_user=git.github_user,
         github_token=git.github_token,
+        github_branch=git.github_branch,
     )
     return ResponseMessage(
         message="Agent learned the content from the GitHub Repository."
