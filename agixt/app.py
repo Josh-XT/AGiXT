@@ -227,6 +227,7 @@ class ToggleCommandPayload(BaseModel):
 class CustomPromptModel(BaseModel):
     prompt_name: str
     prompt: str
+    prompt_category_name: str = "Default"
 
 
 class AgentSettings(BaseModel):
@@ -877,10 +878,31 @@ async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
 @app.post("/api/prompt", tags=["Prompt"], dependencies=[Depends(verify_api_key)])
 async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        Prompts().add_prompt(prompt_name=prompt.prompt_name, prompt=prompt.prompt)
+        Prompts().add_prompt(
+            prompt_name=prompt.prompt_name,
+            prompt=prompt.prompt,
+            prompt_category_name=prompt.prompt_category_name,
+        )
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/api/prompt/{prompt_category}/{prompt_name}",
+    tags=["Prompt"],
+    response_model=CustomPromptModel,
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_prompt_with_category(prompt_name: str, prompt_category: str = "Default"):
+    prompt_content = Prompts().get_prompt(
+        prompt_name=prompt_name, prompt_category=prompt_category
+    )
+    return {
+        "prompt_name": prompt_name,
+        "prompt_category": prompt_category,
+        "prompt": prompt_content,
+    }
 
 
 @app.get(
@@ -890,11 +912,8 @@ async def add_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompt(prompt_name: str):
-    # try:
     prompt_content = Prompts().get_prompt(prompt_name=prompt_name)
     return {"prompt_name": prompt_name, "prompt": prompt_content}
-    # except Exception as e:
-    #    raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get(
@@ -921,11 +940,19 @@ async def delete_prompt(prompt_name: str) -> ResponseMessage:
 
 # Rename prompt
 @app.patch(
-    "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
+    "/api/prompt/{prompt_category}/{prompt_name}",
+    tags=["Prompt"],
+    dependencies=[Depends(verify_api_key)],
 )
-async def rename_prompt(prompt_name: str, new_name: PromptName) -> ResponseMessage:
+async def rename_prompt(
+    prompt_name: str, new_name: PromptName, prompt_category: str = "Default"
+) -> ResponseMessage:
     try:
-        Prompts().rename_prompt(prompt_name=prompt_name, new_name=new_name.prompt_name)
+        Prompts().rename_prompt(
+            prompt_name=prompt_name,
+            new_name=new_name.prompt_name,
+            prompt_category=prompt_category,
+        )
         return ResponseMessage(
             message=f"Prompt '{prompt_name}' renamed to '{new_name.prompt_name}'."
         )
@@ -938,7 +965,11 @@ async def rename_prompt(prompt_name: str, new_name: PromptName) -> ResponseMessa
 )
 async def update_prompt(prompt: CustomPromptModel) -> ResponseMessage:
     try:
-        Prompts().update_prompt(prompt_name=prompt.prompt_name, prompt=prompt.prompt)
+        Prompts().update_prompt(
+            prompt_name=prompt.prompt_name,
+            prompt=prompt.prompt,
+            prompt_category_name=prompt.prompt_category_name,
+        )
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
