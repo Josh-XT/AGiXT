@@ -1,11 +1,7 @@
 import requests
-import inspect
 from chromadb.utils import embedding_functions
-from chromadb.api.types import Document, Documents, EmbeddingFunction, Embeddings
-import logging
-import spacy
-from numpy import array, linalg, ndarray
-from typing import List
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+from numpy import ndarray
 
 
 class LlamacppEmbeddingFunction(EmbeddingFunction):
@@ -30,14 +26,7 @@ def get_embedder(agent_settings):
         embedder = "default"
     if embedder == "default":
         chunk_size = 128
-        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-mpnet-base-v2"
-        )
-    elif embedder == "large_local":
-        chunk_size = 500
-        embed = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="gtr-t5-large"
-        )
+        embed = embedding_functions.ONNXMiniLM_L6_V2()
     elif embedder == "azure":
         chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
@@ -111,14 +100,12 @@ def get_embedding_providers():
     ]
 
 
+import tiktoken
+
+
 def nlp(text):
-    try:
-        sp = spacy.load("en_core_web_sm")
-    except:
-        spacy.cli.download("en_core_web_sm")
-        sp = spacy.load("en_core_web_sm")
-    sp.max_length = 99999999999999999999999
-    return sp(text)
+    encoding = tiktoken.get_encoding("cl100k_base")
+    return encoding.encode(text)
 
 
 def get_tokens(text):
