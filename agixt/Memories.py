@@ -249,18 +249,6 @@ class Memories:
     async def wipe_memory(self):
         self.chroma_client.delete_collection(name=self.collection_name)
 
-    async def read_github_repo(
-        self, github_repo="Josh-XT/AGiXT", github_user=None, github_token=None
-    ):
-        github_repo = github_repo.replace("https://github.com/", "")
-        repo_name = github_repo.split("/")[1]
-        repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
-        zip_file_name = f"{repo_name}_main.zip"
-        response = requests.get(repo_url, auth=(github_user, github_token))
-        with open(zip_file_name, "wb") as f:
-            f.write(response.content)
-        await self.read_file(file_path=zip_file_name)
-
     async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         file_path = os.path.normpath(os.path.join(base_path, file_path))
@@ -320,3 +308,15 @@ class Memories:
             if text_content:
                 await self.store_result(input=url, result=text_content)
             return text_content, link_list
+
+    async def read_github_repo(
+        self, github_repo="Josh-XT/AGiXT", github_user=None, github_token=None
+    ):
+        github_repo = github_repo.replace("https://github.com/", "")
+        repo_name = github_repo.split("/")[1]
+        repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
+        zip_file_name = f"{repo_name}_main.zip"
+        response = requests.get(repo_url, auth=(github_user, github_token))
+        with open(zip_file_name, "wb") as f:
+            f.write(response.content)
+        await self.read_file(file_path=zip_file_name)
