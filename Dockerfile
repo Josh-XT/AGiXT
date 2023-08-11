@@ -23,7 +23,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     cd sqlite-autoconf-3420000 && \
     ./configure && \
     make && make install && \
-    mkdir /usr/lib/aarch64-linux-gnu/ && \
     cp /usr/local/lib/libsqlite3.* /usr/lib/aarch64-linux-gnu/ && \
     ldconfig
 
