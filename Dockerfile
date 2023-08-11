@@ -43,7 +43,8 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # Download spaCy language model
-RUN python -m spacy download en_core_web_sm
+RUN pip install spacy && \
+    python -m spacy download en_core_web_sm
 
 # Install Playwright
 RUN npm install -g playwright && \
