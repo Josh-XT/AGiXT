@@ -252,6 +252,7 @@ class Memories:
     async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         file_path = os.path.normpath(os.path.join(base_path, file_path))
+        content = ""
         if not file_path.startswith(base_path):
             raise Exception("Path given not allowed")
         try:
@@ -279,8 +280,12 @@ class Memories:
             # TODO: If file is an image, classify it in text.
             # Otherwise just read the file
             else:
-                with open(file_path, "r") as f:
-                    content = f.read()
+                # If the file isn't an image extension file, just read it
+                if not file_path.endswith(
+                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
+                ):
+                    with open(file_path, "r") as f:
+                        content = f.read()
             if content != "":
                 await self.store_result(input=file_path, result=content)
             return True
