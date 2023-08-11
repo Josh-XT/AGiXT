@@ -1,4 +1,5 @@
 import logging
+
 try:
     from hugchat.hugchat import ChatBot
 except ImportError:
@@ -8,14 +9,12 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "hugchat"])
     from hugchat.hugchat import ChatBot
 
-MODELS = {
-    "OpenAssistant/oasst-sft-6-llama-30b-xor",
-    "meta-llama/Llama-2-70b-chat-hf"
-}
+MODELS = {"OpenAssistant/oasst-sft-6-llama-30b-xor", "meta-llama/Llama-2-70b-chat-hf"}
 
 MODEL_MAX_LENGHT = 2048
 
 DEFAULT_COOKIE_PATH = "./huggingchat-cookies.json"
+
 
 class HuggingchatProvider:
     def __init__(
@@ -36,10 +35,7 @@ class HuggingchatProvider:
     def __call__(self, prompt: str, **kwargs) -> str:
         try:
             self.load_session()
-            yield self.session.chat(
-                text=prompt,
-                **kwargs
-            )
+            yield self.session.chat(text=prompt, **kwargs)
             self.delete_conversation()
         except Exception as e:
             logging.info(e)
@@ -51,15 +47,16 @@ class HuggingchatProvider:
 
     async def instruct(self, prompt: str, tokens: int = 0) -> str:
         for result in self(
-                prompt,
-                temperature=self.AI_TEMPERATURE,
-                max_new_tokens=min(MODEL_MAX_LENGHT - tokens, self.MAX_TOKENS)
-            ):
+            prompt,
+            temperature=self.AI_TEMPERATURE,
+            max_new_tokens=min(MODEL_MAX_LENGHT - tokens, self.MAX_TOKENS),
+        ):
             return result
 
     async def delete_conversation(self):
         self.session.delete_conversation(self.session.current_conversation)
         self.session.current_conversation = ""
+
 
 if __name__ == "__main__":
     import json, os
@@ -76,7 +73,11 @@ if __name__ == "__main__":
             f.write(json.dumps(cookies))
 
     import asyncio
+
     async def run_test():
-        response = await HuggingchatProvider(HUGGINGCHAT_COOKIE_PATH=cookie_path).instruct("Hello")
+        response = await HuggingchatProvider(
+            HUGGINGCHAT_COOKIE_PATH=cookie_path
+        ).instruct("Hello")
         print(f"Test: {response}")
+
     asyncio.run(run_test())

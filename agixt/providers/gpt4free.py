@@ -1,8 +1,10 @@
 import logging
+
 try:
     from g4f import Provider, ModelUtils, ChatCompletion
 except ImportError:
     import sys, subprocess
+
     subprocess.check_call(
         [
             sys.executable,
@@ -37,6 +39,7 @@ providers = [
     Provider.You,
 ]
 
+
 class Gpt4freeProvider:
     def __init__(
         self,
@@ -61,9 +64,9 @@ class Gpt4freeProvider:
                 else:
                     model = self.model
                 response = ChatCompletion.create(
-                    model = ModelUtils.convert[self.model],
-                    provider = provider,
-                    messages = [{"role": "user", "content": prompt}],
+                    model=ModelUtils.convert[self.model],
+                    provider=provider,
+                    messages=[{"role": "user", "content": prompt}],
                 )
                 if not response:
                     logging.info(f"[Gpt4Free] Skip provider: Empty response")
@@ -71,10 +74,15 @@ class Gpt4freeProvider:
                 elif not isinstance(response, str):
                     logging.info(f"[Gpt4Free] Skip provider: Response is not a string")
                     continue
-                elif response in (
-                    "Vercel is currently not working.",
-                    "Unable to fetch the response, Please try again."
-                ) or "{\"error\":{\"message\":\"Hey! The webpage has been updated." in response:    # Ails
+                elif (
+                    response
+                    in (
+                        "Vercel is currently not working.",
+                        "Unable to fetch the response, Please try again.",
+                    )
+                    or '{"error":{"message":"Hey! The webpage has been updated.'
+                    in response
+                ):  # Ails
                     logging.info(f"[Gpt4Free] Skip provider: {response}")
                     continue
                 else:
@@ -83,12 +91,15 @@ class Gpt4freeProvider:
                 logging.info(f"[Gpt4Free] Exception: {e}")
             provider.working = False
 
+
 if __name__ == "__main__":
     # Test provider class
     import asyncio
+
     async def run_test():
         response = await Gpt4freeProvider().instruct("Hello")
         print(f"Class test: {response}")
+
     asyncio.run(run_test())
 
     # Test all providers
@@ -103,9 +114,9 @@ if __name__ == "__main__":
                 model = provider.model[0]
             print(f"Use model: {model}")
             response = ChatCompletion.create(
-                model = ModelUtils.convert[model],
-                provider = provider,
-                messages = [{"role": "user", "content": "Hello"}],
+                model=ModelUtils.convert[model],
+                provider=provider,
+                messages=[{"role": "user", "content": "Hello"}],
             )
             print(f"Response: {response}")
         except Exception as e:

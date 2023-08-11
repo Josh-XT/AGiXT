@@ -4,9 +4,7 @@ except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "revChatGPT"]
-    )
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "revChatGPT"])
     from revChatGPT.V1 import Chatbot
 
 
