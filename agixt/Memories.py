@@ -332,13 +332,18 @@ class Memories:
         try:
             response = requests.get(repo_url, auth=(github_user, github_token))
         except:
-            github_branch = "master"
-            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
-            try:
-                response = requests.get(repo_url, auth=(github_user, github_token))
-            except:
+            if github_branch != "master":
+                return await self.read_github_repo(
+                    github_repo=github_repo,
+                    github_user=github_user,
+                    github_token=github_token,
+                    github_branch="master",
+                )
+            else:
                 return False
         zip_file_name = f"{repo}_{github_branch}.zip"
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
         await self.read_file(file_path=zip_file_name)
+        os.remove(zip_file_name)
+        return True
