@@ -438,6 +438,20 @@ async def get_conversations_list(agent_name: str):
     return {"conversations": conversations}
 
 
+@app.get(
+    "/api/conversations",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversations_list():
+    conversations = get_conversations(
+        agent_name="OpenAI",
+    )
+    if conversations is None:
+        conversations = []
+    return {"conversations": conversations}
+
+
 @app.get("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def get_conversation_history(history: HistoryModel):
     conversation_history = get_conversation(
