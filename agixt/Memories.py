@@ -103,6 +103,8 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
+        # TODO: Remove comments after confirming that chromadb 0.4.5 is stable in docker.
+        # Commenting incase we need to roll back to chromadb 0.3.29
         """
         self.chroma_client = chromadb.Client(
             settings=Settings(
@@ -154,6 +156,8 @@ class Memories:
                     metadatas=metadata,
                     documents=chunk,
                 )
+            # TODO: Remove comments after confirming that chromadb 0.4.5 is stable in docker.
+            # Commenting incase we need to roll back to chromadb 0.3.29
             # self.chroma_client.persist()
 
     async def get_nearest_matches_async(
