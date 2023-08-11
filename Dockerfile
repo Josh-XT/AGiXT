@@ -30,7 +30,7 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     cp /usr/local/lib/libsqlite3.* /usr/lib/aarch64-linux-gnu/ && \
     ldconfig && \
     cd .. && \
-    rm -rf ../sqlite*
+    rm -rf sqlite*
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pip install -U pip setuptools
