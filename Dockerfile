@@ -42,6 +42,9 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Download spaCy language model
+RUN python -m spacy download en_core_web_sm
+
 # Install Playwright
 RUN npm install -g playwright && \
     npx playwright install && \
