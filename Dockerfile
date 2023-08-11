@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/* && \
     wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     tar vvvvvxzf sqli* && \
+    mkdir -p /usr/lib/aarch64-linux-gnu/ && \
     cd sqlite-autoconf-3420000 && \
     ./configure && \
     make && make install && \
