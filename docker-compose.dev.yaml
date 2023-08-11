@@ -10,11 +10,12 @@ services:
     volumes:
       - ./data:/var/lib/postgresql/data
   agixt:
-    build: .
+    image: joshxt/agixt:main
+    init: true
     depends_on:
       - db
     environment:
-      - DB_CONNECTED=false
+      - DB_CONNECTED=true
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
