@@ -252,6 +252,7 @@ class Memories:
     async def read_github_repo(
         self, github_repo="Josh-XT/AGiXT", github_user=None, github_token=None
     ):
+        github_repo = github_repo.replace("https://github.com/", "")
         repo_name = github_repo.split("/")[1]
         repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
         zip_file_name = f"{repo_name}_main.zip"
@@ -279,13 +280,14 @@ class Memories:
             # If zip file, extract it then go over each file with read_file
             elif file_path.endswith(".zip"):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
-                    zipObj.extractall()
+                    zipObj.extractall(path=os.path.join(base_path, "temp"))
                 content = ""
                 # Iterate over every file that was extracted including subdirectories
                 for root, dirs, files in os.walk(os.getcwd()):
                     for name in files:
                         file_path = os.path.join(root, name)
                         await self.read_file(file_path=file_path)
+                shutil.rmtree(os.path.join(base_path, "temp"))
             # TODO: If file is an image, classify it in text.
             # Otherwise just read the file
             else:

@@ -263,6 +263,12 @@ class ConversationHistoryMessageModel(BaseModel):
     message: str
 
 
+class GitHubInput(BaseModel):
+    github_repo: str
+    github_user: str = None
+    github_token: str = None
+
+
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
 async def getproviders():
     providers = get_providers()
@@ -360,13 +366,26 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
-    # try:
     memories = Agent(agent_name=agent_name).get_memories()
     await memories.read_website(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
-    # except Exception as e:
-    #    logging.info(e)
-    #    raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/api/agent/{agent_name}/learn/github_repository",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
+    memories = Agent(agent_name=agent_name).get_memories()
+    await memories.read_github_repo(
+        github_repo=git.github_repo,
+        github_user=git.github_user,
+        github_token=git.github_token,
+    )
+    return ResponseMessage(
+        message="Agent learned the content from the GitHub Repository."
+    )
 
 
 @app.put(
