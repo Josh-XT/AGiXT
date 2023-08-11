@@ -287,8 +287,10 @@ class Memories:
         except:
             return False
 
-    async def read_website(self, url):
-        if "github.com" in url:
+    async def read_website(self, url: str):
+        if url.startswith("https://github.com/") or url.startswith(
+            "https://www.github.com/"
+        ):
             return await self.read_github_repo(github_repo=url)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
