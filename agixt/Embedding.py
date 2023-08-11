@@ -1,3 +1,4 @@
+import spacy
 import requests
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
@@ -100,12 +101,14 @@ def get_embedding_providers():
     ]
 
 
-import tiktoken
-
-
 def nlp(text):
-    encoding = tiktoken.get_encoding("cl100k_base")
-    return encoding.encode(text)
+    try:
+        sp = spacy.load("en_core_web_sm")
+    except:
+        spacy.cli.download("en_core_web_sm")
+        sp = spacy.load("en_core_web_sm")
+    sp.max_length = 99999999999999999999999
+    return sp(text)
 
 
 def get_tokens(text):
