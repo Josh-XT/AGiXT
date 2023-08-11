@@ -15,6 +15,9 @@ from Embedding import Embedding, nlp
 from datetime import datetime
 from collections import Counter
 from typing import List
+import zipfile
+import shutil
+import requests
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -262,12 +265,24 @@ class Memories:
             # If file extension is doc, convert to text
             elif file_path.endswith(".doc") or file_path.endswith(".docx"):
                 content = docx2txt.process(file_path)
+            # If zip file, extract it then go over each file with read_file
+            elif file_path.endswith(".zip"):
+                with zipfile.ZipFile(file_path, "r") as zipObj:
+                    zipObj.extractall(path=os.path.join(base_path, "temp"))
+                content = ""
+                # Iterate over every file that was extracted including subdirectories
+                for root, dirs, files in os.walk(os.getcwd()):
+                    for name in files:
+                        file_path = os.path.join(root, name)
+                        await self.read_file(file_path=file_path)
+                shutil.rmtree(os.path.join(base_path, "temp"))
             # TODO: If file is an image, classify it in text.
             # Otherwise just read the file
             else:
                 with open(file_path, "r") as f:
                     content = f.read()
-            await self.store_result(input=file_path, result=content)
+            if content != "":
+                await self.store_result(input=file_path, result=content)
             return True
         except:
             return False
@@ -293,3 +308,15 @@ class Memories:
             if text_content:
                 await self.store_result(input=url, result=text_content)
             return text_content, link_list
+
+    async def read_github_repo(
+        self, github_repo="Josh-XT/AGiXT", github_user=None, github_token=None
+    ):
+        github_repo = github_repo.replace("https://github.com/", "")
+        repo_name = github_repo.split("/")[1]
+        repo_url = f"https://github.com/{github_repo}/archive/refs/heads/main.zip"
+        zip_file_name = f"{repo_name}_main.zip"
+        response = requests.get(repo_url, auth=(github_user, github_token))
+        with open(zip_file_name, "wb") as f:
+            f.write(response.content)
+        await self.read_file(file_path=zip_file_name)
