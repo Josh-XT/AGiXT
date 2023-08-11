@@ -31,10 +31,10 @@ def get_prompt_file_path(prompt_name, prompt_category="Default"):
 
 
 class Prompts:
-    def add_prompt(self, prompt_name, prompt, prompt_category_name="Default"):
+    def add_prompt(self, prompt_name, prompt, prompt_category="Default"):
         # if prompts folder does not exist, create it
         file_path = get_prompt_file_path(
-            prompt_name=prompt_name, prompt_category=prompt_category_name
+            prompt_name=prompt_name, prompt_category=prompt_category
         )
         # if prompt file does not exist, create it
         if not os.path.exists(file_path):

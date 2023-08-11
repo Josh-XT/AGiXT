@@ -2,17 +2,17 @@ from DBConnection import Prompt, PromptCategory, Argument, session
 
 
 class Prompts:
-    def add_prompt(self, prompt_name, prompt, prompt_category_name="Default"):
-        if not prompt_category_name:
-            prompt_category_name = "Default"
+    def add_prompt(self, prompt_name, prompt, prompt_category="Default"):
+        if not prompt_category:
+            prompt_category = "Default"
 
         prompt_category = (
-            session.query(PromptCategory).filter_by(name=prompt_category_name).first()
+            session.query(PromptCategory).filter_by(name=prompt_category).first()
         )
         if not prompt_category:
             prompt_category = PromptCategory(
-                name=prompt_category_name,
-                description=f"{prompt_category_name} category",
+                name=prompt_category,
+                description=f"{prompt_category} category",
             )
             session.add(prompt_category)
             session.commit()
@@ -78,31 +78,31 @@ class Prompts:
                 break
         return prompt_args
 
-    def delete_prompt(self, prompt_name, prompt_category_name="Default"):
+    def delete_prompt(self, prompt_name, prompt_category="Default"):
         prompt = (
             session.query(Prompt)
             .filter_by(name=prompt_name)
             .join(PromptCategory)
-            .filter(PromptCategory.name == prompt_category_name)
+            .filter(PromptCategory.name == prompt_category)
             .first()
         )
         if prompt:
             session.delete(prompt)
             session.commit()
 
-    def update_prompt(self, prompt_name, prompt, prompt_category_name="Default"):
+    def update_prompt(self, prompt_name, prompt, prompt_category="Default"):
         prompt_obj = session.query(Prompt).filter_by(name=prompt_name).first()
         if prompt_obj:
-            if prompt_category_name:
+            if prompt_category:
                 prompt_category = (
                     session.query(PromptCategory)
-                    .filter_by(name=prompt_category_name)
+                    .filter_by(name=prompt_category)
                     .first()
                 )
                 if not prompt_category:
                     prompt_category = PromptCategory(
-                        name=prompt_category_name,
-                        description=f"{prompt_category_name} category",
+                        name=prompt_category,
+                        description=f"{prompt_category} category",
                     )
                     session.add(prompt_category)
                     session.commit()
@@ -134,14 +134,12 @@ class Prompts:
 
             session.commit()
 
-    def rename_prompt(
-        self, prompt_name, new_prompt_name, prompt_category_name="Default"
-    ):
+    def rename_prompt(self, prompt_name, new_prompt_name, prompt_category="Default"):
         prompt = (
             session.query(Prompt)
             .filter_by(name=prompt_name)
             .join(PromptCategory)
-            .filter(PromptCategory.name == prompt_category_name)
+            .filter(PromptCategory.name == prompt_category)
             .first()
         )
         if prompt:
