@@ -6,7 +6,6 @@ docker==6.1.2
 docx2txt==0.8
 fastapi==0.95.2
 GitPython==3.1.31
-InstructorEmbedding==1.0.0
 pandas==2.0.1
 pdfplumber==0.9.0
 playwright==1.33.0
@@ -14,11 +13,9 @@ PyYAML==6.0
 PyGithub==1.58.2
 random-password-generator==2.2.0
 requests==2.31.0
-spacy==3.5.3
 protobuf==3.20.*
 uvicorn==0.22.0
 webdriver_manager==3.8.6
-sentence-transformers==2.2.2
 python-dotenv==1.0.0
 ffmpeg==1.4
 cryptography==41.0.3
@@ -33,4 +30,8 @@ google-auth-oauthlib==1.0.0
 gTTS==2.3.2
 playsound==1.2.2
 selenium==4.9.1
+tiktoken==0.4.0
+discord
+tweepy
+sendgrid
 g4f

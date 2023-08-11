@@ -2,7 +2,6 @@ import os
 import json
 import logging
 from agixtsdk import AGiXTSDK
-from Extensions import Extensions
 from dotenv import load_dotenv
 
 load_dotenv()
