@@ -24,6 +24,9 @@ services:
     volumes:
       - ./models:/model
       - ./WORKSPACE:/agixt/WORKSPACE
+      - ./agents:/agixt/agents
+      - ./memories:/agixt/memories
+      - ./conversations:/agixt/conversations
       - ./.env:/.env
   streamlit:
     image: joshxt/streamlit:latest
