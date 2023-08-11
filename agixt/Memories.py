@@ -270,7 +270,6 @@ class Memories:
             elif file_path.endswith(".zip"):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=os.path.join(base_path, "temp"))
-                content = ""
                 # Iterate over every file that was extracted including subdirectories
                 for root, dirs, files in os.walk(os.getcwd()):
                     for name in files:
