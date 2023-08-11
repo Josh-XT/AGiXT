@@ -103,17 +103,6 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
-        # TODO: Remove comments after confirming that chromadb 0.4.5 is stable in docker.
-        # Commenting incase we need to roll back to chromadb 0.3.29
-        """
-        self.chroma_client = chromadb.Client(
-            settings=Settings(
-                chroma_db_impl="duckdb+parquet",
-                persist_directory=memories_dir,
-                anonymized_telemetry=False,
-            )
-        )
-        """
         self.embed = Embedding(AGENT_CONFIG=self.agent_config)
         self.chunk_size = self.embed.chunk_size
         self.embedder = self.embed.embedder
@@ -156,9 +145,6 @@ class Memories:
                     metadatas=metadata,
                     documents=chunk,
                 )
-            # TODO: Remove comments after confirming that chromadb 0.4.5 is stable in docker.
-            # Commenting incase we need to roll back to chromadb 0.3.29
-            # self.chroma_client.persist()
 
     async def get_nearest_matches_async(
         self,
@@ -167,31 +153,21 @@ class Memories:
         min_relevance_score: float = 0.0,
     ):
         embedding = array(self.embed.embed_text(text=user_input))
-
         collection = await self.get_collection()
         if collection is None:
             return []
-
         query_results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
             include=["embeddings", "metadatas", "documents"],
         )
-
-        # Convert the collection of embeddings into a numpy array (stacked)
         embedding_array = array(query_results["embeddings"][0])
         embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
-
-        # If the query embedding has shape (1, embedding_size),
-        # reshape it to (embedding_size,)
         if len(embedding.shape) == 2:
             embedding = embedding.reshape(
                 embedding.shape[1],
             )
-
         similarity_score = chroma_compute_similarity_scores(embedding, embedding_array)
-
-        # Convert query results into memory records
         record_list = [
             (record, distance)
             for record, distance in zip(
@@ -199,13 +175,11 @@ class Memories:
                 similarity_score,
             )
         ]
-
         sorted_results = sorted(
             record_list,
             key=lambda x: x[1],
             reverse=True,
         )
-
         filtered_results = [x for x in sorted_results if x[1] >= min_relevance_score]
         top_results = filtered_results[:limit]
         return top_results
@@ -299,15 +273,12 @@ class Memories:
             return False
 
     async def read_website(self, url):
-        # try:
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             context = await browser.new_context()
             page = await context.new_page()
             await page.goto(url)
             content = await page.content()
-
-            # Scrape links and their titles
             links = await page.query_selector_all("a")
             link_list = []
             for link in links:
@@ -322,5 +293,3 @@ class Memories:
             if text_content:
                 await self.store_result(input=url, result=text_content)
             return text_content, link_list
-        # except:
-        #    return None, None
