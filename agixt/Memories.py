@@ -252,6 +252,7 @@ class Memories:
     async def read_file(self, file_path: str):
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         file_path = os.path.normpath(os.path.join(base_path, file_path))
+        content = ""
         if not file_path.startswith(base_path):
             raise Exception("Path given not allowed")
         try:
@@ -269,7 +270,6 @@ class Memories:
             elif file_path.endswith(".zip"):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=os.path.join(base_path, "temp"))
-                content = ""
                 # Iterate over every file that was extracted including subdirectories
                 for root, dirs, files in os.walk(os.getcwd()):
                     for name in files:
@@ -279,17 +279,23 @@ class Memories:
             # TODO: If file is an image, classify it in text.
             # Otherwise just read the file
             else:
-                with open(file_path, "r") as f:
-                    content = f.read()
+                # If the file isn't an image extension file, just read it
+                if not file_path.endswith(
+                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
+                ):
+                    with open(file_path, "r") as f:
+                        content = f.read()
             if content != "":
                 await self.store_result(input=file_path, result=content)
             return True
         except:
             return False
 
-    async def read_website(self, url):
-        if "github.com" in url:
-            return await self.read_github_repo(github_repo=url)
+    async def read_website(self, url: str):
+        if url.startswith("https://github.com/") or url.startswith(
+            "https://www.github.com/"
+        ):
+            await self.read_github_repo(github_repo=url)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             context = await browser.new_context()
@@ -330,13 +336,18 @@ class Memories:
         try:
             response = requests.get(repo_url, auth=(github_user, github_token))
         except:
-            github_branch = "master"
-            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
-            try:
-                response = requests.get(repo_url, auth=(github_user, github_token))
-            except:
+            if github_branch != "master":
+                return await self.read_github_repo(
+                    github_repo=github_repo,
+                    github_user=github_user,
+                    github_token=github_token,
+                    github_branch="master",
+                )
+            else:
                 return False
         zip_file_name = f"{repo}_{github_branch}.zip"
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
         await self.read_file(file_path=zip_file_name)
+        os.remove(zip_file_name)
+        return True
