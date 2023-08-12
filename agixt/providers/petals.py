@@ -1,47 +1,77 @@
-try:
-    from transformers import AutoTokenizer
-except:
-    import sys
-    import subprocess
+from pipeline import PipelineProvider
+from transformers import AutoTokenizer
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-    from transformers import AutoTokenizer
 try:
     from petals import AutoDistributedModelForCausalLM
 except ImportError:
-    import sys
-    import subprocess
+    import subprocess, sys
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "petals"])
     from petals import AutoDistributedModelForCausalLM
 
 
-class PetalsProvider:
+class PetalsPipeline:
+    def __init__(self, model, tokenizer):
+        self.tokenizer = tokenizer
+        self.model = model
+
+    @classmethod
+    def from_pretrained(cls, model_name_or_path, **kwargs):
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        model = AutoDistributedModelForCausalLM.from_pretrained(
+            model_name_or_path, **kwargs
+        )
+        return cls(model, tokenizer)
+
+    def __call__(self, prompt: str, **kwargs) -> str:
+        input_ids = self.tokenizer(prompt, return_tensors="pt")["input_ids"]
+        outputs = self.model.generate(input_ids, **kwargs)[0]
+        return self.tokenizer.decode(
+            outputs[len(input_ids[0]) :], skip_special_tokens=True
+        )
+
+
+class PetalsProvider(PipelineProvider):
     def __init__(
         self,
-        MAX_TOKENS: int = 4096,
-        AI_MODEL="stabilityai/StableBeluga2",
-        AI_TEMPERATURE: float = 0.9,
-        AI_TOP_P: float = 0.6,
+        MODEL_PATH: str = "stabilityai/StableBeluga2",
+        AI_TEMPERATURE: float = 0.7,
+        MAX_TOKENS: int = 1024,
+        AI_MODEL: str = "",
+        HUGGINGFACE_API_KEY: str = None,
         **kwargs,
     ):
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "stabilityai/StableBeluga2"
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.9
-        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.6
-        self.tokenizer = AutoTokenizer.from_pretrained(self.AI_MODEL)
-        self.model = AutoDistributedModelForCausalLM.from_pretrained(self.AI_MODEL)
+        super().__init__(
+            MODEL_PATH,
+            AI_TEMPERATURE,
+            MAX_TOKENS,
+            AI_MODEL,
+            HUGGINGFACE_API_KEY,
+            **kwargs,
+        )
 
     async def instruct(self, prompt, tokens: int = 0):
-        try:
-            max_new_tokens = int(self.MAX_TOKENS) - int(tokens)
-            inputs = self.tokenizer(prompt, return_tensors="pt")["input_ids"]
-            outputs = self.model.generate(
-                inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=float(self.AI_TEMPERATURE),
-                top_p=float(self.AI_TOP_P),
+        self.load_pipeline()
+        return self.pipeline(
+            prompt,
+            temperature=self.AI_TEMPERATURE,
+            max_new_tokens=self.get_max_new_tokens(tokens),
+        )
+
+    def load_pipeline(self):
+        if not self.pipeline:
+            self.load_args()
+            self.pipeline = PetalsPipeline.from_pretrained(
+                self.MODEL_PATH, **self.pipeline_kwargs
             )
-            return self.tokenizer.decode(outputs[0])
-        except Exception as e:
-            return f"Petals Error: {e}"
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def run_test():
+        prompt = f"### System:\n\n\n### User:\nHello\n\n### Assistant:\n"
+        response = await PetalsProvider(resume_download=True).instruct(prompt)
+        print(f"Test: {response}")
+
+    asyncio.run(run_test())

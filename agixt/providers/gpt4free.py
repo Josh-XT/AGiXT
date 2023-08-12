@@ -27,19 +27,33 @@ providers = [
     Provider.Aichat,
     Provider.AiService,
     # Not working today:
-    Provider.Yqcloud,
     Provider.Ails,
     Provider.AItianhu,
     Provider.Bing,
     Provider.ChatgptLogin,
     Provider.DeepAi,
     # Provider.DfeHub, endless loop
-    # Provider.EasyChat, ERROR pointing to g4f code
+    Provider.EasyChat,
     Provider.Lockchat,
     Provider.Theb,
     Provider.Vercel,
     Provider.You,
+    Provider.Yqcloud,
 ]
+
+
+def validate_response(response):
+    if not response:
+        raise RuntimeError("Empty response")
+    elif not isinstance(response, str):
+        raise RuntimeError("Response is not a string")
+    elif response in (
+        "Vercel is currently not working.",
+        "Unable to fetch the response, Please try again.",
+    ) or response.startswith('{"error":{"message":'):
+        raise RuntimeError(f"Response: {response}")
+    else:
+        return response
 
 
 class Gpt4freeProvider:
@@ -58,10 +72,11 @@ class Gpt4freeProvider:
             try:
                 logging.info(f"[Gpt4Free] Use provider: {provider.__name__}")
                 if self.model not in provider.model:
-                    if type(provider.model) == str:
-                        model = provider.model
-                    else:
-                        model = provider.model[0]
+                    model = (
+                        provider.model
+                        if type(provider.model) == str
+                        else provider.model[0]
+                    )
                     logging.info(f"[Gpt4Free] Use model: {model}")
                 else:
                     model = self.model
@@ -70,28 +85,9 @@ class Gpt4freeProvider:
                     provider=provider,
                     messages=[{"role": "user", "content": prompt}],
                 )
-                if not response:
-                    logging.info(f"[Gpt4Free] Skip provider: Empty response")
-                    continue
-                elif not isinstance(response, str):
-                    logging.info(f"[Gpt4Free] Skip provider: Response is not a string")
-                    continue
-                elif (
-                    response
-                    in (
-                        "Vercel is currently not working.",
-                        "Unable to fetch the response, Please try again.",
-                    )
-                    or '{"error":{"message":"Hey! The webpage has been updated.'
-                    in response
-                ):  # Ails
-                    logging.info(f"[Gpt4Free] Skip provider: {response}")
-                    continue
-                else:
-                    return response
+                return validate_response(response)
             except Exception as e:
-                logging.info(f"[Gpt4Free] Exception: {e}")
-            provider.working = False
+                logging.error(f"[Gpt4Free] Skip provider: {e}")
 
 
 if __name__ == "__main__":
@@ -110,16 +106,13 @@ if __name__ == "__main__":
             continue
         try:
             print(f"Use provider: {provider.__name__}")
-            if type(provider.model) == str:
-                model = provider.model
-            else:
-                model = provider.model[0]
+            model = provider.model if type(provider.model) == str else provider.model[0]
             print(f"Use model: {model}")
             response = ChatCompletion.create(
                 model=ModelUtils.convert[model],
                 provider=provider,
                 messages=[{"role": "user", "content": "Hello"}],
             )
-            print(f"Response: {response}")
+            print(f"Response: {validate_response(response)}")
         except Exception as e:
             print(f"{e.__class__.__name__}: {e}")
