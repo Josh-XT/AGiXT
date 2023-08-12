@@ -87,16 +87,16 @@ class Interactions:
     ):
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
-        else:
-            try:
-                prompt = cp.get_prompt(
-                    prompt_name=prompt if prompt != "" else "Custom Input",
-                    prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
-                    if prompt_category == "Default"
-                    else prompt_category,
-                )
-            except:
-                prompt = prompt
+        prompt_name = prompt if prompt != "" else "Custom Input"
+        try:
+            prompt = cp.get_prompt(
+                prompt_name=prompt_name,
+                prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
+                if prompt_category == "Default"
+                else prompt_category,
+            )
+        except:
+            prompt = prompt_name
         logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
             context = ""
