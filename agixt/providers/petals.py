@@ -31,7 +31,7 @@ class PetalsPipeline:
         )
 
 
-class PetalProvider(PipelineProvider):
+class PetalsProvider(PipelineProvider):
     def __init__(
         self,
         MODEL_PATH: str = "stabilityai/StableBeluga2",
@@ -71,7 +71,7 @@ if __name__ == "__main__":
 
     async def run_test():
         prompt = f"### System:\n\n\n### User:\nHello\n\n### Assistant:\n"
-        response = await PetalProvider(resume_download=True).instruct(prompt)
+        response = await PetalsProvider(resume_download=True).instruct(prompt)
         print(f"Test: {response}")
 
     asyncio.run(run_test())
