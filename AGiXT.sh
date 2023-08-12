@@ -250,7 +250,7 @@ local_install() {
   sleep 1
 
   # Check if the directory exists
-  if [ ! -d "agixt/providers" ]; then
+  if [ ! -d "agixt/extensions" ]; then
       echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
       pip install --upgrade pip
       sleep 1
