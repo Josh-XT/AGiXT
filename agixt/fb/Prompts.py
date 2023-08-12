@@ -64,6 +64,8 @@ class Prompts:
             raise ValueError(
                 "Invalid file path. Prompt name cannot contain '/', '\\' or '..' in"
             )
+        if not os.path.exists(base_model_path):
+            os.mkdir(base_model_path)
         for file in os.listdir(base_model_path):
             if file.endswith(".txt"):
                 prompts.append(file.replace(".txt", ""))
