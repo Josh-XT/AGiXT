@@ -35,3 +35,4 @@ discord
 tweepy
 sendgrid
 g4f
+Js2Py
