@@ -21,7 +21,7 @@ ffmpeg==1.4
 cryptography==41.0.3
 pillow==9.5.0
 SQLAlchemy==2.0.17
-psycopg2==2.9.6
+psycopg2-binary==2.9.6
 openai==0.27.8
 torch==2.0.1
 transformers[accelerate]==4.30.1
