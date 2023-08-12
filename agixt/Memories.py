@@ -188,9 +188,11 @@ class Memories:
         return top_results
 
     async def context_agent(self, user_input: str, limit: int) -> List[str]:
+        if not user_input:
+            return ""
         collection = await self.get_collection()
         if collection == None:
-            return []
+            return ""
 
         results = await self.get_nearest_matches_async(
             user_input=user_input,

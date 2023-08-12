@@ -85,12 +85,12 @@ class Interactions:
         conversation_name="",
         **kwargs,
     ):
-        if prompt == "":
-            prompt = user_input
+        if "user_input" in kwargs and user_input == "":
+            user_input = kwargs["user_input"]
         else:
             try:
                 prompt = cp.get_prompt(
-                    prompt_name=prompt,
+                    prompt_name=prompt if prompt != "" else "Custom Input",
                     prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
                     if prompt_category == "Default"
                     else prompt_category,
@@ -101,9 +101,12 @@ class Interactions:
         if top_results == 0:
             context = ""
         else:
-            context = await self.memories.context_agent(
-                user_input=user_input, limit=top_results
-            )
+            if user_input:
+                context = await self.memories.context_agent(
+                    user_input=user_input, limit=top_results
+                )
+            else:
+                context = ""
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
