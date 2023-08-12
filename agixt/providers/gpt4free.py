@@ -1,7 +1,8 @@
 import logging
 
 try:
-    from g4f import Provider, ModelUtils, ChatCompletion
+    from g4f import Provider, ChatCompletion
+    from g4f.models import ModelUtils
 except ImportError:
     import sys, subprocess
 
@@ -14,7 +15,8 @@ except ImportError:
             "g4f",
         ]
     )
-    from g4f import Provider, ModelUtils, ChatCompletion
+    from g4f import Provider, ChatCompletion
+    from g4f.models import ModelUtils
 
 providers = [
     # Working:
