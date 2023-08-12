@@ -79,6 +79,7 @@ class Interactions:
         user_input: str = "",
         top_results: int = 5,
         prompt="",
+        prompt_category="Default",
         chain_name="",
         step_number=0,
         conversation_name="",
@@ -90,7 +91,9 @@ class Interactions:
             try:
                 prompt = cp.get_prompt(
                     prompt_name=prompt,
-                    prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"],
+                    prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
+                    if prompt_category == "Default"
+                    else prompt_category,
                 )
             except:
                 prompt = prompt
@@ -98,12 +101,9 @@ class Interactions:
         if top_results == 0:
             context = ""
         else:
-            # try:
             context = await self.memories.context_agent(
                 user_input=user_input, limit=top_results
             )
-            # except:
-            # context = ""
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
@@ -190,9 +190,12 @@ class Interactions:
         disable_memory: bool = False,
         conversation_name: str = "",
         browse_links: bool = False,
+        prompt_category: str = "Default",
         **kwargs,
     ):
         shots = int(shots)
+        if "prompt_category" in kwargs:
+            prompt_category = kwargs["prompt_category"]
         disable_memory = True if str(disable_memory).lower() == "true" else False
         browse_links = True if str(browse_links).lower() == "true" else False
         if "conversation_name" in kwargs:
@@ -250,6 +253,7 @@ class Interactions:
             user_input=user_input,
             top_results=int(context_results),
             prompt=prompt,
+            prompt_category=prompt_category,
             chain_name=chain_name,
             step_number=step_number,
             conversation_name=conversation_name,
@@ -495,6 +499,12 @@ class Interactions:
                                             command_name=command_name,
                                             command_args=command_args,
                                         )
+                                    )
+                                    log_interaction(
+                                        agent_name=self.agent_name,
+                                        conversation_name=conversation_name,
+                                        role="PYTHON-TERMINAL",
+                                        message=command_output,
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
