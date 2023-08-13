@@ -6,6 +6,7 @@ import shutil
 import requests
 import zipfile
 import hashlib
+import tarfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,6 +57,13 @@ def import_agixt_hub():
                     shutil.rmtree(item_path)
     except Exception as e:
         print(f"Error moving conversations: {e}")
+    onnx_folder = os.path.join(os.getcwd(), "onnx")
+    if not os.path.exists(os.path.join(onnx_folder, "model.onnx")):
+        with tarfile.open(
+            name=os.path.join(onnx_folder, "onnx.tar.gz"),
+            mode="r:gz",
+        ) as tar:
+            tar.extractall(path=os.getcwd())
     try:
         response = requests.get(repo_url, auth=(github_user, github_token))
         response.raise_for_status()

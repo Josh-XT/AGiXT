@@ -164,14 +164,17 @@ class ONNX(EmbeddingFunction):
             os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME, "model.onnx")
         ):
             os.makedirs(self.DOWNLOAD_PATH, exist_ok=True)
-            if not os.path.exists(self.DOWNLOAD_PATH / self.ARCHIVE_FILENAME):
+            if not os.path.exists(
+                os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME)
+            ):
                 self._download(
                     self.MODEL_DOWNLOAD_URL, self.DOWNLOAD_PATH / self.ARCHIVE_FILENAME
                 )
             with tarfile.open(
-                self.DOWNLOAD_PATH / self.ARCHIVE_FILENAME, "r:gz"
+                name=os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME),
+                mode="r:gz",
             ) as tar:
-                tar.extractall(self.DOWNLOAD_PATH)
+                tar.extractall(path=self.DOWNLOAD_PATH)
 
 
 def get_embedder(agent_settings):
