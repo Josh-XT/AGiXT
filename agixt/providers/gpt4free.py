@@ -19,23 +19,6 @@ except ImportError:
     from g4f import Provider, ChatCompletion
     from g4f.models import ModelUtils
 
-# Hotfix for missing requirement in gpt4free
-try:
-    import js2py
-except ImportError:
-    import sys, subprocess
-
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "js2py",
-        ]
-    )
-    import js2py
-
 try:
     import tiktoken
 except ImportError:
