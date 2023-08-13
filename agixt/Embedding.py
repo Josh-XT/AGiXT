@@ -1,3 +1,4 @@
+import os
 import spacy
 import requests
 from chromadb.utils import embedding_functions
@@ -27,7 +28,7 @@ def get_embedder(agent_settings):
         embedder = "default"
     if embedder == "default":
         chunk_size = 128
-        embed = embedding_functions.ONNXMiniLM_L6_V2()
+        embed = embedding_functions.ONNXMiniLM_L6_V2(DOWNLOAD_PATH=os.getcwd())
     elif embedder == "azure":
         chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
