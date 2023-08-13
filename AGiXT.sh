@@ -232,7 +232,16 @@ local_install() {
   sed -i '/^TEXTGEN_URI=/d' .env
   echo "TEXTGEN_URI=http://localhost:5000" >> .env
   source .env
+  echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
+    pip install --upgrade pip
+    sleep 1
+
+    echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
+    pip install -r requirements.txt --upgrade
+    sleep 1
+
     echo "${BOLD}${YELLOW}Checking for updates...${RESET}"
     git pull
     if [ ! -d "streamlit" ]; then
@@ -241,11 +250,12 @@ local_install() {
     fi
     cd streamlit
     git pull
+    pip install -r requirements.txt --upgrade
     cd ..
   fi
 
   echo "${BOLD}${GREEN}Running local install...${RESET}"
-  echo "${BOLD}${YELLOW}Updating the repository...${RESET}"
+
   git pull
   sleep 1
 

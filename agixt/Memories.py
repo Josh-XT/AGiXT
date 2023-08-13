@@ -1,3 +1,4 @@
+import logging
 import os
 import pandas as pd
 import docx2txt
@@ -165,6 +166,9 @@ class Memories:
             include=["embeddings", "metadatas", "documents"],
         )
         embedding_array = array(query_results["embeddings"][0])
+        if len(embedding_array) == 0:
+            logging.warning("Embedding collection is empty.")
+            return []
         embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
         if len(embedding.shape) == 2:
             embedding = embedding.reshape(
