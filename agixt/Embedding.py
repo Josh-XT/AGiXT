@@ -29,6 +29,7 @@ def get_embedder(agent_settings):
     if embedder == "default":
         chunk_size = 128
         embed = embedding_functions.ONNXMiniLM_L6_V2()
+        embed.DOWNLOAD_PATH = os.getcwd()
     elif embedder == "azure":
         chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
