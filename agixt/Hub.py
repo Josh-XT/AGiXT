@@ -60,7 +60,7 @@ def import_agixt_hub():
     onnx_folder = os.path.join(os.getcwd(), "onnx")
     if not os.path.exists(os.path.join(onnx_folder, "model.onnx")):
         with tarfile.open(
-            name=os.path.join(onnx_folder, "onnx.tar.gz"),
+            name=os.path.join(os.getcwd(), "onnx.tar.gz"),
             mode="r:gz",
         ) as tar:
             tar.extractall(path=os.getcwd())
