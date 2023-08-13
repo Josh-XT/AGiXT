@@ -1,15 +1,14 @@
 import os
 import spacy
 import requests
-from chromadb.utils import embedding_functions
-from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from numpy import ndarray
+import importlib
+import tarfile
 import numpy as np
 import numpy.typing as npt
+from chromadb.utils import embedding_functions
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from pathlib import Path
-import tarfile
 from typing import List, cast
-import importlib
 
 HOME_DIR = os.getcwd()
 
@@ -238,7 +237,7 @@ class Embedding:
             agent_settings=AGENT_CONFIG["settings"]
         )
 
-    def embed_text(self, text) -> ndarray:
+    def embed_text(self, text) -> np.ndarray:
         embedding = self.embedder.__call__(texts=[text])[0]
         return embedding
 
