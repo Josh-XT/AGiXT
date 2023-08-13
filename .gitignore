@@ -21,6 +21,7 @@ frontend/
 Agent-LLM-Frontend/
 *.code-workspace
 src/
+conversations/
 # probably mounted data
 agixt/agents/*
 agixt/data/*
