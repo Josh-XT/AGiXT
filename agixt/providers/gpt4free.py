@@ -1,4 +1,5 @@
 import logging
+import time
 
 try:
     from g4f import Provider, ChatCompletion
@@ -17,6 +18,33 @@ except ImportError:
     )
     from g4f import Provider, ChatCompletion
     from g4f.models import ModelUtils
+
+# Hotfix for missing requirement in gpt4free
+try:
+    import js2py
+except ImportError:
+    import sys, subprocess
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "js2py",
+        ]
+    )
+    import js2py
+
+try:
+    import tiktoken
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "tiktoken"])
+    import tiktoken
+
 
 providers = [
     # Working:
@@ -60,18 +88,41 @@ class Gpt4freeProvider:
     def __init__(
         self,
         AI_MODEL: str = "gpt-3.5-turbo",
+        AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.7,
+        MAX_TOKENS: int = 4096,
+        WAIT_BETWEEN_REQUESTS: int = 1,
+        WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.requirements = ["gpt4free"]
-        self.model = AI_MODEL
+        self.requirements = ["gpt4free", "js2py"]
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
+        self.WAIT_BETWEEN_REQUESTS = (
+            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
+        )
+        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+
+    def get_tokens(self, prompt: str) -> int:
+        encoding = tiktoken.encoding_for_model(self.AI_MODEL)
+        num_tokens = len(encoding.encode(prompt))
+        return num_tokens
 
     async def instruct(self, prompt, tokens: int = 0):
+        tokens = self.get_tokens(prompt=prompt)
+        max_new_tokens = (
+            int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
+        )
         for provider in providers:
             if not provider.working:
                 continue
+            if int(self.WAIT_BETWEEN_REQUESTS) > 0:
+                time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
             try:
                 logging.info(f"[Gpt4Free] Use provider: {provider.__name__}")
-                if self.model not in provider.model:
+                if self.AI_MODEL not in provider.model:
                     model = (
                         provider.model
                         if type(provider.model) == str
@@ -79,40 +130,18 @@ class Gpt4freeProvider:
                     )
                     logging.info(f"[Gpt4Free] Use model: {model}")
                 else:
-                    model = self.model
+                    model = self.AI_MODEL
                 response = ChatCompletion.create(
-                    model=ModelUtils.convert[self.model],
+                    model=ModelUtils.convert[self.AI_MODEL],
                     provider=provider,
                     messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_new_tokens,
+                    temperature=float(self.AI_TEMPERATURE),
+                    top_p=float(self.AI_TOP_P),
+                    stream=False,
                 )
-                return validate_response(response)
+                return validate_response(response=response)
             except Exception as e:
                 logging.error(f"[Gpt4Free] Skip provider: {e}")
-
-
-if __name__ == "__main__":
-    # Test provider class
-    import asyncio
-
-    async def run_test():
-        response = await Gpt4freeProvider().instruct("Hello")
-        print(f"Class test: {response}")
-
-    asyncio.run(run_test())
-
-    # Test all providers
-    for provider in providers:
-        if not provider.working:
-            continue
-        try:
-            print(f"Use provider: {provider.__name__}")
-            model = provider.model if type(provider.model) == str else provider.model[0]
-            print(f"Use model: {model}")
-            response = ChatCompletion.create(
-                model=ModelUtils.convert[model],
-                provider=provider,
-                messages=[{"role": "user", "content": "Hello"}],
-            )
-            print(f"Response: {validate_response(response)}")
-        except Exception as e:
-            print(f"{e.__class__.__name__}: {e}")
+                if int(self.WAIT_AFTER_FAILURE) > 0:
+                    time.sleep(int(self.WAIT_AFTER_FAILURE))
