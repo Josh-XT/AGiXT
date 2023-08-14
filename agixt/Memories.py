@@ -10,7 +10,7 @@ from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
-from typing import List, Dict
+from typing import List
 import spacy
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
