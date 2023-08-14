@@ -381,27 +381,18 @@ class Interactions:
                     )
                 except:
                     pass
-            if user_input != "":
-                log_interaction(
-                    agent_name=self.agent_name,
-                    conversation_name=conversation_name,
-                    role="USER",
-                    message=user_input,
-                )
-            else:
-                log_interaction(
-                    agent_name=self.agent_name,
-                    conversation_name=conversation_name,
-                    role="USER",
-                    message=formatted_prompt,
-                )
+            log_interaction(
+                agent_name=self.agent_name,
+                conversation_name=conversation_name,
+                role="USER",
+                message=user_input if user_input != "" else formatted_prompt,
+            )
             log_interaction(
                 agent_name=self.agent_name,
                 conversation_name=conversation_name,
                 role=self.agent_name,
                 message=self.response,
             )
-
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
