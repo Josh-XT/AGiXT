@@ -59,7 +59,6 @@ class Interactions:
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=int(collection_number),
         )
-        self.collection_number = int(collection_number)
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
