@@ -107,9 +107,20 @@ class Interactions:
             context = ""
         else:
             if user_input:
-                context = await self.agent_memory.context_agent(
-                    user_input=user_input, limit=top_results
+                if "min_relevance_score" in kwargs:
+                    try:
+                        min_relevance_score = float(kwargs["min_relevance_score"])
+                    except:
+                        min_relevance_score = 0.0
+                else:
+                    min_relevance_score = 0.0
+                context = await self.agent_memory.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
                 )
+                if context:
+                    context = f"The user's input causes you remember these things:\n{context}\n"
             else:
                 context = ""
         command_list = self.agent.get_commands_string()
@@ -349,9 +360,9 @@ class Interactions:
         if self.response != "" and self.response != None:
             if disable_memory != True:
                 try:
-                    await self.agent_memory.store_result(
-                        input=user_input,
-                        result=self.response,
+                    await self.agent_memory.read_text(
+                        user_input=user_input,
+                        text=self.response,
                     )
                 except:
                     pass
