@@ -110,6 +110,7 @@ class Memories:
     ):
         self.agent_name = agent_name
         self.collection_name = camel_to_snake(agent_name)
+        self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"
         if agent_config is None:
@@ -137,6 +138,19 @@ class Memories:
 
     async def wipe_memory(self):
         self.chroma_client.delete_collection(name=self.collection_name)
+
+    # get collections that start with the collection name
+    async def get_collections(self):
+        collections = self.chroma_client.list_collections()
+        if int(self.collection_number) > 0:
+            collection_name = camel_to_snake(self.agent_name)
+        else:
+            collection_name = self.collection_name
+        return [
+            collection
+            for collection in collections
+            if collection.startswith(collection_name)
+        ]
 
     async def get_collection(self):
         try:
