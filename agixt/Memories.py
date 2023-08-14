@@ -336,6 +336,10 @@ class Memories:
             github_branch = "main"
         user = github_repo.split("/")[0]
         repo = github_repo.split("/")[1]
+        if " " in repo:
+            repo = repo.split(" ")[0]
+        if "\n" in repo:
+            repo = repo.split("\n")[0]
         repo_url = (
             f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
         )
