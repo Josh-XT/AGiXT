@@ -119,7 +119,7 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                if "collection_number" in kwargs:
+                if "inject_memories_from_collection_number" in kwargs:
                     context += await WebsiteReader(
                         agent_name=self.agent_name,
                         agent_config=self.agent.AGENT_CONFIG,
