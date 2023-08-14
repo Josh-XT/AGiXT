@@ -209,6 +209,7 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
+    collection_number: int = 0
 
 
 class EmbeddingModel(BaseModel):
@@ -219,6 +220,7 @@ class EmbeddingModel(BaseModel):
 class FileInput(BaseModel):
     file_name: str
     file_content: str
+    collection_number: int = 0
 
 
 class TaskOutput(BaseModel):
@@ -276,6 +278,7 @@ class GitHubInput(BaseModel):
     github_token: str = None
     github_branch: str = "main"
     use_agent_settings: bool = False
+    collection_number: int = 0
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
@@ -356,7 +359,9 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     try:
         agent_config = Agent(agent_name=agent_name).get_agent_config()
         await FileReader(
-            agent_name=agent_name, agent_config=agent_config
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=file.collection_number,
         ).write_file_to_memory(file_path=file_path)
         try:
             os.remove(file_path)
@@ -379,7 +384,9 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await WebsiteReader(
-        agent_name=agent_name, agent_config=agent_config
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=url.collection_number,
     ).write_website_to_memory(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
@@ -394,6 +401,7 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
     await GithubReader(
         agent_name=agent_name,
         agent_config=agent_config,
+        collection_number=git.collection_number,
         use_agent_settings=git.use_agent_settings,
     ).write_github_repository_to_memory(
         github_repo=git.github_repo,
