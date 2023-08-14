@@ -1,5 +1,5 @@
 import os
-import spacy
+import tiktoken
 import requests
 import importlib
 import tarfile
@@ -248,7 +248,6 @@ class Embedding:
 def get_embedding_providers():
     return [
         "default",  # SentenceTransformer
-        "large_local",  # SentenceTransformer
         "azure",  # OpenAI
         "openai",  # OpenAI
         "google_palm",  # Google
@@ -258,15 +257,7 @@ def get_embedding_providers():
     ]
 
 
-def nlp(text):
-    try:
-        sp = spacy.load("en_core_web_sm")
-    except:
-        spacy.cli.download("en_core_web_sm")
-        sp = spacy.load("en_core_web_sm")
-    sp.max_length = 99999999999999999999999
-    return sp(text)
-
-
-def get_tokens(text):
-    return len(nlp(text))
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens

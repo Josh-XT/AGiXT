@@ -12,16 +12,35 @@ from playwright.async_api import async_playwright
 from numpy import array, linalg, ndarray
 from bs4 import BeautifulSoup
 from hashlib import sha256
-from Embedding import Embedding, nlp
+from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
 import zipfile
 import shutil
 import requests
+import spacy
+from agixtsdk import AGiXTSDK
+from dotenv import load_dotenv
+
+load_dotenv()
+ApiClient = AGiXTSDK(
+    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
+)
+
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
+def nlp(text):
+    try:
+        sp = spacy.load("en_core_web_sm")
+    except:
+        spacy.cli.download("en_core_web_sm")
+        sp = spacy.load("en_core_web_sm")
+    sp.max_length = 99999999999999999999999
+    return sp(text)
 
 
 def camel_to_snake(camel_str):
@@ -97,7 +116,11 @@ class Memories:
     def __init__(self, agent_name: str = "AGiXT", agent_config=None):
         self.agent_name = agent_name
         self.collection_name = camel_to_snake(agent_name)
-        self.agent_config = agent_config
+        if agent_config is None:
+            agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
+        self.agent_config = (
+            agent_config if agent_config else {"settings": {"embedder": "default"}}
+        )
         memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
