@@ -272,6 +272,7 @@ class GitHubInput(BaseModel):
     github_user: str = None
     github_token: str = None
     github_branch: str = "main"
+    use_agent_settings: bool = False
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
@@ -376,14 +377,18 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
     return ResponseMessage(message="Agent learned the content from the url.")
 
 
+from readers.github import GithubReader
+
+
 @app.post(
     "/api/agent/{agent_name}/learn/github",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
-    await memories.read_github_repo(
+    GithubReader(
+        agent_name=agent_name, use_agent_settings=git.use_agent_settings
+    ).full_repository(
         github_repo=git.github_repo,
         github_user=git.github_user,
         github_token=git.github_token,
