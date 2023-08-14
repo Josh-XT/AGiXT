@@ -395,7 +395,7 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
         agent_name=agent_name,
         agent_config=agent_config,
         use_agent_settings=git.use_agent_settings,
-    ).full_repository(
+    ).write_github_repository_to_memory(
         github_repo=git.github_repo,
         github_user=git.github_user,
         github_token=git.github_token,
