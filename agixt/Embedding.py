@@ -13,21 +13,6 @@ from typing import List, cast
 HOME_DIR = os.getcwd()
 
 
-class LlamacppEmbeddingFunction(EmbeddingFunction):
-    def __init__(self, api_host: str):
-        self._api_host = api_host
-        self._session = requests.Session()
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        response = self._session.post(
-            self._api_url, json={"content": texts, "threads": 5}
-        ).json()
-        if "data" in response:
-            if "embedding" in response["data"]:
-                return response["data"]["embedding"]
-        return {}
-
-
 class ONNX(EmbeddingFunction):
     # https://github.com/python/mypy/issues/7291 mypy makes you type the constructor if
     # no args
@@ -177,6 +162,27 @@ class ONNX(EmbeddingFunction):
                 tar.extractall(path=self.DOWNLOAD_PATH)
 
 
+class LlamacppEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, api_host: str):
+        self._api_host = api_host
+        self._session = requests.Session()
+
+    def __call__(self, texts: Documents) -> Embeddings:
+        response = self._session.post(
+            self._api_url, json={"content": texts, "threads": 5}
+        ).json()
+        if "data" in response:
+            if "embedding" in response["data"]:
+                return response["data"]["embedding"]
+        return {}
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
+
+
 def get_embedder(agent_settings):
     try:
         embedder = agent_settings["embedder"]
@@ -247,17 +253,11 @@ class Embedding:
 
 def get_embedding_providers():
     return [
-        "default",  # SentenceTransformer
-        "azure",  # OpenAI
+        "default",  # ONNX
         "openai",  # OpenAI
+        "azure",  # OpenAI
         "google_palm",  # Google
         "google_vertex",  # Google
         "cohere",  # Cohere
         "llamacpp",  # Llamacpp
     ]
-
-
-def get_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    num_tokens = len(encoding.encode(text))
-    return num_tokens
