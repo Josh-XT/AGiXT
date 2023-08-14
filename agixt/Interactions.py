@@ -131,7 +131,6 @@ class Interactions:
                         limit=top_results,
                         min_relevance_score=min_relevance_score,
                     )
-
                 if context != []:
                     context = "\n".join(context)
                     context = f"The user's input causes you remember these things:\n{context}\n"
