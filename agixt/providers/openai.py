@@ -10,6 +10,16 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
 
+
+try:
+    import litellm
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "litellm"])
+    import litellm
+
 try:
     import tiktoken
 except ImportError:
@@ -61,53 +71,29 @@ class OpenaiProvider:
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
-            if not self.AI_MODEL.startswith("gpt-"):
-                # Use completion API
-                response = openai.Completion.create(
-                    engine=self.AI_MODEL,
-                    prompt=prompt,
-                    temperature=float(self.AI_TEMPERATURE),
-                    max_tokens=max_new_tokens,
-                    top_p=float(self.AI_TOP_P),
-                    frequency_penalty=0,
-                    presence_penalty=0,
-                    stream=bool(self.stream),
-                )
-                if not self.stream:
-                    return response.choices[0].text.strip()
-                else:
-                    answer = []
-                    for event in response:
-                        event_text = event["choices"][0]["text"]
-                        if event_text:
-                            answer.append(event_text.get("text", ""))
-                        time.sleep(0.1)
-                    new_response = " ".join(answer)
-                    return new_response.strip()
+            # Use liteLLM for OpenAI, Azure, Anthropic, HF, Cohere, Palm, Vertex etc
+            messages = [{"role": "system", "content": prompt}]
+            response = litellm.completion(
+                model=self.AI_MODEL,
+                messages=messages,
+                temperature=float(self.AI_TEMPERATURE),
+                max_tokens=max_new_tokens,
+                top_p=float(self.AI_TOP_P),
+                n=1,
+                stop=None,
+                stream=bool(self.stream),
+            )
+            if not self.stream:
+                return response.choices[0].message.content.strip()
             else:
-                # Use chat completion API
-                messages = [{"role": "system", "content": prompt}]
-                response = openai.ChatCompletion.create(
-                    model=self.AI_MODEL,
-                    messages=messages,
-                    temperature=float(self.AI_TEMPERATURE),
-                    max_tokens=max_new_tokens,
-                    top_p=float(self.AI_TOP_P),
-                    n=1,
-                    stop=None,
-                    stream=bool(self.stream),
-                )
-                if not self.stream:
-                    return response.choices[0].message.content.strip()
-                else:
-                    answer = []
-                    for event in response:
-                        event_text = event["choices"][0]["delta"]
-                        if event_text:
-                            answer.append(event_text.get("content", ""))
-                        time.sleep(0.1)
-                    new_response = " ".join(answer)
-                    return new_response.strip()
+                answer = []
+                for event in response:
+                    event_text = event["choices"][0]["delta"]
+                    if event_text:
+                        answer.append(event_text.get("content", ""))
+                    time.sleep(0.1)
+                new_response = " ".join(answer)
+                return new_response.strip()
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
             if int(self.WAIT_AFTER_FAILURE) > 0:

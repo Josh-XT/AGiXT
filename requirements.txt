@@ -31,6 +31,7 @@ gTTS==2.3.2
 playsound==1.2.2
 selenium==4.9.1
 tiktoken==0.4.0
+litellm==0.1.389
 discord
 tweepy
 sendgrid
