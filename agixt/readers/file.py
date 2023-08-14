@@ -29,7 +29,7 @@ class FileReader(Memories):
             else:
                 self.workspace_restricted = True
 
-    async def read_file(self, file_path: str):
+    async def write_file_to_memory(self, file_path: str):
         if self.workspace_restricted:
             base_path = os.path.join(os.getcwd(), "WORKSPACE")
             file_path = os.path.normpath(os.path.join(base_path, file_path))
@@ -57,7 +57,7 @@ class FileReader(Memories):
                 for root, dirs, files in os.walk(os.getcwd()):
                     for name in files:
                         file_path = os.path.join(root, name)
-                        await self.read_file(file_path=file_path)
+                        await self.write_file_to_memory(file_path=file_path)
                 shutil.rmtree(os.path.join(base_path, "temp"))
             # Otherwise just read the file
             else:
@@ -69,7 +69,7 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                await self.read_text(user_input=file_path, text=content)
+                await self.write_text_to_memory(user_input=file_path, text=content)
             return True
         except:
             return False

@@ -355,9 +355,9 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
         f.write(file_content)
     try:
         agent_config = Agent(agent_name=agent_name).get_agent_config()
-        await FileReader(agent_name=agent_name, agent_config=agent_config).read_file(
-            file_path=file_path
-        )
+        await FileReader(
+            agent_name=agent_name, agent_config=agent_config
+        ).write_file_to_memory(file_path=file_path)
         try:
             os.remove(file_path)
         except Exception:
@@ -378,9 +378,9 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
-    await WebsiteReader(agent_name=agent_name, agent_config=agent_config).read_website(
-        url=url.url
-    )
+    await WebsiteReader(
+        agent_name=agent_name, agent_config=agent_config
+    ).write_website_to_memory(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
 

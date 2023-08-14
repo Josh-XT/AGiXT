@@ -239,7 +239,7 @@ class Interactions:
                         (
                             text_content,
                             link_list,
-                        ) = await self.agent_memory.read_website(url=link)
+                        ) = await self.agent_memory.write_website_to_memory(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
@@ -250,7 +250,7 @@ class Interactions:
                                             (
                                                 text_content,
                                                 link_list,
-                                            ) = await self.agent_memory.read_website(
+                                            ) = await self.agent_memory.write_website_to_memory(
                                                 url=sublink[1]
                                             )
                                             i = i + 1
@@ -359,7 +359,7 @@ class Interactions:
         if self.response != "" and self.response != None:
             if disable_memory != True:
                 try:
-                    await self.agent_memory.read_text(
+                    await self.agent_memory.write_text_to_memory(
                         user_input=user_input,
                         text=self.response,
                     )

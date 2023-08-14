@@ -152,7 +152,7 @@ class Memories:
                 name=self.collection_name, embedding_function=self.embedder
             )
 
-    async def read_text(self, user_input: str, text: str):
+    async def write_text_to_memory(self, user_input: str, text: str):
         collection = await self.get_collection()
         if text:
             if not isinstance(text, str):

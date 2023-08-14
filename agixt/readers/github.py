@@ -33,7 +33,7 @@ class GithubReader(Memories):
             self.github_user = None
             self.github_token = None
 
-    async def full_repository(
+    async def write_github_repository_to_memory(
         self,
         github_repo="Josh-XT/AGiXT",
         github_user=None,
@@ -77,6 +77,6 @@ class GithubReader(Memories):
         zip_file_name = f"{repo}_{github_branch}.zip"
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
-        await self.file_reader.read_file(file_path=zip_file_name)
+        await self.file_reader.write_file_to_memory(file_path=zip_file_name)
         os.remove(zip_file_name)
         return True

@@ -17,7 +17,7 @@ class WebsiteReader(Memories):
             collection_number=collection_number,
         )
 
-    async def read_website(self, url: str):
+    async def write_website_to_memory(self, url: str):
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             context = await browser.new_context()
@@ -36,5 +36,5 @@ class WebsiteReader(Memories):
             text_content = soup.get_text()
             text_content = " ".join(text_content.split())
             if text_content:
-                await self.read_text(user_input=url, text=text_content)
+                await self.write_text_to_memory(user_input=url, text=text_content)
             return text_content, link_list
