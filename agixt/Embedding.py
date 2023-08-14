@@ -7,40 +7,23 @@ import numpy as np
 import numpy.typing as npt
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from pathlib import Path
 from typing import List, cast
 
-HOME_DIR = os.getcwd()
 
+class ONNXMiniLM_L6_V2(EmbeddingFunction):
+    MODEL_NAME = "all-MiniLM-L6-v2"
+    DOWNLOAD_PATH = os.getcwd()
+    EXTRACTED_FOLDER_NAME = "onnx"
+    ARCHIVE_FILENAME = "onnx.tar.gz"
+    MODEL_DOWNLOAD_URL = (
+        "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
+    )
+    tokenizer = None
+    model = None
 
-class ONNX(EmbeddingFunction):
-    def __init__(
-        self,
-        MODEL_NAME: str = "all-MiniLM-L6-v2",
-        DOWNLOAD_PATH: str = HOME_DIR,
-        EXTRACTED_FOLDER_NAME="onnx",
-        ARCHIVE_FILENAME="onnx.tar.gz",
-        MODEL_DOWNLOAD_URL=(
-            "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
-        ),
-        tokenizer=None,
-        model=None,
-    ):
+    def __init__(self) -> None:
         # Import dependencies on demand to mirror other embedding functions. This
         # breaks typechecking, thus the ignores.
-        self.MODEL_NAME = MODEL_NAME if MODEL_NAME else "all-MiniLM-L6-v2"
-        self.DOWNLOAD_PATH = DOWNLOAD_PATH if DOWNLOAD_PATH else HOME_DIR
-        self.EXTRACTED_FOLDER_NAME = (
-            EXTRACTED_FOLDER_NAME if EXTRACTED_FOLDER_NAME else "onnx"
-        )
-        self.ARCHIVE_FILENAME = ARCHIVE_FILENAME if ARCHIVE_FILENAME else "onnx.tar.gz"
-        self.MODEL_DOWNLOAD_URL = (
-            MODEL_DOWNLOAD_URL
-            if MODEL_DOWNLOAD_URL
-            else "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
-        )
-        self.tokenizer = tokenizer
-        self.model = model
         try:
             # Equivalent to import onnxruntime
             self.ort = importlib.import_module("onnxruntime")
@@ -65,7 +48,7 @@ class ONNX(EmbeddingFunction):
 
     # Borrowed from https://gist.github.com/yanqd0/c13ed29e29432e3cf3e7c38467f42f51
     # Download with tqdm to preserve the sentence-transformers experience
-    def _download(self, url: str, fname: Path, chunk_size: int = 1024) -> None:
+    def _download(self, url: str, fname: str, chunk_size: int = 1024) -> None:
         resp = requests.get(url, stream=True)
         total = int(resp.headers.get("content-length", 0))
         with open(fname, "wb") as file, self.tqdm(
@@ -142,16 +125,29 @@ class ONNX(EmbeddingFunction):
         return res
 
     def _download_model_if_not_exists(self) -> None:
+        onnx_files = [
+            "config.json",
+            "model.onnx",
+            "special_tokens_map.json",
+            "tokenizer_config.json",
+            "tokenizer.json",
+            "vocab.txt",
+        ]
+        extracted_folder = os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME)
+        onnx_files_exist = True
+        for f in onnx_files:
+            if not os.path.exists(os.path.join(extracted_folder, f)):
+                onnx_files_exist = False
+                break
         # Model is not downloaded yet
-        if not os.path.exists(
-            os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME, "model.onnx")
-        ):
+        if not onnx_files_exist:
             os.makedirs(self.DOWNLOAD_PATH, exist_ok=True)
             if not os.path.exists(
                 os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME)
             ):
                 self._download(
-                    self.MODEL_DOWNLOAD_URL, self.DOWNLOAD_PATH / self.ARCHIVE_FILENAME
+                    url=self.MODEL_DOWNLOAD_URL,
+                    fname=os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME),
                 )
             with tarfile.open(
                 name=os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME),
@@ -188,7 +184,7 @@ def get_embedder(agent_settings):
         embedder = "default"
     if embedder == "default":
         chunk_size = 256
-        embed = ONNX()
+        embed = ONNXMiniLM_L6_V2()
     elif embedder == "azure":
         chunk_size = 1000
         embed = embedding_functions.OpenAIEmbeddingFunction(
