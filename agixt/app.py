@@ -533,8 +533,7 @@ async def delete_history_message(
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories(collection_number=0)
-    await memories.wipe_memory()
+    await WebsiteReader(agent_name=agent_name, collection_number=0).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
@@ -548,10 +547,9 @@ async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseM
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    memories = Agent(agent_name=agent_name).get_memories(
-        collection_number=collection_number
-    )
-    await memories.wipe_memory()
+    await WebsiteReader(
+        agent_name=agent_name, collection_number=collection_number
+    ).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 

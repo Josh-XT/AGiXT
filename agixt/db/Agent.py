@@ -1,6 +1,4 @@
-import os
 import json
-import shutil
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
@@ -16,7 +14,6 @@ from DBConnection import (
     session,
 )
 from Providers import Providers
-from Memories import Memories
 from Extensions import Extensions
 
 DEFAULT_SETTINGS = {
@@ -259,13 +256,6 @@ class Agent:
 
                 return config
         return {}
-
-    def get_memories(self, collection_number: int = 0):
-        return Memories(
-            agent_name=self.agent_name,
-            agent_config=self.AGENT_CONFIG,
-            collection_number=collection_number,
-        )
 
     async def execute(self, command_name, command_args):
         return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(
