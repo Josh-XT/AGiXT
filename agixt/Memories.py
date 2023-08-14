@@ -10,7 +10,7 @@ from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
-from typing import List
+from typing import List, Dict
 import spacy
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
@@ -152,6 +152,14 @@ class Memories:
                 name=self.collection_name, embedding_function=self.embedder
             )
 
+    async def delete_memory(self, key: str):
+        collection = await self.get_collection()
+        try:
+            collection.delete(ids=key)
+            return True
+        except:
+            return False
+
     async def write_text_to_memory(self, user_input: str, text: str):
         collection = await self.get_collection()
         if text:
@@ -187,12 +195,12 @@ class Memories:
         if collection == None:
             return ""
         embedding = array(self.embed.embed_text(text=user_input))
-        query_results = collection.query(
+        results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
             include=["embeddings", "metadatas", "documents"],
         )
-        embedding_array = array(query_results["embeddings"][0])
+        embedding_array = array(results["embeddings"][0])
         if len(embedding_array) == 0:
             logging.warning("Embedding collection is empty.")
             return []
@@ -207,7 +215,7 @@ class Memories:
         record_list = [
             (record, distance)
             for record, distance in zip(
-                query_results_to_records(query_results),
+                query_results_to_records(results=results),
                 similarity_score,
             )
         ]
@@ -238,7 +246,7 @@ class Memories:
                 response.append(metadata)
         return response
 
-    def score_chunk(self, chunk: str, keywords: set):
+    def score_chunk(self, chunk: str, keywords: set) -> int:
         """Score a chunk based on the number of query keywords it contains."""
         chunk_counter = Counter(chunk.split())
         score = sum(chunk_counter[keyword] for keyword in keywords)
