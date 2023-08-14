@@ -14,8 +14,6 @@ HOME_DIR = os.getcwd()
 
 
 class ONNX(EmbeddingFunction):
-    # https://github.com/python/mypy/issues/7291 mypy makes you type the constructor if
-    # no args
     def __init__(
         self,
         MODEL_NAME: str = "all-MiniLM-L6-v2",
@@ -27,7 +25,7 @@ class ONNX(EmbeddingFunction):
         ),
         tokenizer=None,
         model=None,
-    ) -> None:
+    ):
         # Import dependencies on demand to mirror other embedding functions. This
         # breaks typechecking, thus the ignores.
         self.MODEL_NAME = MODEL_NAME if MODEL_NAME else "all-MiniLM-L6-v2"
