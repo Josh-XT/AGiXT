@@ -1,6 +1,7 @@
 from Memories import Memories
 import requests
 import os
+from readers.file import FileReader
 
 
 class GithubReader(Memories):
@@ -12,14 +13,17 @@ class GithubReader(Memories):
         **kwargs,
     ):
         super().__init__(agent_name=agent_name, agent_config=agent_config)
+        self.file_reader = FileReader(
+            agent_name=self.agent_name, agent_config=self.agent_config
+        )
         self.use_agent_settings = use_agent_settings
         if (
             use_agent_settings == True
-            and "GITHUB_USERNAME" in self.agent_config["settings"]
-            and "GITHUB_API_KEY" in self.agent_config["settings"]
+            and "GITHUB_USERNAME" in self.agent_settings
+            and "GITHUB_API_KEY" in self.agent_settings
         ):
-            self.github_user = self.agent_config["settings"]["GITHUB_USERNAME"]
-            self.github_token = self.agent_config["settings"]["GITHUB_API_KEY"]
+            self.github_user = self.agent_settings["GITHUB_USERNAME"]
+            self.github_token = self.agent_settings["GITHUB_API_KEY"]
         else:
             self.github_user = None
             self.github_token = None
@@ -68,6 +72,6 @@ class GithubReader(Memories):
         zip_file_name = f"{repo}_{github_branch}.zip"
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
-        await self.read_file(file_path=zip_file_name)
+        await self.file_reader.read_file(file_path=zip_file_name)
         os.remove(zip_file_name)
         return True

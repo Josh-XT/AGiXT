@@ -7,6 +7,7 @@ import uuid
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+from readers.website import WebsiteReader
 
 load_dotenv()
 
@@ -54,6 +55,9 @@ class Interactions:
             self.agent = None
             self.agent_commands = ""
             self.memories = None
+        self.website_reader = WebsiteReader(
+            agent_name=self.agent_name, agent_config=self.agent.AGENT_CONFIG
+        )
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -221,9 +225,10 @@ class Interactions:
                     if link not in self.websearch.browsed_links:
                         logging.info(f"Browsing link: {link}")
                         self.websearch.browsed_links.append(link)
-                        text_content, link_list = await self.memories.read_website(
-                            url=link
-                        )
+                        (
+                            text_content,
+                            link_list,
+                        ) = await self.website_reader.read_website(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
@@ -234,7 +239,7 @@ class Interactions:
                                             (
                                                 text_content,
                                                 link_list,
-                                            ) = await self.memories.read_website(
+                                            ) = await self.website_reader.read_website(
                                                 url=sublink[1]
                                             )
                                             i = i + 1

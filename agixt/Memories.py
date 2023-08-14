@@ -18,7 +18,6 @@ from collections import Counter
 from typing import List
 import zipfile
 import shutil
-import requests
 import spacy
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
@@ -120,6 +119,9 @@ class Memories:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
             agent_config if agent_config else {"settings": {"embedder": "default"}}
+        )
+        self.agent_settings = (
+            self.agent_config["settings"] if "settings" in self.agent_config else {}
         )
         memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
@@ -277,110 +279,3 @@ class Memories:
 
     async def wipe_memory(self):
         self.chroma_client.delete_collection(name=self.collection_name)
-
-    async def read_file(self, file_path: str):
-        base_path = os.path.join(os.getcwd(), "WORKSPACE")
-        file_path = os.path.normpath(os.path.join(base_path, file_path))
-        content = ""
-        if not file_path.startswith(base_path):
-            raise Exception("Path given not allowed")
-        try:
-            # If file extension is pdf, convert to text
-            if file_path.endswith(".pdf"):
-                with pdfplumber.open(file_path) as pdf:
-                    content = "\n".join([page.extract_text() for page in pdf.pages])
-            # If file extension is xls, convert to csv
-            elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
-                content = pd.read_excel(file_path).to_csv()
-            # If file extension is doc, convert to text
-            elif file_path.endswith(".doc") or file_path.endswith(".docx"):
-                content = docx2txt.process(file_path)
-            # If zip file, extract it then go over each file with read_file
-            elif file_path.endswith(".zip"):
-                with zipfile.ZipFile(file_path, "r") as zipObj:
-                    zipObj.extractall(path=os.path.join(base_path, "temp"))
-                # Iterate over every file that was extracted including subdirectories
-                for root, dirs, files in os.walk(os.getcwd()):
-                    for name in files:
-                        file_path = os.path.join(root, name)
-                        await self.read_file(file_path=file_path)
-                shutil.rmtree(os.path.join(base_path, "temp"))
-            # TODO: If file is an image, classify it in text.
-            # Otherwise just read the file
-            else:
-                # If the file isn't an image extension file, just read it
-                if not file_path.endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
-                ):
-                    with open(file_path, "r") as f:
-                        content = f.read()
-            if content != "":
-                await self.store_result(input=file_path, result=content)
-            return True
-        except:
-            return False
-
-    async def read_website(self, url: str):
-        if url.startswith("https://github.com/") or url.startswith(
-            "https://www.github.com/"
-        ):
-            await self.read_github_repo(github_repo=url)
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(url)
-            content = await page.content()
-            links = await page.query_selector_all("a")
-            link_list = []
-            for link in links:
-                title = await page.evaluate("(link) => link.textContent", link)
-                href = await page.evaluate("(link) => link.href", link)
-                link_list.append((title, href))
-
-            await browser.close()
-            soup = BeautifulSoup(content, "html.parser")
-            text_content = soup.get_text()
-            text_content = " ".join(text_content.split())
-            if text_content:
-                await self.store_result(input=url, result=text_content)
-            return text_content, link_list
-
-    async def read_github_repo(
-        self,
-        github_repo="Josh-XT/AGiXT",
-        github_user=None,
-        github_token=None,
-        github_branch="main",
-    ):
-        github_repo = github_repo.replace("https://github.com/", "")
-        github_repo = github_repo.replace("https://www.github.com/", "")
-        if not github_branch:
-            github_branch = "main"
-        user = github_repo.split("/")[0]
-        repo = github_repo.split("/")[1]
-        if " " in repo:
-            repo = repo.split(" ")[0]
-        if "\n" in repo:
-            repo = repo.split("\n")[0]
-        repo_url = (
-            f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
-        )
-        try:
-            response = requests.get(repo_url, auth=(github_user, github_token))
-        except:
-            if github_branch != "master":
-                return await self.read_github_repo(
-                    github_repo=github_repo,
-                    github_user=github_user,
-                    github_token=github_token,
-                    github_branch="master",
-                )
-            else:
-                return False
-        zip_file_name = f"{repo}_{github_branch}.zip"
-        with open(zip_file_name, "wb") as f:
-            f.write(response.content)
-        await self.read_file(file_path=zip_file_name)
-        os.remove(zip_file_name)
-        return True

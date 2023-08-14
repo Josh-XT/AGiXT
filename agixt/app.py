@@ -44,6 +44,9 @@ from Providers import get_provider_options, get_providers
 from Embedding import get_embedding_providers, get_tokens
 from Extensions import Extensions
 from Chains import Chains
+from readers.github import GithubReader
+from readers.file import FileReader
+from readers.website import WebsiteReader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -351,8 +354,10 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
-        memories = Agent(agent_name=agent_name).get_memories()
-        await memories.read_file(file_path=file_path)
+        agent_config = Agent(agent_name=agent_name).get_agent_config()
+        await FileReader(agent_name=agent_name, agent_config=agent_config).read_file(
+            file_path=file_path
+        )
         try:
             os.remove(file_path)
         except Exception:
@@ -372,12 +377,11 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
-    await memories.read_website(url=url.url)
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await WebsiteReader(agent_name=agent_name, agent_config=agent_config).read_website(
+        url=url.url
+    )
     return ResponseMessage(message="Agent learned the content from the url.")
-
-
-from readers.github import GithubReader
 
 
 @app.post(
@@ -386,8 +390,11 @@ from readers.github import GithubReader
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
-    GithubReader(
-        agent_name=agent_name, use_agent_settings=git.use_agent_settings
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await GithubReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        use_agent_settings=git.use_agent_settings,
     ).full_repository(
         github_repo=git.github_repo,
         github_user=git.github_user,
