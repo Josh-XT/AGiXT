@@ -160,8 +160,12 @@ class Agent:
             ).get_available_commands()
             self.clean_agent_config_commands()
 
-    def get_memories(self):
-        return Memories(self.agent_name, self.AGENT_CONFIG)
+    def get_memories(self, collection_number: int = 0):
+        return Memories(
+            agent_name=self.agent_name,
+            agent_config=self.AGENT_CONFIG,
+            collection_number=collection_number,
+        )
 
     async def execute(self, command_name, command_args):
         return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(

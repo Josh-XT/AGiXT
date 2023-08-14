@@ -12,9 +12,14 @@ class FileReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
+        collection_number: int = 0,
         **kwargs,
     ):
-        super().__init__(agent_name=agent_name, agent_config=agent_config)
+        super().__init__(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        )
         if "WORKSPACE_RESTRICTED" in self.agent_settings:
             self.workspace_restricted = self.agent_settings["WORKSPACE_RESTRICTED"]
             if isinstance(self.workspace_restricted, str):

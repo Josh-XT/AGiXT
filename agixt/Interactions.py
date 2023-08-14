@@ -36,12 +36,11 @@ cp = Prompts()
 
 
 class Interactions:
-    def __init__(self, agent_name: str = ""):
+    def __init__(self, agent_name: str = "", collection_number: int = 0):
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
-            self.memories = self.agent.get_memories()
             self.websearch = Websearch(
                 agent_name=self.agent_name,
                 searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
@@ -54,9 +53,11 @@ class Interactions:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
-            self.memories = None
-        self.website_reader = WebsiteReader(
-            agent_name=self.agent_name, agent_config=self.agent.AGENT_CONFIG
+
+        self.agent_memory = WebsiteReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=int(collection_number),
         )
         self.stop_running_event = None
         self.browsed_links = []
@@ -106,7 +107,7 @@ class Interactions:
             context = ""
         else:
             if user_input:
-                context = await self.memories.context_agent(
+                context = await self.agent_memory.context_agent(
                     user_input=user_input, limit=top_results
                 )
             else:
@@ -228,7 +229,7 @@ class Interactions:
                         (
                             text_content,
                             link_list,
-                        ) = await self.website_reader.read_website(url=link)
+                        ) = await self.agent_memory.read_website(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
@@ -239,7 +240,7 @@ class Interactions:
                                             (
                                                 text_content,
                                                 link_list,
-                                            ) = await self.website_reader.read_website(
+                                            ) = await self.agent_memory.read_website(
                                                 url=sublink[1]
                                             )
                                             i = i + 1
@@ -348,7 +349,7 @@ class Interactions:
         if self.response != "" and self.response != None:
             if disable_memory != True:
                 try:
-                    await self.memories.store_result(
+                    await self.agent_memory.store_result(
                         input=user_input,
                         result=self.response,
                     )

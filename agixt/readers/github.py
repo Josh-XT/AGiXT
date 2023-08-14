@@ -9,10 +9,15 @@ class GithubReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
+        collection_number: int = 0,
         use_agent_settings: bool = False,
         **kwargs,
     ):
-        super().__init__(agent_name=agent_name, agent_config=agent_config)
+        super().__init__(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        )
         self.file_reader = FileReader(
             agent_name=self.agent_name, agent_config=self.agent_config
         )

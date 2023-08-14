@@ -105,9 +105,14 @@ def query_results_to_records(results: "QueryResult"):
 
 
 class Memories:
-    def __init__(self, agent_name: str = "AGiXT", agent_config=None):
+    def __init__(
+        self, agent_name: str = "AGiXT", agent_config=None, collection_number: int = 0
+    ):
         self.agent_name = agent_name
-        self.collection_name = camel_to_snake(agent_name)
+        if collection_number > 0:
+            self.collection_name = f"{camel_to_snake(agent_name)}_{collection_number}"
+        else:
+            self.collection_name = camel_to_snake(agent_name)
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (

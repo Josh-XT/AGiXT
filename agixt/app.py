@@ -5,7 +5,7 @@ import base64
 import string
 import random
 import time
-from fastapi import FastAPI, HTTPException, Depends, Request, Header
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions
@@ -533,7 +533,24 @@ async def delete_history_message(
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
+    memories = Agent(agent_name=agent_name).get_memories(collection_number=0)
+    await memories.wipe_memory()
+    return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
+
+
+@app.delete(
+    "/api/agent/{agent_name}/memory/{collection_number}",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseMessage:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    memories = Agent(agent_name=agent_name).get_memories(
+        collection_number=collection_number
+    )
     await memories.wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
@@ -556,7 +573,7 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
 async def completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
-    agent_config = Agent(agent_name=prompt.model).get_agent_config()
+    agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]
@@ -603,7 +620,7 @@ async def completion(prompt: Completions):
 async def chat_completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
-    agent_config = Agent(agent_name=prompt.model).get_agent_config()
+    agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]

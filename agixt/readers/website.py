@@ -8,9 +8,14 @@ class WebsiteReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
+        collection_number: int = 0,
         **kwargs,
     ):
-        super().__init__(agent_name=agent_name, agent_config=agent_config)
+        super().__init__(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        )
 
     async def read_website(self, url: str):
         async with async_playwright() as p:
