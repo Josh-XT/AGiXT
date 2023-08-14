@@ -40,7 +40,7 @@ class GithubReader(Memories):
             repo = repo.split(" ")[0]
         if "\n" in repo:
             repo = repo.split("\n")[0]
-        # remove any symbols that would not be in the user, repo, or branch
+        # Remove any symbols that would not be in the user, repo, or branch
         for symbol in [" ", "\n", "\t", "\r", "\\", "/", ":", "*", "?", '"', "<", ">"]:
             repo = repo.replace(symbol, "")
             user = user.replace(symbol, "")
