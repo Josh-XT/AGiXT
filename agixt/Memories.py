@@ -151,20 +151,18 @@ class Memories:
                 name=self.collection_name, embedding_function=self.embedder
             )
 
-    async def store_result(self, input: str, result: str):
+    async def read_text(self, user_input: str, text: str):
         collection = await self.get_collection()
-        if result:
-            if not isinstance(result, str):
-                result = str(result)
-            chunks = await self.chunk_content(
-                content=result, chunk_size=self.chunk_size
-            )
+        if text:
+            if not isinstance(text, str):
+                text = str(text)
+            chunks = await self.chunk_content(content=text, chunk_size=self.chunk_size)
             for chunk in chunks:
                 metadata = {
                     "timestamp": datetime.now().isoformat(),
                     "is_reference": str(False),
-                    "external_source_name": input,
-                    "description": input,
+                    "external_source_name": user_input,
+                    "description": user_input,
                     "additional_metadata": chunk,
                     "id": sha256(
                         (chunk + datetime.now().isoformat()).encode()
@@ -176,16 +174,18 @@ class Memories:
                     documents=chunk,
                 )
 
-    async def get_nearest_matches_async(
+    async def get_memories_data(
         self,
         user_input: str,
         limit: int,
         min_relevance_score: float = 0.0,
     ):
-        embedding = array(self.embed.embed_text(text=user_input))
+        if not user_input:
+            return ""
         collection = await self.get_collection()
-        if collection is None:
-            return []
+        if collection == None:
+            return ""
+        embedding = array(self.embed.embed_text(text=user_input))
         query_results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
@@ -217,27 +217,22 @@ class Memories:
         top_results = filtered_results[:limit]
         return top_results
 
-    async def context_agent(self, user_input: str, limit: int) -> List[str]:
-        if not user_input:
-            return ""
-        collection = await self.get_collection()
-        if collection == None:
-            return ""
-
-        results = await self.get_nearest_matches_async(
+    async def get_memories(
+        self,
+        user_input: str,
+        limit: int,
+        min_relevance_score: float = 0.0,
+    ) -> List[str]:
+        results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
-            min_relevance_score=0.0,
+            min_relevance_score=min_relevance_score,
         )
-        response = "The user's input causes you remember these things:\n"
-
+        response = []
         for result in results:
-            print(result[0]["additional_metadata"])
             metadata = result[0]["additional_metadata"]
             if metadata not in response:
-                response += metadata + "\n"
-
-        response += "\n"
+                response.append(metadata)
         return response
 
     def score_chunk(self, chunk: str, keywords: set):
@@ -255,7 +250,6 @@ class Memories:
         keywords = [
             token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
         ]
-
         for sentence in sentences:
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > chunk_size and chunk:

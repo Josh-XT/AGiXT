@@ -36,5 +36,5 @@ class WebsiteReader(Memories):
             text_content = soup.get_text()
             text_content = " ".join(text_content.split())
             if text_content:
-                await self.store_result(input=url, result=text_content)
+                await self.read_text(user_input=url, text=text_content)
             return text_content, link_list

@@ -69,7 +69,7 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                await self.store_result(input=file_path, result=content)
+                await self.read_text(user_input=file_path, text=content)
             return True
         except:
             return False
