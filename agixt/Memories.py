@@ -1,23 +1,16 @@
 import logging
 import os
-import pandas as pd
-import docx2txt
-import pdfplumber
 import asyncio
 import sys
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.types import QueryResult
-from playwright.async_api import async_playwright
 from numpy import array, linalg, ndarray
-from bs4 import BeautifulSoup
 from hashlib import sha256
 from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
-import zipfile
-import shutil
 import spacy
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
