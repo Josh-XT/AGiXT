@@ -123,7 +123,9 @@ class Interactions:
                     context += await WebsiteReader(
                         agent_name=self.agent_name,
                         agent_config=self.agent.AGENT_CONFIG,
-                        collection_number=int(kwargs["collection_number"]),
+                        collection_number=int(
+                            kwargs["inject_memories_from_collection_number"]
+                        ),
                     ).get_memories(
                         user_input=user_input,
                         limit=top_results,
