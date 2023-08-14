@@ -240,10 +240,11 @@ class Memories:
             min_relevance_score=min_relevance_score,
         )
         response = []
-        for result in results:
-            metadata = result[0]["additional_metadata"]
-            if metadata not in response:
-                response.append(metadata)
+        if results:
+            for result in results:
+                metadata = result[0]["additional_metadata"]
+                if metadata not in response:
+                    response.append(metadata)
         return response
 
     def score_chunk(self, chunk: str, keywords: set) -> int:
