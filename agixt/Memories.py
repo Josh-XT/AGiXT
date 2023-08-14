@@ -136,6 +136,9 @@ class Memories:
         self.chunk_size = self.embed.chunk_size
         self.embedder = self.embed.embedder
 
+    async def wipe_memory(self):
+        self.chroma_client.delete_collection(name=self.collection_name)
+
     async def get_collection(self):
         try:
             return self.chroma_client.get_collection(
@@ -245,9 +248,7 @@ class Memories:
         score = sum(chunk_counter[keyword] for keyword in keywords)
         return score
 
-    async def chunk_content(
-        self, content: str, chunk_size: int, overlap: int = 2
-    ) -> List[str]:
+    async def chunk_content(self, content: str, chunk_size: int) -> List[str]:
         doc = nlp(content)
         sentences = list(doc.sents)
         content_chunks = []
@@ -257,15 +258,16 @@ class Memories:
             token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
         ]
 
-        for i, sentence in enumerate(sentences):
+        for sentence in sentences:
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > chunk_size and chunk:
                 chunk_text = " ".join(token.text for token in chunk)
                 content_chunks.append(
                     (self.score_chunk(chunk_text, keywords), chunk_text)
                 )
-                chunk = list(sentences[i - overlap : i]) if i - overlap >= 0 else []
-                chunk_len = sum(len(s) for s in chunk)
+                chunk = []
+                chunk_len = 0
+
             chunk.extend(sentence)
             chunk_len += sentence_tokens
 
@@ -276,6 +278,3 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
-
-    async def wipe_memory(self):
-        self.chroma_client.delete_collection(name=self.collection_name)
