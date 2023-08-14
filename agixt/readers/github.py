@@ -5,7 +5,11 @@ import os
 
 class GithubReader(Memories):
     def __init__(
-        self, agent_name, agent_config, use_agent_settings: bool = False, **kwargs
+        self,
+        agent_name: str = "AGiXT",
+        agent_config=None,
+        use_agent_settings: bool = False,
+        **kwargs,
     ):
         super().__init__(agent_name=agent_name, agent_config=agent_config)
         self.use_agent_settings = use_agent_settings
