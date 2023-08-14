@@ -107,13 +107,12 @@ class Interactions:
             context = ""
         else:
             if user_input:
+                min_relevance_score = 0.0
                 if "min_relevance_score" in kwargs:
                     try:
                         min_relevance_score = float(kwargs["min_relevance_score"])
                     except:
                         min_relevance_score = 0.0
-                else:
-                    min_relevance_score = 0.0
                 context = await self.agent_memory.get_memories(
                     user_input=user_input,
                     limit=top_results,

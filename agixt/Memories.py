@@ -109,17 +109,18 @@ class Memories:
         self, agent_name: str = "AGiXT", agent_config=None, collection_number: int = 0
     ):
         self.agent_name = agent_name
+        self.collection_name = camel_to_snake(agent_name)
         if collection_number > 0:
-            self.collection_name = f"{camel_to_snake(agent_name)}_{collection_number}"
-        else:
-            self.collection_name = camel_to_snake(agent_name)
+            self.collection_name = f"{self.collection_name}_{collection_number}"
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
             agent_config if agent_config else {"settings": {"embedder": "default"}}
         )
         self.agent_settings = (
-            self.agent_config["settings"] if "settings" in self.agent_config else {}
+            self.agent_config["settings"]
+            if "settings" in self.agent_config
+            else {"embedder": "default"}
         )
         memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
@@ -200,7 +201,9 @@ class Memories:
             embedding = embedding.reshape(
                 embedding.shape[1],
             )
-        similarity_score = chroma_compute_similarity_scores(embedding, embedding_array)
+        similarity_score = chroma_compute_similarity_scores(
+            embedding=embedding, embedding_array=embedding_array
+        )
         record_list = [
             (record, distance)
             for record, distance in zip(
