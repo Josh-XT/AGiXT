@@ -20,7 +20,7 @@ class GithubReader(Memories):
             self.github_user = None
             self.github_token = None
 
-    async def read_github_repo(
+    async def full_repository(
         self,
         github_repo="Josh-XT/AGiXT",
         github_user=None,
@@ -40,6 +40,12 @@ class GithubReader(Memories):
             repo = repo.split(" ")[0]
         if "\n" in repo:
             repo = repo.split("\n")[0]
+        # remove any symbols that would not be in the user, repo, or branch
+        for symbol in [" ", "\n", "\t", "\r", "\\", "/", ":", "*", "?", '"', "<", ">"]:
+            repo = repo.replace(symbol, "")
+            user = user.replace(symbol, "")
+            github_branch = github_branch.replace(symbol, "")
+
         repo_url = (
             f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
         )
@@ -47,7 +53,7 @@ class GithubReader(Memories):
             response = requests.get(repo_url, auth=(github_user, github_token))
         except:
             if github_branch != "master":
-                return await self.read_github_repo(
+                return await self.full_repository(
                     github_repo=github_repo,
                     github_user=github_user,
                     github_token=github_token,
