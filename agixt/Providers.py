@@ -59,13 +59,6 @@ class Providers:
     def __getattr__(self, attr):
         return getattr(self.instance, attr)
 
-    def get_providers(self):
-        providers = []
-        for provider in glob.glob("providers/*.py"):
-            if "__init__.py" not in provider:
-                providers.append(os.path.splitext(os.path.basename(provider))[0])
-        return providers
-
     def install_requirements(self):
         requirements = getattr(self.instance, "requirements", [])
         installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}

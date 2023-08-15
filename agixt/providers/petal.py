@@ -49,6 +49,7 @@ class PetalProvider(PipelineProvider):
             HUGGINGFACE_API_KEY,
             **kwargs,
         )
+        self.requirements = ["petals", "transformers[accelerate]", "torch"]
 
     async def instruct(self, prompt, tokens: int = 0):
         self.load_pipeline()
