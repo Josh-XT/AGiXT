@@ -523,6 +523,12 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
+                                    log_interaction(
+                                        agent_name=self.agent_name,
+                                        conversation_name=conversation_name,
+                                        role="PYTHON-TERMINAL",
+                                        message=f"{command_name} executed with args {command_args}. Output: {command_output}",
+                                    )
                                 else:
                                     command_output = (
                                         self.create_command_suggestion_chain(
@@ -530,12 +536,6 @@ class Interactions:
                                             command_name=command_name,
                                             command_args=command_args,
                                         )
-                                    )
-                                    log_interaction(
-                                        agent_name=self.agent_name,
-                                        conversation_name=conversation_name,
-                                        role="PYTHON-TERMINAL",
-                                        message=command_output,
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
