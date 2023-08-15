@@ -1,4 +1,4 @@
-agixtsdk==0.0.22
+agixtsdk==0.0.23
 chromadb==0.4.5
 beautifulsoup4==4.12.2
 captcha-solver==0.1.5
