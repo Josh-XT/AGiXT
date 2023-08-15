@@ -64,14 +64,3 @@ class PetalsProvider(PipelineProvider):
             self.pipeline = PetalsPipeline.from_pretrained(
                 self.MODEL_PATH, **self.pipeline_kwargs
             )
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def run_test():
-        prompt = f"### System:\n\n\n### User:\nHello\n\n### Assistant:\n"
-        response = await PetalsProvider(resume_download=True).instruct(prompt)
-        print(f"Test: {response}")
-
-    asyncio.run(run_test())
