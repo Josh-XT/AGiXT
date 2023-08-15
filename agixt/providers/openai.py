@@ -3,6 +3,7 @@ import logging
 
 try:
     import openai
+    import litellm 
 except ImportError:
     import sys
     import subprocess
@@ -87,7 +88,7 @@ class OpenaiProvider:
             else:
                 # Use chat completion API
                 messages = [{"role": "system", "content": prompt}]
-                response = openai.ChatCompletion.create(
+                response = litellm.completion(
                     model=self.AI_MODEL,
                     messages=messages,
                     temperature=float(self.AI_TEMPERATURE),
