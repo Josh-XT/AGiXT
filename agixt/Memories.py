@@ -132,7 +132,11 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
-        self.embed = Embedding(AGENT_CONFIG=self.agent_config)
+        self.embed = Embedding(
+            agent_settings=self.agent_config["settings"]
+            if "settings" in self.agent_config
+            else None
+        )
         self.chunk_size = self.embed.chunk_size
         self.embedder = self.embed.embedder
 

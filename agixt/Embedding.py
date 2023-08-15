@@ -10,39 +10,6 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from typing import List, cast
 
 
-def get_embedder_settings(agent_name=None):
-    embedder_settings = {
-        "default": {
-            "chunk_size": 256,
-        },
-        "azure": {
-            "chunk_size": 1000,
-            "params": [
-                "AZURE_API_KEY",
-                "AZURE_DEPLOYMENT_NAME",
-                "AZURE_OPENAI_ENDPOINT",
-            ],
-        },
-        "openai": {"chunk_size": 1000, "params": ["OPENAI_API_KEY", "API_URI"]},
-        "google_palm": {
-            "chunk_size": 1000,
-            "params": ["GOOGLE_API_KEY"],
-        },
-        "google_vertex": {
-            "chunk_size": 1000,
-            "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
-        },
-        "cohere": {
-            "chunk_size": 500,
-            "params": ["COHERE_API_KEY"],
-        },
-        "llamacpp": {
-            "chunk_size": 250,
-            "params": ["EMBEDDING_URI"],
-        },
-    }
-
-
 class ONNXMiniLM_L6_V2(EmbeddingFunction):
     MODEL_NAME = "all-MiniLM-L6-v2"
     DOWNLOAD_PATH = os.getcwd()
@@ -210,68 +177,102 @@ def get_tokens(text: str) -> int:
     return num_tokens
 
 
-def get_embedder(agent_settings):
-    try:
-        embedder = agent_settings["embedder"]
-    except:
-        embedder = "default"
-    if embedder == "default":
-        chunk_size = 256
-        embed = ONNXMiniLM_L6_V2()
-    elif embedder == "azure":
-        chunk_size = 1000
-        embed = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=agent_settings["AZURE_API_KEY"],
-            organization_id=agent_settings["AZURE_DEPLOYMENT_NAME"],
-            api_base=agent_settings["AZURE_OPENAI_ENDPOINT"],
-            api_type="azure",
+class Embedding:
+    def __init__(self, agent_settings=None):
+        self.agent_settings = (
+            agent_settings if agent_settings is not None else {"embedder": "default"}
         )
-    elif embedder == "openai":
-        chunk_size = 1000
-        if "API_URI" in agent_settings:
-            if agent_settings["API_URI"] != "":
-                api_base = agent_settings["API_URI"]
+        self.embedder_settings = self.get_embedder_settings()
+        if self.agent_settings["embedder"] not in self.embedder_settings:
+            self.agent_settings["embedder"] = "default"
+        self.embedder = self.embedder_settings[self.agent_settings["embedder"]]["embed"]
+        self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
+            "chunk_size"
+        ]
+
+    def get_embedder_settings(self):
+        if "API_URI" in self.agent_settings:
+            if self.agent_settings["API_URI"] != "":
+                api_base = self.agent_settings["API_URI"]
             else:
                 api_base = None
         else:
             api_base = None
-        embed = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=agent_settings["OPENAI_API_KEY"],
-            model_name="text-embedding-ada-002",
-            api_base=api_base,
-        )
-    elif embedder == "google_palm":
-        chunk_size = 1000
-        embed = embedding_functions.GooglePalmEmbeddingFunction(
-            api_key=agent_settings["GOOGLE_API_KEY"],
-        )
-    elif embedder == "google_vertex":
-        chunk_size = 1000
-        embed = embedding_functions.GoogleVertexEmbeddingFunction(
-            api_key=agent_settings["GOOGLE_API_KEY"],
-            project_id=agent_settings["GOOGLE_PROJECT_ID"],
-        )
-    elif embedder == "cohere":
-        chunk_size = 500
-        embed = embedding_functions.CohereEmbeddingFunction(
-            api_key=agent_settings["COHERE_API_KEY"],
-        )
-    elif embedder == "llamacpp":
-        chunk_size = 250
-        embed = LlamacppEmbeddingFunction(
-            model_name=agent_settings["EMBEDDING_URI"],
-        )
-    else:
-        raise Exception("Embedding function not found")
-    return embed, chunk_size
-
-
-class Embedding:
-    def __init__(self, AGENT_CONFIG=None):
-        self.AGENT_CONFIG = AGENT_CONFIG
-        self.embedder, self.chunk_size = get_embedder(
-            agent_settings=AGENT_CONFIG["settings"]
-        )
+        default_embedder = ONNXMiniLM_L6_V2()
+        embedder_settings = {
+            "default": {
+                "chunk_size": 256,
+                "embed": default_embedder,
+            },
+            "azure": {
+                "chunk_size": 1000,
+                "params": [
+                    "AZURE_API_KEY",
+                    "AZURE_DEPLOYMENT_NAME",
+                    "AZURE_OPENAI_ENDPOINT",
+                ],
+                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=self.agent_settings["AZURE_API_KEY"],
+                    organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
+                    api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
+                    api_type="azure",
+                )
+                if "AZURE_API_KEY" in self.agent_settings
+                and "AZURE_DEPLOYMENT_NAME" in self.agent_settings
+                and "AZURE_OPENAI_ENDPOINT" in self.agent_settings
+                else default_embedder,
+            },
+            "openai": {
+                "chunk_size": 1000,
+                "params": ["OPENAI_API_KEY", "API_URI"],
+                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=self.agent_settings["OPENAI_API_KEY"],
+                    model_name="text-embedding-ada-002",
+                    api_base=api_base,
+                )
+                if "OPENAI_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "google_palm": {
+                "chunk_size": 1000,
+                "params": ["GOOGLE_API_KEY"],
+                "embed": embedding_functions.GooglePalmEmbeddingFunction(
+                    api_key=self.agent_settings["GOOGLE_API_KEY"]
+                )
+                if "GOOGLE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "google_vertex": {
+                "chunk_size": 1000,
+                "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
+                "embed": embedding_functions.GoogleVertexEmbeddingFunction(
+                    api_key=self.agent_settings["GOOGLE_API_KEY"],
+                    project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
+                )
+                if "GOOGLE_PROJECT_ID" in self.agent_settings
+                and "GOOGLE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "cohere": {
+                "chunk_size": 500,
+                "params": ["COHERE_API_KEY"],
+                "embed": embedding_functions.CohereEmbeddingFunction(
+                    api_key=self.agent_settings["COHERE_API_KEY"]
+                )
+                if "COHERE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "llamacpp": {
+                "chunk_size": 250,
+                "params": ["EMBEDDING_URI"],
+                "embed": LlamacppEmbeddingFunction(
+                    model_name=self.agent_settings["EMBEDDING_URI"],
+                )
+                if "EMBEDDING_URI" in self.agent_settings
+                else default_embedder,
+            },
+        }
+        return embedder_settings
 
     def embed_text(self, text) -> np.ndarray:
         embedding = self.embedder.__call__(texts=[text])[0]
@@ -279,12 +280,5 @@ class Embedding:
 
 
 def get_embedding_providers():
-    return [
-        "default",  # ONNX
-        "openai",  # OpenAI
-        "azure",  # OpenAI
-        "google_palm",  # Google
-        "google_vertex",  # Google
-        "cohere",  # Cohere
-        "llamacpp",  # Llamacpp
-    ]
+    embedder_settings = Embedding().get_embedder_settings()
+    return list(embedder_settings.keys())

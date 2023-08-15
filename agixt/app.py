@@ -676,8 +676,11 @@ async def chat_completion(prompt: Completions):
 async def embedding(embedding: EmbeddingModel):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
+    agent_settings = agent_config["settings"] if "settings" in agent_config else None
     tokens = get_tokens(embedding.input)
-    embedding = Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
+    embedding = Embedding(agent_settings=agent_settings).embed_text(
+        text=embedding.input
+    )
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,
