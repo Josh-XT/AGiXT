@@ -8,16 +8,20 @@ class Embedding:
         self.agent_settings = (
             agent_settings if agent_settings is not None else {"embedder": "default"}
         )
-        self.embedder_settings = self.get_embedder_settings()
         self.default_embedder = embedding_functions.ONNXMiniLM_L6_V2()
         self.default_embedder.DOWNLOAD_PATH = os.getcwd()
-        if self.agent_settings["embedder"] not in self.embedder_settings:
+        self.embedder_settings = self.get_embedder_settings()
+        if (
+            "embedder" not in self.agent_settings
+            or self.agent_settings["embedder"] not in self.embedder_settings
+        ):
             self.agent_settings["embedder"] = "default"
-        self.embedder = (
-            self.embedder_settings[self.agent_settings["embedder"]]["embed"]
-            if self.agent_settings["embedder"] != "default"
-            else self.default_embedder
-        )
+        if self.agent_settings["embedder"] != "default":
+            self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
+                "embed"
+            ]
+        else:
+            self.embedder = self.default_embedder
         self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
             "chunk_size"
         ]
