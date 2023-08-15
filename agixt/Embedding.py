@@ -14,17 +14,18 @@ class Embedding:
         if (
             "embedder" not in self.agent_settings
             or self.agent_settings["embedder"] not in self.embedder_settings
+            or self.agent_settings["embedder"] == "default"
         ):
             self.agent_settings["embedder"] = "default"
-        if self.agent_settings["embedder"] != "default":
+            self.embedder = self.default_embedder
+            self.chunk_size = 256
+        else:
             self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
                 "embed"
             ]
-        else:
-            self.embedder = self.default_embedder
-        self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
-            "chunk_size"
-        ]
+            self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
+                "chunk_size"
+            ]
 
     def get_embedder_settings(self):
         if "API_URI" in self.agent_settings:
