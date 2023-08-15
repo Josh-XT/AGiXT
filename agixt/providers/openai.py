@@ -38,10 +38,13 @@ class OpenaiProvider:
         if not stream:
             self.stream = False
         self.stream = True if str(stream).lower() == "true" else False
+        self.OPENAI_API_KEY = OPENAI_API_KEY
         openai.api_base = self.API_URI
         openai.api_key = OPENAI_API_KEY
 
     async def instruct(self, prompt, tokens: int = 0):
+        if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY is "YOUR_OPENAI_API_KEY":
+            return "Please go to the Agent Management page to set your OpenAI API key."
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))

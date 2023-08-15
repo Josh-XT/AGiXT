@@ -8,15 +8,14 @@ from Providers import Providers
 from Extensions import Extensions
 
 DEFAULT_SETTINGS = {
-    "provider": "openai",
-    "embedder": "openai",
-    "AI_MODEL": "gpt-3.5-turbo-16k-0613",
+    "provider": "gpt4free",
+    "embedder": "default",
+    "AI_MODEL": "gpt-3.5-turbo",
     "AI_TEMPERATURE": "0.7",
     "AI_TOP_P": "1",
-    "MAX_TOKENS": "16000",
-    "helper_agent_name": "OpenAI",
+    "MAX_TOKENS": "4096",
+    "helper_agent_name": "gpt4free",
     "WEBSEARCH_TIMEOUT": 0,
-    "OPENAI_API_KEY": "YOUR_OPENAI_API_KEY_HERE",
     "WAIT_BETWEEN_REQUESTS": 1,
     "WAIT_AFTER_FAILURE": 3,
     "stream": False,
