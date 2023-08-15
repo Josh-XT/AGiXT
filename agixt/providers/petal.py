@@ -31,7 +31,7 @@ class PetalsPipeline:
         )
 
 
-class PetalsProvider(PipelineProvider):
+class PetalProvider(PipelineProvider):
     def __init__(
         self,
         MODEL_PATH: str = "stabilityai/StableBeluga2",
