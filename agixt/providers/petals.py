@@ -1,4 +1,4 @@
-from pipeline import PipelineProvider
+from providers.pipeline import PipelineProvider
 from transformers import AutoTokenizer
 
 try:
