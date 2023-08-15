@@ -36,7 +36,7 @@ class PipelineProvider:
         HUGGINGFACE_API_KEY: str = None,
         **kwargs,
     ):
-        self.requirements = ["transformers", "accelerate"]
+        self.requirements = ["petals", "transformers[accelerate]", "torch"]
         self.MODEL_PATH = MODEL_PATH
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
