@@ -110,6 +110,12 @@ class AgentPrompt(BaseModel):
     prompt_args: dict
 
 
+class AgentMemoryQuery(BaseModel):
+    user_input: str
+    limit: int = 5
+    min_relevance_score: float = 0.0
+
+
 class Objective(BaseModel):
     objective: str
 
@@ -354,7 +360,7 @@ async def update_agent_settings(
 
 @app.post(
     "/api/agent/{agent_name}/learn/file",
-    tags=["Agent"],
+    tags=["Agent", "Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
@@ -387,9 +393,35 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Get memories
+@app.post(
+    "/api/agent/{agent_name}/memory/{collection_number}/query",
+    tags=["Agent", "Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def query_memories(
+    agent_name: str, memory: AgentMemoryQuery, collection_number=0
+) -> Dict[str, Any]:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    memories = await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=collection_number,
+    ).get_memories_data(
+        user_input=memory.user_input,
+        limit=memory.limit,
+        min_relevance_score=memory.min_relevance_score,
+    )
+    return {"memories": memories}
+
+
 @app.post(
     "/api/agent/{agent_name}/learn/url",
-    tags=["Agent"],
+    tags=["Agent", "Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
@@ -404,7 +436,7 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
 
 @app.post(
     "/api/agent/{agent_name}/learn/github",
-    tags=["Agent"],
+    tags=["Agent", "Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
@@ -463,7 +495,7 @@ async def get_agentconfig(agent_name: str):
 
 @app.get(
     "/api/{agent_name}/conversations",
-    tags=["Agent"],
+    tags=["Agent", "Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(agent_name: str):
@@ -477,7 +509,7 @@ async def get_conversations_list(agent_name: str):
 
 @app.get(
     "/api/conversations",
-    tags=["Agent"],
+    tags=["Agent", "Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list():
@@ -489,7 +521,11 @@ async def get_conversations_list():
     return {"conversations": conversations}
 
 
-@app.get("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.get(
+    "/api/conversation",
+    tags=["Agent", "Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_conversation_history(history: HistoryModel):
     conversation_history = get_conversation(
         agent_name=history.agent_name,
@@ -505,7 +541,11 @@ async def get_conversation_history(history: HistoryModel):
     return {"conversation_history": conversation_history}
 
 
-@app.post("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/conversation",
+    tags=["Agent", "Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def new_conversation_history(history: ConversationHistoryModel):
     new_conversation(
         agent_name=history.agent_name,
@@ -516,7 +556,7 @@ async def new_conversation_history(history: ConversationHistoryModel):
 
 @app.delete(
     "/api/conversation",
-    tags=["Agent"],
+    tags=["Agent", "Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_conversation_history(
@@ -532,7 +572,7 @@ async def delete_conversation_history(
 
 @app.delete(
     "/api/conversation/message",
-    tags=["Agent"],
+    tags=["Agent", "Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_history_message(
@@ -558,7 +598,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}",
-    tags=["Agent"],
+    tags=["Agent", "Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseMessage:
@@ -570,6 +610,26 @@ async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseM
         agent_name=agent_name, collection_number=collection_number
     ).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
+
+
+@app.delete(
+    "/api/agent/{agent_name}/memory/{collection_number}/{memory_id}",
+    tags=["Agent", "Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_agent_memory(
+    agent_name: str, collection_number=0, memory_id=""
+) -> ResponseMessage:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    await WebsiteReader(
+        agent_name=agent_name, collection_number=collection_number
+    ).delete_memory(key=memory_id)
+    return ResponseMessage(
+        message=f"Memory {memory_id} for agent {agent_name} deleted."
+    )
 
 
 @app.post(

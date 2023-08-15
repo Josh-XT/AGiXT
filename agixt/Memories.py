@@ -202,7 +202,7 @@ class Memories:
         user_input: str,
         limit: int,
         min_relevance_score: float = 0.0,
-    ):
+    ) -> List[dict]:
         if not user_input:
             return ""
         collection = await self.get_collection()
@@ -226,19 +226,16 @@ class Memories:
         similarity_score = chroma_compute_similarity_scores(
             embedding=embedding, embedding_array=embedding_array
         )
-        record_list = [
-            (record, distance)
-            for record, distance in zip(
-                query_results_to_records(results=results),
-                similarity_score,
-            )
-        ]
+        record_list = []
+        for record, score in zip(query_results_to_records(results), similarity_score):
+            record["relevance_score"] = score
+            record_list.append(record)
         sorted_results = sorted(
-            record_list,
-            key=lambda x: x[1],
-            reverse=True,
+            record_list, key=lambda x: x["relevance_score"], reverse=True
         )
-        filtered_results = [x for x in sorted_results if x[1] >= min_relevance_score]
+        filtered_results = [
+            x for x in sorted_results if x["relevance_score"] >= min_relevance_score
+        ]
         top_results = filtered_results[:limit]
         return top_results
 
@@ -256,7 +253,7 @@ class Memories:
         response = []
         if results:
             for result in results:
-                metadata = result[0]["additional_metadata"]
+                metadata = result["additional_metadata"]
                 if metadata not in response:
                     response.append(metadata)
         return response
