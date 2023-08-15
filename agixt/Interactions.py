@@ -523,11 +523,8 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
-                                    log_interaction(
-                                        agent_name=self.agent_name,
-                                        conversation_name=conversation_name,
-                                        role="PYTHON-TERMINAL",
-                                        message=f"{command_name} executed with args {command_args}. Output: {command_output}",
+                                    message = (
+                                        f"Executed Command: {command_name} with args {command_args}.\nCommand Output: {command_output}",
                                     )
                                 else:
                                     command_output = (
@@ -536,6 +533,9 @@ class Interactions:
                                             command_name=command_name,
                                             command_args=command_args,
                                         )
+                                    )
+                                    message = (
+                                        f"Agent execution chain for command {command_name} with args {command_args} updated.",
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
@@ -561,11 +561,14 @@ class Interactions:
                                     conversation_name=conversation_name,
                                     **kwargs,
                                 )
-                            logging.info(
-                                f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                            log_interaction(
+                                agent_name=self.agent_name,
+                                conversation_name=conversation_name,
+                                role="PYTHON-TERMINAL",
+                                message=message,
                             )
-                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                            return response
+                            logging.info(message)
+                            return f"\n{message}\n"
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"
