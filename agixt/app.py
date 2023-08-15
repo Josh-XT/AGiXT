@@ -8,7 +8,7 @@ import time
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from Interactions import Interactions
+from Interactions import Interactions, get_tokens
 from Embedding import Embedding
 from dotenv import load_dotenv
 
@@ -41,7 +41,7 @@ else:
 
 from typing import Optional, Dict, List, Any
 from Providers import get_provider_options, get_providers
-from Embedding import get_embedding_providers, get_tokens
+from Embedding import get_embedding_providers
 from Extensions import Extensions
 from Chains import Chains
 from readers.github import GithubReader

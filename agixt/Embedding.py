@@ -1,5 +1,4 @@
 import os
-import tiktoken
 import requests
 import importlib
 import tarfile
@@ -169,12 +168,6 @@ class LlamacppEmbeddingFunction(EmbeddingFunction):
             if "embedding" in response["data"]:
                 return response["data"]["embedding"]
         return {}
-
-
-def get_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    num_tokens = len(encoding.encode(text))
-    return num_tokens
 
 
 class Embedding:

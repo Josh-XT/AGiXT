@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import logging
+import tiktoken
 from datetime import datetime
 from dotenv import load_dotenv
 from readers.website import WebsiteReader
@@ -23,7 +24,6 @@ else:
     from fb.Chain import Chain
     from fb.History import log_interaction, get_conversation
 
-from Embedding import get_tokens
 from concurrent.futures import Future
 from agixtsdk import AGiXTSDK
 from Websearch import Websearch
@@ -33,6 +33,12 @@ ApiClient = AGiXTSDK(
 )
 chain = Chain()
 cp = Prompts()
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
 
 
 class Interactions:
