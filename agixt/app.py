@@ -229,6 +229,12 @@ class FileInput(BaseModel):
     collection_number: int = 0
 
 
+class TextMemoryInput(BaseModel):
+    user_input: str
+    text: str
+    collection_number: int = 0
+
+
 class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
@@ -382,6 +388,23 @@ async def query_memories(
         min_relevance_score=memory.min_relevance_score,
     )
     return {"memories": memories}
+
+
+@app.post(
+    "/api/agent/{agent_name}/learn/text",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_text(agent_name: str, data: TextMemoryInput) -> ResponseMessage:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=data.collection_number,
+    ).write_text_to_memory(user_input=data.user_input, text=data.text)
+    return ResponseMessage(
+        message="Agent learned the content from the text assocated with the user input."
+    )
 
 
 @app.post(
