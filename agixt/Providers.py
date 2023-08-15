@@ -38,7 +38,7 @@ def get_provider_options(provider_name):
             "WAIT_BETWEEN_REQUESTS": 1,
             "WAIT_AFTER_FAILURE": 3,
         }
-        if provider_name == "petals" or provider_name == "pipeline":
+        if provider_name == "petal" or provider_name == "pipeline":
             options["HUGGINGFACE_API_KEY"] = ""
     return options
 
