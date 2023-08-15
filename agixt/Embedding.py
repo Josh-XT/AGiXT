@@ -275,3 +275,7 @@ class Embedding:
 def get_embedding_providers():
     embedder_settings = Embedding().get_embedder_settings()
     return list(embedder_settings.keys())
+
+
+def get_embedders():
+    return Embedding().get_embedder_settings()

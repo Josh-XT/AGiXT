@@ -41,7 +41,7 @@ else:
 
 from typing import Optional, Dict, List, Any
 from Providers import get_provider_options, get_providers
-from Embedding import get_embedding_providers
+from Embedding import get_embedding_providers, get_embedders
 from Extensions import Extensions
 from Chains import Chains
 from readers.github import GithubReader
@@ -297,6 +297,7 @@ async def get_provider_settings(provider_name: str):
     return {"settings": settings}
 
 
+# Gets list of embedding providers
 @app.get(
     "/api/embedding_providers",
     tags=["Provider"],
@@ -305,6 +306,16 @@ async def get_provider_settings(provider_name: str):
 async def get_embed_providers():
     providers = get_embedding_providers()
     return {"providers": providers}
+
+
+# Gets embedders with their details such as required parameters and chunk sizes
+@app.get(
+    "/api/embedders",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_embedder_info() -> Dict[str, Any]:
+    return {"embedders": get_embedders()}
 
 
 @app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
