@@ -93,13 +93,3 @@ class PipelineProvider:
         if max_length > 0 and self.MAX_TOKENS > max_length:
             return max_length
         return self.MAX_TOKENS
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def run_test():
-        response = await PipelineProvider("gpt2").instruct("Hello")
-        print(f"Test: {response}")
-
-    asyncio.run(run_test())

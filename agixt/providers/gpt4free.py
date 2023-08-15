@@ -1,23 +1,7 @@
 import logging
 import time
-
-try:
-    from g4f import Provider, ChatCompletion
-    from g4f.models import ModelUtils
-except ImportError:
-    import sys, subprocess
-
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "g4f",
-        ]
-    )
-    from g4f import Provider, ChatCompletion
-    from g4f.models import ModelUtils
+from g4f import Provider, ChatCompletion
+from g4f.models import ModelUtils
 
 providers = [
     # Working:
