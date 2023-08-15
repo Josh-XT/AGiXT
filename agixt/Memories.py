@@ -253,8 +253,12 @@ class Memories:
         response = []
         if results:
             for result in results:
-                metadata = result["additional_metadata"]
-                if metadata not in response:
+                metadata = (
+                    result["additional_metadata"]
+                    if "additional_metadata" in result
+                    else ""
+                )
+                if metadata not in response and metadata != "":
                     response.append(metadata)
         return response
 
