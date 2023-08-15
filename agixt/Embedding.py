@@ -1,5 +1,4 @@
 import os
-import spacy
 import requests
 import importlib
 import tarfile
@@ -7,57 +6,23 @@ import numpy as np
 import numpy.typing as npt
 from chromadb.utils import embedding_functions
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from pathlib import Path
 from typing import List, cast
 
-HOME_DIR = os.getcwd()
 
+class ONNXMiniLM_L6_V2(EmbeddingFunction):
+    MODEL_NAME = "all-MiniLM-L6-v2"
+    DOWNLOAD_PATH = os.getcwd()
+    EXTRACTED_FOLDER_NAME = "onnx"
+    ARCHIVE_FILENAME = "onnx.tar.gz"
+    MODEL_DOWNLOAD_URL = (
+        "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
+    )
+    tokenizer = None
+    model = None
 
-class LlamacppEmbeddingFunction(EmbeddingFunction):
-    def __init__(self, api_host: str):
-        self._api_host = api_host
-        self._session = requests.Session()
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        response = self._session.post(
-            self._api_url, json={"content": texts, "threads": 5}
-        ).json()
-        if "data" in response:
-            if "embedding" in response["data"]:
-                return response["data"]["embedding"]
-        return {}
-
-
-class ONNX(EmbeddingFunction):
-    # https://github.com/python/mypy/issues/7291 mypy makes you type the constructor if
-    # no args
-    def __init__(
-        self,
-        MODEL_NAME: str = "all-MiniLM-L6-v2",
-        DOWNLOAD_PATH: str = HOME_DIR,
-        EXTRACTED_FOLDER_NAME="onnx",
-        ARCHIVE_FILENAME="onnx.tar.gz",
-        MODEL_DOWNLOAD_URL=(
-            "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
-        ),
-        tokenizer=None,
-        model=None,
-    ) -> None:
+    def __init__(self) -> None:
         # Import dependencies on demand to mirror other embedding functions. This
         # breaks typechecking, thus the ignores.
-        self.MODEL_NAME = MODEL_NAME if MODEL_NAME else "all-MiniLM-L6-v2"
-        self.DOWNLOAD_PATH = DOWNLOAD_PATH if DOWNLOAD_PATH else HOME_DIR
-        self.EXTRACTED_FOLDER_NAME = (
-            EXTRACTED_FOLDER_NAME if EXTRACTED_FOLDER_NAME else "onnx"
-        )
-        self.ARCHIVE_FILENAME = ARCHIVE_FILENAME if ARCHIVE_FILENAME else "onnx.tar.gz"
-        self.MODEL_DOWNLOAD_URL = (
-            MODEL_DOWNLOAD_URL
-            if MODEL_DOWNLOAD_URL
-            else "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
-        )
-        self.tokenizer = tokenizer
-        self.model = model
         try:
             # Equivalent to import onnxruntime
             self.ort = importlib.import_module("onnxruntime")
@@ -82,7 +47,7 @@ class ONNX(EmbeddingFunction):
 
     # Borrowed from https://gist.github.com/yanqd0/c13ed29e29432e3cf3e7c38467f42f51
     # Download with tqdm to preserve the sentence-transformers experience
-    def _download(self, url: str, fname: Path, chunk_size: int = 1024) -> None:
+    def _download(self, url: str, fname: str, chunk_size: int = 1024) -> None:
         resp = requests.get(url, stream=True)
         total = int(resp.headers.get("content-length", 0))
         with open(fname, "wb") as file, self.tqdm(
@@ -159,16 +124,29 @@ class ONNX(EmbeddingFunction):
         return res
 
     def _download_model_if_not_exists(self) -> None:
+        onnx_files = [
+            "config.json",
+            "model.onnx",
+            "special_tokens_map.json",
+            "tokenizer_config.json",
+            "tokenizer.json",
+            "vocab.txt",
+        ]
+        extracted_folder = os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME)
+        onnx_files_exist = True
+        for f in onnx_files:
+            if not os.path.exists(os.path.join(extracted_folder, f)):
+                onnx_files_exist = False
+                break
         # Model is not downloaded yet
-        if not os.path.exists(
-            os.path.join(self.DOWNLOAD_PATH, self.EXTRACTED_FOLDER_NAME, "model.onnx")
-        ):
+        if not onnx_files_exist:
             os.makedirs(self.DOWNLOAD_PATH, exist_ok=True)
             if not os.path.exists(
                 os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME)
             ):
                 self._download(
-                    self.MODEL_DOWNLOAD_URL, self.DOWNLOAD_PATH / self.ARCHIVE_FILENAME
+                    url=self.MODEL_DOWNLOAD_URL,
+                    fname=os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME),
                 )
             with tarfile.open(
                 name=os.path.join(self.DOWNLOAD_PATH, self.ARCHIVE_FILENAME),
@@ -177,68 +155,93 @@ class ONNX(EmbeddingFunction):
                 tar.extractall(path=self.DOWNLOAD_PATH)
 
 
-def get_embedder(agent_settings):
-    try:
-        embedder = agent_settings["embedder"]
-    except:
-        embedder = "default"
-    if embedder == "default":
-        chunk_size = 256
-        embed = ONNX()
-    elif embedder == "azure":
-        chunk_size = 1000
-        embed = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=agent_settings["AZURE_API_KEY"],
-            organization_id=agent_settings["AZURE_DEPLOYMENT_NAME"],
-            api_base=agent_settings["AZURE_OPENAI_ENDPOINT"],
-            api_type="azure",
+class Embedding:
+    def __init__(self, agent_settings=None):
+        self.agent_settings = (
+            agent_settings if agent_settings is not None else {"embedder": "default"}
         )
-    elif embedder == "openai":
-        chunk_size = 1000
-        if "API_URI" in agent_settings:
-            if agent_settings["API_URI"] != "":
-                api_base = agent_settings["API_URI"]
+        self.embedder_settings = self.get_embedder_settings()
+        if self.agent_settings["embedder"] not in self.embedder_settings:
+            self.agent_settings["embedder"] = "default"
+        self.embedder = self.embedder_settings[self.agent_settings["embedder"]]["embed"]
+        self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
+            "chunk_size"
+        ]
+
+    def get_embedder_settings(self):
+        if "API_URI" in self.agent_settings:
+            if self.agent_settings["API_URI"] != "":
+                api_base = self.agent_settings["API_URI"]
             else:
                 api_base = None
         else:
             api_base = None
-        embed = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=agent_settings["OPENAI_API_KEY"],
-            model_name="text-embedding-ada-002",
-            api_base=api_base,
-        )
-    elif embedder == "google_palm":
-        chunk_size = 1000
-        embed = embedding_functions.GooglePalmEmbeddingFunction(
-            api_key=agent_settings["GOOGLE_API_KEY"],
-        )
-    elif embedder == "google_vertex":
-        chunk_size = 1000
-        embed = embedding_functions.GoogleVertexEmbeddingFunction(
-            api_key=agent_settings["GOOGLE_API_KEY"],
-            project_id=agent_settings["GOOGLE_PROJECT_ID"],
-        )
-    elif embedder == "cohere":
-        chunk_size = 500
-        embed = embedding_functions.CohereEmbeddingFunction(
-            api_key=agent_settings["COHERE_API_KEY"],
-        )
-    elif embedder == "llamacpp":
-        chunk_size = 250
-        embed = LlamacppEmbeddingFunction(
-            model_name=agent_settings["EMBEDDING_URI"],
-        )
-    else:
-        raise Exception("Embedding function not found")
-    return embed, chunk_size
-
-
-class Embedding:
-    def __init__(self, AGENT_CONFIG=None):
-        self.AGENT_CONFIG = AGENT_CONFIG
-        self.embedder, self.chunk_size = get_embedder(
-            agent_settings=AGENT_CONFIG["settings"]
-        )
+        default_embedder = ONNXMiniLM_L6_V2()
+        embedder_settings = {
+            "default": {
+                "chunk_size": 256,
+                "embed": default_embedder,
+            },
+            "azure": {
+                "chunk_size": 1000,
+                "params": [
+                    "AZURE_API_KEY",
+                    "AZURE_DEPLOYMENT_NAME",
+                    "AZURE_OPENAI_ENDPOINT",
+                ],
+                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=self.agent_settings["AZURE_API_KEY"],
+                    organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
+                    api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
+                    api_type="azure",
+                )
+                if "AZURE_API_KEY" in self.agent_settings
+                and "AZURE_DEPLOYMENT_NAME" in self.agent_settings
+                and "AZURE_OPENAI_ENDPOINT" in self.agent_settings
+                else default_embedder,
+            },
+            "openai": {
+                "chunk_size": 1000,
+                "params": ["OPENAI_API_KEY", "API_URI"],
+                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=self.agent_settings["OPENAI_API_KEY"],
+                    model_name="text-embedding-ada-002",
+                    api_base=api_base,
+                )
+                if "OPENAI_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "google_palm": {
+                "chunk_size": 1000,
+                "params": ["GOOGLE_API_KEY"],
+                "embed": embedding_functions.GooglePalmEmbeddingFunction(
+                    api_key=self.agent_settings["GOOGLE_API_KEY"]
+                )
+                if "GOOGLE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "google_vertex": {
+                "chunk_size": 1000,
+                "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
+                "embed": embedding_functions.GoogleVertexEmbeddingFunction(
+                    api_key=self.agent_settings["GOOGLE_API_KEY"],
+                    project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
+                )
+                if "GOOGLE_PROJECT_ID" in self.agent_settings
+                and "GOOGLE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+            "cohere": {
+                "chunk_size": 500,
+                "params": ["COHERE_API_KEY"],
+                "embed": embedding_functions.CohereEmbeddingFunction(
+                    api_key=self.agent_settings["COHERE_API_KEY"]
+                )
+                if "COHERE_API_KEY" in self.agent_settings
+                else default_embedder,
+            },
+        }
+        return embedder_settings
 
     def embed_text(self, text) -> np.ndarray:
         embedding = self.embedder.__call__(texts=[text])[0]
@@ -246,27 +249,9 @@ class Embedding:
 
 
 def get_embedding_providers():
-    return [
-        "default",  # SentenceTransformer
-        "large_local",  # SentenceTransformer
-        "azure",  # OpenAI
-        "openai",  # OpenAI
-        "google_palm",  # Google
-        "google_vertex",  # Google
-        "cohere",  # Cohere
-        "llamacpp",  # Llamacpp
-    ]
+    embedder_settings = Embedding().get_embedder_settings()
+    return list(embedder_settings.keys())
 
 
-def nlp(text):
-    try:
-        sp = spacy.load("en_core_web_sm")
-    except:
-        spacy.cli.download("en_core_web_sm")
-        sp = spacy.load("en_core_web_sm")
-    sp.max_length = 99999999999999999999999
-    return sp(text)
-
-
-def get_tokens(text):
-    return len(nlp(text))
+def get_embedders():
+    return Embedding().get_embedder_settings()

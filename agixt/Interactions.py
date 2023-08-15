@@ -5,8 +5,10 @@ import json
 import time
 import uuid
 import logging
+import tiktoken
 from datetime import datetime
 from dotenv import load_dotenv
+from readers.website import WebsiteReader
 
 load_dotenv()
 
@@ -22,7 +24,6 @@ else:
     from fb.Chain import Chain
     from fb.History import log_interaction, get_conversation
 
-from Embedding import get_tokens
 from concurrent.futures import Future
 from agixtsdk import AGiXTSDK
 from Websearch import Websearch
@@ -34,13 +35,18 @@ chain = Chain()
 cp = Prompts()
 
 
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
+
+
 class Interactions:
-    def __init__(self, agent_name: str = ""):
+    def __init__(self, agent_name: str = "", collection_number: int = 0):
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name)
             self.agent_commands = self.agent.get_commands_string()
-            self.memories = self.agent.get_memories()
             self.websearch = Websearch(
                 agent_name=self.agent_name,
                 searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
@@ -53,7 +59,12 @@ class Interactions:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
-            self.memories = None
+
+        self.agent_memory = WebsiteReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=int(collection_number),
+        )
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -102,9 +113,34 @@ class Interactions:
             context = ""
         else:
             if user_input:
-                context = await self.memories.context_agent(
-                    user_input=user_input, limit=top_results
+                min_relevance_score = 0.0
+                if "min_relevance_score" in kwargs:
+                    try:
+                        min_relevance_score = float(kwargs["min_relevance_score"])
+                    except:
+                        min_relevance_score = 0.0
+                context = await self.agent_memory.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
                 )
+                if "inject_memories_from_collection_number" in kwargs:
+                    context += await WebsiteReader(
+                        agent_name=self.agent_name,
+                        agent_config=self.agent.AGENT_CONFIG,
+                        collection_number=int(
+                            kwargs["inject_memories_from_collection_number"]
+                        ),
+                    ).get_memories(
+                        user_input=user_input,
+                        limit=top_results,
+                        min_relevance_score=min_relevance_score,
+                    )
+                if context != []:
+                    context = "\n".join(context)
+                    context = f"The user's input causes you remember these things:\n{context}\n"
+                else:
+                    context = ""
             else:
                 context = ""
         command_list = self.agent.get_commands_string()
@@ -221,9 +257,10 @@ class Interactions:
                     if link not in self.websearch.browsed_links:
                         logging.info(f"Browsing link: {link}")
                         self.websearch.browsed_links.append(link)
-                        text_content, link_list = await self.memories.read_website(
-                            url=link
-                        )
+                        (
+                            text_content,
+                            link_list,
+                        ) = await self.agent_memory.write_website_to_memory(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
@@ -234,7 +271,7 @@ class Interactions:
                                             (
                                                 text_content,
                                                 link_list,
-                                            ) = await self.memories.read_website(
+                                            ) = await self.agent_memory.write_website_to_memory(
                                                 url=sublink[1]
                                             )
                                             i = i + 1
@@ -343,33 +380,24 @@ class Interactions:
         if self.response != "" and self.response != None:
             if disable_memory != True:
                 try:
-                    await self.memories.store_result(
-                        input=user_input,
-                        result=self.response,
+                    await self.agent_memory.write_text_to_memory(
+                        user_input=user_input,
+                        text=self.response,
                     )
                 except:
                     pass
-            if user_input != "":
-                log_interaction(
-                    agent_name=self.agent_name,
-                    conversation_name=conversation_name,
-                    role="USER",
-                    message=user_input,
-                )
-            else:
-                log_interaction(
-                    agent_name=self.agent_name,
-                    conversation_name=conversation_name,
-                    role="USER",
-                    message=formatted_prompt,
-                )
+            log_interaction(
+                agent_name=self.agent_name,
+                conversation_name=conversation_name,
+                role="USER",
+                message=user_input if user_input != "" else formatted_prompt,
+            )
             log_interaction(
                 agent_name=self.agent_name,
                 conversation_name=conversation_name,
                 role=self.agent_name,
                 message=self.response,
             )
-
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
@@ -495,6 +523,9 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
+                                    message = (
+                                        f"Executed Command: {command_name} with args {command_args}.\nCommand Output: {command_output}",
+                                    )
                                 else:
                                     command_output = (
                                         self.create_command_suggestion_chain(
@@ -503,11 +534,8 @@ class Interactions:
                                             command_args=command_args,
                                         )
                                     )
-                                    log_interaction(
-                                        agent_name=self.agent_name,
-                                        conversation_name=conversation_name,
-                                        role="PYTHON-TERMINAL",
-                                        message=command_output,
+                                    message = (
+                                        f"Agent execution chain for command {command_name} with args {command_args} updated.",
                                     )
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
@@ -533,11 +561,14 @@ class Interactions:
                                     conversation_name=conversation_name,
                                     **kwargs,
                                 )
-                            logging.info(
-                                f"Command {command_name} executed successfully with args {command_args}. Command Output: {command_output}"
+                            log_interaction(
+                                agent_name=self.agent_name,
+                                conversation_name=conversation_name,
+                                role="PYTHON-TERMINAL",
+                                message=message,
                             )
-                            response = f"\nExecuted Command:{command_name} with args {command_args}.\nCommand Output: {command_output}\n"
-                            return response
+                            logging.info(message)
+                            return f"\n{message}\n"
                 else:
                     if command_name == "None.":
                         return "\nNo commands were executed.\n"

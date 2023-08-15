@@ -5,7 +5,6 @@ import shutil
 import importlib
 from inspect import signature, Parameter
 from Providers import Providers
-from Memories import Memories
 from Extensions import Extensions
 
 DEFAULT_SETTINGS = {
@@ -159,9 +158,6 @@ class Agent:
                 agent_config=self.AGENT_CONFIG
             ).get_available_commands()
             self.clean_agent_config_commands()
-
-    def get_memories(self):
-        return Memories(self.agent_name, self.AGENT_CONFIG)
 
     async def execute(self, command_name, command_args):
         return await Extensions(agent_config=self.AGENT_CONFIG).execute_command(
