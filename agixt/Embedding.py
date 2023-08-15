@@ -155,21 +155,6 @@ class ONNXMiniLM_L6_V2(EmbeddingFunction):
                 tar.extractall(path=self.DOWNLOAD_PATH)
 
 
-class LlamacppEmbeddingFunction(EmbeddingFunction):
-    def __init__(self, api_host: str):
-        self._api_host = api_host
-        self._session = requests.Session()
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        response = self._session.post(
-            self._api_url, json={"content": texts, "threads": 5}
-        ).json()
-        if "data" in response:
-            if "embedding" in response["data"]:
-                return response["data"]["embedding"]
-        return {}
-
-
 class Embedding:
     def __init__(self, agent_settings=None):
         self.agent_settings = (
@@ -253,15 +238,6 @@ class Embedding:
                     api_key=self.agent_settings["COHERE_API_KEY"]
                 )
                 if "COHERE_API_KEY" in self.agent_settings
-                else default_embedder,
-            },
-            "llamacpp": {
-                "chunk_size": 250,
-                "params": ["EMBEDDING_URI"],
-                "embed": LlamacppEmbeddingFunction(
-                    model_name=self.agent_settings["EMBEDDING_URI"],
-                )
-                if "EMBEDDING_URI" in self.agent_settings
                 else default_embedder,
             },
         }
