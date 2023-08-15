@@ -10,6 +10,39 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from typing import List, cast
 
 
+def get_embedder_settings(agent_name=None):
+    embedder_settings = {
+        "default": {
+            "chunk_size": 256,
+        },
+        "azure": {
+            "chunk_size": 1000,
+            "params": [
+                "AZURE_API_KEY",
+                "AZURE_DEPLOYMENT_NAME",
+                "AZURE_OPENAI_ENDPOINT",
+            ],
+        },
+        "openai": {"chunk_size": 1000, "params": ["OPENAI_API_KEY", "API_URI"]},
+        "google_palm": {
+            "chunk_size": 1000,
+            "params": ["GOOGLE_API_KEY"],
+        },
+        "google_vertex": {
+            "chunk_size": 1000,
+            "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
+        },
+        "cohere": {
+            "chunk_size": 500,
+            "params": ["COHERE_API_KEY"],
+        },
+        "llamacpp": {
+            "chunk_size": 250,
+            "params": ["EMBEDDING_URI"],
+        },
+    }
+
+
 class ONNXMiniLM_L6_V2(EmbeddingFunction):
     MODEL_NAME = "all-MiniLM-L6-v2"
     DOWNLOAD_PATH = os.getcwd()
