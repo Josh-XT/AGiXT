@@ -15,11 +15,11 @@ uvicorn==0.22.0
 python-dotenv==1.0.0
 ffmpeg==1.4
 cryptography==41.0.3
+pillow==9.5.0
 SQLAlchemy==2.0.17
 psycopg2-binary==2.9.6
 openai==0.27.8
 gTTS==2.3.2
-pillow==9.5.0
 playsound==1.2.2
 tiktoken==0.4.0
 discord
