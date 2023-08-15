@@ -10,15 +10,6 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
 
-try:
-    import tiktoken
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "tiktoken"])
-    import tiktoken
-
 
 class OpenaiProvider:
     def __init__(
@@ -50,13 +41,7 @@ class OpenaiProvider:
         openai.api_base = self.API_URI
         openai.api_key = OPENAI_API_KEY
 
-    def get_tokens(self, prompt: str) -> int:
-        encoding = tiktoken.encoding_for_model(self.AI_MODEL)
-        num_tokens = len(encoding.encode(prompt))
-        return num_tokens
-
     async def instruct(self, prompt, tokens: int = 0):
-        tokens = self.get_tokens(prompt=prompt)
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))

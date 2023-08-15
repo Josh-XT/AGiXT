@@ -19,16 +19,6 @@ except ImportError:
     from g4f import Provider, ChatCompletion
     from g4f.models import ModelUtils
 
-try:
-    import tiktoken
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "tiktoken"])
-    import tiktoken
-
-
 providers = [
     # Working:
     Provider.GetGpt,
@@ -88,13 +78,7 @@ class Gpt4freeProvider:
         )
         self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
 
-    def get_tokens(self, prompt: str) -> int:
-        encoding = tiktoken.encoding_for_model(self.AI_MODEL)
-        num_tokens = len(encoding.encode(prompt))
-        return num_tokens
-
     async def instruct(self, prompt, tokens: int = 0):
-        tokens = self.get_tokens(prompt=prompt)
         max_new_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )

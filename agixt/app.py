@@ -5,10 +5,10 @@ import base64
 import string
 import random
 import time
-from fastapi import FastAPI, HTTPException, Depends, Request, Header
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from Interactions import Interactions
+from Interactions import Interactions, get_tokens
 from Embedding import Embedding
 from dotenv import load_dotenv
 
@@ -41,9 +41,12 @@ else:
 
 from typing import Optional, Dict, List, Any
 from Providers import get_provider_options, get_providers
-from Embedding import get_embedding_providers, get_tokens
+from Embedding import get_embedding_providers, get_embedders
 from Extensions import Extensions
 from Chains import Chains
+from readers.github import GithubReader
+from readers.file import FileReader
+from readers.website import WebsiteReader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -105,6 +108,12 @@ class AgentNewName(BaseModel):
 class AgentPrompt(BaseModel):
     prompt_name: str
     prompt_args: dict
+
+
+class AgentMemoryQuery(BaseModel):
+    user_input: str
+    limit: int = 5
+    min_relevance_score: float = 0.0
 
 
 class Objective(BaseModel):
@@ -206,6 +215,7 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
+    collection_number: int = 0
 
 
 class EmbeddingModel(BaseModel):
@@ -216,6 +226,7 @@ class EmbeddingModel(BaseModel):
 class FileInput(BaseModel):
     file_name: str
     file_content: str
+    collection_number: int = 0
 
 
 class TaskOutput(BaseModel):
@@ -272,6 +283,8 @@ class GitHubInput(BaseModel):
     github_user: str = None
     github_token: str = None
     github_branch: str = "main"
+    use_agent_settings: bool = False
+    collection_number: int = 0
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
@@ -290,6 +303,7 @@ async def get_provider_settings(provider_name: str):
     return {"settings": settings}
 
 
+# Gets list of embedding providers
 @app.get(
     "/api/embedding_providers",
     tags=["Provider"],
@@ -298,6 +312,16 @@ async def get_provider_settings(provider_name: str):
 async def get_embed_providers():
     providers = get_embedding_providers()
     return {"providers": providers}
+
+
+# Gets embedders with their details such as required parameters and chunk sizes
+@app.get(
+    "/api/embedders",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_embedder_info() -> Dict[str, Any]:
+    return {"embedders": get_embedders()}
 
 
 @app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
@@ -334,9 +358,35 @@ async def update_agent_settings(
     return ResponseMessage(message=update_config)
 
 
+# Get memories
+@app.post(
+    "/api/agent/{agent_name}/memory/{collection_number}/query",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def query_memories(
+    agent_name: str, memory: AgentMemoryQuery, collection_number=0
+) -> Dict[str, Any]:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    memories = await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=collection_number,
+    ).get_memories_data(
+        user_input=memory.user_input,
+        limit=memory.limit,
+        min_relevance_score=memory.min_relevance_score,
+    )
+    return {"memories": memories}
+
+
 @app.post(
     "/api/agent/{agent_name}/learn/file",
-    tags=["Agent"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
@@ -350,8 +400,12 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
-        memories = Agent(agent_name=agent_name).get_memories()
-        await memories.read_file(file_path=file_path)
+        agent_config = Agent(agent_name=agent_name).get_agent_config()
+        await FileReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=file.collection_number,
+        ).write_file_to_memory(file_path=file_path)
         try:
             os.remove(file_path)
         except Exception:
@@ -367,23 +421,32 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
 
 @app.post(
     "/api/agent/{agent_name}/learn/url",
-    tags=["Agent"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
-    await memories.read_website(url=url.url)
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=url.collection_number,
+    ).write_website_to_memory(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
 
 @app.post(
     "/api/agent/{agent_name}/learn/github",
-    tags=["Agent"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
-    await memories.read_github_repo(
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await GithubReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=git.collection_number,
+        use_agent_settings=git.use_agent_settings,
+    ).write_github_repository_to_memory(
         github_repo=git.github_repo,
         github_user=git.github_user,
         github_token=git.github_token,
@@ -391,6 +454,52 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
     )
     return ResponseMessage(
         message="Agent learned the content from the GitHub Repository."
+    )
+
+
+@app.delete(
+    "/api/agent/{agent_name}/memory",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
+    await WebsiteReader(agent_name=agent_name, collection_number=0).wipe_memory()
+    return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
+
+
+@app.delete(
+    "/api/agent/{agent_name}/memory/{collection_number}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseMessage:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    await WebsiteReader(
+        agent_name=agent_name, collection_number=collection_number
+    ).wipe_memory()
+    return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
+
+
+@app.delete(
+    "/api/agent/{agent_name}/memory/{collection_number}/{memory_id}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_agent_memory(
+    agent_name: str, collection_number=0, memory_id=""
+) -> ResponseMessage:
+    try:
+        collection_number = int(collection_number)
+    except:
+        collection_number = 0
+    await WebsiteReader(
+        agent_name=agent_name, collection_number=collection_number
+    ).delete_memory(key=memory_id)
+    return ResponseMessage(
+        message=f"Memory {memory_id} for agent {agent_name} deleted."
     )
 
 
@@ -432,7 +541,7 @@ async def get_agentconfig(agent_name: str):
 
 @app.get(
     "/api/{agent_name}/conversations",
-    tags=["Agent"],
+    tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(agent_name: str):
@@ -446,7 +555,7 @@ async def get_conversations_list(agent_name: str):
 
 @app.get(
     "/api/conversations",
-    tags=["Agent"],
+    tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list():
@@ -458,7 +567,11 @@ async def get_conversations_list():
     return {"conversations": conversations}
 
 
-@app.get("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.get(
+    "/api/conversation",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def get_conversation_history(history: HistoryModel):
     conversation_history = get_conversation(
         agent_name=history.agent_name,
@@ -474,7 +587,11 @@ async def get_conversation_history(history: HistoryModel):
     return {"conversation_history": conversation_history}
 
 
-@app.post("/api/conversation", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/conversation",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def new_conversation_history(history: ConversationHistoryModel):
     new_conversation(
         agent_name=history.agent_name,
@@ -485,7 +602,7 @@ async def new_conversation_history(history: ConversationHistoryModel):
 
 @app.delete(
     "/api/conversation",
-    tags=["Agent"],
+    tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_conversation_history(
@@ -501,7 +618,7 @@ async def delete_conversation_history(
 
 @app.delete(
     "/api/conversation/message",
-    tags=["Agent"],
+    tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_history_message(
@@ -513,17 +630,6 @@ async def delete_history_message(
         conversation_name=history.conversation_name,
     )
     return ResponseMessage(message=f"Message deleted.")
-
-
-@app.delete(
-    "/api/agent/{agent_name}/memory",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
-    memories = Agent(agent_name=agent_name).get_memories()
-    await memories.wipe_memory()
-    return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
 
 @app.post(
@@ -540,11 +646,13 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     return {"response": str(response)}
 
 
-@app.post("/api/v1/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+)
 async def completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
-    agent_config = Agent(agent_name=prompt.model).get_agent_config()
+    agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]
@@ -586,12 +694,14 @@ async def completion(prompt: Completions):
 
 
 @app.post(
-    "/api/v1/chat/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+    "/api/v1/chat/completions",
+    tags=["Completions"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def chat_completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
-    agent_config = Agent(agent_name=prompt.model).get_agent_config()
+    agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
             model = agent_config["settings"]["AI_MODEL"]
@@ -637,12 +747,17 @@ async def chat_completion(prompt: Completions):
 
 
 # Use agent name in the model field to use embedding.
-@app.post("/api/v1/embedding", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+)
 async def embedding(embedding: EmbeddingModel):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
+    agent_settings = agent_config["settings"] if "settings" in agent_config else None
     tokens = get_tokens(embedding.input)
-    embedding = Embedding(AGENT_CONFIG=agent_config).embed_text(embedding.input)
+    embedding = Embedding(agent_settings=agent_settings).embed_text(
+        text=embedding.input
+    )
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,
@@ -1038,14 +1153,14 @@ async def get_extension_settings():
 
 @app.get(
     "/api/extensions/{command_name}/args",
-    tags=["Extension"],
+    tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_command_args(command_name: str):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
-@app.get("/api/extensions", tags=["Extension"], dependencies=[Depends(verify_api_key)])
+@app.get("/api/extensions", tags=["Extensions"], dependencies=[Depends(verify_api_key)])
 async def get_extensions():
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}

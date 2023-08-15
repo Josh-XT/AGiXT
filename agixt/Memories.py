@@ -1,27 +1,38 @@
 import logging
 import os
-import pandas as pd
-import docx2txt
-import pdfplumber
 import asyncio
 import sys
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.types import QueryResult
-from playwright.async_api import async_playwright
 from numpy import array, linalg, ndarray
-from bs4 import BeautifulSoup
 from hashlib import sha256
-from Embedding import Embedding, nlp
+from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
-import zipfile
-import shutil
-import requests
+import spacy
+from agixtsdk import AGiXTSDK
+from dotenv import load_dotenv
+
+load_dotenv()
+ApiClient = AGiXTSDK(
+    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
+)
+
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+
+def nlp(text):
+    try:
+        sp = spacy.load("en_core_web_sm")
+    except:
+        spacy.cli.download("en_core_web_sm")
+        sp = spacy.load("en_core_web_sm")
+    sp.max_length = 99999999999999999999999
+    return sp(text)
 
 
 def camel_to_snake(camel_str):
@@ -94,10 +105,24 @@ def query_results_to_records(results: "QueryResult"):
 
 
 class Memories:
-    def __init__(self, agent_name: str = "AGiXT", agent_config=None):
+    def __init__(
+        self, agent_name: str = "AGiXT", agent_config=None, collection_number: int = 0
+    ):
         self.agent_name = agent_name
         self.collection_name = camel_to_snake(agent_name)
-        self.agent_config = agent_config
+        self.collection_number = collection_number
+        if collection_number > 0:
+            self.collection_name = f"{self.collection_name}_{collection_number}"
+        if agent_config is None:
+            agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
+        self.agent_config = (
+            agent_config if agent_config else {"settings": {"embedder": "default"}}
+        )
+        self.agent_settings = (
+            self.agent_config["settings"]
+            if "settings" in self.agent_config
+            else {"embedder": "default"}
+        )
         memories_dir = os.path.join(os.getcwd(), "memories")
         if not os.path.exists(memories_dir):
             os.makedirs(memories_dir)
@@ -107,9 +132,29 @@ class Memories:
                 anonymized_telemetry=False,
             ),
         )
-        self.embed = Embedding(AGENT_CONFIG=self.agent_config)
+        self.embed = Embedding(agent_settings=self.agent_settings)
         self.chunk_size = self.embed.chunk_size
         self.embedder = self.embed.embedder
+
+    async def wipe_memory(self):
+        try:
+            self.chroma_client.delete_collection(name=self.collection_name)
+            return True
+        except:
+            return False
+
+    # get collections that start with the collection name
+    async def get_collections(self):
+        collections = self.chroma_client.list_collections()
+        if int(self.collection_number) > 0:
+            collection_name = camel_to_snake(self.agent_name)
+        else:
+            collection_name = self.collection_name
+        return [
+            collection
+            for collection in collections
+            if collection.startswith(collection_name)
+        ]
 
     async def get_collection(self):
         try:
@@ -125,20 +170,26 @@ class Memories:
                 name=self.collection_name, embedding_function=self.embedder
             )
 
-    async def store_result(self, input: str, result: str):
+    async def delete_memory(self, key: str):
         collection = await self.get_collection()
-        if result:
-            if not isinstance(result, str):
-                result = str(result)
-            chunks = await self.chunk_content(
-                content=result, chunk_size=self.chunk_size
-            )
+        try:
+            collection.delete(ids=key)
+            return True
+        except:
+            return False
+
+    async def write_text_to_memory(self, user_input: str, text: str):
+        collection = await self.get_collection()
+        if text:
+            if not isinstance(text, str):
+                text = str(text)
+            chunks = await self.chunk_content(content=text, chunk_size=self.chunk_size)
             for chunk in chunks:
                 metadata = {
                     "timestamp": datetime.now().isoformat(),
                     "is_reference": str(False),
-                    "external_source_name": input,
-                    "description": input,
+                    "external_source_name": user_input,
+                    "description": user_input,
                     "additional_metadata": chunk,
                     "id": sha256(
                         (chunk + datetime.now().isoformat()).encode()
@@ -150,22 +201,24 @@ class Memories:
                     documents=chunk,
                 )
 
-    async def get_nearest_matches_async(
+    async def get_memories_data(
         self,
         user_input: str,
         limit: int,
         min_relevance_score: float = 0.0,
-    ):
-        embedding = array(self.embed.embed_text(text=user_input))
+    ) -> List[dict]:
+        if not user_input:
+            return ""
         collection = await self.get_collection()
-        if collection is None:
-            return []
-        query_results = collection.query(
+        if collection == None:
+            return ""
+        embedding = array(self.embed.embed_text(text=user_input))
+        results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
             include=["embeddings", "metadatas", "documents"],
         )
-        embedding_array = array(query_results["embeddings"][0])
+        embedding_array = array(results["embeddings"][0])
         if len(embedding_array) == 0:
             logging.warning("Embedding collection is empty.")
             return []
@@ -174,55 +227,52 @@ class Memories:
             embedding = embedding.reshape(
                 embedding.shape[1],
             )
-        similarity_score = chroma_compute_similarity_scores(embedding, embedding_array)
-        record_list = [
-            (record, distance)
-            for record, distance in zip(
-                query_results_to_records(query_results),
-                similarity_score,
-            )
-        ]
-        sorted_results = sorted(
-            record_list,
-            key=lambda x: x[1],
-            reverse=True,
+        similarity_score = chroma_compute_similarity_scores(
+            embedding=embedding, embedding_array=embedding_array
         )
-        filtered_results = [x for x in sorted_results if x[1] >= min_relevance_score]
+        record_list = []
+        for record, score in zip(query_results_to_records(results), similarity_score):
+            record["relevance_score"] = score
+            record_list.append(record)
+        sorted_results = sorted(
+            record_list, key=lambda x: x["relevance_score"], reverse=True
+        )
+        filtered_results = [
+            x for x in sorted_results if x["relevance_score"] >= min_relevance_score
+        ]
         top_results = filtered_results[:limit]
         return top_results
 
-    async def context_agent(self, user_input: str, limit: int) -> List[str]:
-        if not user_input:
-            return ""
-        collection = await self.get_collection()
-        if collection == None:
-            return ""
-
-        results = await self.get_nearest_matches_async(
+    async def get_memories(
+        self,
+        user_input: str,
+        limit: int,
+        min_relevance_score: float = 0.0,
+    ) -> List[str]:
+        results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
-            min_relevance_score=0.0,
+            min_relevance_score=min_relevance_score,
         )
-        response = "The user's input causes you remember these things:\n"
-
-        for result in results:
-            print(result[0]["additional_metadata"])
-            metadata = result[0]["additional_metadata"]
-            if metadata not in response:
-                response += metadata + "\n"
-
-        response += "\n"
+        response = []
+        if results:
+            for result in results:
+                metadata = (
+                    result["additional_metadata"]
+                    if "additional_metadata" in result
+                    else ""
+                )
+                if metadata not in response and metadata != "":
+                    response.append(metadata)
         return response
 
-    def score_chunk(self, chunk: str, keywords: set):
+    def score_chunk(self, chunk: str, keywords: set) -> int:
         """Score a chunk based on the number of query keywords it contains."""
         chunk_counter = Counter(chunk.split())
         score = sum(chunk_counter[keyword] for keyword in keywords)
         return score
 
-    async def chunk_content(
-        self, content: str, chunk_size: int, overlap: int = 2
-    ) -> List[str]:
+    async def chunk_content(self, content: str, chunk_size: int) -> List[str]:
         doc = nlp(content)
         sentences = list(doc.sents)
         content_chunks = []
@@ -231,16 +281,16 @@ class Memories:
         keywords = [
             token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
         ]
-
-        for i, sentence in enumerate(sentences):
+        for sentence in sentences:
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > chunk_size and chunk:
                 chunk_text = " ".join(token.text for token in chunk)
                 content_chunks.append(
                     (self.score_chunk(chunk_text, keywords), chunk_text)
                 )
-                chunk = list(sentences[i - overlap : i]) if i - overlap >= 0 else []
-                chunk_len = sum(len(s) for s in chunk)
+                chunk = []
+                chunk_len = 0
+
             chunk.extend(sentence)
             chunk_len += sentence_tokens
 
@@ -251,113 +301,3 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
-
-    async def wipe_memory(self):
-        self.chroma_client.delete_collection(name=self.collection_name)
-
-    async def read_file(self, file_path: str):
-        base_path = os.path.join(os.getcwd(), "WORKSPACE")
-        file_path = os.path.normpath(os.path.join(base_path, file_path))
-        content = ""
-        if not file_path.startswith(base_path):
-            raise Exception("Path given not allowed")
-        try:
-            # If file extension is pdf, convert to text
-            if file_path.endswith(".pdf"):
-                with pdfplumber.open(file_path) as pdf:
-                    content = "\n".join([page.extract_text() for page in pdf.pages])
-            # If file extension is xls, convert to csv
-            elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
-                content = pd.read_excel(file_path).to_csv()
-            # If file extension is doc, convert to text
-            elif file_path.endswith(".doc") or file_path.endswith(".docx"):
-                content = docx2txt.process(file_path)
-            # If zip file, extract it then go over each file with read_file
-            elif file_path.endswith(".zip"):
-                with zipfile.ZipFile(file_path, "r") as zipObj:
-                    zipObj.extractall(path=os.path.join(base_path, "temp"))
-                # Iterate over every file that was extracted including subdirectories
-                for root, dirs, files in os.walk(os.getcwd()):
-                    for name in files:
-                        file_path = os.path.join(root, name)
-                        await self.read_file(file_path=file_path)
-                shutil.rmtree(os.path.join(base_path, "temp"))
-            # TODO: If file is an image, classify it in text.
-            # Otherwise just read the file
-            else:
-                # If the file isn't an image extension file, just read it
-                if not file_path.endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
-                ):
-                    with open(file_path, "r") as f:
-                        content = f.read()
-            if content != "":
-                await self.store_result(input=file_path, result=content)
-            return True
-        except:
-            return False
-
-    async def read_website(self, url: str):
-        if url.startswith("https://github.com/") or url.startswith(
-            "https://www.github.com/"
-        ):
-            await self.read_github_repo(github_repo=url)
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(url)
-            content = await page.content()
-            links = await page.query_selector_all("a")
-            link_list = []
-            for link in links:
-                title = await page.evaluate("(link) => link.textContent", link)
-                href = await page.evaluate("(link) => link.href", link)
-                link_list.append((title, href))
-
-            await browser.close()
-            soup = BeautifulSoup(content, "html.parser")
-            text_content = soup.get_text()
-            text_content = " ".join(text_content.split())
-            if text_content:
-                await self.store_result(input=url, result=text_content)
-            return text_content, link_list
-
-    async def read_github_repo(
-        self,
-        github_repo="Josh-XT/AGiXT",
-        github_user=None,
-        github_token=None,
-        github_branch="main",
-    ):
-        github_repo = github_repo.replace("https://github.com/", "")
-        github_repo = github_repo.replace("https://www.github.com/", "")
-        if not github_branch:
-            github_branch = "main"
-        user = github_repo.split("/")[0]
-        repo = github_repo.split("/")[1]
-        if " " in repo:
-            repo = repo.split(" ")[0]
-        if "\n" in repo:
-            repo = repo.split("\n")[0]
-        repo_url = (
-            f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
-        )
-        try:
-            response = requests.get(repo_url, auth=(github_user, github_token))
-        except:
-            if github_branch != "master":
-                return await self.read_github_repo(
-                    github_repo=github_repo,
-                    github_user=github_user,
-                    github_token=github_token,
-                    github_branch="master",
-                )
-            else:
-                return False
-        zip_file_name = f"{repo}_{github_branch}.zip"
-        with open(zip_file_name, "wb") as f:
-            f.write(response.content)
-        await self.read_file(file_path=zip_file_name)
-        os.remove(zip_file_name)
-        return True
