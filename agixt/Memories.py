@@ -137,7 +137,11 @@ class Memories:
         self.embedder = self.embed.embedder
 
     async def wipe_memory(self):
-        self.chroma_client.delete_collection(name=self.collection_name)
+        try:
+            self.chroma_client.delete_collection(name=self.collection_name)
+            return True
+        except:
+            return False
 
     # get collections that start with the collection name
     async def get_collections(self):
