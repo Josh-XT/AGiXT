@@ -52,7 +52,7 @@ class Gpt4freeProvider:
         WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.requirements = ["gpt4free", "js2py"]
+        self.requirements = ["g4f", "Js2Py"]
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
