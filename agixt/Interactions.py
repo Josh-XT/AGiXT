@@ -125,17 +125,18 @@ class Interactions:
                     min_relevance_score=min_relevance_score,
                 )
                 if "inject_memories_from_collection_number" in kwargs:
-                    context += await WebsiteReader(
-                        agent_name=self.agent_name,
-                        agent_config=self.agent.AGENT_CONFIG,
-                        collection_number=int(
-                            kwargs["inject_memories_from_collection_number"]
-                        ),
-                    ).get_memories(
-                        user_input=user_input,
-                        limit=top_results,
-                        min_relevance_score=min_relevance_score,
-                    )
+                    if int(kwargs["inject_memories_from_collection_number"]) > 0:
+                        context += await WebsiteReader(
+                            agent_name=self.agent_name,
+                            agent_config=self.agent.AGENT_CONFIG,
+                            collection_number=int(
+                                kwargs["inject_memories_from_collection_number"]
+                            ),
+                        ).get_memories(
+                            user_input=user_input,
+                            limit=top_results,
+                            min_relevance_score=min_relevance_score,
+                        )
                 if context != []:
                     context = "\n".join(context)
                     context = f"The user's input causes you remember these things:\n{context}\n"
