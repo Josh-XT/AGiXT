@@ -361,7 +361,7 @@ async def update_agent_settings(
 # Get memories
 @app.post(
     "/api/agent/{agent_name}/memory/{collection_number}/query",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def query_memories(
@@ -386,7 +386,7 @@ async def query_memories(
 
 @app.post(
     "/api/agent/{agent_name}/learn/file",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
@@ -421,7 +421,7 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
 
 @app.post(
     "/api/agent/{agent_name}/learn/url",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
@@ -436,7 +436,7 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
 
 @app.post(
     "/api/agent/{agent_name}/learn/github",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
@@ -459,7 +459,7 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
 
 @app.delete(
     "/api/agent/{agent_name}/memory",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
@@ -469,7 +469,7 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseMessage:
@@ -485,7 +485,7 @@ async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseM
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}/{memory_id}",
-    tags=["Agent", "Memory"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_agent_memory(
@@ -541,7 +541,7 @@ async def get_agentconfig(agent_name: str):
 
 @app.get(
     "/api/{agent_name}/conversations",
-    tags=["Agent", "Conversation"],
+    tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(agent_name: str):
@@ -646,7 +646,9 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     return {"response": str(response)}
 
 
-@app.post("/api/v1/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+)
 async def completion(prompt: Completions):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
@@ -692,7 +694,9 @@ async def completion(prompt: Completions):
 
 
 @app.post(
-    "/api/v1/chat/completions", tags=["Agent"], dependencies=[Depends(verify_api_key)]
+    "/api/v1/chat/completions",
+    tags=["Completions"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def chat_completion(prompt: Completions):
     # prompt.model is the agent name
@@ -743,7 +747,9 @@ async def chat_completion(prompt: Completions):
 
 
 # Use agent name in the model field to use embedding.
-@app.post("/api/v1/embedding", tags=["Agent"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+)
 async def embedding(embedding: EmbeddingModel):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
@@ -1147,14 +1153,14 @@ async def get_extension_settings():
 
 @app.get(
     "/api/extensions/{command_name}/args",
-    tags=["Extension"],
+    tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_command_args(command_name: str):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
-@app.get("/api/extensions", tags=["Extension"], dependencies=[Depends(verify_api_key)])
+@app.get("/api/extensions", tags=["Extensions"], dependencies=[Depends(verify_api_key)])
 async def get_extensions():
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}
