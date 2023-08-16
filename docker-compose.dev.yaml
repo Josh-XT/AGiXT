@@ -15,7 +15,7 @@ services:
     depends_on:
       - db
     environment:
-      - DB_CONNECTED=true
+      - DB_CONNECTED=${DB_CONNECTED:-false}
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -36,7 +36,7 @@ services:
       - ./conversations:/agixt/conversations
       - ./.env:/.env
   streamlit:
-    image: joshxt/streamlit:latest
+    image: joshxt/streamlit:main
     depends_on:
       - agixt
     environment:

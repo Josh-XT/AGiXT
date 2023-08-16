@@ -24,60 +24,77 @@ environment_setup() {
         echo "----------------------------------------------------${RESET}"
         echo "${BOLD}${MAGENTA}Visit our documentation at https://AGiXT.com ${RESET}"
         echo "${BOLD}${MAGENTA}Welcome to the AGiXT Environment Setup!${RESET}"
-        read -p "Do you want AGiXT to automatically update when launched? AGiXT Hubs always update automatically. (Y for yes, N for No): " auto_update
-        if [[ "$auto_update" == [Yy]* ]]; then
-            auto_update="true"
+        read -p "Quick Setup without advanced configuration? (Y for yes, N for No): " quick_setup
+        if [[ "$quick_setup" == [Yy]* ]]; then
+          db_connection = false
+          auto_update = true
+          github_repo = "AGiXT/hub"
+          agixt_uri = "http://localhost:7437"
+          api_key = ""
+          agixt_workers = 10
+          github_username = ""
+          github_token = ""
+          postgres_host = "db"
+          postgres_port = 5432
+          postgres_database = "postgres"
+          postgres_username = "postgres"
+          postgres_password = "postgres"
         else
-            auto_update="false"
-        fi
-        read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
-        if [[ "$use_api_key" == [Yy]* ]]; then
-            read -p "Enter API key: " api_key
-        fi
-        read -p "Do you have your own AGiXT Hub fork that you would like to install with? (Y for yes, N for No): " hub_repo
-        if [[ "$hub_repo" == [Yy]* ]]; then
-            read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/hub): " github_repo
-            read -p "Is your AGiXT Hub fork private? It will require credentials if it is not public. (Y for yes, N for No): " is_private
-            if [[ "$is_private" == [Yy]* ]]; then
-                read -p "Enter your GitHub username: " github_username
-                read -p "Enter your GitHub token: " github_token
-            fi
-        fi
-        read -p "Enter the number of AGiXT workers to run with, default is 10: " workers
-        if [[ "$workers" != "" ]]; then
-            if [[ $workers =~ ^[0-9]+$ && $workers -gt 0 ]]; then
-                agixt_workers=$workers
-            else
-                echo "Invalid number of workers, defaulting to 10"
-                agixt_workers=10
-            fi
-        fi
-        read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
-        if [[ "$local_models" == [Yy]* ]]; then
-            read -p "Do you want to use a local Text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
-            if [[ "$local_textgen" == [Yy]* ]]; then
-                read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
-                if [[ "$cuda_version" != "" ]]; then
-                    if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
-                        echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
-                    fi
-                fi
-				cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
-				read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
-				echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
-            fi
-        fi
-        read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
-        if [[ "$use_db" == [Yy]* ]]; then
-            db_connection="true"
-            read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
-            if [[ "$use_own_db" == [Yy]* ]]; then
-                read -p "Enter postgres host: " postgres_host
-                read -p "Enter postgres port: " postgres_port
-                read -p "Enter postgres database name: " postgres_database
-                read -p "Enter postgres username: " postgres_username
-            fi
-            read -p "Enter postgres password: " postgres_password
+          read -p "Do you want AGiXT to automatically update when launched? AGiXT Hubs always update automatically. (Y for yes, N for No): " auto_update
+          if [[ "$auto_update" == [Yy]* ]]; then
+              auto_update="true"
+          else
+              auto_update="false"
+          fi
+          read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
+          if [[ "$use_api_key" == [Yy]* ]]; then
+              read -p "Enter API key: " api_key
+          fi
+          read -p "Do you have your own AGiXT Hub fork that you would like to install with? (Y for yes, N for No): " hub_repo
+          if [[ "$hub_repo" == [Yy]* ]]; then
+              read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/hub): " github_repo
+              read -p "Is your AGiXT Hub fork private? It will require credentials if it is not public. (Y for yes, N for No): " is_private
+              if [[ "$is_private" == [Yy]* ]]; then
+                  read -p "Enter your GitHub username: " github_username
+                  read -p "Enter your GitHub token: " github_token
+              fi
+          fi
+          read -p "Enter the number of AGiXT workers to run with, default is 10: " workers
+          if [[ "$workers" != "" ]]; then
+              if [[ $workers =~ ^[0-9]+$ && $workers -gt 0 ]]; then
+                  agixt_workers=$workers
+              else
+                  echo "Invalid number of workers, defaulting to 10"
+                  agixt_workers=10
+              fi
+          fi
+          read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
+          if [[ "$local_models" == [Yy]* ]]; then
+              read -p "Do you want to use a local Text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
+              if [[ "$local_textgen" == [Yy]* ]]; then
+                  read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
+                  if [[ "$cuda_version" != "" ]]; then
+                      if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+                          echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
+                      fi
+                  fi
+                  cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
+                  read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
+                  echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
+              fi
+          fi
+          read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
+          if [[ "$use_db" == [Yy]* ]]; then
+              db_connection="true"
+              read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
+              if [[ "$use_own_db" == [Yy]* ]]; then
+                  read -p "Enter postgres host: " postgres_host
+                  read -p "Enter postgres port: " postgres_port
+                  read -p "Enter postgres database name: " postgres_database
+                  read -p "Enter postgres username: " postgres_username
+              fi
+              read -p "Enter postgres password: " postgres_password
+          fi
         fi
         echo "DB_CONNECTED=${db_connection:-false}" >> .env
         echo "AGIXT_AUTO_UPDATE=${auto_update:-true}" >> .env
@@ -110,16 +127,17 @@ display_menu() {
   echo "${BOLD}${MAGENTA}Welcome to the AGiXT Installer!${RESET}"
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT with Docker (Recommended)${RESET}"
-  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT and Text generation web UI with Docker (NVIDIA Only)${RESET}"
-  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Update AGiXT ${RESET}"
-  echo "  ${BOLD}${RED}5.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
-  echo "  ${BOLD}${RED}6.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT with Docker from Main Branch (Developers Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT Locally (Developers Only - Not Recommended or Supported) ${RESET}"
+  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Update AGiXT ${RESET}"
+  echo "  ${BOLD}${RED}6.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
+  echo "  ${BOLD}${RED}7.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
 # Function to perform the Update
-update() {
+update_local() {
   echo "${BOLD}${GREEN}Running Updates...${RESET}"
   echo "${BOLD}${YELLOW}Updating AGiXT Core...${RESET}"
   git pull
@@ -142,11 +160,40 @@ update() {
     git pull
     cd ..
   fi
+  echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
+}
+
+update_docker() {
+  echo "${BOLD}${GREEN}Running Updates...${RESET}"
+  echo "${BOLD}${YELLOW}Updating AGiXT Core...${RESET}"
+  git pull
+  cd ..
+  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update Text generation web UI if it is.
+  if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
+    echo "${BOLD}${YELLOW}Please wait...${RESET}"
+  else
+    if [ ! -d "text-generation-webui" ]; then
+        echo "${BOLD}${YELLOW}Updating Oobabooga Text generation web UI Repository...${RESET}"
+        git clone https://github.com/oobabooga/text-generation-webui
+    fi
+    cd text-generation-webui
+    git pull
+    cd ..
+  fi
   echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
   docker-compose pull
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
 
+update() {
+  if [[ "$AGIXT_URI" == "http://agixt:7437" ]]; then
+    update_docker
+  else
+    update_local
+  fi
+  echo "${BOLD}${GREEN}Update complete.${RESET}"
+  sleep 2
+}
 # Function to perform the Docker install
 docker_install() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -180,13 +227,15 @@ docker_install_local_nvidia() {
   source .env
   # Check if TORCH_CUDA_ARCH_LIST is defined from the env, ask user to enter it if not.
   if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
-    echo "${BOLD}${YELLOW}Please enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): ${RESET}"
-    read -p "Enter your CUDA version: " cuda_version
+    read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
     if [[ "$cuda_version" != "" ]]; then
-      if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
-        echo "TORCH_CUDA_ARCH_LIST=${cuda_version}" >> .env
-      fi
+        if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
+        fi
     fi
+    cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
+    read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
+    echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
   fi
 
   # Check if nvidia-container-toolkit is installed
@@ -338,7 +387,6 @@ while true; do
       ;;
     4)
       update
-      echo "${BOLD}${GREEN}Update complete.${RESET}"
       sleep 2
       ;;
     5)
