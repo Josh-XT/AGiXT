@@ -29,7 +29,7 @@ class FileReader(Memories):
             else:
                 self.workspace_restricted = True
         else:
-            self.workspace_restricted = False
+            self.workspace_restricted = True
 
     async def write_file_to_memory(self, file_path: str):
         if self.workspace_restricted:
