@@ -20,26 +20,24 @@ class FileReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
         )
+        self.workspace_restricted = True
         if "WORKSPACE_RESTRICTED" in self.agent_settings:
-            self.workspace_restricted = self.agent_settings["WORKSPACE_RESTRICTED"]
-            if isinstance(self.workspace_restricted, str):
+            if isinstance(self.agent_settings["WORKSPACE_RESTRICTED"], str):
                 self.workspace_restricted = (
-                    False if self.workspace_restricted.lower() == "False" else True
+                    False
+                    if self.agent_settings["WORKSPACE_RESTRICTED"].lower() == "false"
+                    else True
                 )
-            else:
-                self.workspace_restricted = True
-        else:
-            self.workspace_restricted = True
 
     async def write_file_to_memory(self, file_path: str):
+        base_path = os.path.join(os.getcwd(), "WORKSPACE")
         if self.workspace_restricted:
-            base_path = os.path.join(os.getcwd(), "WORKSPACE")
             file_path = os.path.normpath(os.path.join(base_path, file_path))
+            if not file_path.startswith(base_path):
+                raise Exception("Path given not allowed")
         else:
             file_path = os.path.normpath(file_path)
         content = ""
-        if not file_path.startswith(base_path):
-            raise Exception("Path given not allowed")
         try:
             # If file extension is pdf, convert to text
             if file_path.endswith(".pdf"):
