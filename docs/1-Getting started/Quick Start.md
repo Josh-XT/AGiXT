@@ -18,7 +18,13 @@ cd AGiXT
 ```
 
 ### Environment Setup
-During the installation, you will be prompted to enter some settings unless you already have your `.env` file set up.  If you do not have your `.env` file set up, you can use the following as a guide:
+You can choose to skip the environment setup and accept default values by entering `Y` on the first question `Quick Setup without advanced configuration? (Y for yes, N for No)`.
+
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/7539d4cf-8081-4bca-97b9-a2affb427d59)
+
+**If you chose `Y`, you can skip the remainder of this section.**
+
+If you choose `N` on skipping environment setup, you will be prompted to enter some settings unless you already have your `.env` file set up.  If you do not have your `.env` file set up, you can use the following as a guide:
 
 ![image](https://github.com/Josh-XT/AGiXT/assets/102809327/c8ae9698-f1e0-44b8-9fb2-85cb66b684b7)
 
@@ -44,22 +50,30 @@ During the installation, you will be prompted to enter some settings unless you 
 - `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
 
 ### Install Options
-You will be prompted to choose an install option.  The options are as follows:
+You will be prompted to choose an install option.  The first 3 options require you to have Docker installed. The options are as follows:
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/dd83bda7-f592-4bd8-a377-e2eb5e7e5dcb)
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/d63b29aa-7768-4416-98cb-94979cc98681)
 
-1. **Run AGiXT with Docker (Recommended)**
+1. **Run AGiXT (Recommended)**
     - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
-2. **Run AGiXT Locally (Developers Only - Not Recommended or Supported)**
-    - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) locally. This is not recommended or supported due to it requiring you to have a lot of dependencies installed on your computer that may conflict with other software you have installed. This is only recommended for developers who want to contribute to AGiXT.
-3. **Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)**
+2. **Run AGiXT with Text Generation Web UI (NVIDIA Only)**
     - This option is only available if you have an NVIDIA GPU and will not work if you do not.
     - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT), the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit), and the [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui) in Docker containers. This is the recommended option for most users who want to use local models on GPU. You will need a powerful video card to run this option. We highly recommend reviewing their documentation before using this option unless you have run local models on GPU before.
-4. **Update AGiXT**
+
+**Developer Only Options (Not recommended or supported):**
+
+3. **Run AGiXT (Recommended)**
+    - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
+4. **Run AGiXT on local machine**
+    - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) locally. This is not recommended or supported due to it requiring you to have a lot of dependencies installed on your computer that may conflict with other software you have installed. This is only recommended for developers who want to contribute to AGiXT.
+
+**Manage:**
+
+5. **Update AGiXT**
     - This option will update [AGiXT](https://github.com/Josh-XT/AGiXT), [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit), and [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui) if you have them installed.  It is always recommended to be on the latest version of all.
-5. **Wipe AGiXT Hub (Irreversible)**
+6. **Wipe AGiXT Hub (Irreversible)**
     - This option will delete `agixt/providers`, `agixt/extensions`, `agixt/chains`, and `agixt/prompts`. The next time you start AGiXT, it will redownload all of them from the [AGiXT Hub](https://github.com/AGiXT/hub) that you have configured in your `.env` file. This is mostly used for development and testing purposes.
-6. **Exit**
+7. **Exit**
     - This option will exit the installer.
 
 ### Running and Updating AGiXT
@@ -68,7 +82,7 @@ Any time you want to run or update AGiXT, run the following commands from your `
 ./AGiXT.sh
 ```
 
-Then follow the prompts to run or update AGiXT either locally or with Docker. We generally recommend running with Docker.
+Then follow the prompts to run or update AGiXT either locally or with Docker. We strongly recommend running with Docker and do not support running locally, it is only an option for development use.
 
 - Access the web interface at http://localhost:8501
 - Access the AGiXT API documentation at http://localhost:7437
