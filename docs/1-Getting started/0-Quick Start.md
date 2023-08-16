@@ -22,7 +22,7 @@ You can choose to skip the environment setup and accept default values by enteri
 
 ![image](https://github.com/Josh-XT/AGiXT/assets/102809327/7539d4cf-8081-4bca-97b9-a2affb427d59)
 
-If you chose `N`, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/Environment%20Variable%20Setup.html) documentation for guidance on setup.
+If you chose `N`, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/1-Environment%20Variables.html) documentation for guidance on setup.
 
 ### Install Options
 You will be prompted to choose an install option. Choose Option 1 to get started quickly.

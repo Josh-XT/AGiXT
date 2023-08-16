@@ -30,4 +30,4 @@ If you choose `N` on skipping environment setup, you will be prompted to enter s
 - `TORCH_CUDA_ARCH_LIST` is the CUDA architecture list to use for the Oobabooga text generation web UI. Example: RTX3000-5000 series are version `7.5`. Find yours at https://developer.nvidia.com/cuda-gpus .
 - `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
 
-[Next Page: Install Options](https://josh-xt.github.io/AGiXT/1-Getting%20started/Install%20Options.html)
+[Next Page: Install Options](https://josh-xt.github.io/AGiXT/1-Getting%20started/2-Install%20Options.html)
