@@ -1,5 +1,7 @@
 # Chains
 ## What are Chains?
+Imagine a chain of dominoes. When you knock over the first one, it sets off a series of actions, with each domino affecting the next. In AI, a chain is a series of steps or commands that are linked together. The output of one step becomes the input for the next. This allows you to create complex workflows, where the AI performs a series of actions in a specific order, like a recipe. It's a way of automating processes, so you can get the AI to do more complex jobs without needing to supervise every step.
+
 Chains are a sequence of Agent actions such as running prompt templates, commands from extensions, or other chains.  Think of them like a workflow, where each step is a task that needs to be completed for the overall objective to be achieved. The AI follows this roadmap, executing each task in the chain in the order they appear, and using the output of one task as the input for the next. This allows the AI to handle complex objectives that require multiple steps to complete.
 
 You can set a different agent per step if you would like, but you can also override the agent used for running the whole chain at run time if you would like.
