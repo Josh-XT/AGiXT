@@ -204,19 +204,24 @@ docker_install() {
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     update
   fi
-
-  if [ ! -d "streamlit" ]; then
-      echo "${BOLD}${YELLOW}Cloning Streamlit Repository...${RESET}"
-      git clone https://github.com/AGiXT/streamlit
-  fi
-
-  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   if [[ "$DB_CONNECTED" == "true" ]]; then
     docker-compose -f docker-compose-postgres.yml up
   else
     docker-compose up
   fi
+}
+docker_install_dev() {
+  sed -i '/^AGIXT_URI=/d' .env
+  echo "AGIXT_URI=http://agixt:7437" >> .env
+  sed -i '/^TEXTGEN_URI=/d' .env
+  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
+  source .env
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    update
+  fi
+  echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
+  docker-compose -f docker-compose.dev.yml up
 }
 # Function to perform the Docker install
 docker_install_local_nvidia() {
@@ -378,18 +383,22 @@ while true; do
       break
       ;;
     2)
-      local_install
-      break
-      ;;
-    3)
       docker_install_local_nvidia
       break
       ;;
+    3)
+      docker_install_dev
+      break
+      ;;
     4)
+      local_install
+      break
+      ;;
+    5)
       update
       sleep 2
       ;;
-    5)
+    6)
       wipe_hub
       break
       ;;
