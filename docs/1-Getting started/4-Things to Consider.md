@@ -14,10 +14,3 @@ In other words, different tasks require different amounts of context. A full tec
 ## Local Model Expectations
 
 While it is absolutely fascinating to run local models, it is important to understand that they are not very good at making decisions currently. This seems to apply to most models that can currently be run locally (as of August 16, 2023.) This is only being mentioned to help manage expectations of what local models can do. They are great for generating text and can absolutely be used for many things within AGiXT, but I would not recommend giving local models command access due to their lower logical reasoning capabilities. You may get poor results attempting autonomous execution with local models.  Local models are best utilized within Chains where you define to run commands based the text responses that you predefine and the LLM never knows that it can or cannot run commands.  This is the best way to utilize local models in AGiXT currently.
-
-## AGiXT Hub
-
-AGiXT Hubs exist to give you flexibility in what extensions, providers, prompts, agents, and chains your AGiXT instance imports when starting. The [Open Source AGiXT Hub](https://github.com/AGiXT/hub) contains the open source items that are available for use with AGiXT.  You can also create your own AGiXT Hub and use it with AGiXT if you would like to use it with your own private extensions, providers, prompts, agents, and chains.
-
-## AGiXT Agents
-
