@@ -169,7 +169,6 @@ update_docker() {
   echo "${BOLD}${GREEN}Running Updates...${RESET}"
   echo "${BOLD}${YELLOW}Updating AGiXT Core...${RESET}"
   git pull
-  cd ..
   # Check if TORCH_CUDA_ARCH_LIST is defined from the env, only update Text generation web UI if it is.
   if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
     echo "${BOLD}${YELLOW}Please wait...${RESET}"
@@ -182,7 +181,7 @@ update_docker() {
     git pull
     cd ..
   fi
-  echo "${BOLD}${YELLOW}Updating Docker Images...${RESET}"
+  echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
   docker-compose pull
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
