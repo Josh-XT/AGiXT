@@ -1,13 +1,3 @@
-## Context and Token Limits
-
-Think of AI like a speed-reader with a short-term memory. It can scan through a lot of information quickly, but it can't hold all of it in its mind at once. This limit to what it can remember at any given time is what we call its 'token limit'.
-
-If you hand the AI a huge book and ask, "What's the entire premise of this story?", it can't answer right away. It's like asking someone to read a whole book in a split second and summarize it instantly. The AI, like a human, doesn't have the time (or token capacity) to process all that information at once.
-
-However, if you ask a more specific question like, "What color is Sally's hair in the book?", the AI doesn't need to go through the entire book. It can scan quickly to find that specific information. That's because this question only requires context about Sally's hair, not the entire book.
-
-In other words, different tasks require different amounts of context. A full technical review might need to consider the whole document, as it needs a comprehensive understanding. But a single step of the review could focus on a specific aspect, requiring less context. It's all about matching the AI's token capacity to the task at hand.
-
 ## Instruction
 Think of an instruction as giving a simple, specific command to your pet. For instance, you might tell your dog to "fetch the ball". The dog knows what each of these words means, and it can perform this single task for you. In the world of AI, an instruction could be something like "Translate this sentence into Spanish". It's a single, straightforward command that the AI can execute immediately.
 

@@ -15,7 +15,7 @@ services:
     depends_on:
       - db
     environment:
-      - DB_CONNECTED=true
+      - DB_CONNECTED=${DB_CONNECTED:-false}
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -23,6 +23,7 @@ services:
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
+      - AGIXT_API_KEY=${AGIXT_API_KEY}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - TOKENIZERS_PARALLELISM=False
@@ -36,11 +37,11 @@ services:
       - ./conversations:/agixt/conversations
       - ./.env:/.env
   streamlit:
-    image: joshxt/streamlit:latest
+    image: joshxt/streamlit:main
     depends_on:
       - agixt
     environment:
-      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
+      - AGIXT_API_KEY=${AGIXT_API_KEY}
     ports:
       - "8501:8501"
