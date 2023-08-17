@@ -1028,7 +1028,7 @@ async def add_prompt(
         Prompts().add_prompt(
             prompt_name=prompt.prompt_name,
             prompt=prompt.prompt,
-            prompt_category_name=prompt_category,
+            prompt_category=prompt_category,
         )
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
