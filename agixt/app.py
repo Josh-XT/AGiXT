@@ -1138,13 +1138,13 @@ async def rename_prompt(
     dependencies=[Depends(verify_api_key)],
 )
 async def update_prompt(
-    prompt: CustomPromptModel, prompt_category_name: str = "Default"
+    prompt: CustomPromptModel, prompt_category: str = "Default"
 ) -> ResponseMessage:
     try:
         Prompts().update_prompt(
             prompt_name=prompt.prompt_name,
             prompt=prompt.prompt,
-            prompt_category_name=prompt_category_name,
+            prompt_category=prompt_category,
         )
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' updated.")
     except Exception as e:
