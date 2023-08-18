@@ -179,6 +179,8 @@ update_docker() {
     fi
     cd text-generation-webui
     git pull
+    echo "${BOLD}${YELLOW}Updating Text generation web UI Docker image...${RESET}"
+    docker-compose build text-generation-webui
     cd ..
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
@@ -258,18 +260,13 @@ docker_install_local_nvidia() {
       echo "NVIDIA Container Toolkit has been installed."
   fi
 
-  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    update
-  fi
-
-  if [ ! -d "streamlit" ]; then
-      echo "${BOLD}${YELLOW}Cloning Streamlit Repository...${RESET}"
-      git clone https://github.com/AGiXT/streamlit
-  fi
-
   if [ ! -d "text-generation-webui" ]; then
       echo "${BOLD}${YELLOW}Cloning Oobabooga Text generation web UI Repository...${RESET}"
       git clone https://github.com/oobabooga/text-generation-webui
+  fi
+
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    update
   fi
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
