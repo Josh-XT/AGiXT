@@ -228,7 +228,7 @@ docker_install_dev() {
     update
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  docker-compose -f docker-compose.dev.yml up
+  docker-compose -f docker-compose-dev.yml up
 }
 # Function to perform the Docker install
 docker_install_local_nvidia() {
