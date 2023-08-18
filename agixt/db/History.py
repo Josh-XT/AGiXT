@@ -14,11 +14,8 @@ def export_conversation(agent_name, conversation_name=None):
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
-    conversation_name = (
-        f"{str(datetime.now())} Conversation"
-        if not conversation_name
-        else conversation_name
-    )
+    if not conversation_name:
+        conversation_name = f"{str(datetime.now())} Conversation"
     conversation = (
         session.query(Conversation)
         .filter(
