@@ -183,9 +183,9 @@ class Interactions:
         else:
             conversation_results = int(top_results) if top_results > 0 else 5
         conversation_history = ""
-        x = 1
-        if len(conversation) > 0:
-            for interaction in conversation:
+        if "interactions" in conversation and conversation["interactions"] != []:
+            x = 1
+            for interaction in conversation["interactions"]:
                 if conversation_results > x:
                     timestamp = (
                         interaction["timestamp"] if "timestamp" in interaction else ""
