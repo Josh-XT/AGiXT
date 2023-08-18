@@ -29,6 +29,7 @@ You can view the predefined injection variables by checking the `Show Prompt Inj
 
 | Option | Description |
 | --- | --- |
+| `How many conversation results to inject` | This allows you to select how many previous conversations to inject into the agent's memory.  Default is 5. |
 | `Shots` | How many times to send the prompt to the agent to generate a responses, this is useful for evaluating multiple responses for decision making. |
 | `Inject memories from collection number` | Agents can have multiple collections of memories, this allows you to select a secondary collection to inject context from in addition to the default collection, which is 0. |
 | `How many long term memories to inject` | This allows you to select how many memories to inject from the selected collection and from the default collection.  Default is 5. |
