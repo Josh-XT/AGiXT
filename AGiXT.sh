@@ -180,8 +180,8 @@ update_docker() {
     cd text-generation-webui
     git pull
     echo "${BOLD}${YELLOW}Updating Text generation web UI Docker image...${RESET}"
-    docker-compose build text-generation-webui
     cd ..
+    docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
   docker-compose pull
