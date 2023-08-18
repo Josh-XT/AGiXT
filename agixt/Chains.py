@@ -1,22 +1,13 @@
-import os
 import logging
-from agixtsdk import AGiXTSDK
+from ApiClient import ApiClient, DB_CONNECTED
 from Extensions import Extensions
-from dotenv import load_dotenv
 
-load_dotenv()
-
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-if db_connected:
+if DB_CONNECTED:
     from db.Chain import Chain
     from db.Prompts import Prompts
 else:
     from fb.Chain import Chain
     from fb.Prompts import Prompts
-
-ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
-)
 
 chain = Chain()
 
