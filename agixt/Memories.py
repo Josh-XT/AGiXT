@@ -2,6 +2,7 @@ import logging
 import os
 import asyncio
 import sys
+import spacy
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.types import QueryResult
@@ -11,14 +12,7 @@ from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
-import spacy
-from agixtsdk import AGiXTSDK
-from dotenv import load_dotenv
-
-load_dotenv()
-ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
-)
+from ApiClient import ApiClient
 
 
 if sys.platform == "win32":

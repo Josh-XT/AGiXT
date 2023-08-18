@@ -1,4 +1,3 @@
-import os
 import re
 import json
 import random
@@ -9,15 +8,8 @@ import urllib.parse
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
-from agixtsdk import AGiXTSDK
 from typing import List
-from dotenv import load_dotenv
-
-load_dotenv()
-AGIXT_API_KEY = os.getenv("AGIXT_API_KEY")
-ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY")
-)
+from ApiClient import ApiClient
 
 
 class Websearch:
