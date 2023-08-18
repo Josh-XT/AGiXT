@@ -78,7 +78,7 @@ environment_setup() {
                           echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
                       fi
                   fi
-                  cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
+                  cli_args_default='--listen --listen-host 0.0.0.0 --api'
                   read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
                   echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
               fi
@@ -245,7 +245,7 @@ docker_install_local_nvidia() {
             echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
         fi
     fi
-    cli_args_default='--listen --listen-host 0.0.0.0 --api --chat'
+    cli_args_default='--listen --listen-host 0.0.0.0 --api'
     read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
     echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
   fi
