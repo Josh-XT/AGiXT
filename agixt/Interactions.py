@@ -178,16 +178,18 @@ class Interactions:
             agent_name=self.agent_name,
             conversation_name=conversation_name,
         )
-        conversation_history = "\n".join(
-            [
-                f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
-                for interaction in conversation["interactions"]
-            ]
-        )
-        # Get only the last 5 interactions
-        conversation_history = "\n".join(
-            conversation_history.split("\n")[-5:],
-        )
+        if "conversation_results" in kwargs:
+            conversation_results = int(kwargs["conversation_results"])
+        else:
+            conversation_results = int(top_results) if top_results > 0 else 5
+        conversation_history = ""
+        x = 1
+        for interaction in conversation["interactions"]:
+            if conversation_results > x:
+                conversation_history += f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
+                x += 1
+            else:
+                break
         if "conversation_history" in kwargs:
             del kwargs["conversation_history"]
         formatted_prompt = self.custom_format(
