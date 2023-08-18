@@ -184,12 +184,18 @@ class Interactions:
             conversation_results = int(top_results) if top_results > 0 else 5
         conversation_history = ""
         x = 1
-        for interaction in conversation:
-            if conversation_results > x:
-                conversation_history += f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
-                x += 1
-            else:
-                break
+        if len(conversation) > 0:
+            for interaction in conversation:
+                if conversation_results > x:
+                    timestamp = (
+                        interaction["timestamp"] if "timestamp" in interaction else ""
+                    )
+                    role = interaction["role"] if "role" in interaction else ""
+                    message = interaction["message"] if "message" in interaction else ""
+                    conversation_history += f"{timestamp} {role}: {message} \n "
+                    x += 1
+                else:
+                    break
         if "conversation_history" in kwargs:
             del kwargs["conversation_history"]
         formatted_prompt = self.custom_format(
