@@ -184,7 +184,7 @@ class Interactions:
             conversation_results = int(top_results) if top_results > 0 else 5
         conversation_history = ""
         x = 1
-        for interaction in conversation["interactions"]:
+        for interaction in conversation:
             if conversation_results > x:
                 conversation_history += f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
                 x += 1
