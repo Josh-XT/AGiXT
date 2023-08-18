@@ -181,7 +181,11 @@ update_docker() {
     git pull
     echo "${BOLD}${YELLOW}Updating Text generation web UI Docker image...${RESET}"
     cd ..
-    docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
+    if [[ "$DB_CONNECTED" == "true" ]]; then
+      docker-compose -f docker-compose-postgres-local-nvidia.yml build text-generation-webui
+    else
+      docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
+    fi
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
   docker-compose pull
