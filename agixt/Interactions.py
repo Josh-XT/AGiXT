@@ -173,7 +173,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = "New Conversation " + str(datetime.now())
+            conversation_name = f"{str(datetime.now())} Conversation"
         conversation = get_conversation(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
@@ -232,7 +232,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = "New Conversation " + str(datetime.now())
+            conversation_name = f"{str(datetime.now())} Conversation"
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
                 websearch_timeout = int(

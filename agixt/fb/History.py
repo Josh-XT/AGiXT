@@ -1,12 +1,11 @@
 from datetime import datetime
 import yaml
 import os
-import uuid
 
 
 def export_conversation(conversation_name=None, agent_name=None):
     if not conversation_name:
-        conversation_name = uuid.uuid4()
+        conversation_name = f"{str(datetime.now())} Conversation"
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     if os.path.exists(history_file):
         with open(history_file, "r") as file:
