@@ -2,7 +2,6 @@ import re
 import regex
 import json
 import time
-import uuid
 import logging
 import tiktoken
 from datetime import datetime
@@ -174,7 +173,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = uuid.uuid4()
+            conversation_name = "New Conversation " + str(datetime.now())
         conversation = get_conversation(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
@@ -233,7 +232,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = uuid.uuid4()
+            conversation_name = "New Conversation " + str(datetime.now())
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
                 websearch_timeout = int(
