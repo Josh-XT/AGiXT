@@ -10,12 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from Interactions import Interactions, get_tokens
 from Embedding import Embedding
+from ApiClient import DB_CONNECTED
 from dotenv import load_dotenv
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-if db_connected:
+
+if DB_CONNECTED:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from db.Chain import Chain
     from db.Prompts import Prompts

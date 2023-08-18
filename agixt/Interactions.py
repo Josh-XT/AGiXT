@@ -1,5 +1,4 @@
 import re
-import os
 import regex
 import json
 import time
@@ -7,13 +6,10 @@ import uuid
 import logging
 import tiktoken
 from datetime import datetime
-from dotenv import load_dotenv
 from readers.website import WebsiteReader
+from ApiClient import ApiClient, DB_CONNECTED
 
-load_dotenv()
-
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-if db_connected:
+if DB_CONNECTED:
     from db.Agent import Agent
     from db.Prompts import Prompts
     from db.Chain import Chain
@@ -25,12 +21,8 @@ else:
     from fb.History import log_interaction, get_conversation
 
 from concurrent.futures import Future
-from agixtsdk import AGiXTSDK
 from Websearch import Websearch
 
-ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
-)
 chain = Chain()
 cp = Prompts()
 
