@@ -72,7 +72,7 @@ environment_setup() {
           if [[ "$local_models" == [Yy]* ]]; then
               read -p "Do you want to use a local Text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
               if [[ "$local_textgen" == [Yy]* ]]; then
-                  read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
+                  read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
                   if [[ "$cuda_version" != "" ]]; then
                       if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
                           echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
@@ -233,7 +233,7 @@ docker_install_local_nvidia() {
   source .env
   # Check if TORCH_CUDA_ARCH_LIST is defined from the env, ask user to enter it if not.
   if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
-    read -p "Enter your CUDA version, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX3000-5000 series are version 7.5): " cuda_version
+    read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
     if [[ "$cuda_version" != "" ]]; then
         if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
             echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
