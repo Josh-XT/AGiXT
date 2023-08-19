@@ -72,17 +72,19 @@ services:
               count: all
               capabilities: [ gpu ]
   stable-diffusion:
-    image: siutin/stable-diffusion-webui-docker:latest-cuda
-    command: bash webui.sh --share
+    image: universonic/stable-diffusion-webui
     ports:
-      - 7861:7860
+      - "8080:8080"
+    restart: unless-stopped
     volumes:
+      - ./sdextensions:/app/stable-diffusion-webui/extensions
       - ./models:/app/stable-diffusion-webui/models
       - ./outputs:/app/stable-diffusion-webui/outputs
+      - ./localizations:/app/stable-diffusion-webui/localizations
     deploy:
       resources:
         reservations:
           devices:
-          - driver: nvidia
-            count: all
-            capabilities: [ gpu ]
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
