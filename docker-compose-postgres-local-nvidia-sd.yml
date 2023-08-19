@@ -72,7 +72,7 @@ services:
               count: all
               capabilities: [ gpu ]
   stable-diffusion:
-    image: universonic/stable-diffusion-webui
+    image: universonic/stable-diffusion-webui:latest
     ports:
       - "8080:8080"
     restart: unless-stopped
