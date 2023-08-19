@@ -64,6 +64,8 @@ services:
   stable-diffusion:
     image: siutin/stable-diffusion-webui-docker:latest-cuda
     command: bash webui.sh --share
+    ports:
+      - 7861:7860
     volumes:
       - ./models:/app/stable-diffusion-webui/models
       - ./outputs:/app/stable-diffusion-webui/outputs
@@ -73,3 +75,4 @@ services:
           devices:
           - driver: nvidia
             count: all
+            capabilities: [ gpu ]
