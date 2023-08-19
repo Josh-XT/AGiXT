@@ -128,13 +128,14 @@ display_menu() {
   echo "${BOLD}${GREEN}Please choose an option:${RESET}"
   echo "  ${BOLD}${YELLOW}1.${RESET} ${YELLOW}Run AGiXT (Recommended)${RESET}"
   echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT with Text Generation Web UI (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT with Text Generation Web UI and Stable Diffusion (NVIDIA Only)${RESET}"
   echo "${BOLD}${GREEN}Developer Only Options (Not recommended or supported):${RESET}"
-  echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT with Docker from Main Branch${RESET}"
-  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT on local machine${RESET}"
+  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT with Docker from Main Branch${RESET}"
+  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Run AGiXT on local machine${RESET}"
   echo "${BOLD}${GREEN}Manage:${RESET}"
-  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Update AGiXT ${RESET}"
-  echo "  ${BOLD}${RED}6.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
-  echo "  ${BOLD}${RED}7.${RESET} ${RED}Exit${RESET}"
+  echo "  ${BOLD}${YELLOW}6.${RESET} ${YELLOW}Update AGiXT ${RESET}"
+  echo "  ${BOLD}${RED}7.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
+  echo "  ${BOLD}${RED}8.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
@@ -281,6 +282,56 @@ docker_install_local_nvidia() {
     docker-compose -f docker-compose-local-nvidia.yml up
   fi
 }
+docker_install_local_nvidia_sd() {
+  sed -i '/^AGIXT_URI=/d' .env
+  echo "AGIXT_URI=http://agixt:7437" >> .env
+  sed -i '/^TEXTGEN_URI=/d' .env
+  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
+  source .env
+  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, ask user to enter it if not.
+  if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
+    read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
+    if [[ "$cuda_version" != "" ]]; then
+        if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
+        fi
+    fi
+    cli_args_default='--listen --listen-host 0.0.0.0 --api'
+    read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
+    echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
+  fi
+
+  # Check if nvidia-container-toolkit is installed
+  if dpkg -l | grep -iq "nvidia-container-toolkit"; then
+      echo "Confirmed NVIDIA Container Toolkit is installed."
+  else
+      echo "NVIDIA Container Toolkit is not installed. Installing now..."
+      # Install a new GPU Docker container
+      distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+      curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+      curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+      sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+      sudo systemctl restart docker
+      echo "NVIDIA Container Toolkit has been installed."
+  fi
+
+  if [ ! -d "text-generation-webui" ]; then
+      echo "${BOLD}${YELLOW}Cloning Oobabooga Text generation web UI Repository...${RESET}"
+      git clone https://github.com/oobabooga/text-generation-webui
+  fi
+
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    update
+  fi
+
+  echo "${BOLD}${GREEN}Running Docker install...${RESET}"
+  echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
+  if [[ "$DB_CONNECTED" == "true" ]]; then
+    docker-compose -f docker-compose-postgres-local-nvidia-sd.yml up
+  else
+    docker-compose -f docker-compose-local-nvidia-sd.yml up
+  fi
+}
 # Function to perform the local install
 local_install() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -389,18 +440,22 @@ while true; do
       break
       ;;
     3)
-      docker_install_dev
+      docker_install_local_nvidia_sd
       break
       ;;
     4)
-      local_install
+      docker_install_dev
       break
       ;;
     5)
+      local_install
+      break
+      ;;
+    6)
       update
       sleep 2
       ;;
-    6)
+    7)
       wipe_hub
       break
       ;;
