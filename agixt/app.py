@@ -1190,5 +1190,27 @@ async def get_extensions():
     return {"extensions": extensions}
 
 
+class CommandExecution(BaseModel):
+    command_name: str
+    command_args: dict
+
+
+@app.post(
+    "/api/agent/{agent_name}/command",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def run_command(agent_name: str, command: CommandExecution):
+    try:
+        agent_config = Agent(agent_name=agent_name).get_agent_config()
+        return {
+            "response": await Extensions(agent_config=agent_config).execute_command(
+                command_name=command.command_name, command_args=command.command_args
+            )
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)
