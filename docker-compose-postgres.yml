@@ -33,6 +33,8 @@ services:
       - ./models:/model
       - ./WORKSPACE:/agixt/WORKSPACE
       - ./agents:/agixt/agents
+      - ./prompts:/agixt/prompts
+      - ./chains:/agixt/chains
       - ./memories:/agixt/memories
       - ./conversations:/agixt/conversations
       - ./.env:/.env

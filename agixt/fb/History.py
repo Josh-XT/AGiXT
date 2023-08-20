@@ -1,12 +1,11 @@
 from datetime import datetime
 import yaml
 import os
-import uuid
 
 
 def export_conversation(conversation_name=None, agent_name=None):
     if not conversation_name:
-        conversation_name = uuid.uuid4()
+        conversation_name = f"{str(datetime.now())} Conversation"
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     if os.path.exists(history_file):
         with open(history_file, "r") as file:
@@ -23,7 +22,7 @@ def get_conversation(conversation_name=None, limit=100, page=1, agent_name=None)
             with open(history_file, "r") as file:
                 history = yaml.safe_load(file)
     except:
-        new_conversation(conversation_name=conversation_name)
+        history = new_conversation(conversation_name=conversation_name)
     return history
 
 
@@ -32,8 +31,7 @@ def get_conversations(agent_name=None):
     if os.path.exists(conversation_dir):
         conversations = os.listdir(conversation_dir)
         return [conversation.split(".")[0] for conversation in conversations]
-    new_conversation(conversation_name=uuid.uuid4())
-    return [uuid.uuid4()]
+    return []
 
 
 def new_conversation(conversation_name, agent_name=None):

@@ -1,19 +1,14 @@
 import re
-import os
 import regex
 import json
 import time
-import uuid
 import logging
 import tiktoken
 from datetime import datetime
-from dotenv import load_dotenv
 from readers.website import WebsiteReader
+from ApiClient import ApiClient, DB_CONNECTED
 
-load_dotenv()
-
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-if db_connected:
+if DB_CONNECTED:
     from db.Agent import Agent
     from db.Prompts import Prompts
     from db.Chain import Chain
@@ -25,12 +20,8 @@ else:
     from fb.History import log_interaction, get_conversation
 
 from concurrent.futures import Future
-from agixtsdk import AGiXTSDK
 from Websearch import Websearch
 
-ApiClient = AGiXTSDK(
-    base_uri="http://localhost:7437", api_key=os.getenv("AGIXT_API_KEY", None)
-)
 chain = Chain()
 cp = Prompts()
 
@@ -182,21 +173,29 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = uuid.uuid4()
+            conversation_name = f"{str(datetime.now())} Conversation"
         conversation = get_conversation(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
         )
-        conversation_history = "\n".join(
-            [
-                f"{interaction['timestamp']} {interaction['role']}: {interaction['message']} \n "
-                for interaction in conversation["interactions"]
-            ]
-        )
-        # Get only the last 5 interactions
-        conversation_history = "\n".join(
-            conversation_history.split("\n")[-5:],
-        )
+        if "conversation_results" in kwargs:
+            conversation_results = int(kwargs["conversation_results"])
+        else:
+            conversation_results = int(top_results) if top_results > 0 else 5
+        conversation_history = ""
+        if "interactions" in conversation and conversation["interactions"] != []:
+            x = 1
+            for interaction in conversation["interactions"]:
+                if conversation_results > x:
+                    timestamp = (
+                        interaction["timestamp"] if "timestamp" in interaction else ""
+                    )
+                    role = interaction["role"] if "role" in interaction else ""
+                    message = interaction["message"] if "message" in interaction else ""
+                    conversation_history += f"{timestamp} {role}: {message} \n "
+                    x += 1
+                else:
+                    break
         if "conversation_history" in kwargs:
             del kwargs["conversation_history"]
         formatted_prompt = self.custom_format(
@@ -241,7 +240,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = uuid.uuid4()
+            conversation_name = f"{str(datetime.now())} Conversation"
         if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
             try:
                 websearch_timeout = int(

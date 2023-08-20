@@ -73,3 +73,20 @@ services:
             - driver: nvidia
               count: all
               capabilities: [ gpu ]
+  stable-diffusion:
+    image: universonic/stable-diffusion-webui:latest
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./sdextensions:/app/stable-diffusion-webui/extensions
+      - ./models:/app/stable-diffusion-webui/models
+      - ./outputs:/app/stable-diffusion-webui/outputs
+      - ./localizations:/app/stable-diffusion-webui/localizations
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

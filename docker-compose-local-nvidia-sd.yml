@@ -1,14 +1,4 @@
 services:
-  db:
-    image: postgres
-    ports:
-      - ${POSTGRES_PORT:-5432}:5432
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-    volumes:
-      - ./data:/var/lib/postgresql/data
   agixt:
     image: joshxt/agixt:latest
     init: true
@@ -73,3 +63,20 @@ services:
             - driver: nvidia
               count: all
               capabilities: [ gpu ]
+  stable-diffusion:
+    image: universonic/stable-diffusion-webui:latest
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./sdextensions:/app/stable-diffusion-webui/extensions
+      - ./models:/app/stable-diffusion-webui/models
+      - ./outputs:/app/stable-diffusion-webui/outputs
+      - ./localizations:/app/stable-diffusion-webui/localizations
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
