@@ -64,9 +64,9 @@ services:
               count: all
               capabilities: [ gpu ]
   stable-diffusion:
-    image: universonic/stable-diffusion-webui:latest
+    image: goolashe/automatic1111-sd-webui:latest
     ports:
-      - "8080:8080"
+      - "7861:7860"
     restart: unless-stopped
     volumes:
       - ./sdextensions:/app/stable-diffusion-webui/extensions
