@@ -38,6 +38,8 @@ services:
     environment:
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
+    volumes:
+      - ./WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
   text-generation-webui:
