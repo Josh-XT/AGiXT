@@ -327,8 +327,14 @@ docker_install_local_nvidia_sd() {
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   if [[ "$DB_CONNECTED" == "true" ]]; then
+    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+      docker-compose -f docker-compose-postgres-local-nvidia-sd.yml pull
+    fi
     docker-compose -f docker-compose-postgres-local-nvidia-sd.yml up
   else
+    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+      docker-compose -f docker-compose-local-nvidia-sd.yml pull
+    fi
     docker-compose -f docker-compose-local-nvidia-sd.yml up
   fi
 }
