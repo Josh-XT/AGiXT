@@ -73,7 +73,7 @@ services:
     volumes:
       - ./sdextensions:/app/stable-diffusion-webui/extensions
       - ./models:/app/stable-diffusion-webui/models
-      - ./outputs:/app/stable-diffusion-webui/outputs
+      - ./WORKSPACE:/app/stable-diffusion-webui/outputs
       - ./localizations:/app/stable-diffusion-webui/localizations
     deploy:
       resources:
