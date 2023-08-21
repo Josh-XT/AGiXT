@@ -114,9 +114,13 @@ class Extensions:
         return settings
 
     def find_command(self, command_name: str):
+        try:
+            settings = self.agent_config["settings"]
+        except:
+            settings = {}
         for name, module, function_name, params in self.commands:
             if name == command_name:
-                command_function = getattr(module, function_name)
+                command_function = getattr(module, function_name)(**settings)
                 return command_function, module, params  # Updated return statement
         return None, None, None  # Updated return statement
 
@@ -135,8 +139,6 @@ class Extensions:
             return f"Command {command_name} not found"
 
         for param in params:
-            if param in self.agent_config["settings"]:
-                command_args[param] = self.agent_config["settings"][param]
             if param not in command_args:
                 if param != "self" and param != "kwargs":
                     command_args[param] = None
