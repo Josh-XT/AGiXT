@@ -114,13 +114,9 @@ class Extensions:
         return settings
 
     def find_command(self, command_name: str):
-        try:
-            settings = self.agent_config["settings"]
-        except:
-            settings = {}
         for name, module, function_name, params in self.commands:
             if name == command_name:
-                command_function = getattr(module, function_name)(**settings)
+                command_function = getattr(module, function_name)
                 return command_function, module, params  # Updated return statement
         return None, None, None  # Updated return statement
 
