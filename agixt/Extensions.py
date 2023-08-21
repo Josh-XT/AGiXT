@@ -140,10 +140,12 @@ class Extensions:
                     command_args[param] = None
         args = command_args.copy()
         for param in command_args:
-            if param not in params and param not in self.agent_config["settings"]:
+            if param not in params:
                 del args[param]
         try:
-            output = await getattr(module(), command_function.__name__)(**args)
+            output = await getattr(
+                module(**self.agent_config["settings"]), command_function.__name__
+            )(**args)
         except Exception as e:
             output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
