@@ -69,7 +69,10 @@ services:
     image: goolashe/automatic1111-sd-webui:latest
     ports:
       - "7861:7860"
+      - "5010:5000"
     restart: unless-stopped
+    environment:
+      - CLI_ARGS=--api
     volumes:
       - ./sdextensions:/app/stable-diffusion-webui/extensions
       - ./models:/app/stable-diffusion-webui/models
