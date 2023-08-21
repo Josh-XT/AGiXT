@@ -876,8 +876,11 @@ async def run_chain(chain_name: str, user_input: RunChain):
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
     )
-    if "Chain failed to complete" in chain_response:
-        raise HTTPException(status_code=500, detail=chain_response)
+    try:
+        if "Chain failed to complete" in chain_response:
+            raise HTTPException(status_code=500, detail=f"{chain_response}")
+    except:
+        return f"{chain_response}"
     return chain_response
 
 
