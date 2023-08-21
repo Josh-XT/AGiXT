@@ -140,7 +140,7 @@ class Extensions:
                     command_args[param] = None
         args = command_args.copy()
         for param in command_args:
-            if param not in params:
+            if param not in params and param not in self.agent_config["settings"]:
                 del args[param]
         try:
             output = await getattr(module(), command_function.__name__)(**args)
