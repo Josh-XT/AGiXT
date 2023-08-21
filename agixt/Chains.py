@@ -75,6 +75,8 @@ class Chains:
                 result = result["response"]
             if result == "Unable to retrieve data.":
                 result = None
+            if not isinstance(result, str):
+                result = str(result)
             return result
         else:
             return None
