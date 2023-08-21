@@ -128,13 +128,16 @@ class Extensions:
         )
         if command_function is None:
             logging.error(f"Command {command_name} not found")
-            return False
+            return f"Command {command_name} not found"
+
         for param in params:
             if param not in command_args:
                 if param != "self" and param != "kwargs":
                     command_args[param] = None
         args = command_args.copy()
         for param in command_args:
+            if param in self.agent_config["settings"]:
+                args[param] = self.agent_config["settings"][param]
             if param not in params:
                 del args[param]
         try:
