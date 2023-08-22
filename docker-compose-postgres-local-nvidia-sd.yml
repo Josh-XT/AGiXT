@@ -38,6 +38,8 @@ services:
     environment:
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
+    volumes:
+      - ./WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
   text-generation-webui:
@@ -74,14 +76,17 @@ services:
               count: all
               capabilities: [ gpu ]
   stable-diffusion:
-    image: universonic/stable-diffusion-webui:latest
+    image: goolashe/automatic1111-sd-webui:latest
     ports:
-      - "8080:8080"
+      - "7861:7860"
+      - "5010:5000"
     restart: unless-stopped
+    environment:
+      - CLI_ARGS=--api
     volumes:
       - ./sdextensions:/app/stable-diffusion-webui/extensions
       - ./models:/app/stable-diffusion-webui/models
-      - ./outputs:/app/stable-diffusion-webui/outputs
+      - ./WORKSPACE:/app/stable-diffusion-webui/outputs
       - ./localizations:/app/stable-diffusion-webui/localizations
     deploy:
       resources:

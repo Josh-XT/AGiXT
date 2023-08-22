@@ -26,6 +26,7 @@ if DB_CONNECTED:
         delete_message,
         get_conversations,
         new_conversation,
+        log_interaction,
     )
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
@@ -37,6 +38,7 @@ else:
         delete_message,
         get_conversations,
         new_conversation,
+        log_interaction,
     )
 
 
@@ -876,8 +878,11 @@ async def run_chain(chain_name: str, user_input: RunChain):
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
     )
-    if "Chain failed to complete" in chain_response:
-        raise HTTPException(status_code=500, detail=chain_response)
+    try:
+        if "Chain failed to complete" in chain_response:
+            raise HTTPException(status_code=500, detail=f"{chain_response}")
+    except:
+        return f"{chain_response}"
     return chain_response
 
 
@@ -1188,6 +1193,36 @@ async def get_command_args(command_name: str):
 async def get_extensions():
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}
+
+
+class CommandExecution(BaseModel):
+    command_name: str
+    command_args: dict
+    conversation_name: str = "AGiXT Terminal Command Execution"
+
+
+@app.post(
+    "/api/agent/{agent_name}/command",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def run_command(agent_name: str, command: CommandExecution):
+    try:
+        agent_config = Agent(agent_name=agent_name).get_agent_config()
+        command_output = await Extensions(agent_config=agent_config).execute_command(
+            command_name=command.command_name, command_args=command.command_args
+        )
+        log_interaction(
+            agent_name=agent_name,
+            conversation_name=command.conversation_name,
+            role="AGiXT Terminal",
+            message=f"Executed Command: {command.command_name} with args {command.command_args}.\nCommand Output: {command_output}",
+        )
+        return {
+            "response": command_output,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if __name__ == "__main__":
