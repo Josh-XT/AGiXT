@@ -1,4 +1,4 @@
-agixtsdk==0.0.24
+agixtsdk==0.0.25
 chromadb==0.4.6
 beautifulsoup4==4.12.2
 docker==6.1.2
@@ -26,4 +26,5 @@ tiktoken==0.4.0
 discord
 tweepy
 sendgrid
+whispercpp
 g4f
