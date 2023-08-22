@@ -27,6 +27,7 @@ class Chains:
                     agent_name = agent_override
                 else:
                     agent_name = step["agent_name"]
+
                 prompt_type = step["prompt_type"]
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -46,8 +47,10 @@ class Chains:
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
                 if prompt_type == "Command":
-                    return await Extensions().execute_command(
-                        command_name=step["prompt"]["command_name"], command_args=args
+                    return ApiClient.execute_command(
+                        agent_name=agent_name,
+                        command_name=step["prompt"]["command_name"],
+                        command_args=args,
                     )
                 elif prompt_type == "Prompt":
                     result = ApiClient.prompt_agent(
