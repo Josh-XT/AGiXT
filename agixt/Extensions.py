@@ -20,9 +20,10 @@ class Extensions:
                 self.agent_config["commands"] = {}
             self.available_commands = self.get_available_commands()
         else:
-            self.agent_config["settings"] = {}
-            self.agent_config["commands"] = {}
-            self.available_commands = []
+            self.agent_config = {
+                "settings": {},
+                "commands": {},
+            }
 
     def get_available_commands(self):
         if self.commands == []:
