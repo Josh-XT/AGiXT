@@ -21,6 +21,7 @@ else:
 
 from concurrent.futures import Future
 from Websearch import Websearch
+from Extensions import Extensions
 
 chain = Chain()
 cp = Prompts()
@@ -519,7 +520,9 @@ class Interactions:
                             # Check if the command is a valid command in the self.avent.available_commands list
                             try:
                                 if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                    command_output = await self.agent.execute(
+                                    command_output = await Extensions(
+                                        agent_config=self.agent.AGENT_CONFIG
+                                    ).execute_command(
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
@@ -564,7 +567,7 @@ class Interactions:
                             log_interaction(
                                 agent_name=self.agent_name,
                                 conversation_name=conversation_name,
-                                role="PYTHON-TERMINAL",
+                                role="AGiXT Terminal",
                                 message=message,
                             )
                             logging.info(message)
