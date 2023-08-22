@@ -51,6 +51,7 @@ class Chains:
                         agent_name=agent_name,
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
+                        conversation_name=args["conversation_name"],
                     )
                 elif prompt_type == "Prompt":
                     result = ApiClient.prompt_agent(
