@@ -1,67 +1,46 @@
-from providers.pipeline import PipelineProvider
-from transformers import AutoTokenizer
+import logging
 
-try:
-    from petals import AutoDistributedModelForCausalLM
-except ImportError:
-    import subprocess, sys
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "petals"])
-    from petals import AutoDistributedModelForCausalLM
+import requests
 
 
-class PetalsPipeline:
-    def __init__(self, model, tokenizer):
-        self.tokenizer = tokenizer
-        self.model = model
-
-    @classmethod
-    def from_pretrained(cls, model_name_or_path, **kwargs):
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-        model = AutoDistributedModelForCausalLM.from_pretrained(
-            model_name_or_path, **kwargs
-        )
-        return cls(model, tokenizer)
-
-    def __call__(self, prompt: str, **kwargs) -> str:
-        input_ids = self.tokenizer(prompt, return_tensors="pt")["input_ids"]
-        outputs = self.model.generate(input_ids, **kwargs)[0]
-        return self.tokenizer.decode(
-            outputs[len(input_ids[0]) :], skip_special_tokens=True
-        )
-
-
-class PetalProvider(PipelineProvider):
+class PetalProvider():
     def __init__(
-        self,
-        MODEL_PATH: str = "stabilityai/StableBeluga2",
-        AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 1024,
-        AI_MODEL: str = "",
-        HUGGINGFACE_API_KEY: str = None,
-        **kwargs,
-    ):
-        super().__init__(
-            MODEL_PATH,
-            AI_TEMPERATURE,
-            MAX_TOKENS,
-            AI_MODEL,
-            HUGGINGFACE_API_KEY,
+            self,
+            AI_TEMPERATURE: float = 0.7,
+            AI_TOP_P: float = 0.7,
+            MAX_TOKENS: int = 1024,
+            AI_MODEL: str = "stabilityai/StableBeluga2",
             **kwargs,
-        )
-        self.requirements = ["petals", "transformers[accelerate]", "torch"]
+    ):
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 1024
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "stabilityai/StableBeluga2"
+        self.base_url = "https://chat.petals.dev/api/v1/generate"
 
     async def instruct(self, prompt, tokens: int = 0):
-        self.load_pipeline()
-        return self.pipeline(
-            prompt,
-            temperature=self.AI_TEMPERATURE,
-            max_new_tokens=self.get_max_new_tokens(tokens),
-        )
+        max_new_tokens = int(self.MAX_TOKENS) - tokens
+        payload = {
+            "inputs": prompt,
+            "max_new_tokens": max_new_tokens,
+            "do_sample": 1,
+            "temperature": self.AI_TEMPERATURE,
+            "top_p": self.AI_TOP_P,
+            "model": self.AI_MODEL,
+        }
+        response = requests.post(url=self.base_url, data=payload,)
+        response = response.json()
+        if response['ok']:
+            return response['output']
+        raise ValueError('No response from Petal API\n'+str(response['traceback']))
 
-    def load_pipeline(self):
-        if not self.pipeline:
-            self.load_args()
-            self.pipeline = PetalsPipeline.from_pretrained(
-                self.MODEL_PATH, **self.pipeline_kwargs
-            )
+if __name__ == '__main__':
+    import asyncio
+
+    async def run_test():
+        petal = PetalProvider()
+        response = await petal.instruct('What is the meaning of life?')
+        print(response)
+
+
+    asyncio.run(run_test())
