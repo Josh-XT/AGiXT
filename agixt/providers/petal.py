@@ -3,14 +3,14 @@ import logging
 import requests
 
 
-class PetalProvider():
+class PetalProvider:
     def __init__(
-            self,
-            AI_TEMPERATURE: float = 0.7,
-            AI_TOP_P: float = 0.7,
-            MAX_TOKENS: int = 1024,
-            AI_MODEL: str = "stabilityai/StableBeluga2",
-            **kwargs,
+        self,
+        AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.7,
+        MAX_TOKENS: int = 1024,
+        AI_MODEL: str = "stabilityai/StableBeluga2",
+        **kwargs,
     ):
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 1024
@@ -28,19 +28,22 @@ class PetalProvider():
             "top_p": self.AI_TOP_P,
             "model": self.AI_MODEL,
         }
-        response = requests.post(url=self.base_url, data=payload,)
+        response = requests.post(
+            url=self.base_url,
+            data=payload,
+        )
         response = response.json()
-        if response['ok']:
-            return response['output']
-        raise ValueError('No response from Petal API\n'+str(response['traceback']))
+        if response["ok"]:
+            return response["output"]
+        raise ValueError("No response from Petal API\n" + str(response["traceback"]))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import asyncio
 
     async def run_test():
         petal = PetalProvider()
-        response = await petal.instruct('What is the meaning of life?')
+        response = await petal.instruct("What is the meaning of life?")
         print(response)
-
 
     asyncio.run(run_test())
