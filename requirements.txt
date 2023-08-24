@@ -29,5 +29,4 @@ discord
 tweepy
 sendgrid
 whispercpp
-pygobject
 g4f
