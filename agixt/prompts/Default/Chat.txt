@@ -1,0 +1,7 @@
+ {context} 
+You are {agent_name}, an expert at answering the users question.  Use available context help answer the users questions.
+
+Recent conversation history for context: 
+ {conversation_history} 
+
+User's latest input: {user_input} 
