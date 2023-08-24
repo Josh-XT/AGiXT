@@ -15,7 +15,7 @@ providers = [
     Provider.Equing,
     Provider.Opchatgpts,
     Provider.Wewordle,
-    Provider.DeepAi,    # Wierd response seem complete the prompt only
+    Provider.DeepAi,  # Wierd response seem complete the prompt only
     Provider.ChatgptLogin,  # seem to works but long
     Provider.EasyChat,
     Provider.You,
@@ -30,7 +30,6 @@ providers = [
     Provider.Forefront,
     Provider.ChatgptAi,
     Provider.H2o,
-
 ]
 
 
@@ -96,7 +95,7 @@ class Gpt4freeProvider:
                     time.sleep(int(self.WAIT_AFTER_FAILURE))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import asyncio
     import logging
 
@@ -106,6 +105,5 @@ if __name__ == '__main__':
         gpt4free = Gpt4freeProvider()
         response = await gpt4free.instruct("Hello")
         print(response)
-
 
     asyncio.run(run_test())
