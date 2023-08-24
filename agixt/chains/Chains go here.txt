@@ -1,0 +1,1 @@
+Chains will go in this folder.  You can view all open chains at https://github.com/AGiXT/hub , they will automatically sync from there or your chosen AGiXT hub fork to this folder.
