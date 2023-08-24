@@ -351,12 +351,14 @@ local_install() {
     pip install --upgrade pip
     sleep 1
 
-    echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
-    pip install -r requirements.txt --upgrade
-    sleep 1
 
     echo "${BOLD}${YELLOW}Checking for updates...${RESET}"
     git pull
+
+
+    echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
+    pip install -r requirements.txt --upgrade
+    sleep 1
     if [ ! -d "streamlit" ]; then
       echo "${BOLD}${YELLOW}Installing Streamlit dependencies...${RESET}"
       git clone https://github.com/AGiXT/streamlit
