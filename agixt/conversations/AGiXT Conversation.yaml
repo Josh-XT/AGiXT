@@ -1,0 +1,69 @@
+interactions:
+- message: What are the most interesting things you can tell me about AGiXT?
+  role: USER
+  timestamp: August 14, 2023 10:56 PM
+- message: 'AGiXT is an artificial intelligence automation platform that combines
+    adaptive memory handling, smart features, and a versatile plugin system to optimize
+    AI performance and enhance task completion. It offers several key features, including:
+
+
+    1. Context and Token Management: AGiXT optimizes AI performance by efficiently
+    managing long-term and short-term memory.
+
+
+    2. Smart Instruct: This advanced feature enables AI to comprehend, plan, and execute
+    tasks effectively, integrating web search, planning strategies, and instruction
+    execution.
+
+
+    3. Interactive Chat & Smart Chat: AGiXT provides a user-friendly chat interface
+    for dynamic conversational tasks. The Smart Chat feature integrates AI with web
+    research to deliver accurate and relevant responses.
+
+
+    4. Task Execution & Smart Task Management: AGiXT efficiently manages and executes
+    complex tasks by breaking them down into sub-tasks and using AI-driven agents
+    for optimization and avoiding redundancy.
+
+
+    5. Chain Management: AGiXT handles chains or series of linked commands, enabling
+    the automation of complex workflows and processes.
+
+
+    6. Web Browsing & Command Execution: AGiXT offers advanced capabilities to browse
+    the web and execute commands, providing a more interactive AI experience.
+
+
+    7. Multi-Provider Compatibility: AGiXT seamlessly integrates with leading AI providers
+    such as OpenAI GPT series, Hugging Face Huggingchat, GPT4All, GPT4Free, Oobabooga
+    Text Generation Web UI, Kobold, Llamacpp, FastChat, Google Bard, Bing, and more.
+
+
+    8. Versatile Plugin System & Code Evaluation: AGiXT supports various AI models
+    and robust code evaluation, making it useful for programming tasks.
+
+
+    9. Docker Deployment: AGiXT simplifies setup and maintenance through Docker deployment.
+
+
+    10. Audio-to-Text & Text-to-Speech Options: AGiXT integrates with Hugging Face
+    for audio-to-text transcription and offers multiple text-to-speech choices.
+
+
+    11. Platform Interoperability & AI Agent Management: AGiXT allows easy interaction
+    with popular platforms like Twitter, GitHub, Google, DALL-E, and more. It also
+    provides granular control over agent abilities and supports custom prompts.
+
+
+    12. RESTful API: AGiXT offers a FastAPI-powered RESTful API for seamless integration
+    with external applications and services.
+
+
+    13. Expanding AI Support: AGiXT continually updates to include new AI providers
+    and services, ensuring it stays at the forefront of AI technology.
+
+
+    For more details and documentation, you can visit the AGiXT GitHub repository
+    and explore the different AGiXT components and capabilities.'
+  role: OpenAI
+  timestamp: August 14, 2023 10:56 PM
