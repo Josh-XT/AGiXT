@@ -24,12 +24,12 @@ services:
       - "7437:7437"
     volumes:
       - ./models:/model
-      - ./WORKSPACE:/agixt/WORKSPACE
-      - ./agents:/agixt/agents
-      - ./prompts:/agixt/prompts
-      - ./chains:/agixt/chains
-      - ./memories:/agixt/memories
-      - ./conversations:/agixt/conversations
+      - ./agixt/WORKSPACE:/agixt/WORKSPACE
+      - ./agixt/agents:/agixt/agents
+      - ./agixt/prompts:/agixt/prompts
+      - ./agixt/chains:/agixt/chains
+      - ./agixt/memories:/agixt/memories
+      - ./agixt/conversations:/agixt/conversations
       - ./.env:/.env
   streamlit:
     image: joshxt/streamlit:latest
@@ -39,7 +39,7 @@ services:
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
     volumes:
-      - ./WORKSPACE:/app/WORKSPACE
+      - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
   text-generation-webui:
@@ -86,7 +86,7 @@ services:
     volumes:
       - ./sdextensions:/app/stable-diffusion-webui/extensions
       - ./models:/app/stable-diffusion-webui/models
-      - ./WORKSPACE:/app/stable-diffusion-webui/outputs
+      - ./agixt/WORKSPACE:/app/stable-diffusion-webui/outputs
       - ./localizations:/app/stable-diffusion-webui/localizations
     deploy:
       resources:
