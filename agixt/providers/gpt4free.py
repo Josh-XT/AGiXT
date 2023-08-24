@@ -6,24 +6,31 @@ from g4f.models import ModelUtils
 providers = [
     # Working:
     Provider.GetGpt,
-    Provider.ChatgptAi,
-    Provider.H2o,
     # Works sometimes:
     Provider.Aichat,
-    Provider.AiService,
-    # Not working today:
     Provider.Ails,
+    Provider.Vercel,
+    Provider.Yqcloud,
+    Provider.Acytoo,
+    Provider.Equing,
+    Provider.Opchatgpts,
+    Provider.Wewordle,
+    Provider.DeepAi,    # Wierd response seem complete the prompt only
+    Provider.ChatgptLogin,  # seem to works but long
+    Provider.EasyChat,
+    Provider.You,
+    # Not working today:
+    Provider.AiService,
     Provider.AItianhu,
     Provider.Bing,
-    Provider.ChatgptLogin,
-    Provider.DeepAi,
     # Provider.DfeHub, endless loop
-    Provider.EasyChat,
     Provider.Lockchat,
     Provider.Theb,
-    Provider.Vercel,
-    Provider.You,
-    Provider.Yqcloud,
+    Provider.FastGpt,
+    Provider.Forefront,
+    Provider.ChatgptAi,
+    Provider.H2o,
+
 ]
 
 
@@ -73,15 +80,6 @@ class Gpt4freeProvider:
                 time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
             try:
                 logging.info(f"[Gpt4Free] Use provider: {provider.__name__}")
-                if self.AI_MODEL not in provider.model:
-                    model = (
-                        provider.model
-                        if type(provider.model) == str
-                        else provider.model[0]
-                    )
-                    logging.info(f"[Gpt4Free] Use model: {model}")
-                else:
-                    model = self.AI_MODEL
                 response = ChatCompletion.create(
                     model=ModelUtils.convert[self.AI_MODEL],
                     provider=provider,
@@ -96,3 +94,18 @@ class Gpt4freeProvider:
                 logging.error(f"[Gpt4Free] Skip provider: {e}")
                 if int(self.WAIT_AFTER_FAILURE) > 0:
                     time.sleep(int(self.WAIT_AFTER_FAILURE))
+
+
+if __name__ == '__main__':
+    import asyncio
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+
+    async def run_test():
+        gpt4free = Gpt4freeProvider()
+        response = await gpt4free.instruct("Hello")
+        print(response)
+
+
+    asyncio.run(run_test())
