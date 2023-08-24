@@ -23,6 +23,8 @@ openai==0.27.8
 gTTS==2.3.2
 playsound==1.2.2
 tiktoken==0.4.0
+websocket-client
+lxml
 discord
 tweepy
 sendgrid
