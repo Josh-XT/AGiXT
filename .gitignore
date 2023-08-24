@@ -11,12 +11,13 @@ session.txt
 .idea/
 agents/*
 models/*
+agixt/prompts/*
+agixt/chains/*
 llama.cpp
 node_modules
 memories/*
 WORKSPACE/*
 *.util.py
-agents/*
 frontend/
 Agent-LLM-Frontend/
 *.code-workspace
