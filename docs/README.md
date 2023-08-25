@@ -18,6 +18,8 @@ AGiXT is a dynamic Artificial Intelligence Automation Platform engineered to orc
 
 Embracing the spirit of extremity in every facet of life, we introduce AGiXT. This advanced AI Automation Platform is our bold step towards the realization of Artificial General Intelligence (AGI). Seamlessly orchestrating instruction management and executing complex tasks across diverse AI providers, AGiXT combines adaptive memory, smart features, and a versatile plugin system to maximize AI potential. With our unwavering commitment to innovation, we're dedicated to pushing the boundaries of AI and bringing AGI closer to reality.
 
+[AGiXT Setup and Usage Video](https://www.youtube.com/watch?v=XbjjPdYRM_k)
+
 ## Table of Contents 📖
 
 - [AGiXT](#agixt)
