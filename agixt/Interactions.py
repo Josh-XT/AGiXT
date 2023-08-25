@@ -300,9 +300,7 @@ class Interactions:
             **kwargs,
         )
         try:
-            # Workaround for non-threaded providers
-            run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
-            self.response = run_response
+            self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
         except Exception as e:
             logging.info(f"Error: {e}")
             logging.info(f"PROMPT CONTENT: {formatted_prompt}")
