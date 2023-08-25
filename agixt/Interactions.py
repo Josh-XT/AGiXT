@@ -19,7 +19,6 @@ else:
     from fb.Chain import Chain
     from fb.History import log_interaction, get_conversation
 
-from concurrent.futures import Future
 from Websearch import Websearch
 from Extensions import Extensions
 
@@ -303,11 +302,7 @@ class Interactions:
         try:
             # Workaround for non-threaded providers
             run_response = await self.agent.instruct(formatted_prompt, tokens=tokens)
-            self.response = (
-                run_response.result()
-                if isinstance(run_response, Future)
-                else run_response
-            )
+            self.response = run_response
         except Exception as e:
             logging.info(f"Error: {e}")
             logging.info(f"PROMPT CONTENT: {formatted_prompt}")
