@@ -1,5 +1,7 @@
 ## Quick Start Guide
 
+[AGiXT Setup and Usage Video](https://www.youtube.com/watch?v=XbjjPdYRM_k)
+
 ### Prerequisites
 - [Git](https://git-scm.com/downloads)
 - [Docker](https://docs.docker.com/get-docker/)
