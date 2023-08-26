@@ -377,6 +377,7 @@ class Interactions:
                     await self.agent_memory.write_text_to_memory(
                         user_input=user_input,
                         text=self.response,
+                        external_source="user input",
                     )
                 except:
                     pass
