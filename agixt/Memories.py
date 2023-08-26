@@ -261,7 +261,7 @@ class Memories:
                 external_source = (
                     result["external_source_name"]
                     if "external_source_name" in result
-                    else ""
+                    else None
                 )
                 if external_source:
                     # If the external source is a url or a file path, add it to the metadata
