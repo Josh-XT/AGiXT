@@ -95,7 +95,7 @@ If you chose `N`, see the [Environment Variable Setup](https://josh-xt.github.io
 ### Install Options
 You will be prompted to choose an install option. Choose Option 1 to get started quickly.
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/d63b29aa-7768-4416-98cb-94979cc98681)
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/517e9986-4eb6-45e5-9268-444788bac200)
 
 ### Running and Updating AGiXT
 Any time you want to run or update AGiXT, run the following commands from your `AGiXT` directory:
