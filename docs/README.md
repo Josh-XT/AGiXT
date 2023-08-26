@@ -28,6 +28,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Monitor Your Usage!](#monitor-your-usage)
     - [Under Development!](#under-development)
   - [Key Features 🗝️](#key-features-️)
+    - [Getting Started with Local Models and AGiXT Video](#getting-started-with-local-models-and-agixt-video)
   - [Quick Start Guide](#quick-start-guide)
     - [Prerequisites](#prerequisites)
     - [Download and Install](#download-and-install)
@@ -65,6 +66,10 @@ This project is under active development and may still have issues. We appreciat
 - **Custom Prompts & Command Control**: Granular control over agent abilities through enabling or disabling specific commands, and easy creation, editing, and deletion of custom prompts to standardize user inputs.
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
+### Getting Started with Local Models and AGiXT Video
+This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works. 
+
+[![Getting Started with Local Models and AGiXT](https://img.youtube.com/vi/XbjjPdYRM_k/0.jpg)](https://www.youtube.com/watch?v=XbjjPdYRM_k)
 
 ## Quick Start Guide
 
@@ -76,6 +81,7 @@ This project is under active development and may still have issues. We appreciat
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (if using local models on GPU)
 
 If using Windows and trying to run locally, it is unsupported, but you will need [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install-win10) and [Docker Desktop](https://docs.docker.com/docker-for-windows/install/) at a minimum in addition to the above.
+
 ### Download and Install
 Open a terminal and run the following to download and install AGiXT:
 

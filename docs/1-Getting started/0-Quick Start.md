@@ -1,6 +1,6 @@
 ## Quick Start Guide
 
-[AGiXT Setup and Usage Video](https://www.youtube.com/watch?v=XbjjPdYRM_k)
+
 
 ### Prerequisites
 - [Git](https://git-scm.com/downloads)
@@ -18,6 +18,10 @@ git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
 ./AGiXT.sh
 ```
+### Getting Started with Local Models and AGiXT Video
+This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works. 
+
+[![Getting Started with Local Models and AGiXT](https://img.youtube.com/vi/XbjjPdYRM_k/0.jpg)](https://www.youtube.com/watch?v=XbjjPdYRM_k)
 
 ### Environment Setup
 You can choose to skip the environment setup and accept default values by entering `Y` on the first question `Quick Setup without advanced configuration? (Y for yes, N for No)`.
