@@ -172,7 +172,9 @@ class Memories:
         except:
             return False
 
-    async def write_text_to_memory(self, user_input: str, text: str):
+    async def write_text_to_memory(
+        self, user_input: str, text: str, external_source: str = "user input"
+    ):
         collection = await self.get_collection()
         if text:
             if not isinstance(text, str):
@@ -182,7 +184,7 @@ class Memories:
                 metadata = {
                     "timestamp": datetime.now().isoformat(),
                     "is_reference": str(False),
-                    "external_source_name": user_input,
+                    "external_source_name": external_source,
                     "description": user_input,
                     "additional_metadata": chunk,
                     "id": sha256(
@@ -256,6 +258,15 @@ class Memories:
                     if "additional_metadata" in result
                     else ""
                 )
+                external_source = (
+                    result["external_source_name"]
+                    if "external_source_name" in result
+                    else None
+                )
+                if external_source:
+                    # If the external source is a url or a file path, add it to the metadata
+                    if external_source:
+                        metadata = f"Sourced from {external_source}:\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response

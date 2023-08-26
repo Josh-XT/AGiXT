@@ -37,6 +37,7 @@ class FileReader(Memories):
                 raise Exception("Path given not allowed")
         else:
             file_path = os.path.normpath(file_path)
+        filename = os.path.basename(file_path)
         content = ""
         try:
             # If file extension is pdf, convert to text
@@ -69,7 +70,11 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                await self.write_text_to_memory(user_input=file_path, text=content)
+                await self.write_text_to_memory(
+                    user_input=file_path,
+                    text=content,
+                    external_source=f"file called {filename}",
+                )
             return True
         except:
             return False

@@ -404,7 +404,9 @@ async def learn_text(agent_name: str, data: TextMemoryInput) -> ResponseMessage:
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=data.collection_number,
-    ).write_text_to_memory(user_input=data.user_input, text=data.text)
+    ).write_text_to_memory(
+        user_input=data.user_input, text=data.text, external_source="user input"
+    )
     return ResponseMessage(
         message="Agent learned the content from the text assocated with the user input."
     )
