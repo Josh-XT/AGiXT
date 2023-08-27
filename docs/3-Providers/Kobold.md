@@ -17,7 +17,7 @@ If you are using options 1-3 in the AGiXT installer, then "localhost" will not b
 1. Find out the name of your local host using the command in your system's terminal `hostname` and use it in `AI_PROVIDER_URI`. `AI_PROVIDER_URI` is set as `http://localhost:8000/api/v1`.
 2. In the new graphical interface of Koboldcpp, set the HOST to `0.0.0.0` in the network settings to make the server listen on all interfaces, and choose any available port, for example, `8000`.
 
-#### Security note:
+##### Security note:
 External access: If the Kobold server listens on all interfaces, it can be accessible from outside your network if the corresponding ports are not properly secured. This means you should configure adequate firewall rules and security measures to protect your server from unauthorized access.
 
 #### More complex and correct way:
