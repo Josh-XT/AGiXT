@@ -8,7 +8,6 @@ _Note: AI_MODEL should stay `default` unless there is a folder in `prompts` spec
 ### Update your agent settings
 1. Set `AI_MODEL` to `default` or the name of the model from the `prompts` folder.
 2. Set `AI_PROVIDER_URI` to `http://localhost:5050/api/v1`, or the URI of your Kobold server.
-If you are using options 1-3 in the AGiXT installer, then "localhost" will not be the correct destination for your Kobold instance.  You will need to use the local IP address of your computer hosting it.  Note that Docker does not treat your local machine as a localhost;  it is like a computer inside your computer and needs to communicate with your computer over the network through your IP address, which will probably look like 192.168.1.xxx.
 3. If you're running from options 1-3 in the AGiXT installer, localhost would be the incorrect destination for your Kobold instance. You will need to use your local IP for the computer it is hosted on. Keep in mind that in docker, your local machine is not the localhost, it is like a machine within your machine and will have to communicate with your machine over the network by your IP that should be something similar to 192.168.1.xxx.
 
 ### Setting the correct host for Koboldcpp
