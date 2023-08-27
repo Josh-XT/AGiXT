@@ -1108,11 +1108,17 @@ async def get_prompts(prompt_category: str = "Default"):
 
 
 @app.delete(
-    "/api/prompt/{prompt_name}", tags=["Prompt"], dependencies=[Depends(verify_api_key)]
+    "/api/prompt/{prompt_category}/{prompt_name}",
+    tags=["Prompt"],
+    dependencies=[Depends(verify_api_key)],
 )
-async def delete_prompt(prompt_name: str) -> ResponseMessage:
+async def delete_prompt(
+    prompt_name: str, prompt_category: str = "Default"
+) -> ResponseMessage:
     try:
-        Prompts().delete_prompt(prompt_name=prompt_name)
+        Prompts().delete_prompt(
+            prompt_name=prompt_name, prompt_category=prompt_category
+        )
         return ResponseMessage(message=f"Prompt '{prompt_name}' deleted.")
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
