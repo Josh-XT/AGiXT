@@ -53,5 +53,3 @@ External access: If the Kobold server listens on all interfaces, it can be acces
 ##### Checking the availability of the Koboldcpp server from within the AGiXT container:
 1. Inside the interactive shell of the container, execute the command: `curl -v http://IP_GATEWAY_NETWORK:8000/api/v1` Where `IP_GATEWAY_NETWORK` is the IP address of the AGiXT Docker network gateway that you obtained in the previous steps. For example: `curl -v http://172.18.0.1:8000/api/v1`
 3. If the server is working correctly, you will see information about the availability of the Koboldcpp server.
-
-
