@@ -5,14 +5,14 @@ class KoboldProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",
-        MAX_TOKENS: int = 2000,
+        MAX_TOKENS: int = 2048,
         AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
         **kwargs,
     ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2000
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.AI_MODEL = AI_MODEL
 
@@ -20,13 +20,13 @@ class KoboldProvider:
         try:
             max_tokens = int(self.MAX_TOKENS - tokens)
         except:
-            max_tokens = 2000
+            max_tokens = 2048
         response = requests.post(
             f"{self.AI_PROVIDER_URI}/api/v1/generate",
             json={
                 "prompt": prompt,
                 "max_context_length": max_tokens,
-                "max_length": 200,
+                "max_length": max_tokens,
                 "temperature": float(self.AI_TEMPERATURE),
             },
         )
