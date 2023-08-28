@@ -1215,22 +1215,19 @@ class CommandExecution(BaseModel):
     dependencies=[Depends(verify_api_key)],
 )
 async def run_command(agent_name: str, command: CommandExecution):
-    try:
-        agent_config = Agent(agent_name=agent_name).get_agent_config()
-        command_output = await Extensions(agent_config=agent_config).execute_command(
-            command_name=command.command_name, command_args=command.command_args
-        )
-        log_interaction(
-            agent_name=agent_name,
-            conversation_name=command.conversation_name,
-            role="AGiXT Terminal",
-            message=f"Executed Command: {command.command_name} with args {command.command_args}.\nCommand Output: {command_output}",
-        )
-        return {
-            "response": command_output,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    command_output = await Extensions(agent_config=agent_config).execute_command(
+        command_name=command.command_name, command_args=command.command_args
+    )
+    log_interaction(
+        agent_name=agent_name,
+        conversation_name=command.conversation_name,
+        role="AGiXT Terminal",
+        message=f"Executed Command: {command.command_name} with args {command.command_args}.\nCommand Output: {command_output}",
+    )
+    return {
+        "response": command_output,
+    }
 
 
 if __name__ == "__main__":
