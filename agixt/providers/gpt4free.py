@@ -1,31 +1,5 @@
 import logging
 import time
-from g4f import ChatCompletion
-from g4f.models import ModelUtils
-from g4f.Provider import (
-    GetGpt,
-    Aichat,
-    Ails,
-    Vercel,
-    Yqcloud,
-    Acytoo,
-    Equing,
-    Opchatgpts,
-    Wewordle,
-    DeepAi,
-    ChatgptLogin,
-    EasyChat,
-    You,
-    AiService,
-    AItianhu,
-    Bing,
-    Lockchat,
-    Theb,
-    FastGpt,
-    Forefront,
-    ChatgptAi,
-    H2o,
-)
 
 # Hotfix for gpt4free not installing GoogleBard
 try:
@@ -37,33 +11,36 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "GoogleBard"])
     from Bard import Chatbot
 
+from g4f import Provider, ChatCompletion
+from g4f.models import ModelUtils
+
 providers = [
     # Working:
-    GetGpt,
+    Provider.GetGpt,
     # Works sometimes:
-    Aichat,
-    Ails,
-    Vercel,
-    Yqcloud,
-    Acytoo,
-    Equing,
-    Opchatgpts,
-    Wewordle,
-    DeepAi,  # Wierd response seem complete the prompt only
-    ChatgptLogin,  # seem to works but long
-    EasyChat,
-    You,
+    Provider.Aichat,
+    Provider.Ails,
+    Provider.Vercel,
+    Provider.Yqcloud,
+    Provider.Acytoo,
+    Provider.Equing,
+    Provider.Opchatgpts,
+    Provider.Wewordle,
+    Provider.DeepAi,  # Wierd response seem complete the prompt only
+    Provider.ChatgptLogin,  # seem to works but long
+    Provider.EasyChat,
+    Provider.You,
     # Not working today:
-    AiService,
-    AItianhu,
-    Bing,
+    Provider.AiService,
+    Provider.AItianhu,
+    Provider.Bing,
     # Provider.DfeHub, endless loop
-    Lockchat,
-    Theb,
-    FastGpt,
-    Forefront,
-    ChatgptAi,
-    H2o,
+    Provider.Lockchat,
+    Provider.Theb,
+    Provider.FastGpt,
+    Provider.Forefront,
+    Provider.ChatgptAi,
+    Provider.H2o,
 ]
 
 
