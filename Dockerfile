@@ -51,6 +51,9 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
+# Temporarily install gpt4free from my fork
+RUN pip install -e git+https://github.com/Josh-XT/gpt4free.git#egg=g4f
+
 COPY . .
 
 WORKDIR /agixt
