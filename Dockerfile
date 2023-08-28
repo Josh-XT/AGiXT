@@ -51,6 +51,9 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
+# Install latest gpt4free from GitHub
+RUN pip install -e git+https://github.com/xtekky/gpt4free.git#egg=g4f
+
 COPY . .
 
 WORKDIR /agixt
