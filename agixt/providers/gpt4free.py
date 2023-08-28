@@ -27,6 +27,16 @@ from g4f.Provider import (
     H2o,
 )
 
+# Hotfix for gpt4free not installing GoogleBard
+try:
+    from Bard import Chatbot
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "GoogleBard"])
+    from Bard import Chatbot
+
 providers = [
     # Working:
     GetGpt,
