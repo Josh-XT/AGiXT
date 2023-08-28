@@ -1,35 +1,59 @@
 import logging
 import time
-from g4f import Provider, ChatCompletion
+from g4f import ChatCompletion
 from g4f.models import ModelUtils
+from g4f.Provider import (
+    GetGpt,
+    Aichat,
+    Ails,
+    Vercel,
+    Yqcloud,
+    Acytoo,
+    Equing,
+    Opchatgpts,
+    Wewordle,
+    DeepAi,
+    ChatgptLogin,
+    EasyChat,
+    You,
+    AiService,
+    AItianhu,
+    Bing,
+    Lockchat,
+    Theb,
+    FastGpt,
+    Forefront,
+    ChatgptAi,
+    H2o,
+)
 
 providers = [
     # Working:
-    Provider.GetGpt,
+    GetGpt,
     # Works sometimes:
-    Provider.Aichat,
-    Provider.Ails,
-    Provider.Vercel,
-    Provider.Yqcloud,
-    Provider.Acytoo,
-    Provider.Equing,
-    Provider.Opchatgpts,
-    Provider.Wewordle,
-    Provider.DeepAi,  # Wierd response seem complete the prompt only
-    Provider.ChatgptLogin,  # seem to works but long
-    Provider.EasyChat,
-    Provider.You,
+    Aichat,
+    Ails,
+    Vercel,
+    Yqcloud,
+    Acytoo,
+    Equing,
+    Opchatgpts,
+    Wewordle,
+    DeepAi,  # Wierd response seem complete the prompt only
+    ChatgptLogin,  # seem to works but long
+    EasyChat,
+    You,
     # Not working today:
-    Provider.AiService,
-    Provider.AItianhu,
-    Provider.Bing,
+    AiService,
+    AItianhu,
+    Bing,
     # Provider.DfeHub, endless loop
-    Provider.Lockchat,
-    Provider.Theb,
-    Provider.FastGpt,
-    Provider.Forefront,
-    Provider.ChatgptAi,
-    Provider.H2o,
+    Lockchat,
+    Theb,
+    FastGpt,
+    Forefront,
+    ChatgptAi,
+    H2o,
 ]
 
 
