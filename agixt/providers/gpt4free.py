@@ -93,17 +93,3 @@ class Gpt4freeProvider:
                 logging.error(f"[Gpt4Free] Skip provider: {e}")
                 if int(self.WAIT_AFTER_FAILURE) > 0:
                     time.sleep(int(self.WAIT_AFTER_FAILURE))
-
-
-if __name__ == "__main__":
-    import asyncio
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-
-    async def run_test():
-        gpt4free = Gpt4freeProvider()
-        response = await gpt4free.instruct("Hello")
-        print(response)
-
-    asyncio.run(run_test())
