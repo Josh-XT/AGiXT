@@ -40,6 +40,7 @@ services:
         # specify which cuda version your card supports: https://developer.nvidia.com/cuda-gpus
         TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST:-7.5}
         WEBUI_VERSION: ${WEBUI_VERSION:-HEAD}
+    restart: unless-stopped
     environment:
       - CLI_ARGS=${CLI_ARGS}
     ports:
