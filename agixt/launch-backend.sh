@@ -65,5 +65,4 @@ if [ "$AGIXT_AUTO_UPDATE" = "true" ]; then
 fi
 
 echo "Starting AGiXT... Please wait until you see 'Applicaton startup complete' before opening Streamlit..."
-sleep 5
 uvicorn app:app --host 0.0.0.0 --port 7437 --workers $workers --proxy-headers
