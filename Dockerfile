@@ -51,8 +51,6 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
-RUN pip install httpx
-
 COPY . .
 
 WORKDIR /agixt

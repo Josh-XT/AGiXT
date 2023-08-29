@@ -29,4 +29,5 @@ discord
 tweepy
 sendgrid
 whispercpp
-g4f
+httpx
+g4f==0.0.2.6
