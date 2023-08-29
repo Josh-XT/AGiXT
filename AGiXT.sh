@@ -40,7 +40,7 @@ environment_setup() {
           postgres_username = "postgres"
           postgres_password = "postgres"
         else
-          read -p "Do you want AGiXT to automatically update when launched? AGiXT Hubs always update automatically. (Y for yes, N for No): " auto_update
+          read -p "Do you want AGiXT and your Hub to automatically update when launched? (Y for yes, N for No): " auto_update
           if [[ "$auto_update" == [Yy]* ]]; then
               auto_update="true"
           else
