@@ -57,6 +57,7 @@ RUN pip install -e git+https://github.com/xtekky/gpt4free.git#egg=g4f
 COPY . .
 
 WORKDIR /agixt
+CMD ["python", "/agixt/Hub.py"]
 
 EXPOSE 7437
 ENTRYPOINT ["sh", "-c", "./launch-backend.sh"]

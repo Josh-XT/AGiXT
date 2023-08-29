@@ -58,8 +58,12 @@ if [ "$DB_CONNECTED" = "true" ]; then
   python3 DBConnection.py
   sleep 10
 fi
-# Install AGiXT Hub
-python3 Hub.py
+
+# Update AGiXT Hub
+if [ "$AGIXT_AUTO_UPDATE" = "true" ]; then
+  python3 Hub.py
+fi
+
 echo "Starting AGiXT... Please wait until you see 'Applicaton startup complete' before opening Streamlit..."
 sleep 5
 uvicorn app:app --host 0.0.0.0 --port 7437 --workers $workers --proxy-headers
