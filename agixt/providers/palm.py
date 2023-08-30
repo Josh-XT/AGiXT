@@ -15,8 +15,8 @@ class PalmProvider:
         self,
         AI_MODEL: str = "default",
         PALM_API_KEY: str = "",
-        AI_TEMPERATURE: float = 0.7,
         MAX_TOKENS: int = 4000,
+        AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.requirements = []
