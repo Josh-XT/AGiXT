@@ -29,11 +29,11 @@ def is_cuda_available():
 class PipelineProvider:
     def __init__(
         self,
-        MODEL_PATH: str = "HuggingFaceH4/starchat-beta",
-        AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 1024,
-        AI_MODEL: str = "starchat",
         HUGGINGFACE_API_KEY: str = None,
+        MODEL_PATH: str = "HuggingFaceH4/starchat-beta",
+        AI_MODEL: str = "starchat",
+        MAX_TOKENS: int = 1024,
+        AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.requirements = ["petals", "transformers[accelerate]", "torch"]

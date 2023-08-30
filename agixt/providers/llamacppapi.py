@@ -6,10 +6,10 @@ class LlamacppapiProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "http://localhost:8000",
-        MAX_TOKENS: int = 2048,
-        AI_TEMPERATURE: float = 0.7,
         AI_MODEL: str = "default",
         STOP_SEQUENCE: str = "</s>",
+        MAX_TOKENS: int = 2048,
+        AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.AI_PROVIDER_URI = (

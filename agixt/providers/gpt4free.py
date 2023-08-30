@@ -52,9 +52,9 @@ class Gpt4freeProvider:
     def __init__(
         self,
         AI_MODEL: str = "gpt-3.5-turbo",
+        MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
-        MAX_TOKENS: int = 4096,
         WAIT_BETWEEN_REQUESTS: int = 1,
         WAIT_AFTER_FAILURE: int = 3,
         **kwargs,

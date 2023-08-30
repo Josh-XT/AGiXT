@@ -317,6 +317,8 @@ class PerplexityProvider:
         )
         self.FOCUS = FOCUS
         self.exec_nb = 5  # set to 5 as default to automatically renewed copilot
+        self.AI_MODEL = "perplexity"
+        self.MAX_TOKENS = 4096
 
     def load_account(
         self,

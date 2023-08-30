@@ -1,22 +1,19 @@
-import logging
-
 import requests
 
 
 class PetalProvider:
     def __init__(
         self,
+        AI_MODEL: str = "stabilityai/StableBeluga2",
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         MAX_TOKENS: int = 1024,
-        AI_MODEL: str = "stabilityai/StableBeluga2",
         **kwargs,
     ):
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 1024
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
         self.AI_MODEL = AI_MODEL if AI_MODEL else "stabilityai/StableBeluga2"
-        self.base_url = "https://chat.petals.dev/api/v1/generate"
 
     async def instruct(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - tokens
@@ -29,7 +26,7 @@ class PetalProvider:
             "model": self.AI_MODEL,
         }
         response = requests.post(
-            url=self.base_url,
+            url="https://chat.petals.dev/api/v1/generate",
             data=payload,
         )
         response = response.json()
