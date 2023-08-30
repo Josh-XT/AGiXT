@@ -5,9 +5,9 @@ class NboxProvider:
     def __init__(
         self,
         NBOX_TOKEN: str = "",
-        AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 4085,
         AI_MODEL: str = "llama-2-chat-70b-4k",
+        MAX_TOKENS: int = 4085,
+        AI_TEMPERATURE: float = 0.7,
     ):
         self.NBOX_TOKEN = NBOX_TOKEN
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7

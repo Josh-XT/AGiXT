@@ -13,8 +13,6 @@ MODELS = {
     "RedPajama-INCITE-Instruct-3B-v1": 2048,
 }
 
-DEFAULT_MAX_LENGHT = 4096
-
 
 class HuggingfaceProvider:
     def __init__(
@@ -22,11 +20,11 @@ class HuggingfaceProvider:
         MODEL_PATH: str = "HuggingFaceH4/starchat-beta",
         HUGGINGFACE_API_KEY: str = None,
         HUGGINGFACE_API_URL: str = "https://api-inference.huggingface.co/models/{model}",
-        AI_TEMPERATURE: float = 0.7,
-        MAX_TOKENS: int = 1024,
         AI_MODEL: str = "starchat",
         stop=["<|end|>"],
-        max_retries: int = 15,
+        MAX_TOKENS: int = 1024,
+        AI_TEMPERATURE: float = 0.7,
+        MAX_RETRIES: int = 15,
         **kwargs,
     ):
         self.requirements = []
@@ -37,7 +35,7 @@ class HuggingfaceProvider:
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_MODEL = AI_MODEL
         self.stop = stop
-        self.max_retries = max_retries
+        self.MAX_RETRIES = MAX_RETRIES
         self.parameters = kwargs
 
     def get_url(self) -> str:
@@ -46,7 +44,7 @@ class HuggingfaceProvider:
     def get_max_length(self):
         if self.MODEL_PATH in MODELS:
             return MODELS[self.MODEL_PATH]
-        return DEFAULT_MAX_LENGHT
+        return 4096
 
     def get_max_new_tokens(self, input_length: int = 0) -> int:
         return min(self.get_max_length() - input_length, self.MAX_TOKENS)
@@ -60,8 +58,8 @@ class HuggingfaceProvider:
         tries = 0
         while True:
             tries += 1
-            if tries > self.max_retries:
-                raise ValueError(f"Reached max retries: {self.max_retries}")
+            if tries > self.MAX_RETRIES:
+                raise ValueError(f"Reached max retries: {self.MAX_RETRIES}")
             response = requests.post(self.get_url(), json=payload, headers=headers)
             if response.status_code == 429:
                 logging.info(

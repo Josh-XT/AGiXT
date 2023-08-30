@@ -15,13 +15,13 @@ class LlamacppProvider:
     def __init__(
         self,
         MODEL_PATH: str = "",
+        AI_MODEL: str = "default",
+        STOP_SEQUENCE: str = "</s>",
         MAX_TOKENS: int = 2048,
         AI_TEMPERATURE: float = 0.7,
-        AI_MODEL: str = "default",
         GPU_LAYERS: int = 0,
         BATCH_SIZE: int = 2048,
         THREADS: int = 0,
-        STOP_SEQUENCE: str = "</s>",
         **kwargs,
     ):
         self.requirements = ["llama-cpp-python"]

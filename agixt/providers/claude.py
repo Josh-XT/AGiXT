@@ -13,14 +13,14 @@ class ClaudeProvider:
     def __init__(
         self,
         ANTHROPIC_API_KEY: str = "",
-        MAX_TOKENS: int = 75000,
         AI_MODEL: str = "claude-2",
+        MAX_TOKENS: int = 100000,
         AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 75000
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-v1-100k"
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 100000
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-2"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
     async def instruct(self, prompt, tokens: int = 0):

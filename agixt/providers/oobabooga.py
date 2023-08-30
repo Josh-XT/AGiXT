@@ -13,6 +13,9 @@ class OobaboogaProvider:
         self,
         AI_PROVIDER_URI: str = "",
         AI_MODEL: str = "default",
+        PROMPT_PREFIX: str = "",
+        PROMPT_SUFFIX: str = "",
+        STOP_STRING: str = "</s>",
         MAX_TOKENS: int = 2048,
         AI_TEMPERATURE: float = 0.7,
         TOP_P: float = 0.9,
@@ -32,9 +35,6 @@ class OobaboogaProvider:
         MIROSTAT_MODE: float = 0,
         MIROSTAT_TAU: float = 5,
         MIROSTAT_ETA: float = 0.1,
-        PROMPT_PREFIX: str = "",
-        PROMPT_SUFFIX: str = "",
-        STOP_STRING: str = "</s>",
         **kwargs,
     ):
         self.AI_PROVIDER_URI = (

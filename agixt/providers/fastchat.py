@@ -8,12 +8,14 @@ class FastchatProvider:
         AI_PROVIDER_URI: str = "",
         AI_MODEL: str = "vicuna",
         MODEL_PATH: str = "",
+        MAX_TOKENS: int = 2048,
         **kwargs,
     ):
         self.requirements = []
         self.AI_PROVIDER_URI = AI_PROVIDER_URI
         self.AI_MODEL = AI_MODEL
         self.MODEL_PATH = MODEL_PATH
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
 
     async def instruct(self, prompt, tokens: int = 0):
         messages = [{"role": "system", "content": prompt}]
