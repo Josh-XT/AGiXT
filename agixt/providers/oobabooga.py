@@ -12,8 +12,8 @@ class OobaboogaProvider:
     def __init__(
         self,
         AI_PROVIDER_URI: str = "",
+        AI_MODEL: str = "default",
         MAX_TOKENS: int = 2048,
-        DO_SAMPLE: str = "True",
         AI_TEMPERATURE: float = 0.7,
         TOP_P: float = 0.9,
         TYPICAL_P: float = 0.2,
@@ -32,8 +32,6 @@ class OobaboogaProvider:
         MIROSTAT_MODE: float = 0,
         MIROSTAT_TAU: float = 5,
         MIROSTAT_ETA: float = 0.1,
-        TRUNCATION_LENGTH: int = 2048,
-        AI_MODEL: str = "default",
         PROMPT_PREFIX: str = "",
         PROMPT_SUFFIX: str = "",
         STOP_STRING: str = "</s>",
@@ -49,7 +47,6 @@ class OobaboogaProvider:
             self.AI_PROVIDER_URI = "http://text-generation-webui:5000"
 
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
-        self.DO_SAMPLE = DO_SAMPLE if DO_SAMPLE else "True"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
         self.TOP_P = TOP_P if TOP_P else 0.9
@@ -71,7 +68,6 @@ class OobaboogaProvider:
         self.MIROSTAT_MODE = MIROSTAT_MODE if MIROSTAT_MODE else 0
         self.MIROSTAT_TAU = MIROSTAT_TAU if MIROSTAT_TAU else 5
         self.MIROSTAT_ETA = MIROSTAT_ETA if MIROSTAT_ETA else 0.1
-        self.TRUNCATION_LENGTH = TRUNCATION_LENGTH if TRUNCATION_LENGTH else 2048
         self.PROMPT_PREFIX = PROMPT_PREFIX if PROMPT_PREFIX else ""
         self.PROMPT_SUFFIX = PROMPT_SUFFIX if PROMPT_SUFFIX else ""
         self.STOP_STRING = STOP_STRING if STOP_STRING else "</s>"
@@ -105,7 +101,7 @@ class OobaboogaProvider:
             "mirostat_eta": float(self.MIROSTAT_ETA),
             "seed": -1,
             "add_bos_token": True,
-            "truncation_length": int(self.TRUNCATION_LENGTH),
+            "truncation_length": int(self.MAX_TOKENS),
             "ban_eos_token": False,
             "skip_special_tokens": True,
             "custom_stopping_strings": "",  # leave this blank
