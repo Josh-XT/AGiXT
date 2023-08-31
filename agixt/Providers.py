@@ -51,7 +51,7 @@ class Providers:
             self.instance = provider_class(**kwargs)
 
             # Install the requirements if any
-            # self.install_requirements()
+            self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
             raise AttributeError(f"module {__name__} has no attribute {name}") from e
