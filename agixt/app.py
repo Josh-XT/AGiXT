@@ -615,6 +615,28 @@ async def get_conversation_history(history: HistoryModel):
     return {"conversation_history": conversation_history}
 
 
+@app.get(
+    "/api/conversation/{conversation_name}",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversation_data(
+    conversation_name: str, agent_name: str = "OpenAI", limit: int = 100, page: int = 1
+):
+    conversation_history = get_conversation(
+        agent_name=agent_name,
+        conversation_name=conversation_name,
+        limit=limit,
+        page=page,
+    )
+
+    if conversation_history is None:
+        conversation_history = []
+    if "interactions" in conversation_history:
+        conversation_history = conversation_history["interactions"]
+    return {"conversation_history": conversation_history}
+
+
 @app.post(
     "/api/conversation",
     tags=["Conversation"],
