@@ -8,6 +8,7 @@ class NboxProvider:
         AI_MODEL: str = "llama-2-chat-70b-4k",
         MAX_TOKENS: int = 4085,
         AI_TEMPERATURE: float = 0.7,
+        **kwargs,
     ):
         self.NBOX_TOKEN = NBOX_TOKEN
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
@@ -15,12 +16,11 @@ class NboxProvider:
         self.AI_MODEL = AI_MODEL.lower() if AI_MODEL else "llama-2-chat-70b-4k"
 
     async def instruct(self, prompt, tokens: int = 0):
-        max_new_tokens = int(self.MAX_TOKENS - tokens)
+        max_new_tokens = int(self.MAX_TOKENS) - tokens
         if max_new_tokens < 0:
             raise Exception(f"Max tokens exceeded: {max_new_tokens}")
         elif max_new_tokens > 4085:
             max_new_tokens = 4085
-        print(max_new_tokens)
         params = {
             "messages": [{"role": "user", "content": prompt}],
             "model": self.AI_MODEL,
