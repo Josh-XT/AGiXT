@@ -28,7 +28,7 @@ class LlamacppapiProvider:
             "stop": self.STOP_SEQUENCE,
             "seed": random.randint(1, 1000000000),
         }
-        response = requests.post(f"{self.AI_PROVIDER_URI}/completions", json=params)
+        response = requests.post(f"{self.AI_PROVIDER_URI}/completion", json=params)
         data = response.json()
         print(data)
         choices = data["choices"]
