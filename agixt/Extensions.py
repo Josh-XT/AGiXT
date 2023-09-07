@@ -4,6 +4,11 @@ import glob
 from inspect import signature, Parameter
 import logging
 import inspect
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DISABLED_EXTENSIONS = os.getenv("DISABLED_EXTENSIONS", "").replace(" ", "").split(",")
 
 
 class Extensions:
@@ -74,6 +79,8 @@ class Extensions:
         command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
             module = importlib.import_module(f"extensions.{module_name}")
             if issubclass(getattr(module, module_name), Extensions):
                 command_class = getattr(module, module_name)(**settings)
@@ -101,6 +108,8 @@ class Extensions:
         command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
             module = importlib.import_module(f"extensions.{module_name}")
             if issubclass(getattr(module, module_name), Extensions):
                 command_class = getattr(module, module_name)()
@@ -116,6 +125,8 @@ class Extensions:
 
     def find_command(self, command_name: str):
         for name, module, function_name, params in self.commands:
+            if module.__name__ in DISABLED_EXTENSIONS:
+                continue
             if name == command_name:
                 command_function = getattr(module, function_name)
                 return command_function, module, params  # Updated return statement
@@ -169,6 +180,8 @@ class Extensions:
         command_files = glob.glob("extensions/*.py")
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
             module = importlib.import_module(f"extensions.{module_name}")
             command_class = getattr(module, module_name.lower())()
             extension_name = command_file.split("/")[-1].split(".")[0]
