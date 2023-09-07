@@ -117,7 +117,7 @@ class Interactions:
                     min_relevance_score=min_relevance_score,
                 )
                 if websearch:
-                    context += await self.websearch.get_memories(
+                    context += await self.agent_memory.get_memories(
                         user_input=user_input,
                         limit=top_results,
                         min_relevance_score=min_relevance_score,
