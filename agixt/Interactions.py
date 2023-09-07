@@ -117,11 +117,14 @@ class Interactions:
                     min_relevance_score=min_relevance_score,
                 )
                 if websearch:
-                    context += await self.agent_memory.get_memories(
+                    context += await WebsiteReader(
+                        agent_name=self.agent_name,
+                        agent_config=self.agent.AGENT_CONFIG,
+                        collection_number=1,
+                    ).get_memories(
                         user_input=user_input,
                         limit=top_results,
                         min_relevance_score=min_relevance_score,
-                        collection_number=1,
                     )
                 if "inject_memories_from_collection_number" in kwargs:
                     if int(kwargs["inject_memories_from_collection_number"]) > 0:
