@@ -30,4 +30,17 @@ If you choose `N` on skipping environment setup, you will be prompted to enter s
 - `TORCH_CUDA_ARCH_LIST` is the CUDA architecture list to use for the Oobabooga text generation web UI. Example: RTX3000-5000 series are version `7.5`. Find yours at https://developer.nvidia.com/cuda-gpus .
 - `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
 
+### Additional Environment Variables
+There are additional environment variables that can be set in the `.env` file, but are not required or defined in the installer script.  These are listed below:
+
+- `DISABLED_PROVIDERS` - A comma-separated list of providers to disable.  This is empty by default. The example below would disable the Petal, Palm, and Pipeline providers. 
+    ```
+    DISABLED_PROVIDERS=petal,palm,pipeline
+    ```
+
+- `DISABLED_EXTENSIONS` - A comma-separated list of extensions to disable.  This is empty by default. The example below would disable the file system, Twitter, and Searxng extensions.
+    ```
+    DISABLED_EXTENSIONS=file_system,twitter,searxng
+    ```
+
 [Next Page: Install Options](https://josh-xt.github.io/AGiXT/1-Getting%20started/2-Install%20Options.html)
