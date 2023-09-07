@@ -52,7 +52,9 @@ class Websearch:
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
-                ApiClient.learn_url(agent_name=self.agent_name, url=url)
+                ApiClient.learn_url(
+                    agent_name=self.agent_name, url=url, collection_number=1
+                )
                 self.browsed_links.append(url)
                 return text_content, link_list
         except:
