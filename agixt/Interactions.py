@@ -85,6 +85,7 @@ class Interactions:
         chain_name="",
         step_number=0,
         conversation_name="",
+        websearch: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -115,6 +116,13 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                if websearch:
+                    context += await self.websearch.get_memories(
+                        user_input=user_input,
+                        limit=top_results,
+                        min_relevance_score=min_relevance_score,
+                        collection_number=1,
+                    )
                 if "inject_memories_from_collection_number" in kwargs:
                     if int(kwargs["inject_memories_from_collection_number"]) > 0:
                         context += await WebsiteReader(
@@ -297,6 +305,7 @@ class Interactions:
             chain_name=chain_name,
             step_number=step_number,
             conversation_name=conversation_name,
+            websearch=websearch,
             **kwargs,
         )
         try:
