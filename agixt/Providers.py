@@ -4,11 +4,18 @@ import pkg_resources
 import glob
 import os
 import inspect
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DISABLED_PROVIDERS = os.getenv("DISABLED_PROVIDERS", "").replace(" ", "").split(",")
 
 
 def get_providers():
     providers = []
     for provider in glob.glob("providers/*.py"):
+        if provider in DISABLED_PROVIDERS:
+            continue
         if "__init__.py" not in provider:
             providers.append(os.path.splitext(os.path.basename(provider))[0])
     return providers
@@ -16,6 +23,8 @@ def get_providers():
 
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
+    if provider_name in DISABLED_PROVIDERS:
+        return {}
     try:
         module = importlib.import_module(f"providers.{provider_name}")
         provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
@@ -45,6 +54,8 @@ def get_provider_options(provider_name):
 
 class Providers:
     def __init__(self, name, **kwargs):
+        if name in DISABLED_PROVIDERS:
+            raise AttributeError(f"module {__name__} has no attribute {name}")
         try:
             module = importlib.import_module(f"providers.{name}")
             provider_class = getattr(module, f"{name.capitalize()}Provider")
