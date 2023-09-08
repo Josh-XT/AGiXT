@@ -141,6 +141,11 @@ class Extensions:
         return commands_list
 
     async def execute_command(self, command_name: str, command_args: dict = None):
+        injection_variables = {
+            "agent_name": self.agent_name,
+            "command_name": command_name,
+            **self.agent_config["settings"],
+        }
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
@@ -159,7 +164,10 @@ class Extensions:
                 del args[param]
         try:
             output = await getattr(
-                module(**self.agent_config["settings"]), command_function.__name__
+                module(
+                    **injection_variables,
+                ),
+                command_function.__name__,
             )(**args)
         except Exception as e:
             output = f"Error: {str(e)}"
