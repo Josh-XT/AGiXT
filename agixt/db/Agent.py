@@ -207,7 +207,7 @@ class Agent:
         self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
         self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
         self.available_commands = Extensions(
-            agent_config=self.AGENT_CONFIG
+            agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()
 
     def load_config_keys(self):

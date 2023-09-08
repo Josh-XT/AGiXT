@@ -1238,7 +1238,9 @@ class CommandExecution(BaseModel):
 )
 async def run_command(agent_name: str, command: CommandExecution):
     agent_config = Agent(agent_name=agent_name).get_agent_config()
-    command_output = await Extensions(agent_config=agent_config).execute_command(
+    command_output = await Extensions(
+        agent_name=agent_name, agent_config=agent_config
+    ).execute_command(
         command_name=command.command_name, command_args=command.command_args
     )
     log_interaction(
