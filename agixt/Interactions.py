@@ -527,7 +527,8 @@ class Interactions:
                             try:
                                 if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
                                     command_output = await Extensions(
-                                        agent_config=self.agent.AGENT_CONFIG
+                                        agent_name=self.agent_name,
+                                        agent_config=self.agent.AGENT_CONFIG,
                                     ).execute_command(
                                         command_name=command_name,
                                         command_args=command_args,
