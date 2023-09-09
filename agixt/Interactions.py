@@ -139,13 +139,17 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
-                if context != []:
-                    context = "\n".join(context)
-                    context = f"The user's input causes you remember these things:\n{context}\n"
-                else:
-                    context = ""
             else:
                 context = ""
+        if "context" in kwargs:
+            context += kwargs["context"]
+            del kwargs["context"]
+        if context != []:
+            context = "\n".join(context)
+            context = f"The user's input causes you remember these things:\n{context}\n"
+        else:
+            context = ""
+
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
