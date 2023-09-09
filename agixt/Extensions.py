@@ -13,10 +13,15 @@ DISABLED_EXTENSIONS = os.getenv("DISABLED_EXTENSIONS", "").replace(" ", "").spli
 
 class Extensions:
     def __init__(
-        self, agent_name="", agent_config=None, load_commands_flag: bool = True
+        self,
+        agent_name="",
+        agent_config=None,
+        conversation_name="",
+        load_commands_flag: bool = True,
     ):
         self.agent_config = agent_config
         self.agent_name = agent_name if agent_name else "gpt4free"
+        self.conversation_name = conversation_name
         if load_commands_flag:
             self.commands = self.load_commands()
         else:
@@ -144,6 +149,7 @@ class Extensions:
         injection_variables = {
             "agent_name": self.agent_name,
             "command_name": command_name,
+            "conversation_name": self.conversation_name,
             **self.agent_config["settings"],
         }
         command_function, module, params = self.find_command(command_name=command_name)
