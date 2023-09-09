@@ -10,7 +10,15 @@ class Embedding:
         )
         self.default_embedder = embedding_functions.ONNXMiniLM_L6_V2()
         self.default_embedder.DOWNLOAD_PATH = os.getcwd()
-        self.embedder_settings = self.get_embedder_settings()
+        try:
+            self.embedder_settings = self.get_embedder_settings()
+        except:
+            self.embedder_settings = {
+                "default": {
+                    "chunk_size": 256,
+                    "embed": self.default_embedder,
+                },
+            }
         if (
             "embedder" not in self.agent_settings
             or self.agent_settings["embedder"] not in self.embedder_settings
