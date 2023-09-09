@@ -77,15 +77,6 @@ class Embedding:
                 if "OPENAI_API_KEY" in self.agent_settings
                 else self.default_embedder,
             },
-            "google_palm": {
-                "chunk_size": 1000,
-                "params": ["GOOGLE_API_KEY"],
-                "embed": embedding_functions.GooglePalmEmbeddingFunction(
-                    api_key=self.agent_settings["GOOGLE_API_KEY"]
-                )
-                if "GOOGLE_API_KEY" in self.agent_settings
-                else self.default_embedder,
-            },
             "google_vertex": {
                 "chunk_size": 1000,
                 "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
