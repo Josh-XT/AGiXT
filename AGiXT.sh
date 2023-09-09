@@ -228,6 +228,7 @@ docker_install_dev() {
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     update
+    docker pull joshxt/agixt-nextjs:latest
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose -f docker-compose-dev.yml up
