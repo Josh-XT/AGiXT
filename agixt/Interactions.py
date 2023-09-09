@@ -533,6 +533,7 @@ class Interactions:
                                     command_output = await Extensions(
                                         agent_name=self.agent_name,
                                         agent_config=self.agent.AGENT_CONFIG,
+                                        conversation_name=conversation_name,
                                     ).execute_command(
                                         command_name=command_name,
                                         command_args=command_args,
