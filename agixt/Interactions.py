@@ -102,7 +102,7 @@ class Interactions:
             prompt = prompt_name
         logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
-            context = ""
+            context = []
         else:
             if user_input:
                 min_relevance_score = 0.0
@@ -140,11 +140,11 @@ class Interactions:
                             min_relevance_score=min_relevance_score,
                         )
             else:
-                context = ""
+                context = []
         if "context" in kwargs:
-            context += kwargs["context"]
+            context += [kwargs["context"]]
             del kwargs["context"]
-        if context != []:
+        if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
