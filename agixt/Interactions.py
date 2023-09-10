@@ -539,8 +539,13 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
-                                    formatted_output = f"```\n{command_output}\n```" if "#GENERATED_IMAGE" not in command_output or "#GENERATED_AUDIO" not in command_output else command_output
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args)}\n```\n\n**Command Output:**\n{formatted_output}"
+                                    formatted_output = (
+                                        f"```\n{command_output}\n```"
+                                        if "#GENERATED_IMAGE" not in command_output
+                                        and "#GENERATED_AUDIO" not in command_output
+                                        else command_output
+                                    )
+                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                                 else:
                                     command_output = (
                                         self.create_command_suggestion_chain(
