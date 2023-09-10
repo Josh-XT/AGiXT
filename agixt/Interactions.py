@@ -530,16 +530,17 @@ class Interactions:
                             # Check if the command is a valid command in the self.avent.available_commands list
                             try:
                                 if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                    command_output = await Extensions(
+                                    ext = Extensions(
                                         agent_name=self.agent_name,
                                         agent_config=self.agent.AGENT_CONFIG,
                                         conversation_name=conversation_name,
-                                    ).execute_command(
+                                    )
+                                    command_output = await ext.execute_command(
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
-
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{command_args}\n```\n\n**Command Output:**\n```\n{command_output}\n```"
+                                    formatted_output = f"```\n{command_output}\n```" if "#GENERATED_IMAGE" not in command_output or "#GENERATED_AUDIO" not in command_output else command_output
+                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args)}\n```\n\n**Command Output:**\n{formatted_output}"
                                 else:
                                     command_output = (
                                         self.create_command_suggestion_chain(
