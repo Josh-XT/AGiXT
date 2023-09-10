@@ -372,9 +372,6 @@ class Interactions:
                     self.response = json.loads(self.response)
                     if "response" in self.response:
                         return_response = self.response["response"]
-                    if "commands" in self.response:
-                        if self.response["commands"] != {}:
-                            return_response += f"\n\n**Commands Executed:**\n```json\n{json.dumps(self.response['commands'], indent=4)}\n```\n\n"
                 except:
                     return_response = self.response
             else:
