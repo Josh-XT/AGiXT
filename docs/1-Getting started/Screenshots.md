@@ -1,4 +1,4 @@
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/e0a9a1d8-d462-410a-b8ce-0d0e67808c2a)
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/944c9600-d67f-45da-ac1e-715e4c9d3912)
 
 ![Screenshot from 2023-08-10 16-13-15](https://github.com/Josh-XT/AGiXT/assets/102809327/e4d0eb5a-06e8-460f-b915-7ab9fb0d6114)
 
