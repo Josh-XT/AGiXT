@@ -130,13 +130,16 @@ display_menu() {
   echo "  ${BOLD}${YELLOW}2.${RESET} ${YELLOW}Run AGiXT with Text Generation Web UI (NVIDIA Only)${RESET}"
   echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT with Text Generation Web UI and Stable Diffusion (NVIDIA Only)${RESET}"
   echo "${BOLD}${GREEN}Developer Only Options (Not recommended or supported):${RESET}"
-  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT with Docker from Main Branch${RESET}"
-  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Run AGiXT with Docker from Main Branch + Addons (NVIDIA Only)${RESET}"
-  echo "  ${BOLD}${YELLOW}6.${RESET} ${YELLOW}Run AGiXT on local machine${RESET}"
+  echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT from Main Branch${RESET}"
+  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Run AGiXT from Main Branch + Addons (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}6.${RESET} ${YELLOW}Run AGiXT without Docker${RESET}"
   echo "${BOLD}${GREEN}Manage:${RESET}"
-  echo "  ${BOLD}${YELLOW}7.${RESET} ${YELLOW}Update AGiXT ${RESET}"
-  echo "  ${BOLD}${RED}8.${RESET} ${RED}Wipe AGiXT Hub (Irreversible)${RESET}"
-  echo "  ${BOLD}${RED}9.${RESET} ${RED}Exit${RESET}"
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    echo "  ${BOLD}${YELLOW}7.${RESET} ${YELLOW}Disable Automatic Updates${RESET}"
+  else
+    echo "  ${BOLD}${YELLOW}7.${RESET} ${YELLOW}Enable Automatic Updates${RESET}"
+  fi
+  echo "  ${BOLD}${RED}8.${RESET} ${RED}Exit${RESET}"
   echo ""
 }
 
@@ -227,8 +230,8 @@ docker_install_dev() {
   echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    update
     docker pull joshxt/agixt-nextjs:latest
+    update
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose -f docker-compose-dev.yml up
@@ -452,30 +455,17 @@ local_install() {
   cd streamlit && streamlit run Main.py
 }
 
-wipe_hub() {
-  read -p "Are you sure you want to wipe your AGiXT Hub? This is irreversible. (Y for yes, N for No): " wipe_hub
-  if [[ "$wipe_hub" == [Yy]* ]]; then
-    docker-compose down --remove-orphans
-    echo "${BOLD}${YELLOW}Wiping AGiXT Hub...${RESET}"
-    files=(
-      "agixt/extensions"
-      "agixt/chains"
-      "agixt/.github"
-      "agixt/prompts"
-      "agixt/LICENSE"
-      "agixt/README.md"
-      "agixt/"*_main.zip
-    )
-
-    # Recursively delete files and folders
-    for file in "${files[@]}"; do
-        if [ -e "$file" ]; then
-            echo "Deleting: $file"
-            rm -rf "$file"
-        else
-            echo "File or folder not found: $file"
-        fi
-    done
+toggle_updates () {
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    sed -i '/^AGIXT_AUTO_UPDATE=/d' .env
+    echo "AGIXT_AUTO_UPDATE=false" >> .env
+    source .env
+    echo "${BOLD}${YELLOW}Automatic Updates have been disabled.${RESET}"
+  else
+    sed -i '/^AGIXT_AUTO_UPDATE=/d' .env
+    echo "AGIXT_AUTO_UPDATE=true" >> .env
+    source .env
+    echo "${BOLD}${YELLOW}Automatic Updates have been enabled.${RESET}"
   fi
 }
 
@@ -511,12 +501,8 @@ while true; do
       break
       ;;
     7)
-      update
+      toggle_updates
       sleep 2
-      ;;
-    8)
-      wipe_hub
-      break
       ;;
     *)
       echo "${BOLD}${MAGENTA}Thank you for using AGiXT Installer. Goodbye!${RESET}"

@@ -1,7 +1,7 @@
 ### Install Options
 You will be prompted to choose an install option.  The first 3 options require you to have Docker installed. The options are as follows:
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/517e9986-4eb6-45e5-9268-444788bac200)
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/d55c8846-f6bc-4118-9d45-0e06ed6e14b9)
 
 1. **Run AGiXT (Recommended)**
     - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
@@ -13,16 +13,16 @@ You will be prompted to choose an install option.  The first 3 options require y
 
 **Developer Only Options (Not recommended or supported):**
 
-4. **Run AGiXT (Recommended)**
-    - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
-5. **Run AGiXT on local machine**
-    - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) locally. This is not recommended or supported due to it requiring you to have a lot of dependencies installed on your computer that may conflict with other software you have installed. This is only recommended for developers who want to contribute to AGiXT.
+4. **Run AGiXT from Main Branch**
+    - This option is like option 1, except it pulls from the main branch instead of the latest release version of AGiXT. This is not recommended or supported due to it being unstable and may break at any time.
+5. **Run AGiXT from Main Branch + Addons (NVIDIA Only)**
+    - This option is like option 3, except it pulls from the main branch instead of the latest release version of AGiXT. This is not recommended or supported due to it being unstable and may break at any time.
+6. **Run AGiXT without Docker**
+    - This option will run AGiXT without Docker. This is not recommended or supported due to it being unstable and may break at any time.
 
 **Manage:**
 
-6. **Update AGiXT**
-    - This option will update [AGiXT](https://github.com/Josh-XT/AGiXT), [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit), and [Oobabooga Text Generation Web UI](https://github.com/oobabooga/text-generation-webui) if you have them installed.  It is always recommended to be on the latest version of all.
-7. **Wipe AGiXT Hub (Irreversible)**
-    - This option will delete `agixt/providers`, `agixt/extensions`, `agixt/chains`, and `agixt/prompts`. The next time you start AGiXT, it will redownload all of them from the [AGiXT Hub](https://github.com/AGiXT/hub) that you have configured in your `.env` file. This is mostly used for development and testing purposes.
-7. **Exit**
+7. **Enable/Disable Automatic Updates**
+    - This option will enable or disable automatic updates for AGiXT.
+8. **Exit**
     - This option will exit the installer.
