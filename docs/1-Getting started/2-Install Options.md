@@ -1,7 +1,7 @@
 ### Install Options
 You will be prompted to choose an install option.  The first 3 options require you to have Docker installed. The options are as follows:
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/d55c8846-f6bc-4118-9d45-0e06ed6e14b9)
+![image](https://github.com/Josh-XT/AGiXT/assets/102809327/944c9600-d67f-45da-ac1e-715e4c9d3912)
 
 1. **Run AGiXT (Recommended)**
     - This option will run [AGiXT](https://github.com/Josh-XT/AGiXT) and the [AGiXT Streamlit Web UI](https://github.com/AGiXT/streamlit) in Docker containers.  This is the recommended option for most users.
