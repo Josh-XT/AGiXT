@@ -538,9 +538,8 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
-                                    message = (
-                                        f"Executed Command: {command_name} with args {command_args}.\nCommand Output: {command_output}",
-                                    )
+
+                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{command_args}\n```\n\n**Command Output:**\n```\n{command_output}\n```"
                                 else:
                                     command_output = (
                                         self.create_command_suggestion_chain(
