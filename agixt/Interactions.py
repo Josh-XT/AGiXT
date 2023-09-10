@@ -374,13 +374,7 @@ class Interactions:
                         return_response = self.response["response"]
                     if "commands" in self.response:
                         if self.response["commands"] != {}:
-                            return_response += (
-                                f"\n\nCommands Executed:\n{self.response['commands']}"
-                            )
-                    if execution_response:
-                        return_response += (
-                            f"\n\nCommand Execution Response:\n{execution_response}"
-                        )
+                            return_response += f"\n\n**Commands Executed:**\n```json\n{json.dumps(self.response['commands'], indent=4)}\n```\n\n"
                 except:
                     return_response = self.response
             else:
