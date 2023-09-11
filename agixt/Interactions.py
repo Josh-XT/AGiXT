@@ -537,6 +537,7 @@ class Interactions:
             conversation_name=conversation_name,
             **kwargs,
         )
+        messages = ""
         if "commands" in validated_response:
             for command_name, command_args in validated_response["commands"].items():
                 # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
@@ -571,9 +572,8 @@ class Interactions:
                                         )
                                     )
                                     message = (
-                                        f"Agent execution chain for command {command_name} with args {command_args} updated.",
+                                        f"**Agent execution chain updated for command `{command_name}` with the following parameters:** \n```json\n{json.dumps(command_args, indent=4)}\n```\n",
                                     )
-                                    return f"\n{message}\n"
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = ApiClient.prompt_agent(
@@ -590,7 +590,7 @@ class Interactions:
                                         **kwargs,
                                     },
                                 )
-                                return await self.execution_agent(
+                                message = await self.execution_agent(
                                     execution_response=validate_command,
                                     user_input=user_input,
                                     context_results=context_results,
@@ -598,4 +598,5 @@ class Interactions:
                                     conversation_name=conversation_name,
                                     **kwargs,
                                 )
-        return ""
+                            messages += f"\n{message}\n\n"
+        return messages
