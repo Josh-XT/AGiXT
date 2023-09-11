@@ -1249,7 +1249,7 @@ async def run_command(agent_name: str, command: CommandExecution):
         agent_name=agent_name,
         conversation_name=command.conversation_name,
         role=agent_name,
-        message=f"Executed Command: {command.command_name} with args {command.command_args}.\nCommand Output: {command_output}",
+        message=command_output,
     )
     return {
         "response": command_output,
