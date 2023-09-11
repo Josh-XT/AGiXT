@@ -343,6 +343,12 @@ class Interactions:
             websearch=websearch,
             **kwargs,
         )
+        log_interaction(
+            agent_name=self.agent_name,
+            conversation_name=conversation_name,
+            role="USER",
+            message=user_input if user_input != "" else formatted_prompt,
+        )
         try:
             self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
         except Exception as e:
@@ -413,12 +419,6 @@ class Interactions:
                     )
                 except:
                     pass
-            log_interaction(
-                agent_name=self.agent_name,
-                conversation_name=conversation_name,
-                role="USER",
-                message=user_input if user_input != "" else formatted_prompt,
-            )
             log_interaction(
                 agent_name=self.agent_name,
                 conversation_name=conversation_name,
