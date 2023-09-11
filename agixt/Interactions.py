@@ -213,11 +213,39 @@ class Interactions:
                     break
         if "conversation_history" in kwargs:
             del kwargs["conversation_history"]
+
+        verbose_commands = "**You have commands available to use if they would be useful to complete a user's task.**\n```json\n{\n"
+
+        for command in self.agent.available_commands:
+            verbose_commands += f'    "{command["friendly_name"]}": {{\n'
+            for arg in command["args"]:
+                verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
+            verbose_commands += "    },\n"
+
+        verbose_commands += "}\n```"
+        verbose_commands += """
+**RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands worth executing to assist the user, simply make the commands section an empty object like {}.**
+```JSON
+{
+    "response": "Your response to the task.",
+    "commands": {
+        "command_name": {
+            "arg1": "val1",
+            "arg2": "val2"
+        },
+        "command_name2": {
+            "arg1": "val1",
+            "arg2": "val2",
+            "argN": "valN"
+        }
+    }
+}
+        """
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
             agent_name=self.agent_name,
-            COMMANDS=self.agent_commands,
+            COMMANDS=verbose_commands,
             context=context,
             command_list=command_list,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
@@ -356,7 +384,6 @@ class Interactions:
                 conversation_name=conversation_name,
                 **kwargs,
             )
-            return_response = ""
             if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
                 autonomous = (
                     True
@@ -366,19 +393,15 @@ class Interactions:
                 )
             else:
                 autonomous = False
-
             if autonomous == True:
                 try:
                     self.response = json.loads(self.response)
                     if "response" in self.response:
-                        return_response = (
-                            f"{self.response['response']}\n\n{execution_response}"
-                        )
+                        self.response = self.response["response"]
                 except:
-                    return_response = f"{self.response}\n\n{execution_response}"
+                    pass
             else:
-                return_response = f"{self.response}\n\n{execution_response}"
-            self.response = return_response
+                self.response = f"{self.response}\n\n{execution_response}"
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             if disable_memory != True:
@@ -550,6 +573,7 @@ class Interactions:
                                     message = (
                                         f"Agent execution chain for command {command_name} with args {command_args} updated.",
                                     )
+                                    return f"\n{message}\n"
                             except Exception as e:
                                 logging.info("Command validation failed, retrying...")
                                 validate_command = ApiClient.prompt_agent(
@@ -574,18 +598,4 @@ class Interactions:
                                     conversation_name=conversation_name,
                                     **kwargs,
                                 )
-                            log_interaction(
-                                agent_name=self.agent_name,
-                                conversation_name=conversation_name,
-                                role=self.agent_name,
-                                message=message,
-                            )
-                            logging.info(message)
-                            return f"\n{message}\n"
-                else:
-                    if command_name == "None.":
-                        return "\nNo commands were executed.\n"
-                    else:
-                        return f"\Command not recognized: `{command_name}`."
-        else:
-            return "\nNo commands were executed.\n"
+        return ""
