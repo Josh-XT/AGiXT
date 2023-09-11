@@ -371,9 +371,11 @@ class Interactions:
                 try:
                     self.response = json.loads(self.response)
                     if "response" in self.response:
-                        return_response = self.response["response"]
+                        return_response = (
+                            f"{self.response['response']}\n\n{execution_response}"
+                        )
                 except:
-                    return_response = self.response
+                    return_response = f"{self.response}\n\n{execution_response}"
             else:
                 return_response = f"{self.response}\n\n{execution_response}"
             self.response = return_response
@@ -575,7 +577,7 @@ class Interactions:
                             log_interaction(
                                 agent_name=self.agent_name,
                                 conversation_name=conversation_name,
-                                role="AGiXT Terminal",
+                                role=self.agent_name,
                                 message=message,
                             )
                             logging.info(message)

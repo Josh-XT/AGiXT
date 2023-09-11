@@ -168,15 +168,15 @@ class Extensions:
         for param in command_args:
             if param not in params:
                 del args[param]
-        try:
-            output = await getattr(
-                module(
-                    **injection_variables,
-                ),
-                command_function.__name__,
-            )(**args)
-        except Exception as e:
-            output = f"Error: {str(e)}"
+        # try:
+        output = await getattr(
+            module(
+                **injection_variables,
+            ),
+            command_function.__name__,
+        )(**args)
+        # except Exception as e:
+        #    output = f"Error: {str(e)}"
         logging.info(f"Command Output: {output}")
         return output
 
