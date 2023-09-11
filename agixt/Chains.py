@@ -73,7 +73,13 @@ class Chains:
                         if "all_responses" in args
                         else False,
                         from_step=args["from_step"] if "from_step" in args else 1,
-                        chain_args=args["chain_args"] if "chain_args" in args else {},
+                        chain_args=args["chain_args"]
+                        if "chain_args" in args
+                        else {
+                            "conversation_name": chain_args["conversation_name"]
+                            if "conversation_name" in chain_args
+                            else f"Chain Execution History: {chain_name}",
+                        },
                     )
         if result:
             if isinstance(result, dict) and "response" in result:
