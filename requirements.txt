@@ -35,4 +35,4 @@ poe-api
 revChatGPT
 hugchat
 GoogleBard
-g4f==0.0.2.9
+g4f==0.0.2.6

@@ -360,11 +360,11 @@ class PerplexityProvider:
         self.reload_account()
         response = self.perplexity_cli.search(
             prompt,
-            mode='copilot',
+            mode="concise",
             focus=self.FOCUS,
         )
         if response["status"] == "completed":
-            return response
+            return response["text"]["answer"]
         return "Error not completed"
 
 
