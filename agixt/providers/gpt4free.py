@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import time
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 from g4f import Provider, ChatCompletion
 from g4f.models import ModelUtils
@@ -100,11 +102,25 @@ class Gpt4freeProvider:
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
         provider = random.choice(safe_providers)
-        answer = self.instruct_provider(provider, max_new_tokens, prompt)
+        loop = asyncio.get_event_loop()
+
+        answer = await loop.run_in_executor(
+            ThreadPoolExecutor(),
+            self.instruct_provider,
+            provider,
+            max_new_tokens,
+            prompt,
+        )
         if answer is not None:
             return answer
         for provider in providers:
-            answer = self.instruct_provider(provider, max_new_tokens, prompt)
+            answer = await loop.run_in_executor(
+                ThreadPoolExecutor(),
+                self.instruct_provider,
+                provider,
+                max_new_tokens,
+                prompt,
+            )
             if answer is not None:
                 return answer
 
