@@ -20,17 +20,14 @@ providers = [
     Provider.Opchatgpts,
     Provider.Vitalentum,
     Provider.Ylokh,
-
     # Works sometimes:
     Provider.Aichat,
     Provider.AItianhu,
-
     Provider.Acytoo,
     Provider.Vercel,
     Provider.You,
     Provider.Yqcloud,
     Provider.Theb,
-
     # Not working today:
     Provider.AiService,
     #   Provider.DfeHub, endless loop
@@ -43,7 +40,6 @@ providers = [
     Provider.Lockchat,
     Provider.V50,
     Provider.Wuguokai,
-
     Provider.H2o,
 ]
 
@@ -68,8 +64,8 @@ def validate_response(response):
     elif not isinstance(response, str):
         raise RuntimeError("Response is not a string")
     elif response in (
-            "Vercel is currently not working.",
-            "Unable to fetch the response, Please try again.",
+        "Vercel is currently not working.",
+        "Unable to fetch the response, Please try again.",
     ) or response.startswith('{"error":{"message":'):
         raise RuntimeError(f"Response: {response}")
     else:
@@ -78,14 +74,14 @@ def validate_response(response):
 
 class Gpt4freeProvider:
     def __init__(
-            self,
-            AI_MODEL: str = "gpt-3.5-turbo",
-            MAX_TOKENS: int = 4096,
-            AI_TEMPERATURE: float = 0.7,
-            AI_TOP_P: float = 0.7,
-            WAIT_BETWEEN_REQUESTS: int = 1,
-            WAIT_AFTER_FAILURE: int = 3,
-            **kwargs,
+        self,
+        AI_MODEL: str = "gpt-3.5-turbo",
+        MAX_TOKENS: int = 4096,
+        AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.7,
+        WAIT_BETWEEN_REQUESTS: int = 1,
+        WAIT_AFTER_FAILURE: int = 3,
+        **kwargs,
     ):
         self.requirements = ["g4f", "httpx"]
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
