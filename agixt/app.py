@@ -510,6 +510,51 @@ async def learn_arxiv(agent_name: str, arxiv_input: ArxivInput) -> ResponseMessa
     return ResponseMessage(message="Agent learned the content from the arXiv articles.")
 
 
+@app.post(
+    "/api/agent/{agent_name}/reader/{reader_name}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def agent_reader(
+    agent_name: str, reader_name: str, data: dict
+) -> ResponseMessage:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    if reader_name == "file":
+        await FileReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=data["collection_number"],
+        ).write_file_to_memory(file_path=data["file_path"])
+    elif reader_name == "website":
+        await WebsiteReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=data["collection_number"],
+        ).write_website_to_memory(url=data["url"])
+    elif reader_name == "github":
+        await GithubReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=data["collection_number"],
+            use_agent_settings=data["use_agent_settings"],
+        ).write_github_repository_to_memory(
+            github_repo=data["github_repo"],
+            github_user=data["github_user"],
+            github_token=data["github_token"],
+            github_branch=data["github_branch"],
+        )
+    elif reader_name == "arxiv":
+        await ArxivReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+        ).write_arxiv_articles_to_memory(
+            query=data["query"],
+            article_ids=data["article_ids"],
+            max_articles=data["max_articles"],
+        )
+    return ResponseMessage(message=f"Agent learned the content from the {reader_name}.")
+
+
 @app.delete(
     "/api/agent/{agent_name}/memory",
     tags=["Memory"],
