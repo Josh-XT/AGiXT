@@ -1,4 +1,4 @@
-agixtsdk==0.0.26
+agixtsdk==0.0.27
 chromadb==0.4.6
 beautifulsoup4==4.12.2
 docker==6.1.2
