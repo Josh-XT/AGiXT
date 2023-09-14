@@ -50,6 +50,7 @@ from Chains import Chains
 from readers.github import GithubReader
 from readers.file import FileReader
 from readers.website import WebsiteReader
+from readers.arxiv import ArxivReader
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -296,6 +297,13 @@ class GitHubInput(BaseModel):
     collection_number: int = 0
 
 
+class ArxivInput(BaseModel):
+    query: str = None
+    article_ids: str = None
+    max_articles: int = 5
+    collection_number: int = 0
+
+
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
 async def getproviders():
     providers = get_providers()
@@ -483,6 +491,81 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
     return ResponseMessage(
         message="Agent learned the content from the GitHub Repository."
     )
+
+
+@app.post(
+    "/api/agent/{agent_name}/learn/arxiv",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_arxiv(agent_name: str, arxiv_input: ArxivInput) -> ResponseMessage:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await ArxivReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=arxiv_input.collection_number,
+    ).write_arxiv_articles_to_memory(
+        query=arxiv_input.query,
+        article_ids=arxiv_input.article_ids,
+        max_articles=arxiv_input.max_articles,
+    )
+    return ResponseMessage(message="Agent learned the content from the arXiv articles.")
+
+
+@app.post(
+    "/api/agent/{agent_name}/reader/{reader_name}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def agent_reader(
+    agent_name: str, reader_name: str, data: dict
+) -> ResponseMessage:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    collection_number = data["collection_number"] if "collection_number" in data else 0
+    if reader_name == "file":
+        response = await FileReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        ).write_file_to_memory(file_path=data["file_path"])
+    elif reader_name == "website":
+        response = await WebsiteReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        ).write_website_to_memory(url=data["url"])
+    elif reader_name == "github":
+        response = await GithubReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+            use_agent_settings=data["use_agent_settings"]
+            if "use_agent_settings" in data
+            else False,
+        ).write_github_repository_to_memory(
+            github_repo=data["github_repo"],
+            github_user=data["github_user"] if "github_user" in data else None,
+            github_token=data["github_token"] if "github_token" in data else None,
+            github_branch=data["github_branch"] if "github_branch" in data else "main",
+        )
+    elif reader_name == "arxiv":
+        response = await ArxivReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+        ).write_arxiv_articles_to_memory(
+            query=data["query"],
+            article_ids=data["article_ids"],
+            max_articles=data["max_articles"],
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Invalid reader name.")
+    if response == True:
+        return ResponseMessage(
+            message=f"Agent learned the content from the {reader_name}."
+        )
+    else:
+        return ResponseMessage(message=f"Agent failed to learn the content.")
 
 
 @app.delete(
