@@ -32,3 +32,14 @@ services:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
+  nextjs:
+    image: joshxt/agixt-nextjs:latest
+    depends_on:
+      - agixt
+    environment:
+      - NEXT_PUBLIC_API_URL=${AGIXT_URI:-http://agixt:7437}
+      - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
+    ports:
+      - "24498:3000"
+    volumes:
+      - ./agixt/WORKSPACE:/app/WORKSPACE
