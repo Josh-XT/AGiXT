@@ -34,8 +34,8 @@ def get_conversations(agent_name=None):
     return []
 
 
-def new_conversation(conversation_name, agent_name=None):
-    history = {"interactions": []}
+def new_conversation(conversation_name, agent_name=None, conversation_content=[]):
+    history = {"interactions": conversation_content}
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     os.makedirs(os.path.dirname(history_file), exist_ok=True)
     with open(history_file, "w") as file:
