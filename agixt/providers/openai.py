@@ -1,5 +1,6 @@
 import time
 import logging
+import random
 
 try:
     import openai
@@ -41,6 +42,17 @@ class OpenaiProvider:
         self.OPENAI_API_KEY = OPENAI_API_KEY
         openai.api_base = self.API_URI
         openai.api_key = OPENAI_API_KEY
+        self.FAILURES = []
+
+    def rotate_uri(self):
+        self.FAILURES.append(self.API_URI)
+        uri_list = self.API_URI.split(",")
+        random.shuffle(uri_list)
+        for uri in uri_list:
+            if uri not in self.FAILURES:
+                self.API_URI = uri
+                openai.api_base = self.API_URI
+                break
 
     async def instruct(self, prompt, tokens: int = 0):
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
@@ -98,6 +110,8 @@ class OpenaiProvider:
                     return new_response.strip()
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
+            if "," in self.API_URI:
+                self.rotate_uri()
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.instruct(prompt=prompt, tokens=tokens)
