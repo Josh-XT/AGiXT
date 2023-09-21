@@ -100,7 +100,7 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     return return_messages
 
 
-def new_conversation(agent_name, conversation_name):
+def new_conversation(agent_name, conversation_name, conversation_content=[]):
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -125,6 +125,15 @@ def new_conversation(agent_name, conversation_name):
     conversation = Conversation(agent_id=agent.id, name=conversation_name)
     session.add(conversation)
     session.commit()
+    if conversation_content != []:
+        for interaction in conversation_content:
+            new_message = Message(
+                role=interaction["role"],
+                content=interaction["message"],
+                timestamp=interaction["timestamp"],
+                conversation_id=conversation.id,
+            )
+            session.add(new_message)
 
     print(
         f"Created a new conversation: '{conversation_name}' for agent '{agent_name}'."

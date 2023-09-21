@@ -280,6 +280,7 @@ class HistoryModel(BaseModel):
 class ConversationHistoryModel(BaseModel):
     agent_name: str
     conversation_name: str
+    conversation_content: List[dict] = []
 
 
 class ConversationHistoryMessageModel(BaseModel):
@@ -729,8 +730,9 @@ async def new_conversation_history(history: ConversationHistoryModel):
     new_conversation(
         agent_name=history.agent_name,
         conversation_name=history.conversation_name,
+        conversation_content=history.conversation_content,
     )
-    return {"conversation_history": []}
+    return {"conversation_history": history.conversation_content}
 
 
 @app.delete(
