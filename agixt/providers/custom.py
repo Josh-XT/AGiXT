@@ -1,6 +1,7 @@
 import requests
 import time
 import logging
+import random
 
 
 # Custom OpenAI Style Provider
@@ -28,6 +29,16 @@ class CustomProvider:
         self.WAIT_BETWEEN_REQUESTS = (
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 0
         )
+        self.FAILURES = []
+
+    def rotate_uri(self):
+        self.FAILURES.append(self.API_URI)
+        uri_list = self.API_URI.split(",")
+        random.shuffle(uri_list)
+        for uri in uri_list:
+            if uri not in self.FAILURES:
+                self.API_URI = uri
+                break
 
     async def instruct(self, prompt, tokens: int = 0):
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
@@ -71,6 +82,8 @@ class CustomProvider:
                         return data["choices"][0]["message"]["content"].strip()
             if "error" in data:
                 logging.info(f"Custom API Error: {data}")
+                if "," in self.API_URI:
+                    self.rotate_uri()
                 if int(self.WAIT_AFTER_FAILURE) > 0:
                     time.sleep(int(self.WAIT_AFTER_FAILURE))
                     return await self.instruct(prompt=prompt, tokens=tokens)
