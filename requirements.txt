@@ -1,5 +1,5 @@
 agixtsdk==0.0.28
-chromadb==0.4.6
+chromadb==0.4.12
 beautifulsoup4==4.12.2
 docker==6.1.2
 docx2txt==0.8
