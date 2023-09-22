@@ -57,8 +57,7 @@ def get_providers_with_settings():
     for provider in get_providers():
         providers.append(
             {
-                "provider": provider,
-                "settings": get_provider_options(provider_name=provider),
+                provider: get_provider_options(provider_name=provider),
             }
         )
     return providers
