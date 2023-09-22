@@ -52,6 +52,18 @@ def get_provider_options(provider_name):
     return options
 
 
+def get_providers_with_settings():
+    providers = []
+    for provider in get_providers():
+        providers.append(
+            {
+                "provider": provider,
+                "settings": get_provider_options(provider_name=provider),
+            }
+        )
+    return providers
+
+
 class Providers:
     def __init__(self, name, **kwargs):
         if name in DISABLED_PROVIDERS:

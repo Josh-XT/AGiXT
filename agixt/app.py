@@ -43,7 +43,7 @@ else:
 
 
 from typing import Optional, Dict, List, Any
-from Providers import get_provider_options, get_providers
+from Providers import get_provider_options, get_providers, get_providers_with_settings
 from Embedding import get_embedding_providers, get_embedders
 from Extensions import Extensions
 from Chains import Chains
@@ -319,6 +319,16 @@ async def getproviders():
 async def get_provider_settings(provider_name: str):
     settings = get_provider_options(provider_name=provider_name)
     return {"settings": settings}
+
+
+@app.get(
+    "/api/providers",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_all_providers():
+    providers = get_providers_with_settings()
+    return {"providers": providers}
 
 
 # Gets list of embedding providers
