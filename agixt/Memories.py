@@ -157,8 +157,7 @@ class Memories:
                     "timestamp": metadata["timestamp"],
                 }
             )
-
-        return {self.collection_name: json_data}
+        return json_data
 
     async def export_collections_to_json(self):
         collections = await self.get_collections()
