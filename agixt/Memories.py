@@ -209,6 +209,7 @@ class Memories:
         collections = self.chroma_client.list_collections()
         if int(self.collection_number) > 0:
             collection_name = camel_to_snake(self.agent_name)
+            collection_name = f"{collection_name}_{self.collection_number}"
         else:
             collection_name = self.collection_name
         return [
