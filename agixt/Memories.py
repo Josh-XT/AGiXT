@@ -193,17 +193,16 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        collection_names = []
         if int(self.collection_number) > 0:
             collection_name = camel_to_snake(self.agent_name)
             collection_name = f"{collection_name}_{self.collection_number}"
         else:
             collection_name = self.collection_name
-        collection_names.append(collection_name)
-        for collection in collections:
-            if collection.name.startswith(collection_name):
-                collection_names.append(collection.name)
-        return collection_names
+        return [
+            collection
+            for collection in collections
+            if collection.startswith(collection_name)
+        ]
 
     async def get_collection(self):
         try:
