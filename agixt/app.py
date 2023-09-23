@@ -459,25 +459,6 @@ async def import_agent_memories(
 
 
 @app.post(
-    "/api/agent/{agent_name}/memory/import/{collection_number}",
-    tags=["Memory"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def import_agent_memory(
-    agent_name: str,
-    memories: List[dict],
-    collection_number=0,
-) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
-        collection_number=collection_number,
-    ).import_collection_from_json(memories)
-    return ResponseMessage(message="Memory imported.")
-
-
-@app.post(
     "/api/agent/{agent_name}/learn/text",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],

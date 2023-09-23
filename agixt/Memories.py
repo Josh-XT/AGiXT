@@ -157,39 +157,18 @@ class Memories:
                     "timestamp": metadata["timestamp"],
                 }
             )
-        return json_data
+
+        return {self.collection_name: json_data}
 
     async def export_collections_to_json(self):
         collections = await self.get_collections()
         json_export = []
         for collection in collections:
-            agent_collection_prefix = camel_to_snake(self.agent_name)
-            if collection.name.startswith(agent_collection_prefix):
-                json_data = await self.export_collection_to_json()
-                collection_number = collection.name.split(
-                    f"{agent_collection_prefix}_"
-                )[1]
-                try:
-                    collection_number = int(collection_number)
-                except:
-                    collection_number = 0
-
-                json_export.append({f"{collection_number}": json_data})
+            self.collection_name = collection
+            json_data = await self.export_collection_to_json()
+            collection_number = collection.split("_")[-1]
+            json_export.append({f"{collection_number}": json_data})
         return json_export
-
-    async def import_collection_from_json(self, json_data: List[dict]):
-        collection = await self.get_collection()
-        if collection == None:
-            return ""
-        for data in json_data:
-            try:
-                await self.write_text_to_memory(
-                    user_input=data["description"],
-                    text=data["text"],
-                    external_source=data["external_source_name"],
-                )
-            except:
-                pass
 
     async def import_collections_from_json(self, json_data: List[dict]):
         for data in json_data:
@@ -202,21 +181,30 @@ class Memories:
                 self.collection_name = camel_to_snake(self.agent_name)
                 if collection_number > 0:
                     self.collection_name = f"{self.collection_name}_{collection_number}"
-                await self.import_collection_from_json(json_data=value)
+                for val in value[self.collection_name]:
+                    try:
+                        await self.write_text_to_memory(
+                            user_input=val["description"],
+                            text=val["text"],
+                            external_source=val["external_source_name"],
+                        )
+                    except:
+                        pass
 
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
+        collection_names = []
         if int(self.collection_number) > 0:
             collection_name = camel_to_snake(self.agent_name)
             collection_name = f"{collection_name}_{self.collection_number}"
         else:
             collection_name = self.collection_name
-        return [
-            collection
-            for collection in collections
-            if collection.startswith(collection_name)
-        ]
+        collection_names.append(collection_name)
+        for collection in collections:
+            if collection.name.startswith(collection_name):
+                collection_names.append(collection.name)
+        return collection_names
 
     async def get_collection(self):
         try:
