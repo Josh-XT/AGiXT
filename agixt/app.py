@@ -427,21 +427,6 @@ async def export_agent_memories(agent_name: str) -> Dict[str, Any]:
     return {"memories": memories}
 
 
-@app.get(
-    "/api/agent/{agent_name}/memory/export/{collection_number}",
-    tags=["Memory"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def export_agent_memory(agent_name: str, collection_number=0) -> Dict[str, Any]:
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
-    memories = await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
-        collection_number=collection_number,
-    ).export_collection_to_json()
-    return {"memories": memories}
-
-
 @app.post(
     "/api/agent/{agent_name}/memory/import",
     tags=["Memory"],
