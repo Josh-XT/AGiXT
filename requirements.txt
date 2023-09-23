@@ -35,4 +35,4 @@ revChatGPT
 hugchat
 GoogleBard
 arxiv
-g4f==0.0.3.0
+g4f==0.0.3.1
