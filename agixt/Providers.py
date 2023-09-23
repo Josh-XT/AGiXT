@@ -7,7 +7,6 @@ import inspect
 from dotenv import load_dotenv
 
 DEFAULT_SETTINGS = {
-    "provider": "gpt4free",
     "embedder": "default",
     "AI_MODEL": "gpt-3.5-turbo",
     "AI_TEMPERATURE": "0.7",
@@ -42,24 +41,24 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    options = {
-        "provider": provider_name,
-        **DEFAULT_SETTINGS,
-    }
-    # This will keep the heavy requirements of these providers not installed unless needed.
-    if provider_name == "llamacpp":
-        options["MODEL_PATH"] = ""
-        options["STOP_SEQUENCE"] = "</s>"
-        options["GPU_LAYERS"] = 0
-        options["BATCH_SIZE"] = 2048
-        options["THREADS"] = 0
-    elif provider_name == "pipeline":
-        options["HUGGINGFACE_API_KEY"] = ""
-        options["MODEL_PATH"] = ""
-    elif provider_name == "palm":
-        options["PALM_API_KEY"] = ""
+    if provider_name in ["llamacpp", "pipeline", "palm"]:
+        options = {
+            "provider": provider_name,
+            **DEFAULT_SETTINGS,
+        }
+        # This will keep the heavy requirements of these providers not installed unless needed.
+        if provider_name == "llamacpp":
+            options["MODEL_PATH"] = ""
+            options["STOP_SEQUENCE"] = "</s>"
+            options["GPU_LAYERS"] = 0
+            options["BATCH_SIZE"] = 2048
+            options["THREADS"] = 0
+        elif provider_name == "pipeline":
+            options["HUGGINGFACE_API_KEY"] = ""
+            options["MODEL_PATH"] = ""
+        elif provider_name == "palm":
+            options["PALM_API_KEY"] = ""
     else:
-        options["provider"] = provider_name
         try:
             module = importlib.import_module(f"providers.{provider_name}")
             provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
@@ -73,6 +72,8 @@ def get_provider_options(provider_name):
             }
         except:
             pass
+    if "prodiver" not in options:
+        options["provider"] = provider_name
     return options
 
 
