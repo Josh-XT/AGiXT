@@ -137,11 +137,65 @@ class Memories:
         except:
             return False
 
+    async def export_collection_to_json(self):
+        collection = await self.get_collection()
+        if collection == None:
+            return ""
+        results = collection.get()
+        json_data = []
+        for id, document, embedding, metadata in zip(
+            results["ids"][0],
+            results["documents"][0],
+            results["embeddings"][0],
+            results["metadatas"][0],
+        ):
+            json_data.append(
+                {
+                    "external_source_name": metadata["external_source_name"],
+                    "description": metadata["description"],  # User input
+                    "text": document,
+                    "timestamp": metadata["timestamp"],
+                }
+            )
+        return json_data
+
+    async def export_collections_to_json(self):
+        collections = await self.get_collections()
+        json_export = []
+        for collection in collections:
+            self.collection_name = collection
+            json_data = await self.export_collection_to_json()
+            collection_number = collection.split("_")[-1]
+            json_export.append({f"{collection_number}": json_data})
+        return json_export
+
+    async def import_collections_from_json(self, json_data: List[dict]):
+        for data in json_data:
+            for key, value in data.items():
+                try:
+                    collection_number = int(key)
+                except:
+                    collection_number = 0
+                self.collection_number = collection_number
+                self.collection_name = camel_to_snake(self.agent_name)
+                if collection_number > 0:
+                    self.collection_name = f"{self.collection_name}_{collection_number}"
+                for val in value[self.collection_name]:
+                    try:
+                        await self.write_text_to_memory(
+                            user_input=val["description"],
+                            text=val["text"],
+                            external_source=val["external_source_name"],
+                        )
+                    except:
+                        pass
+
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
         if int(self.collection_number) > 0:
             collection_name = camel_to_snake(self.agent_name)
+            collection_name = f"{collection_name}_{self.collection_number}"
         else:
             collection_name = self.collection_name
         return [

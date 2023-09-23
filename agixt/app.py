@@ -412,6 +412,37 @@ async def query_memories(
     return {"memories": memories}
 
 
+# Export all agent memories
+@app.get(
+    "/api/agent/{agent_name}/memory/export",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def export_agent_memories(agent_name: str) -> Dict[str, Any]:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    memories = await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+    ).export_collections_to_json()
+    return {"memories": memories}
+
+
+@app.post(
+    "/api/agent/{agent_name}/memory/import",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def import_agent_memories(
+    agent_name: str, memories: List[dict]
+) -> ResponseMessage:
+    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+    ).import_collections_from_json(memories)
+    return ResponseMessage(message="Memories imported.")
+
+
 @app.post(
     "/api/agent/{agent_name}/learn/text",
     tags=["Memory"],
