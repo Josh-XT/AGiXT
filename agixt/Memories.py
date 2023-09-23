@@ -159,7 +159,7 @@ class Memories:
             )
         return json_data
 
-    async def export_agent_collections_to_json(self):
+    async def export_collections_to_json(self):
         collections = await self.get_collections()
         json_export = []
         for collection in collections:
@@ -191,7 +191,7 @@ class Memories:
             except:
                 pass
 
-    async def import_agent_collections_from_json(self, json_data: List[dict]):
+    async def import_collections_from_json(self, json_data: List[dict]):
         for data in json_data:
             for key, value in data.items():
                 try:
