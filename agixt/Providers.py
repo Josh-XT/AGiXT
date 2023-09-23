@@ -5,6 +5,7 @@ import glob
 import os
 import inspect
 from dotenv import load_dotenv
+from fb.Agent import DEFAULT_SETTINGS
 
 load_dotenv()
 
@@ -25,30 +26,37 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    try:
-        module = importlib.import_module(f"providers.{provider_name}")
-        provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
-        signature = inspect.signature(provider_class.__init__)
-        options = {
-            name: param.default
-            if param.default is not inspect.Parameter.empty
-            else None
-            for name, param in signature.parameters.items()
-            if name != "self" and name != "kwargs"
-        }
+    options = {
+        "provider": provider_name,
+        **DEFAULT_SETTINGS,
+    }
+    # This will keep the heavy requirements of these providers not installed unless needed.
+    if provider_name == "llamacpp":
+        options["MODEL_PATH"] = ""
+        options["STOP_SEQUENCE"] = "</s>"
+        options["GPU_LAYERS"] = 0
+        options["BATCH_SIZE"] = 2048
+        options["THREADS"] = 0
+    elif provider_name == "pipeline":
+        options["HUGGINGFACE_API_KEY"] = ""
+        options["MODEL_PATH"] = ""
+    elif provider_name == "palm":
+        options["PALM_API_KEY"] = ""
+    else:
         options["provider"] = provider_name
-    except:
-        options = {
-            "provider": provider_name,
-            "MAX_TOKENS": 4096,
-            "AI_MODEL": "gpt-3.5-turbo",
-            "AI_TOP_P": 0.7,
-            "AI_TEMPERATURE": 0.7,
-            "WAIT_BETWEEN_REQUESTS": 1,
-            "WAIT_AFTER_FAILURE": 3,
-        }
-        if provider_name == "petal" or provider_name == "pipeline":
-            options["HUGGINGFACE_API_KEY"] = ""
+        try:
+            module = importlib.import_module(f"providers.{provider_name}")
+            provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+            signature = inspect.signature(provider_class.__init__)
+            options = {
+                name: param.default
+                if param.default is not inspect.Parameter.empty
+                else None
+                for name, param in signature.parameters.items()
+                if name != "self" and name != "kwargs"
+            }
+        except:
+            pass
     return options
 
 
