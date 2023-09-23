@@ -41,7 +41,7 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    if provider_name in ["llamacpp", "pipeline", "palm"]:
+    if ["llamacpp", "pipeline", "palm"] in provider_name:
         options = {
             "provider": provider_name,
             **DEFAULT_SETTINGS,
