@@ -41,23 +41,22 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    if ["llamacpp", "pipeline", "palm"] in provider_name:
-        options = {
-            "provider": provider_name,
-            **DEFAULT_SETTINGS,
-        }
-        # This will keep the heavy requirements of these providers not installed unless needed.
-        if provider_name == "llamacpp":
-            options["MODEL_PATH"] = ""
-            options["STOP_SEQUENCE"] = "</s>"
-            options["GPU_LAYERS"] = 0
-            options["BATCH_SIZE"] = 2048
-            options["THREADS"] = 0
-        elif provider_name == "pipeline":
-            options["HUGGINGFACE_API_KEY"] = ""
-            options["MODEL_PATH"] = ""
-        elif provider_name == "palm":
-            options["PALM_API_KEY"] = ""
+    options = {
+        "provider": provider_name,
+        **DEFAULT_SETTINGS,
+    }
+    # This will keep the heavy requirements of these providers not installed unless needed.
+    if provider_name == "llamacpp":
+        options["MODEL_PATH"] = ""
+        options["STOP_SEQUENCE"] = "</s>"
+        options["GPU_LAYERS"] = 0
+        options["BATCH_SIZE"] = 2048
+        options["THREADS"] = 0
+    elif provider_name == "pipeline":
+        options["HUGGINGFACE_API_KEY"] = ""
+        options["MODEL_PATH"] = ""
+    elif provider_name == "palm":
+        options["PALM_API_KEY"] = ""
     else:
         try:
             module = importlib.import_module(f"providers.{provider_name}")
