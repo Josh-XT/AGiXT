@@ -1,3 +1,4 @@
+import os
 import re
 import regex
 import json
@@ -6,6 +7,7 @@ import logging
 import tiktoken
 from datetime import datetime
 from readers.website import WebsiteReader
+from readers.file import FileReader
 from ApiClient import ApiClient, DB_CONNECTED
 
 if DB_CONNECTED:
@@ -246,6 +248,62 @@ class Interactions:
         """
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
+        file_contents = ""
+        if "import_files" in kwargs:
+            try:
+                # files should be formatted like [{"file_name": "file_content"}]
+                files = json.dumps(kwargs["import_files"], indent=4)
+                del kwargs["import_files"]
+                all_files_content = ""
+                for file in files:
+                    file_name = file["file_name"]
+                    file_content = file["file_content"]
+                    if file_name != "" and file_content != "":
+                        all_files_content += f"{file_name}:\n{file_content}\n\n"
+                content_text = prompt + user_input + all_files_content
+                tokens_used = get_tokens(content_text)
+                file_list = []
+                for file in files:
+                    file_name = file["file_name"]
+                    file_list.append(file_name)
+                    file_content = file["file_content"]
+                    if file_name != "" and file_content != "":
+                        # Create a temporary file with the content
+                        file_name = file_name.split("/")[-1]
+                        temp_dir = f"{working_directory}/temp"
+                        if not os.path.exists(temp_dir):
+                            os.makedirs(temp_dir)
+                        file_path = f"{temp_dir}/{file_name}"
+                        with open(file_path, "w") as f:
+                            f.write(file_content)
+
+                        if tokens_used > int(self.agent.MAX_TOKENS):
+                            # Too long, put it in long file memory collection 4
+                            reader = FileReader(
+                                agent_name=self.agent_name,
+                                agent_config=self.agent.AGENT_CONFIG,
+                                collection=4,
+                            )
+                            try:
+                                await reader.write_file_to_memory(
+                                    file_path=file_path,
+                                )
+                            except:
+                                pass
+                        else:
+                            file_contents += f"\n`{working_directory}/{file_name}` content: {file_content}\n\n"
+                        os.remove(file_path)
+                if tokens_used > int(self.agent.MAX_TOKENS):
+                    fragmented_content = reader.get_memories(
+                        user_input=user_input,
+                        min_relevance_score=0.4,
+                        limit=top_results if top_results > 0 else 5,
+                    )
+                    fragmented_content = "\n".join(fragmented_content)
+                    file_list = ", ".join(file_list)
+                    file_contents = f"Here is some relevant information from these files: {file_list}.\n\n{fragmented_content}\n\n"
+            except:
+                pass
         skip_args = [
             "user_input",
             "agent_name",
@@ -274,6 +332,7 @@ class Interactions:
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,
             persona=persona,
+            import_files=file_contents,
             **kwargs,
         )
 
