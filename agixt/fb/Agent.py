@@ -195,7 +195,7 @@ class Agent:
             enabled_commands,
         )
         if not friendly_names:
-            return None
+            return ""
         command_list = "\n".join(friendly_names)
         return f"Commands Available To Complete Task:\n{command_list}\n\n"
 

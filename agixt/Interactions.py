@@ -242,7 +242,7 @@ class Interactions:
     }
 }
         """
-        if prompt_name == "Chat with Commands" and command_list == None:
+        if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         formatted_prompt = self.custom_format(
             string=prompt,
