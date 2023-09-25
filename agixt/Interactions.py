@@ -351,6 +351,8 @@ class Interactions:
             role="USER",
             message=user_input if user_input != "" else formatted_prompt,
         )
+        if "COMMANDS" in kwargs:
+            del kwargs["COMMANDS"]
         try:
             self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
         except Exception as e:
