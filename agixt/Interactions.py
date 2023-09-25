@@ -211,11 +211,14 @@ class Interactions:
                     x += 1
                 else:
                     break
-        if "conversation_history" in kwargs:
-            del kwargs["conversation_history"]
+        persona = ""
+        if "persona" in kwargs:
+            if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
+                persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
+        if persona != "":
+            persona = f"Your persona is: {persona}\n\n"
 
         verbose_commands = "**You have commands available to use if they would be useful to complete a user's task.**\n```json\n{\n"
-
         for command in self.agent.available_commands:
             verbose_commands += f'    "{command["friendly_name"]}": {{\n'
             for arg in command["args"]:
@@ -241,6 +244,24 @@ class Interactions:
     }
 }
         """
+        if prompt_name == "Chat with Commands" and command_list == "":
+            prompt_name = "Chat"
+        skip_args = [
+            "user_input",
+            "agent_name",
+            "COMMANDS",
+            "context",
+            "command_list",
+            "date",
+            "working_directory",
+            "helper_agent_name",
+            "conversation_history",
+            "persona",
+        ]
+        args = kwargs.copy()
+        for arg in args:
+            if arg in skip_args:
+                del kwargs[arg]
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -252,6 +273,7 @@ class Interactions:
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,
+            persona=persona,
             **kwargs,
         )
 
