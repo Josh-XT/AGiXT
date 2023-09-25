@@ -247,19 +247,19 @@ class Interactions:
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         skip_args = [
+            "user_input",
+            "agent_name",
             "COMMANDS",
-            "conversation_history",
             "context",
             "command_list",
             "date",
             "working_directory",
-            "agent_name",
             "helper_agent_name",
-            "user_input",
+            "conversation_history",
             "persona",
         ]
-
-        for arg in kwargs:
+        args = kwargs.copy()
+        for arg in args:
             if arg in skip_args:
                 del kwargs[arg]
         formatted_prompt = self.custom_format(
