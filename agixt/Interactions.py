@@ -286,8 +286,9 @@ class Interactions:
                         pass
                 if file_name != "" and file_content != "":
                     all_files_content += file_content
-            content_text = prompt + user_input + all_files_content + context
-            tokens_used = get_tokens(content_text)
+            tokens_used = get_tokens(
+                f"{prompt}{user_input}{all_files_content}{context}"
+            )
             if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
                 file_list = ", ".join(file_list)
                 fragmented_content = await file_reader.get_memories(
