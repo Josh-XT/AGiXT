@@ -310,11 +310,12 @@ class Interactions:
             "helper_agent_name",
             "conversation_history",
             "persona",
+            "import_files",
         ]
         args = kwargs.copy()
-        for arg in args:
+        for arg in kwargs:
             if arg in skip_args:
-                del kwargs[arg]
+                del args[arg]
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -328,7 +329,7 @@ class Interactions:
             conversation_history=conversation_history,
             persona=persona,
             import_files=file_contents,
-            **kwargs,
+            **args,
         )
 
         tokens = get_tokens(formatted_prompt)
