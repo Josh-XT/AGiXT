@@ -270,9 +270,7 @@ class Interactions:
                     with open(file_path, "w") as f:
                         f.write(file["file_content"])
                     file_content = file["file_content"]
-
                 else:
-                    # Get the content of the file instead of using the content in the file object
                     with open(file_path, "r") as f:
                         file_content = f.read()
                     file_contents += f"\n`{file_path}` content:\n{file_content}\n\n"
