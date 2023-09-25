@@ -91,7 +91,6 @@ class Interactions:
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
-
         try:
             prompt = cp.get_prompt(
                 prompt_name=prompt_name,
