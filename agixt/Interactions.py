@@ -1,3 +1,4 @@
+import os
 import re
 import regex
 import json
@@ -6,6 +7,7 @@ import logging
 import tiktoken
 from datetime import datetime
 from readers.website import WebsiteReader
+from readers.file import FileReader
 from ApiClient import ApiClient, DB_CONNECTED
 
 if DB_CONNECTED:
@@ -98,8 +100,10 @@ class Interactions:
                 if prompt_category == "Default"
                 else prompt_category,
             )
+            prompt_args = cp.get_prompt_args(prompt_text=prompt)
         except:
             prompt = prompt_name
+            prompt_args = []
         logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
             context = []
@@ -143,7 +147,6 @@ class Interactions:
                 context = []
         if "context" in kwargs:
             context += [kwargs["context"]]
-            del kwargs["context"]
         if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes you remember these things:\n{context}\n"
@@ -212,7 +215,7 @@ class Interactions:
                 else:
                     break
         persona = ""
-        if "persona" in kwargs:
+        if "persona" in prompt_args:
             if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if persona != "":
@@ -246,6 +249,69 @@ class Interactions:
         """
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
+        file_contents = ""
+        if "import_files" in prompt_args:
+            file_reader = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection=4,
+            )
+            # import_files should be formatted like [{"file_name": "file_content"}]
+            files = []
+            if "import_files" in kwargs:
+                if kwargs["import_files"] != "":
+                    try:
+                        files = json.loads(kwargs["import_files"])
+                    except:
+                        files = []
+            all_files_content = ""
+            file_list = []
+            for file in files:
+                file_name = file["file_name"]
+                file_list.append(file_name)
+                file_path = os.path.join(working_directory, file_name)
+                if not os.path.exists(file_path):
+                    # Create it with the content if it doesn't exist.
+                    with open(file_path, "w") as f:
+                        f.write(file["file_content"])
+                    file_content = file["file_content"]
+                else:
+                    with open(file_path, "r") as f:
+                        file_content = f.read()
+                    file_contents += f"\n`{file_path}` content:\n{file_content}\n\n"
+                try:
+                    await file_reader.write_file_to_memory(
+                        file_path=file_path,
+                    )
+                except:
+                    pass
+                if file_name != "" and file_content != "":
+                    all_files_content += file_content
+            if files != []:
+                the_files = (
+                    f"these files: {', '.join(file_list)}."
+                    if len(file_list) > 1
+                    else f"the file {file_list[0]}."
+                )
+                log_interaction(
+                    agent_name=self.agent_name,
+                    conversation_name=conversation_name,
+                    role=self.agent_name,
+                    message=f"I have read the file contents of {the_files}.",
+                )
+            else:
+                the_files = "files."
+            tokens_used = get_tokens(
+                f"{prompt}{user_input}{all_files_content}{context}"
+            )
+            if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
+                fragmented_content = await file_reader.get_memories(
+                    user_input=f"{user_input} {file_list}",
+                    min_relevance_score=0.3,
+                    limit=top_results if top_results > 0 else 5,
+                )
+                if fragmented_content != "":
+                    file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
         skip_args = [
             "user_input",
             "agent_name",
@@ -257,11 +323,12 @@ class Interactions:
             "helper_agent_name",
             "conversation_history",
             "persona",
+            "import_files",
         ]
         args = kwargs.copy()
-        for arg in args:
+        for arg in kwargs:
             if arg in skip_args:
-                del kwargs[arg]
+                del args[arg]
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
@@ -274,7 +341,8 @@ class Interactions:
             helper_agent_name=helper_agent_name,
             conversation_history=conversation_history,
             persona=persona,
-            **kwargs,
+            import_files=file_contents,
+            **args,
         )
 
         tokens = get_tokens(formatted_prompt)
