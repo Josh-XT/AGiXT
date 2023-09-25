@@ -36,3 +36,15 @@ hugchat
 GoogleBard
 arxiv
 g4f==0.0.3.1
+numpy
+matplotlib
+seaborn
+scikit-learn
+yfinance
+scipy
+statsmodels
+sympy
+bokeh
+plotly
+dash
+networkx
