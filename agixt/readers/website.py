@@ -36,7 +36,9 @@ class WebsiteReader(Memories):
             text_content = soup.get_text()
             text_content = " ".join(text_content.split())
             if text_content:
+                stored_content = f"From website: {url}\n\nContent:\n{text_content}"
                 await self.write_text_to_memory(
-                    user_input=url, text=text_content, external_source=url
+                    user_input=url, text=stored_content, external_source=url
                 )
-            return text_content, link_list
+                return stored_content, link_list
+            return None, None
