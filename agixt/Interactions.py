@@ -91,6 +91,7 @@ class Interactions:
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
+
         try:
             prompt = cp.get_prompt(
                 prompt_name=prompt_name,
@@ -241,6 +242,8 @@ class Interactions:
     }
 }
         """
+        if prompt_name == "Chat with Commands" and command_list == None:
+            prompt_name = "Chat"
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
