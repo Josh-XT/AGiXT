@@ -250,8 +250,13 @@ class Interactions:
             prompt_name = "Chat"
         file_contents = ""
         if "import_files" in kwargs:
+            file_reader = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection=4,
+            )
             try:
-                # files should be formatted like [{"file_name": "file_content"}]
+                # import_files should be formatted like [{"file_name": "file_content"}]
                 files = json.dumps(kwargs["import_files"], indent=4)
                 del kwargs["import_files"]
                 all_files_content = ""
@@ -260,7 +265,7 @@ class Interactions:
                     file_content = file["file_content"]
                     if file_name != "" and file_content != "":
                         all_files_content += f"{file_name}:\n{file_content}\n\n"
-                content_text = prompt + user_input + all_files_content
+                content_text = prompt + user_input + all_files_content + context
                 tokens_used = get_tokens(content_text)
                 file_list = []
                 for file in files:
@@ -276,31 +281,23 @@ class Interactions:
                         file_path = f"{temp_dir}/{file_name}"
                         with open(file_path, "w") as f:
                             f.write(file_content)
-
-                        if tokens_used > int(self.agent.MAX_TOKENS):
-                            # Too long, put it in long file memory collection 4
-                            reader = FileReader(
-                                agent_name=self.agent_name,
-                                agent_config=self.agent.AGENT_CONFIG,
-                                collection=4,
+                        try:
+                            await file_reader.write_file_to_memory(
+                                file_path=file_path,
                             )
-                            try:
-                                await reader.write_file_to_memory(
-                                    file_path=file_path,
-                                )
-                            except:
-                                pass
-                        else:
-                            file_contents += f"\n`{working_directory}/{file_name}` content: {file_content}\n\n"
+                        except:
+                            pass
+                        if tokens_used < int(self.agent.MAX_TOKENS):
+                            file_contents += f"\n`{working_directory}/{file_name}` content:\n{file_content}\n\n"
                         os.remove(file_path)
                 if tokens_used > int(self.agent.MAX_TOKENS):
-                    fragmented_content = reader.get_memories(
-                        user_input=user_input,
-                        min_relevance_score=0.4,
+                    file_list = ", ".join(file_list)
+                    fragmented_content = await file_reader.get_memories(
+                        user_input=f"{user_input} {file_list}",
+                        min_relevance_score=0.3,
                         limit=top_results if top_results > 0 else 5,
                     )
-                    fragmented_content = "\n".join(fragmented_content)
-                    file_list = ", ".join(file_list)
+                    file_contents = "\n".join(fragmented_content)
                     file_contents = f"Here is some relevant information from these files: {file_list}.\n\n{fragmented_content}\n\n"
             except:
                 pass
