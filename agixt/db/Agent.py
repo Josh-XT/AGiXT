@@ -30,7 +30,7 @@ DEFAULT_SETTINGS = {
     "stream": False,
     "WORKING_DIRECTORY": "./WORKSPACE",
     "WORKING_DIRECTORY_RESTRICTED": True,
-    "AUTONOMOUS_EXECUTION": False,
+    "AUTONOMOUS_EXECUTION": True,
 }
 
 
@@ -276,6 +276,8 @@ class Agent:
             lambda command: f"`{command['friendly_name']}` - Arguments: {command['args']}",
             enabled_commands,
         )
+        if not friendly_names:
+            return ""
         command_list = "\n".join(friendly_names)
         return f"Commands Available To Complete Task:\n{command_list}\n\n"
 
