@@ -83,9 +83,10 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
+                stored_content = f"From file: {filename}\n{content}"
                 await self.write_text_to_memory(
                     user_input=file_path,
-                    text=content,
+                    text=stored_content,
                     external_source=f"file called {filename}",
                 )
             return True

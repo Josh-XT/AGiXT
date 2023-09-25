@@ -42,10 +42,11 @@ class ArxivReader(Memories):
                     with pdfplumber.open(file_path) as pdf:
                         content = "\n".join([page.extract_text() for page in pdf.pages])
                     if content != "":
+                        stored_content = f"From arXiv article: {result.title} by {result.authors}\nSummary: {result.summary}\n\nAttached PDF `{filename}` Content:\n{content}"
                         await self.write_text_to_memory(
                             user_input=file_path if not query else query,
-                            text=content,
-                            external_source=f"file called {filename} from arXiv",
+                            text=stored_content,
+                            external_source=f"From arXiv article: {result.title} by {result.authors}",
                         )
                     os.remove(file_path)
                 except Exception as e:
