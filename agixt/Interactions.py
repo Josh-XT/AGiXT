@@ -297,8 +297,6 @@ class Interactions:
                 f"{prompt}{user_input}{all_files_content}{context}"
             )
             if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
-                if files != []:
-                    file_list = ", ".join(file_list)
                 fragmented_content = await file_reader.get_memories(
                     user_input=f"{user_input} {file_list}",
                     min_relevance_score=0.3,
@@ -306,7 +304,9 @@ class Interactions:
                 )
                 if fragmented_content != "":
                     the_files = (
-                        f"these files: {file_list}." if file_list != [] else "files:"
+                        f"these files: {', '.join(file_list)}."
+                        if file_list != []
+                        else "files:"
                     )
                     file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
         skip_args = [
