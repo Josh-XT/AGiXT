@@ -255,52 +255,49 @@ class Interactions:
                 agent_config=self.agent.AGENT_CONFIG,
                 collection=4,
             )
+            # import_files should be formatted like [{"file_name": "file_content"}]
             try:
-                # import_files should be formatted like [{"file_name": "file_content"}]
-                files = json.dumps(kwargs["import_files"], indent=4)
-                del kwargs["import_files"]
-                all_files_content = ""
-                for file in files:
-                    file_name = file["file_name"]
-                    file_content = file["file_content"]
-                    if file_name != "" and file_content != "":
-                        all_files_content += f"{file_name}:\n{file_content}\n\n"
-                content_text = prompt + user_input + all_files_content + context
-                tokens_used = get_tokens(content_text)
-                file_list = []
-                for file in files:
-                    file_name = file["file_name"]
-                    file_list.append(file_name)
-                    file_content = file["file_content"]
-                    if file_name != "" and file_content != "":
-                        # Create a temporary file with the content
-                        file_name = file_name.split("/")[-1]
-                        temp_dir = f"{working_directory}/temp"
-                        if not os.path.exists(temp_dir):
-                            os.makedirs(temp_dir)
-                        file_path = f"{temp_dir}/{file_name}"
-                        with open(file_path, "w") as f:
-                            f.write(file_content)
-                        try:
-                            await file_reader.write_file_to_memory(
-                                file_path=file_path,
-                            )
-                        except:
-                            pass
-                        if tokens_used < int(self.agent.MAX_TOKENS):
-                            file_contents += f"\n`{working_directory}/{file_name}` content:\n{file_content}\n\n"
-                        os.remove(file_path)
-                if tokens_used > int(self.agent.MAX_TOKENS):
-                    file_list = ", ".join(file_list)
-                    fragmented_content = await file_reader.get_memories(
-                        user_input=f"{user_input} {file_list}",
-                        min_relevance_score=0.3,
-                        limit=top_results if top_results > 0 else 5,
-                    )
-                    file_contents = "\n".join(fragmented_content)
-                    file_contents = f"Here is some relevant information from these files: {file_list}.\n\n{fragmented_content}\n\n"
+                files = json.loads(kwargs["import_files"])
             except:
-                pass
+                files = []
+            del kwargs["import_files"]
+            all_files_content = ""
+            file_list = []
+            for file in files:
+                file_name = file["file_name"]
+                file_list.append(file_name)
+                file_path = os.path.join(working_directory, file_name)
+                if not os.path.exists(file_path):
+                    # Create it with the content if it doesn't exist.
+                    with open(file_path, "w") as f:
+                        f.write(file["file_content"])
+                    file_content = file["file_content"]
+
+                else:
+                    # Get the content of the file instead of using the content in the file object
+                    with open(file_path, "r") as f:
+                        file_content = f.read()
+                    file_contents += f"\n`{file_path}` content:\n{file_content}\n\n"
+                    try:
+                        await file_reader.write_file_to_memory(
+                            file_path=file_path,
+                        )
+                    except:
+                        pass
+                if file_name != "" and file_content != "":
+                    all_files_content += file_content
+            content_text = prompt + user_input + all_files_content + context
+            tokens_used = get_tokens(content_text)
+            if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
+                file_list = ", ".join(file_list)
+                fragmented_content = await file_reader.get_memories(
+                    user_input=f"{user_input} {file_list}",
+                    min_relevance_score=0.3,
+                    limit=top_results if top_results > 0 else 5,
+                )
+                file_contents = "\n".join(fragmented_content)
+                file_contents = f"Here is some relevant information from these files: {file_list}.\n\n{fragmented_content}\n\n"
+
         skip_args = [
             "user_input",
             "agent_name",
