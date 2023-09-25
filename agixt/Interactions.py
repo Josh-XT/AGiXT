@@ -288,15 +288,18 @@ class Interactions:
                 f"{prompt}{user_input}{all_files_content}{context}"
             )
             if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
-                file_list = ", ".join(file_list)
+                if files != []:
+                    file_list = ", ".join(file_list)
                 fragmented_content = await file_reader.get_memories(
                     user_input=f"{user_input} {file_list}",
                     min_relevance_score=0.3,
                     limit=top_results if top_results > 0 else 5,
                 )
-                file_contents = "\n".join(fragmented_content)
-                file_contents = f"Here is some relevant information from these files: {file_list}.\n\n{fragmented_content}\n\n"
-
+                if fragmented_content != "":
+                    the_files = (
+                        f"these files: {file_list}." if file_list != [] else "files:"
+                    )
+                    file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
         skip_args = [
             "user_input",
             "agent_name",
