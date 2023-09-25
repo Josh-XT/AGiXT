@@ -19,7 +19,7 @@ DEFAULT_SETTINGS = {
     "stream": False,
     "WORKING_DIRECTORY": "./WORKSPACE",
     "WORKING_DIRECTORY_RESTRICTED": True,
-    "AUTONOMOUS_EXECUTION": False,
+    "AUTONOMOUS_EXECUTION": True,
 }
 
 load_dotenv()
