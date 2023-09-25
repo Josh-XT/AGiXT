@@ -145,7 +145,6 @@ class Interactions:
                 context = []
         if "context" in kwargs:
             context += [kwargs["context"]]
-            del kwargs["context"]
         if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes you remember these things:\n{context}\n"
@@ -260,7 +259,6 @@ class Interactions:
                 files = json.loads(kwargs["import_files"])
             except:
                 files = []
-            del kwargs["import_files"]
             all_files_content = ""
             file_list = []
             for file in files:
