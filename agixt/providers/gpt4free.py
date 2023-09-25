@@ -4,6 +4,7 @@ import asyncio
 from g4f.Provider import RetryProvider
 from g4f.models import ModelUtils, gpt_35_turbo, default
 
+
 class Gpt4freeProvider:
     def __init__(
         self,
@@ -40,16 +41,18 @@ class Gpt4freeProvider:
             append_model = f" and model: {model.name}" if model.name else ""
             logging.info(f"[Gpt4Free] Use provider: {provider.__name__}{append_model}")
         try:
-            return (await asyncio.gather(
-                provider.create_async(
-                    model=model.name,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=max_new_tokens,
-                    temperature=float(self.AI_TEMPERATURE),
-                    top_p=float(self.AI_TOP_P),
-                ),
-                asyncio.sleep(int(self.WAIT_BETWEEN_REQUESTS))
-            ))[0]
+            return (
+                await asyncio.gather(
+                    provider.create_async(
+                        model=model.name,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=max_new_tokens,
+                        temperature=float(self.AI_TEMPERATURE),
+                        top_p=float(self.AI_TOP_P),
+                    ),
+                    asyncio.sleep(int(self.WAIT_BETWEEN_REQUESTS)),
+                )
+            )[0]
         except Exception as e:
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 await asyncio.sleep(int(self.WAIT_AFTER_FAILURE))
@@ -60,6 +63,7 @@ class Gpt4freeProvider:
                     for provider_name in provider.exceptions:
                         error = provider.exceptions[provider_name]
                         logging.error(f"[Gpt4Free] {provider_name}: {error}")
+
 
 if __name__ == "__main__":
     import asyncio, time
