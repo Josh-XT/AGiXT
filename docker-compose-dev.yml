@@ -51,7 +51,7 @@ services:
     ports:
       - "8501:8501"
   nextjs:
-    image: joshxt/agixt-nextjs:main
+    image: joshxt/agixt-nextjs:latest
     depends_on:
       - agixt
     environment:
