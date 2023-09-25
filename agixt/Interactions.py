@@ -100,8 +100,10 @@ class Interactions:
                 if prompt_category == "Default"
                 else prompt_category,
             )
+            prompt_args = cp.get_prompt_args(prompt_text=prompt)
         except:
             prompt = prompt_name
+            prompt_args = []
         logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
             context = []
@@ -213,7 +215,7 @@ class Interactions:
                 else:
                     break
         persona = ""
-        if "persona" in kwargs:
+        if "persona" in prompt_args:
             if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if persona != "":
@@ -248,17 +250,20 @@ class Interactions:
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         file_contents = ""
-        if "import_files" in kwargs:
+        if "import_files" in prompt_args:
             file_reader = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection=4,
             )
             # import_files should be formatted like [{"file_name": "file_content"}]
-            try:
-                files = json.loads(kwargs["import_files"])
-            except:
-                files = []
+            files = []
+            if "import_files" in kwargs:
+                if kwargs["import_files"] != "":
+                    try:
+                        files = json.loads(kwargs["import_files"])
+                    except:
+                        files = []
             all_files_content = ""
             file_list = []
             for file in files:
@@ -274,12 +279,18 @@ class Interactions:
                     with open(file_path, "r") as f:
                         file_content = f.read()
                     file_contents += f"\n`{file_path}` content:\n{file_content}\n\n"
-                    try:
-                        await file_reader.write_file_to_memory(
-                            file_path=file_path,
-                        )
-                    except:
-                        pass
+                try:
+                    await file_reader.write_file_to_memory(
+                        file_path=file_path,
+                    )
+                    log_interaction(
+                        agent_name=self.agent_name,
+                        conversation_name=conversation_name,
+                        role=self.agent_name,
+                        message=f"I have read the content of the file: `{file_path}`.",
+                    )
+                except:
+                    pass
                 if file_name != "" and file_content != "":
                     all_files_content += file_content
             tokens_used = get_tokens(
