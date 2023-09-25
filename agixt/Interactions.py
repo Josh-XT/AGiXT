@@ -283,16 +283,24 @@ class Interactions:
                     await file_reader.write_file_to_memory(
                         file_path=file_path,
                     )
-                    log_interaction(
-                        agent_name=self.agent_name,
-                        conversation_name=conversation_name,
-                        role=self.agent_name,
-                        message=f"I have read the content of the file: `{file_path}`.",
-                    )
                 except:
                     pass
                 if file_name != "" and file_content != "":
                     all_files_content += file_content
+            if files != []:
+                the_files = (
+                    f"these files: {', '.join(file_list)}."
+                    if len(file_list) > 1
+                    else f"the file {file_list[0]}."
+                )
+                log_interaction(
+                    agent_name=self.agent_name,
+                    conversation_name=conversation_name,
+                    role=self.agent_name,
+                    message=f"I have read the file contents of {the_files}.",
+                )
+            else:
+                the_files = "files."
             tokens_used = get_tokens(
                 f"{prompt}{user_input}{all_files_content}{context}"
             )
@@ -303,11 +311,6 @@ class Interactions:
                     limit=top_results if top_results > 0 else 5,
                 )
                 if fragmented_content != "":
-                    the_files = (
-                        f"these files: {', '.join(file_list)}."
-                        if file_list != []
-                        else "files:"
-                    )
                     file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
         skip_args = [
             "user_input",
