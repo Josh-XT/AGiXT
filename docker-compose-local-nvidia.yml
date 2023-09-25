@@ -40,7 +40,7 @@ services:
       - NEXT_PUBLIC_API_URL=${AGIXT_URI:-http://agixt:7437}
       - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
     ports:
-      - "24498:3000"
+      - "24498:24498"
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
   text-generation-webui:
