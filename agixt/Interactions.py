@@ -229,10 +229,9 @@ class Interactions:
             verbose_commands += "    },\n"
         verbose_commands += "}\n```"
         verbose_commands = """
-**To execute a command, use the example below, it will be replaced with the command's output for the user.**\n
+**To execute a command, use the example below, it will be replaced with the command's output for the user. You can execute command anywhere in the response and they will be executed in the order you use them.**\n
 #execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})
 """
-
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         file_contents = ""
