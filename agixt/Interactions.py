@@ -230,7 +230,7 @@ class Interactions:
         verbose_commands += "}\n```"
         verbose_commands = """
 **To execute a command, use the example below, it will be replaced with the command's output for the user.**\n
-#execute_command("command_name", {"arg1": "val1", "arg2": "val2"})
+#execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})
 """
 
         if prompt_name == "Chat with Commands" and command_list == "":
