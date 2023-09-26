@@ -564,7 +564,7 @@ class Interactions:
                                     command_args=command_args,
                                 )
                         except Exception as e:
-                            command_output = f"Failed to execute command `{command_name}`. Error: {e}. Please try again."
+                            command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. The command response was: `{e}`. Please try again.**"
                         reformatted_response = reformatted_response.replace(
                             f"#execute_command({command_name}, {command_args})",
                             command_output,
