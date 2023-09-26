@@ -527,47 +527,49 @@ class Interactions:
         return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
 
     async def execution_agent(self):
-        reformatted_response = self.response
-        commands_to_execute = re.findall(
-            r"#execute_command\((.*?)\)", reformatted_response
-        )
-        if commands_to_execute is None or len(commands_to_execute) == 0:
-            return ""
-        for command in commands_to_execute:
-            command_name = command.split(",")[0]
-            if command_name:
-                if len(command.split(",")[1:]) > 0:
-                    try:
-                        command_args = json.loads(
-                            '{"command_args": ' + ",".join(command.split(",")[1:]) + "}"
-                        )
-                    except:
-                        command_args = {}
-                for available_command in self.agent.available_commands:
-                    if command_name == available_command["friendly_name"]:
-                        # Check if the command is a valid command in the self.avent.available_commands list
-                        try:
-                            if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                ext = Extensions(
-                                    agent_name=self.agent_name,
-                                    agent_config=self.agent.AGENT_CONFIG,
-                                    conversation_name=f"{self.agent_name} Command Execution Log",
+        commands_to_execute = re.findall(r"#execute_command\((.*?)\)", self.response)
+        if commands_to_execute:
+            reformatted_response = self.response
+            if len(commands_to_execute) > 0:
+                for command in commands_to_execute:
+                    command_name = command.split(",")[0]
+                    if command_name:
+                        if len(command.split(",")[1:]) > 0:
+                            try:
+                                command_args = json.loads(
+                                    '{"command_args": '
+                                    + ",".join(command.split(",")[1:])
+                                    + "}"
                                 )
-                                command_output = await ext.execute_command(
-                                    command_name=command_name,
-                                    command_args=command_args,
+                            except:
+                                command_args = {}
+                        for available_command in self.agent.available_commands:
+                            if command_name == available_command["friendly_name"]:
+                                # Check if the command is a valid command in the self.avent.available_commands list
+                                try:
+                                    if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                        ext = Extensions(
+                                            agent_name=self.agent_name,
+                                            agent_config=self.agent.AGENT_CONFIG,
+                                            conversation_name=f"{self.agent_name} Command Execution Log",
+                                        )
+                                        command_output = await ext.execute_command(
+                                            command_name=command_name,
+                                            command_args=command_args,
+                                        )
+                                    else:
+                                        command_output = (
+                                            self.create_command_suggestion_chain(
+                                                agent_name=self.agent_name,
+                                                command_name=command_name,
+                                                command_args=command_args,
+                                            )
+                                        )
+                                except Exception as e:
+                                    command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. The command response was: `{e}`. Please try again.**"
+                                reformatted_response = reformatted_response.replace(
+                                    f"#execute_command({command_name}, {command_args})",
+                                    command_output,
                                 )
-                            else:
-                                command_output = self.create_command_suggestion_chain(
-                                    agent_name=self.agent_name,
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                )
-                        except Exception as e:
-                            command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. The command response was: `{e}`. Please try again.**"
-                        reformatted_response = reformatted_response.replace(
-                            f"#execute_command({command_name}, {command_args})",
-                            command_output,
-                        )
-        if reformatted_response != self.response:
-            self.response = reformatted_response
+                if reformatted_response != self.response:
+                    self.response = reformatted_response
