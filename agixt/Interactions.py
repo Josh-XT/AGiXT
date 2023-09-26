@@ -152,7 +152,6 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
@@ -220,7 +219,6 @@ class Interactions:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if persona != "":
             persona = f"Your persona is: {persona}\n\n"
-
         verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         for command in self.agent.available_commands:
             verbose_commands += f'    "{command["friendly_name"]}": {{\n'
@@ -329,7 +327,6 @@ class Interactions:
             import_files=file_contents,
             **args,
         )
-
         tokens = get_tokens(formatted_prompt)
         logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
@@ -453,7 +450,6 @@ class Interactions:
                     **kwargs,
                 },
             )
-
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
