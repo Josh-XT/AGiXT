@@ -227,10 +227,20 @@ class Interactions:
             for arg in command["args"]:
                 verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
             verbose_commands += "    },\n"
+        # Maybe do #command("command_name", command_args) instead of {command_name: {arg1: val1, arg2: val2}}?
+        # To execute a command, use the example below, it will be replaced with the command's output for the user.
+        # #execute_command("command_name", {arg1: val1, arg2: val2})
+        # You can run as many commands as you want, just make sure there is only one command per line.
 
         verbose_commands += "}\n```"
-        verbose_commands += """
-**RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands worth executing to assist the user, simply make the commands section an empty object like {}.**
+        verbose_commands = """
+**To execute a command, use the example below, it will be replaced with the command's output for the user.**\n
+#execute_command("command_name", {"arg1": "val1", "arg2": "val2"})
+"""
+
+        """
+        verbose_commands += "
+**If executing a command, respond in JSON format like the example below.**
 ```JSON
 {
     "response": "Your response to the task.",
@@ -246,6 +256,7 @@ class Interactions:
         }
     }
 }
+        "
         """
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
@@ -483,23 +494,7 @@ class Interactions:
                 conversation_name=conversation_name,
                 **kwargs,
             )
-            if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
-                autonomous = (
-                    True
-                    if self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"]
-                    == True
-                    else False
-                )
-            else:
-                autonomous = False
-            if autonomous == True:
-                try:
-                    self.response = json.loads(self.response)
-                    if "response" in self.response:
-                        self.response = self.response["response"]
-                except:
-                    pass
-            else:
+            if execution_response != "":
                 self.response = f"{self.response}\n\n{execution_response}"
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
@@ -544,53 +539,6 @@ class Interactions:
             )
         return self.response
 
-    # Worker Sub-Agents
-    async def validation_agent(
-        self,
-        user_input,
-        execution_response,
-        context_results,
-        disable_memory,
-        conversation_name,
-        **kwargs,
-    ):
-        try:
-            pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
-            cleaned_json = pattern.findall(execution_response)
-            if len(cleaned_json) == 0:
-                return {}
-            if isinstance(cleaned_json, list):
-                cleaned_json = cleaned_json[0]
-            response = json.loads(cleaned_json)
-            return response
-        except:
-            logging.info("INVALID JSON RESPONSE")
-            logging.info(execution_response)
-            logging.info("... Trying again.")
-            if context_results != 0:
-                context_results = context_results - 1
-            else:
-                context_results = 0
-            execution_response = ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="JSONFormatter",
-                prompt_args={
-                    "user_input": user_input,
-                    "context_results": context_results,
-                    "conversation_name": conversation_name,
-                    "disable_memory": disable_memory,
-                    **kwargs,
-                },
-            )
-            return await self.validation_agent(
-                user_input=user_input,
-                execution_response=execution_response,
-                context_results=context_results,
-                disable_memory=disable_memory,
-                conversation_name=conversation_name,
-                **kwargs,
-            )
-
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
         chains = ApiClient.get_chains()
         chain_name = f"{agent_name} Command Suggestions"
@@ -616,80 +564,55 @@ class Interactions:
     async def execution_agent(
         self,
         execution_response,
-        user_input,
-        context_results,
-        disable_memory,
-        conversation_name,
         **kwargs,
     ):
-        validated_response = await self.validation_agent(
-            user_input=user_input,
-            execution_response=execution_response,
-            context_results=context_results,
-            disable_memory=disable_memory,
-            conversation_name=conversation_name,
-            **kwargs,
+        commands_to_execute = re.findall(
+            r"#execute_command\((.*?)\)", execution_response
         )
+        if commands_to_execute is None or len(commands_to_execute) == 0:
+            return ""
         messages = ""
-        if "commands" in validated_response:
-            for command_name, command_args in validated_response["commands"].items():
-                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                if command_name is not None:
-                    for available_command in self.agent.available_commands:
-                        if command_name == available_command["friendly_name"]:
-                            # Check if the command is a valid command in the self.avent.available_commands list
-                            try:
-                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                    ext = Extensions(
-                                        agent_name=self.agent_name,
-                                        agent_config=self.agent.AGENT_CONFIG,
-                                        conversation_name=conversation_name,
-                                    )
-                                    command_output = await ext.execute_command(
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                    )
-                                    formatted_output = (
-                                        f"```\n{command_output}\n```"
-                                        if "#GENERATED_IMAGE" not in command_output
-                                        and "#GENERATED_AUDIO" not in command_output
-                                        else command_output
-                                    )
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                else:
-                                    command_output = (
-                                        self.create_command_suggestion_chain(
-                                            agent_name=self.agent_name,
-                                            command_name=command_name,
-                                            command_args=command_args,
-                                        )
-                                    )
-                                    message = (
-                                        f"**Agent execution chain updated for command `{command_name}` with the following parameters:** \n```json\n{json.dumps(command_args, indent=4)}\n```\n",
-                                    )
-                            except Exception as e:
-                                logging.info("Command validation failed, retrying...")
-                                validate_command = ApiClient.prompt_agent(
+        for command in commands_to_execute:
+            command_name = command.split(",")[0]
+            if command_name:
+                if len(command.split(",")[1:]) > 0:
+                    try:
+                        command_args = json.loads(
+                            '{"command_args": ' + ",".join(command.split(",")[1:]) + "}"
+                        )
+                    except:
+                        command_args = {}
+                for available_command in self.agent.available_commands:
+                    if command_name == available_command["friendly_name"]:
+                        # Check if the command is a valid command in the self.avent.available_commands list
+                        try:
+                            if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                ext = Extensions(
                                     agent_name=self.agent_name,
-                                    prompt_name="ValidationFailed",
-                                    prompt_args={
-                                        "command_name": command_name,
-                                        "command_args": command_args,
-                                        "command_output": e,
-                                        "user_input": user_input,
-                                        "context_results": context_results,
-                                        "conversation_name": conversation_name,
-                                        "disable_memory": disable_memory,
-                                        **kwargs,
-                                    },
+                                    agent_config=self.agent.AGENT_CONFIG,
+                                    conversation_name=f"{self.agent_name} Command Execution Log",
                                 )
-                                message = await self.execution_agent(
-                                    execution_response=validate_command,
-                                    user_input=user_input,
-                                    context_results=context_results,
-                                    disable_memory=disable_memory,
-                                    conversation_name=conversation_name,
-                                    **kwargs,
+                                command_output = await ext.execute_command(
+                                    command_name=command_name,
+                                    command_args=command_args,
                                 )
-                            messages += f"\n{message}\n\n"
+                                formatted_output = (
+                                    f"```\n{command_output}\n```"
+                                    if "#GENERATED_IMAGE" not in command_output
+                                    and "#GENERATED_AUDIO" not in command_output
+                                    else command_output
+                                )
+                                message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                            else:
+                                command_output = self.create_command_suggestion_chain(
+                                    agent_name=self.agent_name,
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                )
+                                message = (
+                                    f"**Agent execution chain updated for command `{command_name}` with the following parameters:** \n```json\n{json.dumps(command_args, indent=4)}\n```\n",
+                                )
+                        except Exception as e:
+                            message = f"Failed to execute command `{command_name}`. Error: {e}. Please try again."
+                        messages += f"\n{message}\n\n"
         return messages
