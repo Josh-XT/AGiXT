@@ -453,7 +453,7 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            await self.execution_agent()
+            await self.execution_agent(conversaton_name=conversation_name)
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             if disable_memory != True:
@@ -517,9 +517,9 @@ class Interactions:
                 **command_args,
             },
         )
-        return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
+        return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
-    async def execution_agent(self):
+    async def execution_agent(self, conversation_name):
         commands_to_execute = re.findall(r"#execute_command\((.*?)\)", self.response)
         if commands_to_execute:
             reformatted_response = self.response
@@ -544,11 +544,24 @@ class Interactions:
                                         ext = Extensions(
                                             agent_name=self.agent_name,
                                             agent_config=self.agent.AGENT_CONFIG,
-                                            conversation_name=f"{self.agent_name} Command Execution Log",
+                                            conversation_name=conversation_name,
                                         )
                                         command_output = await ext.execute_command(
                                             command_name=command_name,
                                             command_args=command_args,
+                                        )
+                                        formatted_output = (
+                                            f"```\n{command_output}\n```"
+                                            if "#GENERATED_IMAGE" not in command_output
+                                            and "#GENERATED_AUDIO" not in command_output
+                                            else command_output
+                                        )
+                                        message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                                        log_interaction(
+                                            agent_name=self.agent_name,
+                                            conversation_name=f"{self.agent_name} Command Execution Log",
+                                            role=self.agent_name,
+                                            message=message,
                                         )
                                     else:
                                         command_output = (
