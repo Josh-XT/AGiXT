@@ -545,7 +545,7 @@ class Interactions:
                                 command_args = {}
                         for available_command in self.agent.available_commands:
                             if command_name == available_command["friendly_name"]:
-                                # Check if the command is a valid command in the self.avent.available_commands list
+                                # Check if the command is a valid command in the self.agent.available_commands list
                                 try:
                                     if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
                                         ext = Extensions(
