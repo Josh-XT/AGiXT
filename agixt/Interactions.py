@@ -460,11 +460,7 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            execution_response = await self.execution_agent(
-                execution_response=self.response,
-            )
-            if execution_response != "":
-                self.response = f"{self.response}\n\n{execution_response}"
+            await self.execution_agent()
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             if disable_memory != True:
@@ -530,16 +526,13 @@ class Interactions:
         )
         return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
 
-    async def execution_agent(
-        self,
-        execution_response,
-    ):
+    async def execution_agent(self):
+        reformatted_response = self.response
         commands_to_execute = re.findall(
-            r"#execute_command\((.*?)\)", execution_response
+            r"#execute_command\((.*?)\)", reformatted_response
         )
         if commands_to_execute is None or len(commands_to_execute) == 0:
             return ""
-        messages = ""
         for command in commands_to_execute:
             command_name = command.split(",")[0]
             if command_name:
@@ -564,23 +557,17 @@ class Interactions:
                                     command_name=command_name,
                                     command_args=command_args,
                                 )
-                                formatted_output = (
-                                    f"```\n{command_output}\n```"
-                                    if "#GENERATED_IMAGE" not in command_output
-                                    and "#GENERATED_AUDIO" not in command_output
-                                    else command_output
-                                )
-                                message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                             else:
                                 command_output = self.create_command_suggestion_chain(
                                     agent_name=self.agent_name,
                                     command_name=command_name,
                                     command_args=command_args,
                                 )
-                                message = (
-                                    f"**Agent execution chain updated for command `{command_name}` with the following parameters:** \n```json\n{json.dumps(command_args, indent=4)}\n```\n",
-                                )
                         except Exception as e:
-                            message = f"Failed to execute command `{command_name}`. Error: {e}. Please try again."
-                        messages += f"\n{message}\n\n"
-        return messages
+                            command_output = f"Failed to execute command `{command_name}`. Error: {e}. Please try again."
+                        reformatted_response = reformatted_response.replace(
+                            f"#execute_command({command_name}, {command_args})",
+                            command_output,
+                        )
+        if reformatted_response != self.response:
+            self.response = reformatted_response
