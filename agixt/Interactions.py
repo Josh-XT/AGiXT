@@ -227,37 +227,12 @@ class Interactions:
             for arg in command["args"]:
                 verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
             verbose_commands += "    },\n"
-        # Maybe do #command("command_name", command_args) instead of {command_name: {arg1: val1, arg2: val2}}?
-        # To execute a command, use the example below, it will be replaced with the command's output for the user.
-        # #execute_command("command_name", {arg1: val1, arg2: val2})
-        # You can run as many commands as you want, just make sure there is only one command per line.
-
         verbose_commands += "}\n```"
         verbose_commands = """
 **To execute a command, use the example below, it will be replaced with the command's output for the user.**\n
 #execute_command("command_name", {"arg1": "val1", "arg2": "val2"})
 """
 
-        """
-        verbose_commands += "
-**If executing a command, respond in JSON format like the example below.**
-```JSON
-{
-    "response": "Your response to the task.",
-    "commands": {
-        "command_name": {
-            "arg1": "val1",
-            "arg2": "val2"
-        },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
-        }
-    }
-}
-        "
-        """
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         file_contents = ""
