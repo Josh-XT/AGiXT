@@ -462,11 +462,6 @@ class Interactions:
         if "{COMMANDS}" in unformatted_prompt:
             execution_response = await self.execution_agent(
                 execution_response=self.response,
-                user_input=user_input,
-                context_results=context_results,
-                disable_memory=disable_memory,
-                conversation_name=conversation_name,
-                **kwargs,
             )
             if execution_response != "":
                 self.response = f"{self.response}\n\n{execution_response}"
@@ -538,7 +533,6 @@ class Interactions:
     async def execution_agent(
         self,
         execution_response,
-        **kwargs,
     ):
         commands_to_execute = re.findall(
             r"#execute_command\((.*?)\)", execution_response
