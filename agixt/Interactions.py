@@ -152,7 +152,6 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-
         command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
@@ -220,33 +219,14 @@ class Interactions:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if persona != "":
             persona = f"Your persona is: {persona}\n\n"
-
-        verbose_commands = "**You have commands available to use if they would be useful to complete a user's task.**\n```json\n{\n"
+        verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         for command in self.agent.available_commands:
             verbose_commands += f'    "{command["friendly_name"]}": {{\n'
             for arg in command["args"]:
                 verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
             verbose_commands += "    },\n"
-
         verbose_commands += "}\n```"
-        verbose_commands += """
-**RESPOND IN THE FOLLOWING JSON FORMAT ONLY! If there are no commands worth executing to assist the user, simply make the commands section an empty object like {}.**
-```JSON
-{
-    "response": "Your response to the task.",
-    "commands": {
-        "command_name": {
-            "arg1": "val1",
-            "arg2": "val2"
-        },
-        "command_name2": {
-            "arg1": "val1",
-            "arg2": "val2",
-            "argN": "valN"
-        }
-    }
-}
-        """
+        verbose_commands = '**To execute a command, use the example below, it will be replaced with the commands output for the user. You can execute a command anywhere in your response and the commands will be executed in the order you use them.**\n#execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})'
         if prompt_name == "Chat with Commands" and command_list == "":
             prompt_name = "Chat"
         file_contents = ""
@@ -347,7 +327,6 @@ class Interactions:
             import_files=file_contents,
             **args,
         )
-
         tokens = get_tokens(formatted_prompt)
         logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
@@ -471,36 +450,10 @@ class Interactions:
                     **kwargs,
                 },
             )
-
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            execution_response = await self.execution_agent(
-                execution_response=self.response,
-                user_input=user_input,
-                context_results=context_results,
-                disable_memory=disable_memory,
-                conversation_name=conversation_name,
-                **kwargs,
-            )
-            if "AUTONOMOUS_EXECUTION" in self.agent.AGENT_CONFIG["settings"]:
-                autonomous = (
-                    True
-                    if self.agent.AGENT_CONFIG["settings"]["AUTONOMOUS_EXECUTION"]
-                    == True
-                    else False
-                )
-            else:
-                autonomous = False
-            if autonomous == True:
-                try:
-                    self.response = json.loads(self.response)
-                    if "response" in self.response:
-                        self.response = self.response["response"]
-                except:
-                    pass
-            else:
-                self.response = f"{self.response}\n\n{execution_response}"
+            await self.execution_agent(conversaton_name=conversation_name)
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             if disable_memory != True:
@@ -544,53 +497,6 @@ class Interactions:
             )
         return self.response
 
-    # Worker Sub-Agents
-    async def validation_agent(
-        self,
-        user_input,
-        execution_response,
-        context_results,
-        disable_memory,
-        conversation_name,
-        **kwargs,
-    ):
-        try:
-            pattern = regex.compile(r"\{(?:[^{}]|(?R))*\}")
-            cleaned_json = pattern.findall(execution_response)
-            if len(cleaned_json) == 0:
-                return {}
-            if isinstance(cleaned_json, list):
-                cleaned_json = cleaned_json[0]
-            response = json.loads(cleaned_json)
-            return response
-        except:
-            logging.info("INVALID JSON RESPONSE")
-            logging.info(execution_response)
-            logging.info("... Trying again.")
-            if context_results != 0:
-                context_results = context_results - 1
-            else:
-                context_results = 0
-            execution_response = ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="JSONFormatter",
-                prompt_args={
-                    "user_input": user_input,
-                    "context_results": context_results,
-                    "conversation_name": conversation_name,
-                    "disable_memory": disable_memory,
-                    **kwargs,
-                },
-            )
-            return await self.validation_agent(
-                user_input=user_input,
-                execution_response=execution_response,
-                context_results=context_results,
-                disable_memory=disable_memory,
-                conversation_name=conversation_name,
-                **kwargs,
-            )
-
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
         chains = ApiClient.get_chains()
         chain_name = f"{agent_name} Command Suggestions"
@@ -611,85 +517,65 @@ class Interactions:
                 **command_args,
             },
         )
-        return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
+        return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
-    async def execution_agent(
-        self,
-        execution_response,
-        user_input,
-        context_results,
-        disable_memory,
-        conversation_name,
-        **kwargs,
-    ):
-        validated_response = await self.validation_agent(
-            user_input=user_input,
-            execution_response=execution_response,
-            context_results=context_results,
-            disable_memory=disable_memory,
-            conversation_name=conversation_name,
-            **kwargs,
-        )
-        messages = ""
-        if "commands" in validated_response:
-            for command_name, command_args in validated_response["commands"].items():
-                # Search for the command in the available_commands list, and if found, use the command's name attribute for execution
-                if command_name is not None:
-                    for available_command in self.agent.available_commands:
-                        if command_name == available_command["friendly_name"]:
-                            # Check if the command is a valid command in the self.avent.available_commands list
+    async def execution_agent(self, conversation_name):
+        commands_to_execute = re.findall(r"#execute_command\((.*?)\)", self.response)
+        if commands_to_execute:
+            reformatted_response = self.response
+            if len(commands_to_execute) > 0:
+                for command in commands_to_execute:
+                    command_name = command.split(",")[0]
+                    if command_name:
+                        if len(command.split(",")[1:]) > 0:
                             try:
-                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                    ext = Extensions(
-                                        agent_name=self.agent_name,
-                                        agent_config=self.agent.AGENT_CONFIG,
-                                        conversation_name=conversation_name,
-                                    )
-                                    command_output = await ext.execute_command(
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                    )
-                                    formatted_output = (
-                                        f"```\n{command_output}\n```"
-                                        if "#GENERATED_IMAGE" not in command_output
-                                        and "#GENERATED_AUDIO" not in command_output
-                                        else command_output
-                                    )
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                else:
-                                    command_output = (
-                                        self.create_command_suggestion_chain(
+                                command_args = json.loads(
+                                    '{"command_args": '
+                                    + ",".join(command.split(",")[1:])
+                                    + "}"
+                                )
+                            except:
+                                command_args = {}
+                        for available_command in self.agent.available_commands:
+                            if command_name == available_command["friendly_name"]:
+                                # Check if the command is a valid command in the self.agent.available_commands list
+                                try:
+                                    if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                        ext = Extensions(
                                             agent_name=self.agent_name,
+                                            agent_config=self.agent.AGENT_CONFIG,
+                                            conversation_name=conversation_name,
+                                        )
+                                        command_output = await ext.execute_command(
                                             command_name=command_name,
                                             command_args=command_args,
                                         )
-                                    )
-                                    message = (
-                                        f"**Agent execution chain updated for command `{command_name}` with the following parameters:** \n```json\n{json.dumps(command_args, indent=4)}\n```\n",
-                                    )
-                            except Exception as e:
-                                logging.info("Command validation failed, retrying...")
-                                validate_command = ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="ValidationFailed",
-                                    prompt_args={
-                                        "command_name": command_name,
-                                        "command_args": command_args,
-                                        "command_output": e,
-                                        "user_input": user_input,
-                                        "context_results": context_results,
-                                        "conversation_name": conversation_name,
-                                        "disable_memory": disable_memory,
-                                        **kwargs,
-                                    },
+                                        formatted_output = (
+                                            f"```\n{command_output}\n```"
+                                            if "#GENERATED_IMAGE" not in command_output
+                                            and "#GENERATED_AUDIO" not in command_output
+                                            else command_output
+                                        )
+                                        message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                                        log_interaction(
+                                            agent_name=self.agent_name,
+                                            conversation_name=f"{self.agent_name} Command Execution Log",
+                                            role=self.agent_name,
+                                            message=message,
+                                        )
+                                    else:
+                                        command_output = (
+                                            self.create_command_suggestion_chain(
+                                                agent_name=self.agent_name,
+                                                command_name=command_name,
+                                                command_args=command_args,
+                                            )
+                                        )
+                                except Exception as e:
+                                    command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. The command response was: `{e}`. Please try again.**"
+                                reformatted_response = reformatted_response.replace(
+                                    f"#execute_command({command_name}, {command_args})",
+                                    command_output,
                                 )
-                                message = await self.execution_agent(
-                                    execution_response=validate_command,
-                                    user_input=user_input,
-                                    context_results=context_results,
-                                    disable_memory=disable_memory,
-                                    conversation_name=conversation_name,
-                                    **kwargs,
-                                )
-                            messages += f"\n{message}\n\n"
-        return messages
+                if reformatted_response != self.response:
+                    self.response = reformatted_response
