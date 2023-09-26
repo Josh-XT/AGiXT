@@ -572,7 +572,10 @@ class Interactions:
                                             )
                                         )
                                 except Exception as e:
-                                    command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. The command response was: `{e}`. Please try again.**"
+                                    logging.error(
+                                        f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                                    )
+                                    command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
                                 reformatted_response = reformatted_response.replace(
                                     f"#execute_command({command_name}, {command_args})",
                                     command_output,
