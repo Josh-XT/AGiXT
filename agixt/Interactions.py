@@ -221,7 +221,7 @@ class Interactions:
         if persona != "":
             persona = f"Your persona is: {persona}\n\n"
 
-        verbose_commands = "**You have commands available to use if they would be useful to complete a user's task.**\n```json\n{\n"
+        verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         for command in self.agent.available_commands:
             verbose_commands += f'    "{command["friendly_name"]}": {{\n'
             for arg in command["args"]:
@@ -229,7 +229,7 @@ class Interactions:
             verbose_commands += "    },\n"
         verbose_commands += "}\n```"
         verbose_commands = """
-**To execute a command, use the example below, it will be replaced with the command's output for the user. You can execute command anywhere in the response and they will be executed in the order you use them.**\n
+**To execute a command, use the example below, it will be replaced with the command's output for the user. You can execute a command anywhere in your response and the commands will be executed in the order you use them.**\n
 #execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})
 """
         if prompt_name == "Chat with Commands" and command_list == "":
