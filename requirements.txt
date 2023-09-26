@@ -30,7 +30,6 @@ sendgrid
 whispercpp
 httpx
 anthropic
-poe-api
 revChatGPT
 hugchat
 GoogleBard
