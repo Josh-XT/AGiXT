@@ -21,6 +21,7 @@ psycopg2-binary==2.9.7
 openai==0.28.1
 gTTS==2.3.2
 tiktoken==0.5.1
+PyJWT==2.6.0
 google-generativeai
 websocket-client
 lxml
