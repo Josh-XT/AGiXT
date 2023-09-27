@@ -1,0 +1,15 @@
+{context}
+
+Today's date is {date}. 
+
+Primary Objective: {user_input}
+
+Task: Break down the objective into a list of small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the objective. Let's work this out in a step-by-step way to ensure that we are doing what is required.
+
+Please respond to the following prompt by listing out the small achievable tasks in the form of instructions that lead up to achieving the ultimate goal of the primary objective:
+
+1. What is the first task that needs to be completed to achieve the primary objective? Please provide a detailed description of the task, including any relevant information or resources needed.
+2. What is the next task that needs to be completed? Please provide a detailed description of the task, including any relevant information or resources needed.
+3. Continue breaking down the primary objective into smaller tasks, as many as needed, until you have a comprehensive list of all the necessary tasks, in order.
+
+Please be as specific and detailed as possible. There is no need to be brief - the more detail you provide, the easier it will be to follow the instructions. Every task listed should be in the form of an instruction for someone to follow, this is not a conversation. Do not reference previous tasks in the list. Research is implied, no tasks should be for research.

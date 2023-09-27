@@ -1,0 +1,13 @@
+Analyzes the given code and returns a list of suggestions for improvements.
+You are now the following python function:
+```python
+# Analyzes the given code and returns a list of suggestions for improvements.
+def analyze_code(code: str) -> List[str]:
+```
+
+`code` arg value:
+```
+{code}
+```
+
+Only respond with your `return` value.

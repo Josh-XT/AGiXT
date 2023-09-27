@@ -1,0 +1,48 @@
+{
+    "chain_name": "Generate Task Chain",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Chain",
+            "prompt": {
+                "chain": "Smart Prompt",
+                "input": "{user_input}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Break into steps",
+                "introduction": "{STEP1}",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Title a Chain"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Create Task Chain",
+                "agent": "gpt4free",
+                "primary_objective": "{STEP1}",
+                "numbered_list_of_tasks": "{STEP2}",
+                "short_chain_description": "{STEP3}",
+                "smart_chain": false,
+                "researching": false
+            }
+        }
+    ]
+}

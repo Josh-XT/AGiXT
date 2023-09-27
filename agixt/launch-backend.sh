@@ -25,11 +25,8 @@ if [ -z "$DB_CONNECTED" ]; then
   AGIXT_URI="http://localhost:7437"
   DB_CONNECTED="false"
   AGIXT_AUTO_UPDATE="true"
-  AGIXT_HUB="AGiXT/hub"
   AGIXT_API_KEY=""
   UVICORN_WORKERS="10"
-  GITHUB_USER=""
-  GITHUB_TOKEN=""
   POSTGRES_SERVER="db"
   POSTGRES_PORT="5432"
   POSTGRES_DB="postgres"
@@ -57,11 +54,6 @@ if [ "$DB_CONNECTED" = "true" ]; then
   sleep 5
   python3 DBConnection.py
   sleep 10
-fi
-
-# Update AGiXT Hub
-if [ "$AGIXT_AUTO_UPDATE" = "true" ]; then
-  python3 Hub.py
 fi
 
 echo "Starting AGiXT... Please wait until you see 'Applicaton startup complete' before opening Streamlit..."

@@ -1,0 +1,8 @@
+{context}
+My primary objective is: {user_input}.
+
+My current task is: {task_in_question}.
+
+I need assistance to complete the task.
+
+{question}

@@ -1,0 +1,6 @@
+Mark: Tony, help!
+Tony: What's wrong, Mark?
+Mark: I forgot how to {user_input} !
+Tony: That's easy! Do you want me to show you how?
+Mark: Sure!
+(continue as Tony)

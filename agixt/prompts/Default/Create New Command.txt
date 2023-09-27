@@ -1,0 +1,24 @@
+Write a Python script to help with the following goal: {NEW_FUNCTION_DESCRIPTION}
+Ensure commands summaries are short and concise in self.commands, however, if the code is targeted at a specific product, mention the product name in the command description.
+The script should fit into this Command framework.
+If there is an available Python module to help with this, use it.
+All functions should be asynchronous.
+Do not explain, this is not a conversation, put any usage examples necessary in the code comments in one single code block.
+
+Framework example:
+```python
+# pip install agixt
+from typing import List
+from Extensions import Extensions
+from agixt import agixt
+
+class agent_interactions(Extensions):
+    def __init__(self, AGENT_API_KEY: str = None):
+        self.AGENT_API_KEY = AGENT_API_KEY
+        if self.AGENT_API_KEY:
+            self.commands = {
+                "Ask AGiXT": self.ask_the_agent
+            }
+    async def ask_the_agent(self, prompt: str) -> List[str]:       
+        return await agixt().run(prompt, commands_enabled=False)
+```
