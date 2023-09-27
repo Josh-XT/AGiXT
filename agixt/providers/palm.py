@@ -19,7 +19,7 @@ class PalmProvider:
         AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
-        self.requirements = []
+        self.requirements = ["google-generativeai"]
         self.PALM_API_KEY = PALM_API_KEY
         self.AI_MODEL = AI_MODEL
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7

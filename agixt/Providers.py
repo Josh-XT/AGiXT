@@ -26,18 +26,10 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    options = {
-        **DEFAULT_SETTINGS,
-    }
+    options = DEFAULT_SETTINGS
     options["provider"] = provider_name
     # This will keep the heavy requirements of these providers not installed unless needed.
-    if provider_name == "llamacpp":
-        options["MODEL_PATH"] = ""
-        options["STOP_SEQUENCE"] = "</s>"
-        options["GPU_LAYERS"] = 0
-        options["BATCH_SIZE"] = 2048
-        options["THREADS"] = 0
-    elif provider_name == "pipeline":
+    if provider_name == "pipeline":
         options["HUGGINGFACE_API_KEY"] = ""
         options["MODEL_PATH"] = ""
     elif provider_name == "palm":
