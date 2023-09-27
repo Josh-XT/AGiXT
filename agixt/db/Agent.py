@@ -178,7 +178,7 @@ def import_agent_config(agent_name):
 
 
 class Agent:
-    def __init__(self, agent_name=None):
+    def __init__(self, agent_name=None, user="USER"):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
@@ -193,6 +193,7 @@ class Agent:
         self.available_commands = Extensions(
             agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()
+        self.user = user
 
     def load_config_keys(self):
         config_keys = [
