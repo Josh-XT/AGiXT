@@ -16,7 +16,7 @@ app = APIRouter()
 @app.post(
     "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
 )
-async def completion(prompt: Completions):
+async def completion(prompt: Completions, user=Depends(verify_api_key)):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
     agent_config = agent.agent.AGENT_CONFIG
@@ -65,7 +65,7 @@ async def completion(prompt: Completions):
     tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
 )
-async def chat_completion(prompt: Completions):
+async def chat_completion(prompt: Completions, user=Depends(verify_api_key)):
     # prompt.model is the agent name
     agent = Interactions(agent_name=prompt.model)
     agent_config = agent.agent.AGENT_CONFIG
@@ -117,7 +117,7 @@ async def chat_completion(prompt: Completions):
 @app.post(
     "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
 )
-async def embedding(embedding: EmbeddingModel):
+async def embedding(embedding: EmbeddingModel, user=Depends(verify_api_key)):
     agent_name = embedding.model
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     agent_settings = agent_config["settings"] if "settings" in agent_config else None
