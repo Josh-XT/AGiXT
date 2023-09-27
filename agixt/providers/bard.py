@@ -10,7 +10,7 @@ except ImportError:
 
 class BardProvider:
     def __init__(self, BARD_TOKEN: str = "", **kwargs):
-        self.requirements = ["GoogleBard"]
+        self.requirements = ["bardapi"]
         self.AI_MODEL = "bard"
         self.BARD_TOKEN = BARD_TOKEN
 
