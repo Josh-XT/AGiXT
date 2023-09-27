@@ -28,12 +28,10 @@ def get_provider_options(provider_name):
         return {}
     options = DEFAULT_SETTINGS
     options["provider"] = provider_name
-    # This will keep the heavy requirements of these providers not installed unless needed.
+    # This will keep transformers from being installed unless needed.
     if provider_name == "pipeline":
         options["HUGGINGFACE_API_KEY"] = ""
         options["MODEL_PATH"] = ""
-    elif provider_name == "palm":
-        options["PALM_API_KEY"] = ""
     else:
         try:
             module = importlib.import_module(f"providers.{provider_name}")
