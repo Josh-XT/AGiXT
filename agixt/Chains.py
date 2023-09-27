@@ -163,7 +163,9 @@ class Chains:
                     prompt_text = Prompts(user=self.user).get_prompt(
                         prompt_name=prompt["prompt_name"]
                     )
-                    args = Prompts(user=self.user).get_prompt_args(prompt_text=prompt_text)
+                    args = Prompts(user=self.user).get_prompt_args(
+                        prompt_text=prompt_text
+                    )
                 elif "command_name" in prompt:
                     args = Extensions().get_command_args(
                         command_name=prompt["command_name"]
