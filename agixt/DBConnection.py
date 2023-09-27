@@ -1,5 +1,6 @@
 import os
 import uuid
+import time
 from sqlalchemy import (
     create_engine,
     Column,
@@ -17,28 +18,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
-DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
-DATABASE_PASSWORD = os.getenv(
-    "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
-)
-DATABASE_HOST = os.getenv("DATABASE_HOST", os.getenv("POSTGRES_SERVER", "localhost"))
-DATABASE_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", "5432"))
-DATABASE_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", "postgres"))
-LOGIN_URI = f"{DATABASE_TYPE}://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
-DATABASE_URL = f"postgresql://{LOGIN_URI}"
-
-if DATABASE_TYPE == "mssql":
-    DATABASE_URL = f"mssql+pyodbc://{LOGIN_URI}?driver=ODBC+Driver+17+for+SQL+Server"
-elif DATABASE_TYPE == "mysql":
-    DATABASE_URL = f"mysql://{LOGIN_URI}"
-elif DATABASE_TYPE == "sqlite":
-    DATABASE_URL = f"sqlite:///{DATABASE_NAME}.db"
-elif DATABASE_TYPE == "oracle":
-    DATABASE_URL = f"oracle://{LOGIN_URI}"
-
-Base = declarative_base()
 if DB_CONNECTED:
+    DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
+    DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
+    DATABASE_PASSWORD = os.getenv(
+        "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
+    )
+    DATABASE_HOST = os.getenv(
+        "DATABASE_HOST", os.getenv("POSTGRES_SERVER", "localhost")
+    )
+    DATABASE_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", "5432"))
+    DATABASE_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", "postgres"))
+    LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+    DATABASE_URL = f"postgresql://{LOGIN_URI}"
+    if DATABASE_TYPE == "mssql":
+        DATABASE_URL = (
+            f"mssql+pyodbc://{LOGIN_URI}?driver=ODBC+Driver+17+for+SQL+Server"
+        )
+    elif DATABASE_TYPE == "mysql":
+        DATABASE_URL = f"mysql://{LOGIN_URI}"
+    elif DATABASE_TYPE == "sqlite":
+        DATABASE_URL = f"sqlite:///{DATABASE_NAME}.db"
+    elif DATABASE_TYPE == "oracle":
+        DATABASE_URL = f"oracle://{LOGIN_URI}"
     try:
         engine = create_engine(DATABASE_URL)
     except Exception as e:
@@ -46,8 +48,10 @@ if DB_CONNECTED:
     Session = sessionmaker(bind=engine, autoflush=False)
     session = Session()
     connection = engine.connect()
+    Base = declarative_base()
 else:
     session = None
+    Base = None
 
 
 class Provider(Base):
@@ -255,4 +259,8 @@ class Prompt(Base):
 
 
 if __name__ == "__main__":
-    Base.metadata.create_all(engine)
+    if DB_CONNECTED:
+        print("Connecting to database...")
+        time.sleep(10)
+        Base.metadata.create_all(engine)
+        print("Connected to database.")
