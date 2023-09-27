@@ -8,21 +8,16 @@ import tiktoken
 from datetime import datetime
 from readers.website import WebsiteReader
 from readers.file import FileReader
-from ApiClient import ApiClient, DB_CONNECTED
-
-if DB_CONNECTED:
-    from db.Agent import Agent
-    from db.Prompts import Prompts
-    from db.Chain import Chain
-    from db.History import log_interaction, get_conversation
-else:
-    from fb.Agent import Agent
-    from fb.Prompts import Prompts
-    from fb.Chain import Chain
-    from fb.History import log_interaction, get_conversation
-
 from Websearch import Websearch
 from Extensions import Extensions
+from ApiClient import (
+    ApiClient,
+    Agent,
+    Prompts,
+    Chain,
+    log_interaction,
+    get_conversation,
+)
 
 chain = Chain()
 cp = Prompts()
