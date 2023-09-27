@@ -178,7 +178,11 @@ class Prompts:
     def rename_prompt(self, prompt_name, new_prompt_name, prompt_category="Default"):
         prompt = (
             self.session.query(Prompt)
-            .filter_by(name=prompt_name)
+            .filter(
+                Prompt.name == prompt_name,
+                Prompt.user_id == self.user_id,
+                Prompt.prompt_category.has(name=prompt_category),
+            )
             .join(PromptCategory)
             .filter(
                 PromptCategory.name == prompt_category, Prompt.user_id == self.user_id
