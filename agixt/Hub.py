@@ -1,3 +1,6 @@
+# This file will remain in the repository for now, but it will be removed in a future release.
+# The purpose to keep it is to use it to create a script for bulk imports later.
+
 import io
 import os
 import time

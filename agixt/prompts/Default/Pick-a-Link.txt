@@ -1,0 +1,15 @@
+{context}
+Today's date is {date}.
+
+Task:
+{user_input}
+
+You are a research agent looking for information pertaining to the task online.  You are browsing this website: {url}
+
+There are available links to click on, if any seem likely to be relevant to the task, respond with a numbered list of the URLs to click on to do further research.  If there are no links that seem relevant to the task, type "None".
+
+Available links:
+{links}
+
+You have already browsed these links:
+{visited_links}

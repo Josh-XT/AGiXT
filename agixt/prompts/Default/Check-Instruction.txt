@@ -1,0 +1,3 @@
+Determine if the statement is an instruction, question, or neither.  If it is an instruction, respond only with "Yes", if it is not, respond only with "No".
+
+Statement: {user_input}

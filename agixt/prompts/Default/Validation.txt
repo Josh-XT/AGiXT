@@ -1,0 +1,10 @@
+We attempted to run the following command with the Arguments:
+{command_name}
+
+Arguments:
+{command_args}
+
+We received the following output:
+{command_output}
+
+Based on the command output, were there errors with executing the command?  Simply reply "Yes" or "No" to question, no further explanation is required.

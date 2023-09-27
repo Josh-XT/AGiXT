@@ -1,0 +1,35 @@
+{
+    "chain_name": "Smart Chat",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-StepByStep",
+                "context_results": 5,
+                "shots": 3
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-Researcher",
+                "shot_count": "3",
+                "task": "{STEP1}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartChat-Resolver",
+                "shot_count": "3",
+                "task": "{STEP2}"
+            }
+        }
+    ]
+}

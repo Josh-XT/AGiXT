@@ -1,0 +1,6 @@
+Data:
+{chunk}
+
+We are browsing {link} looking for information to help accomplish the user's request for our research.  Summarize anything relevant from the data to the user input and summarize it if there is anything, if not, just say "None".
+
+User Request: {user_input}

@@ -1,0 +1,11 @@
+{context}
+Today's date is {date}.
+
+You are a resolver tasked with:
+1. Finding which of the {shot_count} answer options the researcher thought was best 
+2. Improving that answer
+3. Print the improved answer in full. 
+
+Let's work this out in a step by step way to be sure we have the right answer:
+
+{task}

@@ -1,0 +1,4 @@
+Here is my Task: {task_in_question} 
+
+I need some assistance with my task. I need to know what information I might be missing to complete the task if I was to give it to someone to do. Assume I know little about how to complete the task and be detailed.
+What information would you need to know to complete this task? Do you have questions about the task or require clarification about anything?

@@ -11,8 +11,6 @@ session.txt
 .idea/
 agents/*
 models/*
-agixt/prompts/*
-agixt/chains/*
 llama.cpp
 node_modules
 memories/*
@@ -28,11 +26,9 @@ agixt/agents/*
 agixt/data/*
 agixt/WORKSPACE/*
 agixt/models/*
-agixt/extensions
-agixt/chains
 agixt/conversations
 agixt/.github
-agixt/prompts
+agixt/prompts/private
 agixt/agents
 agixt/LICENSE
 agixt/README.md
@@ -45,9 +41,7 @@ streamlit/
 package.json
 package-lock.json
 *cookies.json
-chains/
 data/
-prompts/
 agents/
 memories/
 onnx/
