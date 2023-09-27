@@ -24,12 +24,16 @@ app = APIRouter()
 
 
 @app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def addagent(agent: AgentSettings, user=Depends(verify_api_key)) -> Dict[str, str]:
+async def addagent(
+    agent: AgentSettings, user=Depends(verify_api_key)
+) -> Dict[str, str]:
     return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
 
 
 @app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def import_agent(agent: AgentConfig, user=Depends(verify_api_key)) -> Dict[str, str]:
+async def import_agent(
+    agent: AgentConfig, user=Depends(verify_api_key)
+) -> Dict[str, str]:
     return add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
@@ -40,7 +44,9 @@ async def import_agent(agent: AgentConfig, user=Depends(verify_api_key)) -> Dict
 @app.patch(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
-async def renameagent(agent_name: str, new_name: AgentNewName, user=Depends(verify_api_key)) -> ResponseMessage:
+async def renameagent(
+    agent_name: str, new_name: AgentNewName, user=Depends(verify_api_key)
+) -> ResponseMessage:
     rename_agent(agent_name=agent_name, new_name=new_name.new_name)
     return ResponseMessage(message="Agent renamed.")
 
@@ -98,8 +104,10 @@ async def get_agentconfig(agent_name: str, user=Depends(verify_api_key)):
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
-async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt, user=Depends(verify_api_key)):
-    agent = Interactions(agent_name=agent_name)
+async def prompt_agent(
+    agent_name: str, agent_prompt: AgentPrompt, user=Depends(verify_api_key)
+):
+    agent = Interactions(agent_name=agent_name, user=user)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,

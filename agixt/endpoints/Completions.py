@@ -18,7 +18,7 @@ app = APIRouter()
 )
 async def completion(prompt: Completions, user=Depends(verify_api_key)):
     # prompt.model is the agent name
-    agent = Interactions(agent_name=prompt.model)
+    agent = Interactions(agent_name=prompt.model, user=user)
     agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
@@ -67,7 +67,7 @@ async def completion(prompt: Completions, user=Depends(verify_api_key)):
 )
 async def chat_completion(prompt: Completions, user=Depends(verify_api_key)):
     # prompt.model is the agent name
-    agent = Interactions(agent_name=prompt.model)
+    agent = Interactions(agent_name=prompt.model, user=user)
     agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
