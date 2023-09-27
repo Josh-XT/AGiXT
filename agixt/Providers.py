@@ -4,24 +4,8 @@ import pkg_resources
 import glob
 import os
 import inspect
+from Defaults import DEFAULT_SETTINGS
 from dotenv import load_dotenv
-
-DEFAULT_SETTINGS = {
-    "embedder": "default",
-    "AI_MODEL": "gpt-3.5-turbo",
-    "AI_TEMPERATURE": "0.7",
-    "AI_TOP_P": "1",
-    "MAX_TOKENS": "4096",
-    "helper_agent_name": "gpt4free",
-    "WEBSEARCH_TIMEOUT": 0,
-    "WAIT_BETWEEN_REQUESTS": 1,
-    "WAIT_AFTER_FAILURE": 3,
-    "stream": False,
-    "WORKING_DIRECTORY": "./WORKSPACE",
-    "WORKING_DIRECTORY_RESTRICTED": True,
-    "AUTONOMOUS_EXECUTION": True,
-    "PERSONA": "",
-}
 
 load_dotenv()
 
@@ -43,9 +27,9 @@ def get_provider_options(provider_name):
     if provider_name in DISABLED_PROVIDERS:
         return {}
     options = {
-        "provider": provider_name,
         **DEFAULT_SETTINGS,
     }
+    options["provider"] = provider_name
     # This will keep the heavy requirements of these providers not installed unless needed.
     if provider_name == "llamacpp":
         options["MODEL_PATH"] = ""
