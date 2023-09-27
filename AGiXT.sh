@@ -26,21 +26,12 @@ environment_setup() {
         echo "${BOLD}${MAGENTA}Welcome to the AGiXT Environment Setup!${RESET}"
         read -p "Quick Setup without advanced configuration? (Y for yes, N for No): " quick_setup
         if [[ "$quick_setup" == [Yy]* ]]; then
-          db_connection = false
           auto_update = true
-          github_repo = "AGiXT/hub"
           agixt_uri = "http://localhost:7437"
           api_key = ""
           agixt_workers = 10
-          github_username = ""
-          github_token = ""
-          postgres_host = "db"
-          postgres_port = 5432
-          postgres_database = "postgres"
-          postgres_username = "postgres"
-          postgres_password = "postgres"
         else
-          read -p "Do you want AGiXT and your Hub to automatically update when launched? (Y for yes, N for No): " auto_update
+          read -p "Do you want AGiXT to automatically update when launched? (Y for yes, N for No): " auto_update
           if [[ "$auto_update" == [Yy]* ]]; then
               auto_update="true"
           else
@@ -49,15 +40,6 @@ environment_setup() {
           read -p "Do you want to set an API key for AGiXT? (Y for yes, N for No): " use_api_key
           if [[ "$use_api_key" == [Yy]* ]]; then
               read -p "Enter API key: " api_key
-          fi
-          read -p "Do you have your own AGiXT Hub fork that you would like to install with? (Y for yes, N for No): " hub_repo
-          if [[ "$hub_repo" == [Yy]* ]]; then
-              read -p "Enter your AGiXT Hub fork repo name (e.g. AGiXT/hub): " github_repo
-              read -p "Is your AGiXT Hub fork private? It will require credentials if it is not public. (Y for yes, N for No): " is_private
-              if [[ "$is_private" == [Yy]* ]]; then
-                  read -p "Enter your GitHub username: " github_username
-                  read -p "Enter your GitHub token: " github_token
-              fi
           fi
           read -p "Enter the number of AGiXT workers to run with, default is 10: " workers
           if [[ "$workers" != "" ]]; then
@@ -68,47 +50,23 @@ environment_setup() {
                   agixt_workers=10
               fi
           fi
-          read -p "Do you intend to run local models? (Y for yes, N for No): " local_models
+          read -p "Do you intend to run Oobabooga Text Generation Web UI with AGiXT using this installer? (Only works with NVIDIA currently) Choose no if you do not need this or are already running it locally. (Y for yes, N for No): " local_models
           if [[ "$local_models" == [Yy]* ]]; then
-              read -p "Do you want to use a local Text generation web UI? (Only works with NVIDIA currently) (Y for yes, N for No): " local_textgen
-              if [[ "$local_textgen" == [Yy]* ]]; then
-                  read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
-                  if [[ "$cuda_version" != "" ]]; then
-                      if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
-                          echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
-                      fi
+              read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
+              if [[ "$cuda_version" != "" ]]; then
+                  if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+                      echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
                   fi
-                  cli_args_default='--listen --listen-host 0.0.0.0 --api'
-                  read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
-                  echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
               fi
-          fi
-          read -p "Do you want to use postgres? (Y for yes, N for No and to use file structure instead): " use_db
-          if [[ "$use_db" == [Yy]* ]]; then
-              db_connection="true"
-              read -p "Do you want to use an existing postgres database? (Y for yes, N for No and to create a new one automatically): " use_own_db
-              if [[ "$use_own_db" == [Yy]* ]]; then
-                  read -p "Enter postgres host: " postgres_host
-                  read -p "Enter postgres port: " postgres_port
-                  read -p "Enter postgres database name: " postgres_database
-                  read -p "Enter postgres username: " postgres_username
-              fi
-              read -p "Enter postgres password: " postgres_password
+              cli_args_default='--listen --listen-host 0.0.0.0 --api'
+              read -p "Default Text generation web UI startup parameters: ${cli_args_default} (press Enter for defaults or overwrite with yours): " local_textgen_startup_params
+              echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
           fi
         fi
-        echo "DB_CONNECTED=${db_connection:-false}" >> .env
         echo "AGIXT_AUTO_UPDATE=${auto_update:-true}" >> .env
-        echo "AGIXT_HUB=${github_repo:-AGiXT/hub}" >> .env
         echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
         echo "UVICORN_WORKERS=${agixt_workers:-10}" >> .env
-        echo "GITHUB_USER=${github_username:-}" >> .env
-        echo "GITHUB_TOKEN=${github_token:-}" >> .env
-        echo "POSTGRES_SERVER=${postgres_host:-db}" >> .env
-        echo "POSTGRES_PORT=${postgres_port:-5432}" >> .env
-        echo "POSTGRES_DB=${postgres_database:-postgres}" >> .env
-        echo "POSTGRES_USER=${postgres_username:-postgres}" >> .env
-        echo "POSTGRES_PASSWORD=${postgres_password:-postgres}" >> .env
     fi
     source .env
 }
