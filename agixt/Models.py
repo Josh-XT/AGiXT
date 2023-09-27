@@ -42,7 +42,6 @@ class PromptCategoryList(BaseModel):
 
 
 class Completions(BaseModel):
-    # Everything in this class except prompt, n, and model (agent_name) are unused currently.
     prompt: str
     max_tokens: int = 100
     temperature: float = 0.9
