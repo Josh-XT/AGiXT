@@ -7,42 +7,53 @@ import random
 import time
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from Interactions import Interactions, get_tokens
 from Embedding import Embedding
-from ApiClient import DB_CONNECTED
+from ApiClient import (
+    Agent,
+    Chain,
+    Prompts,
+    add_agent,
+    delete_agent,
+    rename_agent,
+    get_agents,
+    get_conversation,
+    delete_history,
+    delete_message,
+    get_conversations,
+    new_conversation,
+    log_interaction,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
 
-if DB_CONNECTED:
-    from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-    from db.Chain import Chain
-    from db.Prompts import Prompts
-    from db.History import (
-        get_conversation,
-        delete_history,
-        delete_message,
-        get_conversations,
-        new_conversation,
-        log_interaction,
-    )
-else:
-    from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-    from fb.Chain import Chain
-    from fb.Prompts import Prompts
-    from fb.History import (
-        get_conversation,
-        delete_history,
-        delete_message,
-        get_conversations,
-        new_conversation,
-        log_interaction,
-    )
-
-
-from typing import Optional, Dict, List, Any
+from typing import Dict, List, Any
+from Models import (
+    AgentNewName,
+    AgentPrompt,
+    AgentMemoryQuery,
+    PromptName,
+    PromptList,
+    PromptCategoryList,
+    Completions,
+    ToggleCommandPayload,
+    AgentCommands,
+    AgentSettings,
+    AgentConfig,
+    ResponseMessage,
+    ConversationHistoryModel,
+    ConversationHistoryMessageModel,
+    HistoryModel,
+    EmbeddingModel,
+    TextMemoryInput,
+    FileInput,
+    UrlInput,
+    ArxivInput,
+    GitHubInput,
+    CommandExecution,
+)
 from Providers import get_provider_options, get_providers, get_providers_with_settings
 from Embedding import get_embedding_providers, get_embedders
 from Extensions import Extensions
@@ -51,6 +62,7 @@ from readers.github import GithubReader
 from readers.file import FileReader
 from readers.website import WebsiteReader
 from readers.arxiv import ArxivReader
+from Authentication import verify_api_key
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -77,232 +89,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def verify_api_key(authorization: str = Header(None)):
-    # Check if the API key is set up in the environment
-    if AGIXT_API_KEY:
-        # If no authorization header is provided, raise an error
-        if authorization is None:
-            raise HTTPException(
-                status_code=400, detail="Authorization header is missing"
-            )
-        scheme, _, api_key = authorization.partition(" ")
-        # If the scheme isn't "Bearer", raise an error
-        if scheme.lower() != "bearer":
-            raise HTTPException(
-                status_code=400, detail="Authorization scheme is not Bearer"
-            )
-        # If the provided API key doesn't match the expected one, raise an error
-        if api_key != AGIXT_API_KEY:
-            raise HTTPException(status_code=403, detail="Invalid API Key")
-        return api_key
-    else:
-        return 1
-
-
-class AgentName(BaseModel):
-    agent_name: str
-
-
-class AgentNewName(BaseModel):
-    new_name: str
-
-
-class AgentPrompt(BaseModel):
-    prompt_name: str
-    prompt_args: dict
-
-
-class AgentMemoryQuery(BaseModel):
-    user_input: str
-    limit: int = 5
-    min_relevance_score: float = 0.0
-
-
-class Objective(BaseModel):
-    objective: str
-
-
-class Prompt(BaseModel):
-    prompt: str
-
-
-class PromptName(BaseModel):
-    prompt_name: str
-
-
-class PromptList(BaseModel):
-    prompts: List[str]
-
-
-class PromptCategoryList(BaseModel):
-    prompt_categories: List[str]
-
-
-class Completions(BaseModel):
-    # Everything in this class except prompt, n, and model (agent_name) are unused currently.
-    prompt: str
-    max_tokens: int = 100
-    temperature: float = 0.9
-    top_p: float = 1.0
-    n: int = 1
-    stream: bool = False
-    logprobs: int = None
-    stop: List[str] = None
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
-    best_of: int = 1
-    echo: bool = False
-    user: str = None
-    model: str = None  # Model is actually the agent_name
-    stop_sequence: List[str] = None
-    metadata: Dict[str, str] = None
-
-
-class ChainNewName(BaseModel):
-    new_name: str
-
-
-class ChainName(BaseModel):
-    chain_name: str
-
-
-class ChainData(BaseModel):
-    chain_name: str
-    steps: Dict[str, Any]
-
-
-class RunChain(BaseModel):
-    prompt: str
-    agent_override: Optional[str] = ""
-    all_responses: Optional[bool] = False
-    from_step: Optional[int] = 1
-    chain_args: Optional[dict] = {}
-
-
-class RunChainStep(BaseModel):
-    prompt: str
-    agent_override: Optional[str] = ""
-    chain_args: Optional[dict] = {}
-
-
-class StepInfo(BaseModel):
-    step_number: int
-    agent_name: str
-    prompt_type: str
-    prompt: dict
-
-
-class RunChainResponse(BaseModel):
-    response: str
-    agent_name: str
-    prompt: dict
-    prompt_type: str
-
-
-class ChainStep(BaseModel):
-    step_number: int
-    agent_name: str
-    prompt_type: str
-    prompt: dict
-
-
-class ChainStepNewInfo(BaseModel):
-    old_step_number: int
-    new_step_number: int
-
-
-class ResponseMessage(BaseModel):
-    message: str
-
-
-class UrlInput(BaseModel):
-    url: str
-    collection_number: int = 0
-
-
-class EmbeddingModel(BaseModel):
-    input: str
-    model: str
-
-
-class FileInput(BaseModel):
-    file_name: str
-    file_content: str
-    collection_number: int = 0
-
-
-class TextMemoryInput(BaseModel):
-    user_input: str
-    text: str
-    collection_number: int = 0
-
-
-class TaskOutput(BaseModel):
-    output: str
-    message: Optional[str] = None
-
-
-class ToggleCommandPayload(BaseModel):
-    command_name: str
-    enable: bool
-
-
-class CustomPromptModel(BaseModel):
-    prompt_name: str
-    prompt: str
-
-
-class AgentSettings(BaseModel):
-    agent_name: str
-    settings: Dict[str, Any]
-
-
-class AgentConfig(BaseModel):
-    agent_name: str
-    settings: Dict[str, Any]
-    commands: Dict[str, Any]
-
-
-class AgentCommands(BaseModel):
-    agent_name: str
-    commands: Dict[str, Any]
-
-
-class HistoryModel(BaseModel):
-    agent_name: str
-    conversation_name: str
-    limit: int = 100
-    page: int = 1
-
-
-class ConversationHistoryModel(BaseModel):
-    agent_name: str
-    conversation_name: str
-    conversation_content: List[dict] = []
-
-
-class ConversationHistoryMessageModel(BaseModel):
-    agent_name: str
-    conversation_name: str
-    message: str
-
-
-class GitHubInput(BaseModel):
-    github_repo: str
-    github_user: str = None
-    github_token: str = None
-    github_branch: str = "main"
-    use_agent_settings: bool = False
-    collection_number: int = 0
-
-
-class ArxivInput(BaseModel):
-    query: str = None
-    article_ids: str = None
-    max_articles: int = 5
-    collection_number: int = 0
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
@@ -350,40 +136,6 @@ async def get_embed_providers():
 )
 async def get_embedder_info() -> Dict[str, Any]:
     return {"embedders": get_embedders()}
-
-
-@app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def addagent(agent: AgentSettings) -> Dict[str, str]:
-    return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
-
-
-@app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def import_agent(agent: AgentConfig) -> Dict[str, str]:
-    return add_agent(
-        agent_name=agent.agent_name,
-        provider_settings=agent.settings,
-        commands=agent.commands,
-    )
-
-
-@app.patch(
-    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
-    rename_agent(agent_name=agent_name, new_name=new_name.new_name)
-    return ResponseMessage(message="Agent renamed.")
-
-
-@app.put(
-    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def update_agent_settings(
-    agent_name: str, settings: AgentSettings
-) -> ResponseMessage:
-    update_config = Agent(agent_name=agent_name).update_agent_config(
-        new_config=settings.settings, config_key="settings"
-    )
-    return ResponseMessage(message=update_config)
 
 
 # Get memories
@@ -656,42 +408,6 @@ async def delete_agent_memory(
     )
 
 
-@app.put(
-    "/api/agent/{agent_name}/commands",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def update_agent_commands(
-    agent_name: str, commands: AgentCommands
-) -> ResponseMessage:
-    update_config = Agent(agent_name=agent_name).update_agent_config(
-        new_config=commands.commands, config_key="commands"
-    )
-    return ResponseMessage(message=update_config)
-
-
-@app.delete(
-    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def deleteagent(agent_name: str) -> ResponseMessage:
-    delete_agent(agent_name=agent_name)
-    return ResponseMessage(message=f"Agent {agent_name} deleted.")
-
-
-@app.get("/api/agent", tags=["Agent"])
-async def getagents():
-    agents = get_agents()
-    return {"agents": agents}
-
-
-@app.get(
-    "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
-)
-async def get_agentconfig(agent_name: str):
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
-    return {"agent": agent_config}
-
-
 @app.get(
     "/api/{agent_name}/conversations",
     tags=["Conversation"],
@@ -806,20 +522,6 @@ async def delete_history_message(
         conversation_name=history.conversation_name,
     )
     return ResponseMessage(message=f"Message deleted.")
-
-
-@app.post(
-    "/api/agent/{agent_name}/prompt",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
-    agent = Interactions(agent_name=agent_name)
-    response = await agent.run(
-        prompt=agent_prompt.prompt_name,
-        **agent_prompt.prompt_args,
-    )
-    return {"response": str(response)}
 
 
 @app.post(
@@ -940,52 +642,6 @@ async def embedding(embedding: EmbeddingModel):
         "object": "list",
         "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
     }
-
-
-@app.get(
-    "/api/agent/{agent_name}/command",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_commands(agent_name: str):
-    agent = Agent(agent_name=agent_name)
-    return {"commands": agent.AGENT_CONFIG["commands"]}
-
-
-@app.patch(
-    "/api/agent/{agent_name}/command",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def toggle_command(
-    agent_name: str, payload: ToggleCommandPayload
-) -> ResponseMessage:
-    agent = Agent(agent_name=agent_name)
-    try:
-        if payload.command_name == "*":
-            for each_command_name in agent.AGENT_CONFIG["commands"]:
-                agent.AGENT_CONFIG["commands"][each_command_name] = payload.enable
-
-            agent.update_agent_config(
-                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
-            )
-            return ResponseMessage(
-                message=f"All commands enabled for agent '{agent_name}'."
-            )
-        else:
-            agent.AGENT_CONFIG["commands"][payload.command_name] = payload.enable
-            agent.update_agent_config(
-                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
-            )
-            return ResponseMessage(
-                message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
-            )
-    except Exception as e:
-        logging.info(e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
-        )
 
 
 @app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
@@ -1349,12 +1005,6 @@ async def get_command_args(command_name: str):
 async def get_extensions():
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}
-
-
-class CommandExecution(BaseModel):
-    command_name: str
-    command_args: dict
-    conversation_name: str = "AGiXT Terminal Command Execution"
 
 
 @app.post(
