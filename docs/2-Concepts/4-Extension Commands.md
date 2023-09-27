@@ -14,7 +14,7 @@ You're welcome to disregard this message, but if you do and the AI decides that 
 You don't even need to be a developer! There is a command for that! Just give your agent the `Create a new command` command and tell it what new command you want it to make, it will create a new command file in the `commands` folder and any commands inside of the file will be available in Agent Settings to enable if you choose to do so.
 
 ## Some Commands
-This is not a full list of commands! These are just some examples. You can find all of the commands in the [AGiXT Hub](https://github.com/AGiXT/hub).  Each Extension file may have as many commands associated as needed.  
+This is not a full list of commands! These are just some examples. You can find all of the commands in the repository.  Each Extension file may have as many commands associated as needed.
 
 - Ask AI Agent `AGENT_NAME`
 - Instruct AI Agent `AGENT_NAME`
