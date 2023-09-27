@@ -1,11 +1,11 @@
 try:
-    from Bard import Chatbot
+    from bardapi import Bard
 except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "GoogleBard"])
-    from Bard import Chatbot
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "bardapi"])
+    from bardapi import Bard
 
 
 class BardProvider:
@@ -16,8 +16,8 @@ class BardProvider:
 
     async def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Chatbot(session_id=self.BARD_TOKEN)
-            response = bot.ask(prompt)
+            bot = Bard(session_id=self.BARD_TOKEN)
+            response = bot.get_answer(prompt)
             return response["content"].replace("\n", "\n")
         except Exception as e:
             return f"Bard Error: {e}"
