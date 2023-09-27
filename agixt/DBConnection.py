@@ -284,29 +284,6 @@ if __name__ == "__main__":
         Base.metadata.create_all(engine)
         logging.info("Connected to database.")
         # Check if the user table is empty
-        session = get_session()
-        user_count = session.query(User).count()
-        if user_count == 0:
-            # Create the default user
-            logging.info("Creating default user...")
-            user = User(email="USER")
-            session.add(user)
-            session.commit()
-            logging.info("Default user created.")
-            from db.imports import (
-                import_extensions,
-                import_prompts,
-                import_providers,
-                import_agents,
-                import_chains,
-                import_conversations,
-            )
+        from db.imports import import_all_data
 
-            logging.info("Importing data...")
-            import_extensions()
-            import_prompts()
-            import_providers()
-            import_agents()
-            import_chains()
-            import_conversations()
-            logging.info("Data imported.")
+        import_all_data()
