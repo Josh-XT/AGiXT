@@ -27,10 +27,8 @@ lxml
 discord
 tweepy
 sendgrid
-whispercpp
 httpx
 anthropic
-hugchat
 arxiv
 numpy
 matplotlib
