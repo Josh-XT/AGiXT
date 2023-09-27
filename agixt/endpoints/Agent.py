@@ -1,27 +1,15 @@
-import uvicorn
-import os
 import logging
-import base64
-import string
-import random
-import time
-from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.middleware.cors import CORSMiddleware
-from Interactions import Interactions, get_tokens
-from Embedding import Embedding
-from ApiClient import DB_CONNECTED
-from dotenv import load_dotenv
-
-load_dotenv()
-AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
-
-if DB_CONNECTED:
-    from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-else:
-    from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-
-
-from typing import Dict, List, Any
+from typing import Dict
+from fastapi import FastAPI, HTTPException, Depends
+from Interactions import Interactions
+from ApiClient import (
+    Agent,
+    add_agent,
+    delete_agent,
+    rename_agent,
+    get_agents,
+    verify_api_key,
+)
 from Models import (
     AgentNewName,
     AgentPrompt,
@@ -31,8 +19,6 @@ from Models import (
     AgentConfig,
     ResponseMessage,
 )
-
-from Authentication import verify_api_key
 
 app = FastAPI()
 

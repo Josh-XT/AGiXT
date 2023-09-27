@@ -1,13 +1,6 @@
 import logging
-from ApiClient import ApiClient, DB_CONNECTED
+from ApiClient import ApiClient, Chain, Prompts
 from Extensions import Extensions
-
-if DB_CONNECTED:
-    from db.Chain import Chain
-    from db.Prompts import Prompts
-else:
-    from fb.Chain import Chain
-    from fb.Prompts import Prompts
 
 chain = Chain()
 
