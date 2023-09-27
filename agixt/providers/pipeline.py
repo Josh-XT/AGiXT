@@ -1,10 +1,4 @@
-try:
-    from transformers import pipeline
-except ImportError:
-    import subprocess, sys
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "transformers"])
-    from transformers import pipeline
+from transformers import pipeline
 
 has_accelerate = True
 try:
