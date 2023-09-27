@@ -18,7 +18,7 @@ from Extensions import Extensions
 from Defaults import DEFAULT_SETTINGS
 
 
-def add_agent(agent_name, provider_settings=None, commands=None):
+def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
     session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
@@ -45,7 +45,7 @@ def add_agent(agent_name, provider_settings=None, commands=None):
     return {"message": f"Agent {agent_name} created."}
 
 
-def delete_agent(agent_name):
+def delete_agent(agent_name, user="USER"):
     session = get_session()
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
@@ -84,7 +84,7 @@ def delete_agent(agent_name):
     return {"message": f"Agent {agent_name} deleted."}, 200
 
 
-def rename_agent(agent_name, new_name):
+def rename_agent(agent_name, new_name, user="USER"):
     session = get_session()
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
@@ -96,7 +96,7 @@ def rename_agent(agent_name, new_name):
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
-def get_agents():
+def get_agents(user="USER"):
     session = get_session()
     agents = session.query(AgentModel).all()
     output = []
@@ -107,7 +107,7 @@ def get_agents():
     return output
 
 
-def import_agent_config(agent_name):
+def import_agent_config(agent_name, user="USER"):
     session = get_session()
     config_path = f"agents/{agent_name}/config.json"
 

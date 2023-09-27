@@ -9,7 +9,7 @@ from DBConnection import (
 )
 
 
-def export_conversation(agent_name, conversation_name=None):
+def export_conversation(agent_name, conversation_name=None, user="USER"):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -53,7 +53,7 @@ def export_conversation(agent_name, conversation_name=None):
     print(f"Exported conversation for agent '{agent_name}' to {history_file}.")
 
 
-def get_conversations(agent_name):
+def get_conversations(agent_name, user="USER"):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -69,7 +69,9 @@ def get_conversations(agent_name):
     return [conversation.name for conversation in conversations]
 
 
-def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
+def get_conversation(
+    agent_name, conversation_name=None, limit=100, page=1, user="USER"
+):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -103,7 +105,9 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
     return return_messages
 
 
-def new_conversation(agent_name, conversation_name, conversation_content=[]):
+def new_conversation(
+    agent_name, conversation_name, conversation_content=[], user="USER"
+):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -144,7 +148,7 @@ def new_conversation(agent_name, conversation_name, conversation_content=[]):
     )
 
 
-def log_interaction(agent_name, conversation_name, role, message):
+def log_interaction(agent_name, conversation_name, role, message, user="USER"):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -180,7 +184,7 @@ def log_interaction(agent_name, conversation_name, role, message):
     print(f"Logged interaction: [{timestamp}] {role}: {message}")
 
 
-def delete_history(agent_name, conversation_name=None):
+def delete_history(agent_name, conversation_name=None, user="USER"):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
@@ -207,7 +211,7 @@ def delete_history(agent_name, conversation_name=None):
     print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
 
 
-def delete_message(agent_name, conversation_name, message_id):
+def delete_message(agent_name, conversation_name, message_id, user="USER"):
     session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:

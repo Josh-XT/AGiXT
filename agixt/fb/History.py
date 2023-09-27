@@ -3,7 +3,7 @@ import yaml
 import os
 
 
-def export_conversation(conversation_name=None, agent_name=None):
+def export_conversation(conversation_name=None, agent_name=None, user="USER"):
     if not conversation_name:
         conversation_name = f"{str(datetime.now())} Conversation"
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
@@ -14,7 +14,9 @@ def export_conversation(conversation_name=None, agent_name=None):
     return {"interactions": []}
 
 
-def get_conversation(conversation_name=None, limit=100, page=1, agent_name=None):
+def get_conversation(
+    conversation_name=None, limit=100, page=1, agent_name=None, user="USER"
+):
     history = {"interactions": []}
     try:
         history_file = os.path.join("conversations", f"{conversation_name}.yaml")
@@ -26,7 +28,7 @@ def get_conversation(conversation_name=None, limit=100, page=1, agent_name=None)
     return history
 
 
-def get_conversations(agent_name=None):
+def get_conversations(agent_name=None, user="USER"):
     conversation_dir = os.path.join("conversations")
     if os.path.exists(conversation_dir):
         conversations = os.listdir(conversation_dir)
@@ -34,7 +36,9 @@ def get_conversations(agent_name=None):
     return []
 
 
-def new_conversation(conversation_name, agent_name=None, conversation_content=[]):
+def new_conversation(
+    conversation_name, agent_name=None, conversation_content=[], user="USER"
+):
     history = {"interactions": conversation_content}
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     os.makedirs(os.path.dirname(history_file), exist_ok=True)
@@ -43,7 +47,9 @@ def new_conversation(conversation_name, agent_name=None, conversation_content=[]
     return history
 
 
-def log_interaction(role: str, message: str, conversation_name=None, agent_name=None):
+def log_interaction(
+    role: str, message: str, conversation_name=None, agent_name=None, user="USER"
+):
     history = get_conversation(conversation_name=conversation_name)
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     if not os.path.exists(history_file):
@@ -63,13 +69,13 @@ def log_interaction(role: str, message: str, conversation_name=None, agent_name=
         yaml.safe_dump(history, file)
 
 
-def delete_history(conversation_name=None, agent_name=None):
+def delete_history(conversation_name=None, agent_name=None, user="USER"):
     history_file = os.path.join("conversations", f"{conversation_name}.yaml")
     if os.path.exists(history_file):
         os.remove(history_file)
 
 
-def delete_message(message, conversation_name=None, agent_name=None):
+def delete_message(message, conversation_name=None, agent_name=None, user="USER"):
     if conversation_name:
         history = get_conversation(
             agent_name=agent_name, conversation_name=conversation_name

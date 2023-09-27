@@ -2,8 +2,9 @@ from DBConnection import Prompt, PromptCategory, Argument, get_session
 
 
 class Prompts:
-    def __init__(self):
+    def __init__(self, user="USER"):
         self.session = get_session()
+        self.user = user
 
     def add_prompt(self, prompt_name, prompt, prompt_category="Default"):
         if not prompt_category:
