@@ -68,9 +68,7 @@ class Provider(Base):
     __tablename__ = "provider"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     provider_settings = relationship("ProviderSetting", backref="provider")
-    user = relationship("User", backref="provider")
 
 
 class ProviderSetting(Base):
@@ -244,8 +242,6 @@ class Extension(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True, default="")
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
-    user = relationship("User", backref="extension")
 
 
 class Argument(Base):

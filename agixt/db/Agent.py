@@ -11,6 +11,7 @@ from DBConnection import (
     ChainStepArgument,
     ChainStepResponse,
     Provider as ProviderModel,
+    User,
     get_session,
 )
 from Providers import Providers
@@ -22,8 +23,9 @@ def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
     session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
-
-    agent = AgentModel(name=agent_name)
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = AgentModel(name=agent_name, user_id=user_id)
     session.add(agent)
     session.commit()
 
@@ -47,7 +49,13 @@ def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
 
 def delete_agent(agent_name, user="USER"):
     session = get_session()
-    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(AgentModel)
+        .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
+        .first()
+    )
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
 
@@ -86,7 +94,13 @@ def delete_agent(agent_name, user="USER"):
 
 def rename_agent(agent_name, new_name, user="USER"):
     session = get_session()
-    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(AgentModel)
+        .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
+        .first()
+    )
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
 
@@ -98,7 +112,7 @@ def rename_agent(agent_name, new_name, user="USER"):
 
 def get_agents(user="USER"):
     session = get_session()
-    agents = session.query(AgentModel).all()
+    agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
 
     for agent in agents:
@@ -116,7 +130,11 @@ def import_agent_config(agent_name, user="USER"):
         config = json.load(f)
 
     # Get the agent from the database
-    agent = session.query(AgentModel).filter_by(name=agent_name).first()
+    agent = (
+        session.query(AgentModel)
+        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
+        .first()
+    )
 
     if not agent:
         print(f"Agent '{agent_name}' does not exist in the database.")
@@ -200,6 +218,8 @@ class Agent:
         ).get_available_commands()
         self.user = user
         self.session = get_session()
+        user_data = self.session.query(User).filter(User.email == self.user).first()
+        self.user_id = user_data.id
 
     def load_config_keys(self):
         config_keys = [
@@ -216,7 +236,9 @@ class Agent:
     def get_agent_config(self):
         agent = (
             self.session.query(AgentModel)
-            .filter(AgentModel.name == self.agent_name)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
             .first()
         )
         if agent:
@@ -277,7 +299,9 @@ class Agent:
     def update_agent_config(self, new_config, config_key):
         agent = (
             self.session.query(AgentModel)
-            .filter(AgentModel.name == self.agent_name)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
             .first()
         )
         if agent:
