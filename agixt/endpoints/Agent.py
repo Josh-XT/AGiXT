@@ -24,12 +24,16 @@ app = APIRouter()
 
 
 @app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def addagent(agent: AgentSettings) -> Dict[str, str]:
+async def addagent(
+    agent: AgentSettings, user=Depends(verify_api_key)
+) -> Dict[str, str]:
     return add_agent(agent_name=agent.agent_name, provider_settings=agent.settings)
 
 
 @app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def import_agent(agent: AgentConfig) -> Dict[str, str]:
+async def import_agent(
+    agent: AgentConfig, user=Depends(verify_api_key)
+) -> Dict[str, str]:
     return add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
@@ -40,7 +44,9 @@ async def import_agent(agent: AgentConfig) -> Dict[str, str]:
 @app.patch(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
-async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessage:
+async def renameagent(
+    agent_name: str, new_name: AgentNewName, user=Depends(verify_api_key)
+) -> ResponseMessage:
     rename_agent(agent_name=agent_name, new_name=new_name.new_name)
     return ResponseMessage(message="Agent renamed.")
 
@@ -49,7 +55,7 @@ async def renameagent(agent_name: str, new_name: AgentNewName) -> ResponseMessag
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
 async def update_agent_settings(
-    agent_name: str, settings: AgentSettings
+    agent_name: str, settings: AgentSettings, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     update_config = Agent(agent_name=agent_name).update_agent_config(
         new_config=settings.settings, config_key="settings"
@@ -63,7 +69,7 @@ async def update_agent_settings(
     dependencies=[Depends(verify_api_key)],
 )
 async def update_agent_commands(
-    agent_name: str, commands: AgentCommands
+    agent_name: str, commands: AgentCommands, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     update_config = Agent(agent_name=agent_name).update_agent_config(
         new_config=commands.commands, config_key="commands"
@@ -74,7 +80,7 @@ async def update_agent_commands(
 @app.delete(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
-async def deleteagent(agent_name: str) -> ResponseMessage:
+async def deleteagent(agent_name: str, user=Depends(verify_api_key)) -> ResponseMessage:
     delete_agent(agent_name=agent_name)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
@@ -88,7 +94,7 @@ async def getagents():
 @app.get(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
-async def get_agentconfig(agent_name: str):
+async def get_agentconfig(agent_name: str, user=Depends(verify_api_key)):
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     return {"agent": agent_config}
 
@@ -98,8 +104,10 @@ async def get_agentconfig(agent_name: str):
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
-async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
-    agent = Interactions(agent_name=agent_name)
+async def prompt_agent(
+    agent_name: str, agent_prompt: AgentPrompt, user=Depends(verify_api_key)
+):
+    agent = Interactions(agent_name=agent_name, user=user)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
@@ -112,7 +120,7 @@ async def prompt_agent(agent_name: str, agent_prompt: AgentPrompt):
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_commands(agent_name: str):
+async def get_commands(agent_name: str, user=Depends(verify_api_key)):
     agent = Agent(agent_name=agent_name)
     return {"commands": agent.AGENT_CONFIG["commands"]}
 
@@ -123,7 +131,7 @@ async def get_commands(agent_name: str):
     dependencies=[Depends(verify_api_key)],
 )
 async def toggle_command(
-    agent_name: str, payload: ToggleCommandPayload
+    agent_name: str, payload: ToggleCommandPayload, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     agent = Agent(agent_name=agent_name)
     try:

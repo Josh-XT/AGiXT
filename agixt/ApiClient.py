@@ -49,16 +49,17 @@ def verify_api_key(authorization: str = Header(None)):
                     status_code=401, detail="Invalid authentication scheme"
                 )
             if USING_JWT:
-                return jwt.decode(
+                token = jwt.decode(
                     jwt=api_key,
                     key=AGIXT_API_KEY,
                     algorithms=["HS256"],
                 )
+                return token["email"]
             else:
                 if api_key != AGIXT_API_KEY:
                     raise HTTPException(status_code=401, detail="Invalid API Key")
-                return api_key
+                return "USER"
         except Exception as e:
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
-        return 1
+        return "USER"

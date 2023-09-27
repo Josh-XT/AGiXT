@@ -12,7 +12,7 @@ app = APIRouter()
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_extension_settings():
+async def get_extension_settings(user=Depends(verify_api_key)):
     try:
         return {"extension_settings": Extensions().get_extension_settings()}
     except Exception:
@@ -24,12 +24,12 @@ async def get_extension_settings():
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_command_args(command_name: str):
+async def get_command_args(command_name: str, user=Depends(verify_api_key)):
     return {"command_args": Extensions().get_command_args(command_name=command_name)}
 
 
 @app.get("/api/extensions", tags=["Extensions"], dependencies=[Depends(verify_api_key)])
-async def get_extensions():
+async def get_extensions(user=Depends(verify_api_key)):
     extensions = Extensions().get_extensions()
     return {"extensions": extensions}
 
@@ -39,7 +39,9 @@ async def get_extensions():
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
-async def run_command(agent_name: str, command: CommandExecution):
+async def run_command(
+    agent_name: str, command: CommandExecution, user=Depends(verify_api_key)
+):
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     command_output = await Extensions(
         agent_name=agent_name,

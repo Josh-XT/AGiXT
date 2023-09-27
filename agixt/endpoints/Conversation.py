@@ -22,7 +22,7 @@ app = APIRouter()
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversations_list(agent_name: str):
+async def get_conversations_list(agent_name: str, user=Depends(verify_api_key)):
     conversations = get_conversations(
         agent_name=agent_name,
     )
@@ -36,7 +36,7 @@ async def get_conversations_list(agent_name: str):
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversations_list():
+async def get_conversations_list(user=Depends(verify_api_key)):
     conversations = get_conversations(
         agent_name="OpenAI",
     )
@@ -50,7 +50,7 @@ async def get_conversations_list():
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversation_history(history: HistoryModel):
+async def get_conversation_history(history: HistoryModel, user=Depends(verify_api_key)):
     conversation_history = get_conversation(
         agent_name=history.agent_name,
         conversation_name=history.conversation_name,
@@ -71,7 +71,11 @@ async def get_conversation_history(history: HistoryModel):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversation_data(
-    conversation_name: str, agent_name: str = "OpenAI", limit: int = 100, page: int = 1
+    conversation_name: str,
+    agent_name: str = "OpenAI",
+    limit: int = 100,
+    page: int = 1,
+    user=Depends(verify_api_key),
 ):
     conversation_history = get_conversation(
         agent_name=agent_name,
@@ -92,7 +96,9 @@ async def get_conversation_data(
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def new_conversation_history(history: ConversationHistoryModel):
+async def new_conversation_history(
+    history: ConversationHistoryModel, user=Depends(verify_api_key)
+):
     new_conversation(
         agent_name=history.agent_name,
         conversation_name=history.conversation_name,
@@ -107,7 +113,7 @@ async def new_conversation_history(history: ConversationHistoryModel):
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_conversation_history(
-    history: ConversationHistoryModel,
+    history: ConversationHistoryModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     delete_history(
         agent_name=history.agent_name, conversation_name=history.conversation_name
@@ -123,7 +129,7 @@ async def delete_conversation_history(
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_history_message(
-    history: ConversationHistoryMessageModel,
+    history: ConversationHistoryMessageModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     delete_message(
         agent_name=history.agent_name,
