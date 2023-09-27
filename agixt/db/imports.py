@@ -11,13 +11,9 @@ from DBConnection import (
     Prompt,
     PromptCategory,
     Argument,
-    Agent,
-    Argument,
-    Prompt,
     Extension,
     Setting,
     Command,
-    Agent,
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
