@@ -45,13 +45,11 @@ if DB_CONNECTED:
         engine = create_engine(DATABASE_URL)
     except Exception as e:
         print(f"Error connecting to database: {e}")
-    Session = sessionmaker(bind=engine, autoflush=False)
-    session = Session()
     connection = engine.connect()
     Base = declarative_base()
 else:
-    session = None
     Base = None
+    engine = None
 
 
 def get_session():
@@ -211,6 +209,7 @@ class ChainStep(Base):
     )
 
     def add_response(self, content):
+        session = get_session()
         response = ChainStepResponse(content=content, chain_step=self)
         session.add(response)
         session.commit()
