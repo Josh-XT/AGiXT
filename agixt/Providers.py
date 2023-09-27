@@ -26,10 +26,10 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
-    options = DEFAULT_SETTINGS
-    options["provider"] = provider_name
     # This will keep transformers from being installed unless needed.
     if provider_name == "pipeline":
+        options = DEFAULT_SETTINGS.copy()
+        options["provider"] = provider_name
         options["HUGGINGFACE_API_KEY"] = ""
         options["MODEL_PATH"] = ""
     else:
