@@ -3,7 +3,9 @@ import json
 import logging
 
 
-def create_command_suggestion_chain(agent_name, command_name, command_args):
+def create_command_suggestion_chain(
+    agent_name, command_name, command_args, user="USER"
+):
     chain = Chain()
     chains = chain.get_chains()
     chain_name = f"{agent_name} Command Suggestions"
@@ -25,7 +27,7 @@ def create_command_suggestion_chain(agent_name, command_name, command_args):
     return f"The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually."
 
 
-def get_chain_file_path(chain_name):
+def get_chain_file_path(chain_name, user="USER"):
     base_path = os.path.join(os.getcwd(), "chains")
     folder_path = os.path.normpath(os.path.join(base_path, chain_name))
     file_path = os.path.normpath(os.path.join(base_path, f"{chain_name}.json"))
@@ -36,7 +38,7 @@ def get_chain_file_path(chain_name):
     return file_path
 
 
-def get_chain_responses_file_path(chain_name):
+def get_chain_responses_file_path(chain_name, user="USER"):
     base_path = os.path.join(os.getcwd(), "chains")
     file_path = os.path.normpath(os.path.join(base_path, chain_name, "responses.json"))
     if not file_path.startswith(base_path):
@@ -45,6 +47,9 @@ def get_chain_responses_file_path(chain_name):
 
 
 class Chain:
+    def __init__(self, user="USER"):
+        self.user = user
+
     def import_chain(self, chain_name: str, steps: dict):
         file_path = get_chain_file_path(chain_name=chain_name)
         steps = steps["steps"] if "steps" in steps else steps

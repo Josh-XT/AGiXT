@@ -1,7 +1,7 @@
 import os
 
 
-def get_prompt_file_path(prompt_name, prompt_category="Default"):
+def get_prompt_file_path(prompt_name, prompt_category="Default", user="USER"):
     base_path = os.path.join(os.getcwd(), "prompts")
     base_model_path = os.path.normpath(
         os.path.join(os.getcwd(), "prompts", prompt_category)
@@ -31,6 +31,9 @@ def get_prompt_file_path(prompt_name, prompt_category="Default"):
 
 
 class Prompts:
+    def __init__(self, user="USER"):
+        self.user = user
+
     def add_prompt(self, prompt_name, prompt, prompt_category="Default"):
         # if prompts folder does not exist, create it
         file_path = get_prompt_file_path(

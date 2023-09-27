@@ -12,8 +12,9 @@ from DBConnection import (
 
 
 class Chain:
-    def __init__(self):
+    def __init__(self, user="USER"):
         self.session = get_session()
+        self.user = user
 
     def get_chain(self, chain_name):
         chain_name = chain_name.replace("%20", " ")

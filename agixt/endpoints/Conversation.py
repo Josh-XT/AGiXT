@@ -23,9 +23,7 @@ app = APIRouter()
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(agent_name: str, user=Depends(verify_api_key)):
-    conversations = get_conversations(
-        agent_name=agent_name,
-    )
+    conversations = get_conversations(agent_name=agent_name, user=user)
     if conversations is None:
         conversations = []
     return {"conversations": conversations}
@@ -37,9 +35,7 @@ async def get_conversations_list(agent_name: str, user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(user=Depends(verify_api_key)):
-    conversations = get_conversations(
-        agent_name="OpenAI",
-    )
+    conversations = get_conversations(agent_name="OpenAI", user=user)
     if conversations is None:
         conversations = []
     return {"conversations": conversations}
@@ -56,6 +52,7 @@ async def get_conversation_history(history: HistoryModel, user=Depends(verify_ap
         conversation_name=history.conversation_name,
         limit=history.limit,
         page=history.page,
+        user=user,
     )
 
     if conversation_history is None:
@@ -82,6 +79,7 @@ async def get_conversation_data(
         conversation_name=conversation_name,
         limit=limit,
         page=page,
+        user=user,
     )
 
     if conversation_history is None:
@@ -103,6 +101,7 @@ async def new_conversation_history(
         agent_name=history.agent_name,
         conversation_name=history.conversation_name,
         conversation_content=history.conversation_content,
+        user=user,
     )
     return {"conversation_history": history.conversation_content}
 
@@ -116,7 +115,9 @@ async def delete_conversation_history(
     history: ConversationHistoryModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     delete_history(
-        agent_name=history.agent_name, conversation_name=history.conversation_name
+        agent_name=history.agent_name,
+        conversation_name=history.conversation_name,
+        user=user,
     )
     return ResponseMessage(
         message=f"Conversation `{history.conversation_name}` for agent {history.agent_name} deleted."
@@ -135,5 +136,6 @@ async def delete_history_message(
         agent_name=history.agent_name,
         message=history.message,
         conversation_name=history.conversation_name,
+        user=user,
     )
     return ResponseMessage(message=f"Message deleted.")
