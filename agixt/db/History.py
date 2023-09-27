@@ -5,11 +5,12 @@ from DBConnection import (
     Conversation,
     Message,
     Agent,
-    session,
+    get_session,
 )
 
 
 def export_conversation(agent_name, conversation_name=None):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -53,6 +54,7 @@ def export_conversation(agent_name, conversation_name=None):
 
 
 def get_conversations(agent_name):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -68,6 +70,7 @@ def get_conversations(agent_name):
 
 
 def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -101,6 +104,7 @@ def get_conversation(agent_name, conversation_name=None, limit=100, page=1):
 
 
 def new_conversation(agent_name, conversation_name, conversation_content=[]):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -141,6 +145,7 @@ def new_conversation(agent_name, conversation_name, conversation_content=[]):
 
 
 def log_interaction(agent_name, conversation_name, role, message):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -176,6 +181,7 @@ def log_interaction(agent_name, conversation_name, role, message):
 
 
 def delete_history(agent_name, conversation_name=None):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
@@ -202,6 +208,7 @@ def delete_history(agent_name, conversation_name=None):
 
 
 def delete_message(agent_name, conversation_name, message_id):
+    session = get_session()
     agent = session.query(Agent).filter(Agent.name == agent_name).first()
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")

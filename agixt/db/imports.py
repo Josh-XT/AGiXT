@@ -2,7 +2,7 @@ import os
 import yaml
 import json
 from DBConnection import (
-    session,
+    get_session,
     Provider,
     ProviderSetting,
     Conversation,
@@ -18,13 +18,13 @@ from DBConnection import (
     Setting,
     Command,
     Agent,
-    session,
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
 
 
 def import_agents():
+    session = get_session()
     agent_folder = "agents"
     agents = [
         f.name
@@ -53,7 +53,7 @@ def import_extensions():
 
     extensions_data = Extensions().get_extensions()
     extension_settings_data = Extensions().get_extension_settings()
-
+    session = get_session()
     # Get the existing extensions and commands from the database
     existing_extensions = session.query(Extension).all()
     existing_commands = session.query(Command).all()
@@ -206,6 +206,7 @@ def import_chains():
 
 
 def import_prompts():
+    session = get_session()
     # Add default category if it doesn't exist
     default_category = session.query(PromptCategory).filter_by(name="Default").first()
 
@@ -282,6 +283,7 @@ def import_prompts():
 
 
 def import_conversations():
+    session = get_session()
     agents_dir = "agents"  # Directory containing agent folders
     for agent_name in os.listdir(agents_dir):
         agent_dir = os.path.join(agents_dir, agent_name)
@@ -338,6 +340,7 @@ def import_conversations():
 
 
 def import_providers():
+    session = get_session()
     providers = get_providers()
     existing_providers = session.query(Provider).all()
     existing_provider_names = [provider.name for provider in existing_providers]

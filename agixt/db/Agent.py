@@ -11,7 +11,7 @@ from DBConnection import (
     ChainStepArgument,
     ChainStepResponse,
     Provider as ProviderModel,
-    session,
+    get_session,
 )
 from Providers import Providers
 from Extensions import Extensions
@@ -19,6 +19,7 @@ from Defaults import DEFAULT_SETTINGS
 
 
 def add_agent(agent_name, provider_settings=None, commands=None):
+    session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
 
@@ -45,6 +46,7 @@ def add_agent(agent_name, provider_settings=None, commands=None):
 
 
 def delete_agent(agent_name):
+    session = get_session()
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
@@ -83,6 +85,7 @@ def delete_agent(agent_name):
 
 
 def rename_agent(agent_name, new_name):
+    session = get_session()
     agent = session.query(AgentModel).filter_by(name=agent_name).first()
     if not agent:
         return {"message": f"Agent {agent_name} not found."}, 404
@@ -94,6 +97,7 @@ def rename_agent(agent_name, new_name):
 
 
 def get_agents():
+    session = get_session()
     agents = session.query(AgentModel).all()
     output = []
 
@@ -104,6 +108,7 @@ def get_agents():
 
 
 def import_agent_config(agent_name):
+    session = get_session()
     config_path = f"agents/{agent_name}/config.json"
 
     # Load the config JSON file
@@ -194,6 +199,7 @@ class Agent:
             agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()
         self.user = user
+        self.session = get_session()
 
     def load_config_keys(self):
         config_keys = [
@@ -209,11 +215,13 @@ class Agent:
 
     def get_agent_config(self):
         agent = (
-            session.query(AgentModel).filter(AgentModel.name == self.agent_name).first()
+            self.session.query(AgentModel)
+            .filter(AgentModel.name == self.agent_name)
+            .first()
         )
         if agent:
             agent_setting = (
-                session.query(AgentSettingModel)
+                self.session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
                     AgentSettingModel.name == "config",
@@ -225,7 +233,7 @@ class Agent:
 
                 # Retrieve the enabled commands for the agent
                 agent_commands = (
-                    session.query(AgentCommand)
+                    self.session.query(AgentCommand)
                     .join(Command)
                     .filter(
                         AgentCommand.agent_id == agent.id,
@@ -268,18 +276,20 @@ class Agent:
 
     def update_agent_config(self, new_config, config_key):
         agent = (
-            session.query(AgentModel).filter(AgentModel.name == self.agent_name).first()
+            self.session.query(AgentModel)
+            .filter(AgentModel.name == self.agent_name)
+            .first()
         )
         if agent:
             if config_key == "commands":
                 # Update AgentCommand relation
                 for command_name, enabled in new_config.items():
                     command = (
-                        session.query(Command).filter_by(name=command_name).first()
+                        self.session.query(Command).filter_by(name=command_name).first()
                     )
                     if command:
                         agent_command = (
-                            session.query(AgentCommand)
+                            self.session.query(AgentCommand)
                             .filter_by(agent_id=agent.id, command_id=command.id)
                             .first()
                         )
@@ -289,10 +299,10 @@ class Agent:
                             agent_command = AgentCommand(
                                 agent_id=agent.id, command_id=command.id, state=enabled
                             )
-                            session.add(agent_command)
+                            self.session.add(agent_command)
             else:
                 provider = (
-                    session.query(ProviderModel)
+                    self.session.query(ProviderModel)
                     .filter_by(name=self.AI_PROVIDER)
                     .first()
                 )
@@ -303,7 +313,7 @@ class Agent:
                     return
 
                 agent_provider = (
-                    session.query(AgentProvider)
+                    self.session.query(AgentProvider)
                     .filter_by(provider_id=provider.id, agent_id=agent.id)
                     .first()
                 )
@@ -311,8 +321,8 @@ class Agent:
                     agent_provider = AgentProvider(
                         provider_id=provider.id, agent_id=agent.id
                     )
-                    session.add(agent_provider)
-                    session.flush()  # Save the agent_provider object to generate an ID
+                    self.session.add(agent_provider)
+                    self.session.flush()  # Save the agent_provider object to generate an ID
 
                 if config_key in ["provider_settings", "settings"]:
                     config_dict = (
@@ -323,13 +333,13 @@ class Agent:
 
                     for setting_name, setting_value in new_config.items():
                         setting = (
-                            session.query(ProviderSetting)
+                            self.session.query(ProviderSetting)
                             .filter_by(provider_id=provider.id, name=setting_name)
                             .first()
                         )
                         if setting:
                             agent_provider_setting = (
-                                session.query(AgentProviderSetting)
+                                self.session.query(AgentProviderSetting)
                                 .filter_by(
                                     provider_setting_id=setting.id,
                                     agent_provider_id=agent_provider.id,
@@ -344,10 +354,10 @@ class Agent:
                                     agent_provider_id=agent_provider.id,
                                     value=setting_value,
                                 )
-                                session.add(agent_provider_setting)
+                                self.session.add(agent_provider_setting)
                 else:
                     agent_setting = (
-                        session.query(AgentSettingModel)
+                        self.session.query(AgentSettingModel)
                         .filter_by(agent_id=agent.id, name=config_key)
                         .first()
                     )
@@ -357,9 +367,9 @@ class Agent:
                         agent_setting = AgentSettingModel(
                             agent_id=agent.id, name=config_key, value=new_config
                         )
-                        session.add(agent_setting)
+                        self.session.add(agent_setting)
 
-            session.commit()
+            self.session.commit()
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} not found."
