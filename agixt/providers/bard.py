@@ -16,8 +16,7 @@ class BardProvider:
 
     async def instruct(self, prompt, tokens: int = 0):
         try:
-            bot = Bard(session_id=self.BARD_TOKEN)
-            response = bot.get_answer(prompt)
+            response = Bard(token=self.BARD_TOKEN).get_answer(input_text=prompt)
             return response["content"].replace("\n", "\n")
         except Exception as e:
             return f"Bard Error: {e}"
