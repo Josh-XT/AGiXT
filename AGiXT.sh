@@ -151,7 +151,11 @@ update_docker() {
     fi
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
-  docker-compose pull
+  if [[ "$DB_CONNECTED" == "true" ]]; then
+    docker-compose -f docker-compose-postgres.yml pull
+  else
+    docker-compose pull
+  fi
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
 
@@ -188,8 +192,8 @@ docker_install_dev() {
   echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    docker pull joshxt/agixt-nextjs:latest
     update
+    docker-compose -f docker-compose-dev.yml pull
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose -f docker-compose-dev.yml up
