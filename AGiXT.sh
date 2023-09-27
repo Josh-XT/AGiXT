@@ -369,6 +369,7 @@ local_install() {
 
 
     echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
+    pip install -r static-requirements.txt --upgrade
     pip install -r requirements.txt --upgrade
     sleep 1
     if [ ! -d "streamlit" ]; then
@@ -393,6 +394,7 @@ local_install() {
       sleep 1
 
       echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
+      pip install -r static-requirements.txt --upgrade
       pip install -r requirements.txt --upgrade
       sleep 1
 

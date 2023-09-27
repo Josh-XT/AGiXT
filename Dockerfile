@@ -41,7 +41,11 @@ RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     cd .. && \
     rm -rf sqlite*
 
-# Install Python dependencies
+# Install the larger Python dependencies
+COPY static-requirements.txt .
+RUN pip install -r static-requirements.txt
+
+# Install Python dependencies that may change frequently
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
