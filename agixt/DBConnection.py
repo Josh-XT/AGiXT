@@ -16,23 +16,34 @@ from sqlalchemy.sql import text
 from dotenv import load_dotenv
 
 load_dotenv()
+DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
+DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
+DATABASE_PASSWORD = os.getenv(
+    "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
+)
+DATABASE_HOST = os.getenv("DATABASE_HOST", os.getenv("POSTGRES_SERVER", "localhost"))
+DATABASE_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", "5432"))
+DATABASE_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", "postgres"))
+LOGIN_URI = f"{DATABASE_TYPE}://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+DATABASE_URL = f"postgresql://{LOGIN_URI}"
 
+if DATABASE_TYPE == "mssql":
+    DATABASE_URL = f"mssql+pyodbc://{LOGIN_URI}?driver=ODBC+Driver+17+for+SQL+Server"
+elif DATABASE_TYPE == "mysql":
+    DATABASE_URL = f"mysql://{LOGIN_URI}"
+elif DATABASE_TYPE == "sqlite":
+    DATABASE_URL = f"sqlite:///{DATABASE_NAME}.db"
+elif DATABASE_TYPE == "oracle":
+    DATABASE_URL = f"oracle://{LOGIN_URI}"
 
-username = os.getenv("POSTGRES_USER", "postgres")
-password = os.getenv("POSTGRES_PASSWORD", "postgres")
-server = os.getenv("POSTGRES_SERVER", "localhost")
-port = os.getenv("POSTGRES_PORT", "5432")
-database_name = os.getenv("POSTGRES_DB", "postgres")
-db_connected = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 Base = declarative_base()
-if db_connected:
+if DB_CONNECTED:
     try:
-        engine = create_engine(
-            f"postgresql://{username}:{password}@{server}:{port}/{database_name}"
-        )
+        engine = create_engine(DATABASE_URL)
     except Exception as e:
         print(f"Error connecting to database: {e}")
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False)
     session = Session()
     connection = engine.connect()
 else:
