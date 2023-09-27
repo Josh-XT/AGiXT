@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from ApiClient import Chain, verify_api_key
 from Chains import Chains
 from Models import (
@@ -13,7 +13,7 @@ from Models import (
     ResponseMessage,
 )
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])

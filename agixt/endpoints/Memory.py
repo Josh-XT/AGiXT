@@ -1,6 +1,6 @@
 import os
 import base64
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from ApiClient import Agent, verify_api_key
 from typing import Dict, Any, List
 from readers.github import GithubReader
@@ -17,7 +17,7 @@ from Models import (
     ResponseMessage,
 )
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.post(

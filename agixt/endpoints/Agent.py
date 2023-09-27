@@ -1,6 +1,6 @@
 import logging
 from typing import Dict
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from Interactions import Interactions
 from ApiClient import (
     Agent,
@@ -20,7 +20,7 @@ from Models import (
     ResponseMessage,
 )
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])

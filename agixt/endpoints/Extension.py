@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from Extensions import Extensions
 from ApiClient import Agent, log_interaction, verify_api_key
 from Models import CommandExecution
 
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.get(

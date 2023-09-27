@@ -1,11 +1,11 @@
 from typing import Dict
-from fastapi import FastAPI, Depends
+from fastapi import APIRouter, Depends
 from Providers import get_provider_options, get_providers, get_providers_with_settings
 from Embedding import get_embedding_providers, get_embedders
 from ApiClient import verify_api_key
 from typing import Any
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.get("/api/provider", tags=["Provider"], dependencies=[Depends(verify_api_key)])
