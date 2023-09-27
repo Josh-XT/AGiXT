@@ -42,7 +42,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 async def run_command(
     agent_name: str, command: CommandExecution, user=Depends(verify_api_key)
 ):
-    agent_config = Agent(agent_name=agent_name).get_agent_config()
+    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
     command_output = await Extensions(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -55,6 +55,7 @@ async def run_command(
         conversation_name=command.conversation_name,
         role=agent_name,
         message=command_output,
+        user=user,
     )
     return {
         "response": command_output,

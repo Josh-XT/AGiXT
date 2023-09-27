@@ -2,10 +2,12 @@ import logging
 from ApiClient import ApiClient, Chain, Prompts
 from Extensions import Extensions
 
-chain = Chain()
-
 
 class Chains:
+    def __init__(self, user="USER"):
+        self.user = user
+        self.chain = Chain(user=user)
+
     async def run_chain_step(
         self,
         step: dict = {},
@@ -27,7 +29,7 @@ class Chains:
                     prompt_name = step["prompt"]["prompt_name"]
                 else:
                     prompt_name = ""
-                args = chain.get_step_content(
+                args = self.chain.get_step_content(
                     chain_name=chain_name,
                     prompt_content=step["prompt"],
                     user_input=user_input,
@@ -130,7 +132,7 @@ class Chains:
                     responses[step_data["step"]] = step  # Store the response.
                     logging.info(f"Step {step_data['step']} response: {step_response}")
                     # Write the response to the chain responses file.
-                    await chain.update_chain_responses(
+                    await self.chain.update_chain_responses(
                         chain_name=chain_name, responses=responses
                     )
         if all_responses:
@@ -150,7 +152,7 @@ class Chains:
             "working_directory",
             "helper_agent_name",
         ]
-        chain_data = chain.get_chain(chain_name=chain_name)
+        chain_data = self.chain.get_chain(chain_name=chain_name)
         steps = chain_data["steps"]
         prompt_args = []
         args = []

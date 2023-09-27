@@ -23,7 +23,7 @@ from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
 
 
-def import_agents():
+def import_agents(user="USER"):
     session = get_session()
     agent_folder = "agents"
     agents = [
@@ -48,7 +48,7 @@ def import_agents():
     session.commit()
 
 
-def import_extensions():
+def import_extensions(user="USER"):
     from Extensions import Extensions
 
     extensions_data = Extensions().get_extensions()
@@ -177,7 +177,7 @@ def import_extensions():
     session.commit()
 
 
-def import_chains():
+def import_chains(user="USER"):
     chain_dir = os.path.abspath("chains")
     chain_files = [
         file
@@ -205,7 +205,7 @@ def import_chains():
                 print(f"Error importing chain from '{file}': {str(e)}")
 
 
-def import_prompts():
+def import_prompts(user="USER"):
     session = get_session()
     # Add default category if it doesn't exist
     default_category = session.query(PromptCategory).filter_by(name="Default").first()
@@ -282,7 +282,7 @@ def import_prompts():
                 print(f"Adding prompt argument: {arg} for {prompt_name}")
 
 
-def import_conversations():
+def import_conversations(user="USER"):
     session = get_session()
     agents_dir = "agents"  # Directory containing agent folders
     for agent_name in os.listdir(agents_dir):
@@ -339,7 +339,7 @@ def import_conversations():
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
-def import_providers():
+def import_providers(user="USER"):
     session = get_session()
     providers = get_providers()
     existing_providers = session.query(Provider).all()

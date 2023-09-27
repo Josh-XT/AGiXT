@@ -24,7 +24,7 @@ async def add_prompt(
     user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
-        Prompts().add_prompt(
+        Prompts(user=user).add_prompt(
             prompt_name=prompt.prompt_name,
             prompt=prompt.prompt,
             prompt_category=prompt_category,
@@ -43,7 +43,7 @@ async def add_prompt(
 async def get_prompt_with_category(
     prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
 ):
-    prompt_content = Prompts().get_prompt(
+    prompt_content = Prompts(user=user).get_prompt(
         prompt_name=prompt_name, prompt_category=prompt_category
     )
     return {
@@ -62,7 +62,7 @@ async def get_prompt_with_category(
 async def get_prompt(
     prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
 ):
-    prompt_content = Prompts().get_prompt(
+    prompt_content = Prompts(user=user).get_prompt(
         prompt_name=prompt_name, prompt_category=prompt_category
     )
     return {"prompt_name": prompt_name, "prompt": prompt_content}
@@ -75,7 +75,7 @@ async def get_prompt(
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompts(user=Depends(verify_api_key)):
-    prompts = Prompts().get_prompts()
+    prompts = Prompts(user=user).get_prompts()
     return {"prompts": prompts}
 
 
@@ -87,7 +87,7 @@ async def get_prompts(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompt_categories(user=Depends(verify_api_key)):
-    prompt_categories = Prompts().get_prompt_categories()
+    prompt_categories = Prompts(user=user).get_prompt_categories()
     return {"prompt_categories": prompt_categories}
 
 
@@ -98,7 +98,7 @@ async def get_prompt_categories(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_key)):
-    prompts = Prompts().get_prompts(prompt_category=prompt_category)
+    prompts = Prompts(user=user).get_prompts(prompt_category=prompt_category)
     return {"prompts": prompts}
 
 
@@ -111,7 +111,7 @@ async def delete_prompt(
     prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
 ) -> ResponseMessage:
     try:
-        Prompts().delete_prompt(
+        Prompts(user=user).delete_prompt(
             prompt_name=prompt_name, prompt_category=prompt_category
         )
         return ResponseMessage(message=f"Prompt '{prompt_name}' deleted.")
@@ -132,7 +132,7 @@ async def rename_prompt(
     user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
-        Prompts().rename_prompt(
+        Prompts(user=user).rename_prompt(
             prompt_name=prompt_name,
             new_name=new_name.prompt_name,
             prompt_category=prompt_category,
@@ -155,7 +155,7 @@ async def update_prompt(
     user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
-        Prompts().update_prompt(
+        Prompts(user=user).update_prompt(
             prompt_name=prompt.prompt_name,
             prompt=prompt.prompt,
             prompt_category=prompt_category,
@@ -175,7 +175,7 @@ async def get_prompt_arg(
 ):
     prompt_name = prompt_name.replace("%20", " ")
     prompt_category = prompt_category.replace("%20", " ")
-    prompt = Prompts().get_prompt(
+    prompt = Prompts(user=user).get_prompt(
         prompt_name=prompt_name, prompt_category=prompt_category
     )
-    return {"prompt_args": Prompts().get_prompt_args(prompt)}
+    return {"prompt_args": Prompts(user=user).get_prompt_args(prompt)}
