@@ -5,10 +5,7 @@ services:
     environment:
       - DB_CONNECTED=false
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
-      - AGIXT_HUB=${AGIXT_HUB:-AGiXT/hub}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
-      - GITHUB_USER=${GITHUB_USER}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
       - TOKENIZERS_PARALLELISM=False
     ports:
       - "7437:7437"
