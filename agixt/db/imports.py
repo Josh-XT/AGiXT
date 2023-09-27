@@ -11,13 +11,10 @@ from DBConnection import (
     Prompt,
     PromptCategory,
     Argument,
-    Agent,
-    Argument,
-    Prompt,
     Extension,
     Setting,
     Command,
-    Agent,
+    User,
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
@@ -25,17 +22,19 @@ from db.Agent import import_agent_config
 
 def import_agents(user="USER"):
     session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
     agent_folder = "agents"
     agents = [
         f.name
         for f in os.scandir(agent_folder)
         if f.is_dir() and not f.name.startswith("__")
     ]
-    existing_agents = session.query(Agent).all()
+    existing_agents = session.query(Agent).filter(Agent.user_id == user_id).all()
     existing_agent_names = [agent.name for agent in existing_agents]
 
     for agent_name in agents:
-        agent = session.query(Agent).filter_by(name=agent_name).one_or_none()
+        agent = session.query(Agent).filter_by(name=agent_name, user_id=user_id).first()
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
@@ -48,7 +47,7 @@ def import_agents(user="USER"):
     session.commit()
 
 
-def import_extensions(user="USER"):
+def import_extensions():
     from Extensions import Extensions
 
     extensions_data = Extensions().get_extensions()
@@ -189,7 +188,7 @@ def import_chains(user="USER"):
         return
     from db.Chain import Chain
 
-    chain_importer = Chain()
+    chain_importer = Chain(user=user)
     for file in chain_files:
         chain_name = os.path.splitext(file)[0]
         file_path = os.path.join(chain_dir, file)
@@ -208,11 +207,15 @@ def import_chains(user="USER"):
 def import_prompts(user="USER"):
     session = get_session()
     # Add default category if it doesn't exist
-    default_category = session.query(PromptCategory).filter_by(name="Default").first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    default_category = (
+        session.query(PromptCategory).filter_by(name="Default", user_id=user_id).first()
+    )
 
     if not default_category:
         default_category = PromptCategory(
-            name="Default", description="Default category"
+            name="Default", description="Default category", user_id=user_id
         )
         session.add(default_category)
         session.commit()
@@ -226,11 +229,15 @@ def import_prompts(user="USER"):
                 # Use subfolder name as the prompt category
                 category_name = os.path.basename(root)
                 prompt_category = (
-                    session.query(PromptCategory).filter_by(name=category_name).first()
+                    session.query(PromptCategory)
+                    .filter_by(name=category_name, user_id=user_id)
+                    .first()
                 )
                 if not prompt_category:
                     prompt_category = PromptCategory(
-                        name=category_name, description=f"{category_name} category"
+                        name=category_name,
+                        description=f"{category_name} category",
+                        user_id=user_id,
                     )
                     session.add(prompt_category)
                     session.commit()
@@ -246,7 +253,9 @@ def import_prompts(user="USER"):
             prompt_name = os.path.splitext(file)[0]
             prompt = (
                 session.query(Prompt)
-                .filter_by(name=prompt_name, prompt_category=prompt_category)
+                .filter_by(
+                    name=prompt_name, prompt_category=prompt_category, user_id=user_id
+                )
                 .first()
             )
             prompt_args = []
@@ -260,6 +269,7 @@ def import_prompts(user="USER"):
                     description="",
                     content=prompt_content,
                     prompt_category=prompt_category,
+                    user_id=user_id,
                 )
                 session.add(prompt)
                 session.commit()
@@ -284,6 +294,8 @@ def import_prompts(user="USER"):
 
 def import_conversations(user="USER"):
     session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
     agents_dir = "agents"  # Directory containing agent folders
     for agent_name in os.listdir(agents_dir):
         agent_dir = os.path.join(agents_dir, agent_name)
@@ -293,7 +305,11 @@ def import_conversations(user="USER"):
             continue  # Skip agent if history file doesn't exist
 
         # Get agent ID from the database based on agent name
-        agent = session.query(Agent).filter(Agent.name == agent_name).first()
+        agent = (
+            session.query(Agent)
+            .filter(Agent.name == agent_name, Agent.user_id == user_id)
+            .first()
+        )
         if not agent:
             print(f"Agent '{agent_name}' not found in the database.")
             continue
@@ -308,6 +324,7 @@ def import_conversations(user="USER"):
             .filter(
                 Conversation.agent_id == agent.id,
                 Conversation.name == f"{agent_name} History",
+                Conversation.user_id == user_id,
             )
             .first()
         )
@@ -315,7 +332,9 @@ def import_conversations(user="USER"):
             continue
 
         # Create a new conversation
-        conversation = Conversation(agent_id=agent.id, name=f"{agent_name} History")
+        conversation = Conversation(
+            agent_id=agent.id, name=f"{agent_name} History", user_id=user_id
+        )
         session.add(conversation)
         session.commit()
 
@@ -339,7 +358,7 @@ def import_conversations(user="USER"):
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
-def import_providers(user="USER"):
+def import_providers():
     session = get_session()
     providers = get_providers()
     existing_providers = session.query(Provider).all()
