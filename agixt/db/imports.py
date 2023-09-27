@@ -1,6 +1,7 @@
 import os
 import yaml
 import json
+import logging
 from DBConnection import (
     get_session,
     Provider,
@@ -403,3 +404,23 @@ def import_providers():
                     f"Adding provider setting: {option_name} for provider: {provider_name}"
                 )
     session.commit()
+
+
+def import_all_data():
+    session = get_session()
+    user_count = session.query(User).count()
+    if user_count == 0:
+        # Create the default user
+        logging.info("Creating default user...")
+        user = User(email="USER")
+        session.add(user)
+        session.commit()
+        logging.info("Default user created.")
+        logging.info("Importing data...")
+        import_agents()
+        import_extensions()
+        import_prompts()
+        import_chains()
+        import_conversations()
+        import_providers()
+        logging.info("Import complete.")
