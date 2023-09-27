@@ -45,20 +45,32 @@ if DB_CONNECTED:
         engine = create_engine(DATABASE_URL)
     except Exception as e:
         print(f"Error connecting to database: {e}")
-    Session = sessionmaker(bind=engine, autoflush=False)
-    session = Session()
     connection = engine.connect()
     Base = declarative_base()
 else:
-    session = None
     Base = None
+    engine = None
+
+
+def get_session():
+    Session = sessionmaker(bind=engine, autoflush=False)
+    session = Session()
+    return session
+
+
+class User(Base):
+    __tablename__ = "user"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, default="USER", unique=True)
 
 
 class Provider(Base):
     __tablename__ = "provider"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     provider_settings = relationship("ProviderSetting", backref="provider")
+    user = relationship("User", backref="provider")
 
 
 class ProviderSetting(Base):
@@ -66,9 +78,7 @@ class ProviderSetting(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
     name = Column(Text, nullable=False)
-    value = Column(
-        Text
-    )  # Add the 'value' column without the 'nullable=False' constraint
+    value = Column(Text)
 
 
 class AgentProviderSetting(Base):
@@ -98,7 +108,9 @@ class Agent(Base):
     provider_id = Column(
         UUID(as_uuid=True), ForeignKey("provider.id"), nullable=True, default=None
     )
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     settings = relationship("AgentSetting", backref="agent")  # One-to-many relationship
+    user = relationship("User", backref="agent")
 
 
 class Command(Base):
@@ -123,6 +135,8 @@ class Conversation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     name = Column(Text, nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    user = relationship("User", backref="conversation")
 
 
 class Message(Base):
@@ -157,6 +171,7 @@ class Chain(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     steps = relationship(
         "ChainStep",
         backref="chain",
@@ -167,6 +182,7 @@ class Chain(Base):
     target_steps = relationship(
         "ChainStep", backref="target_chain", foreign_keys="ChainStep.target_chain_id"
     )
+    user = relationship("User", backref="chain")
 
 
 class ChainStep(Base):
@@ -193,6 +209,7 @@ class ChainStep(Base):
     )
 
     def add_response(self, content):
+        session = get_session()
         response = ChainStepResponse(content=content, chain_step=self)
         session.add(response)
         session.commit()
@@ -227,6 +244,8 @@ class Extension(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True, default="")
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
+    user = relationship("User", backref="extension")
 
 
 class Argument(Base):
@@ -254,8 +273,9 @@ class Prompt(Base):
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     prompt_category = relationship("PromptCategory", backref="prompts")
+    user = relationship("User", backref="prompt")
 
 
 if __name__ == "__main__":

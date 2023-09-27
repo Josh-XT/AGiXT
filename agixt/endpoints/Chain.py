@@ -17,7 +17,7 @@ app = APIRouter()
 
 
 @app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
-async def get_chains():
+async def get_chains(user=Depends(verify_api_key)):
     chains = Chain().get_chains()
     return chains
 
@@ -25,7 +25,7 @@ async def get_chains():
 @app.get(
     "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
 )
-async def get_chain(chain_name: str):
+async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     # try:
     chain_data = Chain().get_chain(chain_name=chain_name)
     return {"chain": chain_data}
@@ -33,8 +33,12 @@ async def get_chain(chain_name: str):
     #    raise HTTPException(status_code=404, detail="Chain not found")
 
 
-@app.get("/api/chain/{chain_name}/responses", tags=["Chain"])
-async def get_chain_responses(chain_name: str):
+@app.get(
+    "/api/chain/{chain_name}/responses",
+    tags=["Chain"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_chain_responses(chain_name: str, user=Depends(verify_api_key)):
     try:
         chain_data = Chain().get_step_response(chain_name=chain_name, step_number="all")
         return {"chain": chain_data}
@@ -47,7 +51,9 @@ async def get_chain_responses(chain_name: str):
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def run_chain(chain_name: str, user_input: RunChain):
+async def run_chain(
+    chain_name: str, user_input: RunChain, user=Depends(verify_api_key)
+):
     chain_response = await Chains().run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -69,7 +75,12 @@ async def run_chain(chain_name: str, user_input: RunChain):
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def run_chain_step(chain_name: str, step_number: str, user_input: RunChainStep):
+async def run_chain_step(
+    chain_name: str,
+    step_number: str,
+    user_input: RunChainStep,
+    user=Depends(verify_api_key),
+):
     chain = Chain()
     chain_steps = chain.get_chain(chain_name=chain_name)
     try:
@@ -101,19 +112,23 @@ async def run_chain_step(chain_name: str, step_number: str, user_input: RunChain
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_chain_args(chain_name: str):
+async def get_chain_args(chain_name: str, user=Depends(verify_api_key)):
     chain_args = Chains().get_chain_args(chain_name=chain_name)
     return {"chain_args": chain_args}
 
 
 @app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
-async def add_chain(chain_name: ChainName) -> ResponseMessage:
+async def add_chain(
+    chain_name: ChainName, user=Depends(verify_api_key)
+) -> ResponseMessage:
     Chain().add_chain(chain_name=chain_name.chain_name)
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
 @app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
-async def importchain(chain: ChainData) -> ResponseMessage:
+async def importchain(
+    chain: ChainData, user=Depends(verify_api_key)
+) -> ResponseMessage:
     response = Chain().import_chain(chain_name=chain.chain_name, steps=chain.steps)
     return ResponseMessage(message=response)
 
@@ -121,7 +136,9 @@ async def importchain(chain: ChainData) -> ResponseMessage:
 @app.put(
     "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
 )
-async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessage:
+async def rename_chain(
+    chain_name: str, new_name: ChainNewName, user=Depends(verify_api_key)
+) -> ResponseMessage:
     Chain().rename_chain(chain_name=chain_name, new_name=new_name.new_name)
     return ResponseMessage(
         message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'."
@@ -131,7 +148,9 @@ async def rename_chain(chain_name: str, new_name: ChainNewName) -> ResponseMessa
 @app.delete(
     "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
 )
-async def delete_chain(chain_name: str) -> ResponseMessage:
+async def delete_chain(
+    chain_name: str, user=Depends(verify_api_key)
+) -> ResponseMessage:
     Chain().delete_chain(chain_name=chain_name)
     return ResponseMessage(message=f"Chain '{chain_name}' deleted.")
 
@@ -141,7 +160,9 @@ async def delete_chain(chain_name: str) -> ResponseMessage:
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
+async def add_step(
+    chain_name: str, step_info: StepInfo, user=Depends(verify_api_key)
+) -> ResponseMessage:
     Chain().add_chain_step(
         chain_name=chain_name,
         step_number=step_info.step_number,
@@ -158,7 +179,10 @@ async def add_step(chain_name: str, step_info: StepInfo) -> ResponseMessage:
     dependencies=[Depends(verify_api_key)],
 )
 async def update_step(
-    chain_name: str, step_number: int, chain_step: ChainStep
+    chain_name: str,
+    step_number: int,
+    chain_step: ChainStep,
+    user=Depends(verify_api_key),
 ) -> ResponseMessage:
     Chain().update_step(
         chain_name=chain_name,
@@ -178,7 +202,7 @@ async def update_step(
     dependencies=[Depends(verify_api_key)],
 )
 async def move_step(
-    chain_name: str, chain_step_new_info: ChainStepNewInfo
+    chain_name: str, chain_step_new_info: ChainStepNewInfo, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     Chain().move_step(
         chain_name=chain_name,
@@ -195,6 +219,8 @@ async def move_step(
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def delete_step(chain_name: str, step_number: int) -> ResponseMessage:
+async def delete_step(
+    chain_name: str, step_number: int, user=Depends(verify_api_key)
+) -> ResponseMessage:
     Chain().delete_step(chain_name=chain_name, step_number=step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}

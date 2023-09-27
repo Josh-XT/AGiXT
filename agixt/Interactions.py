@@ -30,7 +30,7 @@ def get_tokens(text: str) -> int:
 
 
 class Interactions:
-    def __init__(self, agent_name: str = "", collection_number: int = 0):
+    def __init__(self, agent_name: str = "", collection_number: int = 0, user="USER"):
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name)
@@ -56,6 +56,7 @@ class Interactions:
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
+        self.user = user
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -413,7 +414,7 @@ class Interactions:
         log_interaction(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
-            role="USER",
+            role=self.user,
             message=user_input if user_input != "" else formatted_prompt,
         )
         try:

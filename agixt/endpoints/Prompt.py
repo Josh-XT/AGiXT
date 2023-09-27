@@ -19,7 +19,9 @@ app = APIRouter()
     dependencies=[Depends(verify_api_key)],
 )
 async def add_prompt(
-    prompt: CustomPromptModel, prompt_category: str = "Default"
+    prompt: CustomPromptModel,
+    prompt_category: str = "Default",
+    user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
         Prompts().add_prompt(
@@ -38,7 +40,9 @@ async def add_prompt(
     response_model=CustomPromptModel,
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompt_with_category(prompt_name: str, prompt_category: str = "Default"):
+async def get_prompt_with_category(
+    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
+):
     prompt_content = Prompts().get_prompt(
         prompt_name=prompt_name, prompt_category=prompt_category
     )
@@ -55,7 +59,9 @@ async def get_prompt_with_category(prompt_name: str, prompt_category: str = "Def
     response_model=CustomPromptModel,
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompt(prompt_name: str, prompt_category: str = "Default"):
+async def get_prompt(
+    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
+):
     prompt_content = Prompts().get_prompt(
         prompt_name=prompt_name, prompt_category=prompt_category
     )
@@ -68,7 +74,7 @@ async def get_prompt(prompt_name: str, prompt_category: str = "Default"):
     tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompts():
+async def get_prompts(user=Depends(verify_api_key)):
     prompts = Prompts().get_prompts()
     return {"prompts": prompts}
 
@@ -80,7 +86,7 @@ async def get_prompts():
     tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompt_categories():
+async def get_prompt_categories(user=Depends(verify_api_key)):
     prompt_categories = Prompts().get_prompt_categories()
     return {"prompt_categories": prompt_categories}
 
@@ -91,7 +97,7 @@ async def get_prompt_categories():
     tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompts(prompt_category: str = "Default"):
+async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_key)):
     prompts = Prompts().get_prompts(prompt_category=prompt_category)
     return {"prompts": prompts}
 
@@ -102,7 +108,7 @@ async def get_prompts(prompt_category: str = "Default"):
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_prompt(
-    prompt_name: str, prompt_category: str = "Default"
+    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
 ) -> ResponseMessage:
     try:
         Prompts().delete_prompt(
@@ -120,7 +126,10 @@ async def delete_prompt(
     dependencies=[Depends(verify_api_key)],
 )
 async def rename_prompt(
-    prompt_name: str, new_name: PromptName, prompt_category: str = "Default"
+    prompt_name: str,
+    new_name: PromptName,
+    prompt_category: str = "Default",
+    user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
         Prompts().rename_prompt(
@@ -141,7 +150,9 @@ async def rename_prompt(
     dependencies=[Depends(verify_api_key)],
 )
 async def update_prompt(
-    prompt: CustomPromptModel, prompt_category: str = "Default"
+    prompt: CustomPromptModel,
+    prompt_category: str = "Default",
+    user=Depends(verify_api_key),
 ) -> ResponseMessage:
     try:
         Prompts().update_prompt(
@@ -159,7 +170,12 @@ async def update_prompt(
     tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_prompt_arg(prompt_name: str, prompt_category: str = "Default"):
+async def get_prompt_arg(
+    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
+):
     prompt_name = prompt_name.replace("%20", " ")
-    prompt = Prompts().get_prompt(prompt_name=prompt_name, prompt_category="Default")
+    prompt_category = prompt_category.replace("%20", " ")
+    prompt = Prompts().get_prompt(
+        prompt_name=prompt_name, prompt_category=prompt_category
+    )
     return {"prompt_args": Prompts().get_prompt_args(prompt)}

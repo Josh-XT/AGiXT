@@ -26,7 +26,10 @@ app = APIRouter()
     dependencies=[Depends(verify_api_key)],
 )
 async def query_memories(
-    agent_name: str, memory: AgentMemoryQuery, collection_number=0
+    agent_name: str,
+    memory: AgentMemoryQuery,
+    collection_number=0,
+    user=Depends(verify_api_key),
 ) -> Dict[str, Any]:
     try:
         collection_number = int(collection_number)
@@ -51,7 +54,9 @@ async def query_memories(
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def export_agent_memories(agent_name: str) -> Dict[str, Any]:
+async def export_agent_memories(
+    agent_name: str, user=Depends(verify_api_key)
+) -> Dict[str, Any]:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     memories = await WebsiteReader(
         agent_name=agent_name,
@@ -66,7 +71,7 @@ async def export_agent_memories(agent_name: str) -> Dict[str, Any]:
     dependencies=[Depends(verify_api_key)],
 )
 async def import_agent_memories(
-    agent_name: str, memories: List[dict]
+    agent_name: str, memories: List[dict], user=Depends(verify_api_key)
 ) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await WebsiteReader(
@@ -81,7 +86,9 @@ async def import_agent_memories(
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def learn_text(agent_name: str, data: TextMemoryInput) -> ResponseMessage:
+async def learn_text(
+    agent_name: str, data: TextMemoryInput, user=Depends(verify_api_key)
+) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
@@ -100,7 +107,9 @@ async def learn_text(agent_name: str, data: TextMemoryInput) -> ResponseMessage:
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
+async def learn_file(
+    agent_name: str, file: FileInput, user=Depends(verify_api_key)
+) -> ResponseMessage:
     # Strip any path information from the file name
     file.file_name = os.path.basename(file.file_name)
     base_path = os.path.join(os.getcwd(), "WORKSPACE")
@@ -135,7 +144,9 @@ async def learn_file(agent_name: str, file: FileInput) -> ResponseMessage:
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
+async def learn_url(
+    agent_name: str, url: UrlInput, user=Depends(verify_api_key)
+) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
@@ -150,7 +161,9 @@ async def learn_url(agent_name: str, url: UrlInput) -> ResponseMessage:
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessage:
+async def learn_github_repo(
+    agent_name: str, git: GitHubInput, user=Depends(verify_api_key)
+) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await GithubReader(
         agent_name=agent_name,
@@ -173,7 +186,9 @@ async def learn_github_repo(agent_name: str, git: GitHubInput) -> ResponseMessag
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def learn_arxiv(agent_name: str, arxiv_input: ArxivInput) -> ResponseMessage:
+async def learn_arxiv(
+    agent_name: str, arxiv_input: ArxivInput, user=Depends(verify_api_key)
+) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     await ArxivReader(
         agent_name=agent_name,
@@ -193,7 +208,7 @@ async def learn_arxiv(agent_name: str, arxiv_input: ArxivInput) -> ResponseMessa
     dependencies=[Depends(verify_api_key)],
 )
 async def agent_reader(
-    agent_name: str, reader_name: str, data: dict
+    agent_name: str, reader_name: str, data: dict, user=Depends(verify_api_key)
 ) -> ResponseMessage:
     agent_config = Agent(agent_name=agent_name).get_agent_config()
     collection_number = data["collection_number"] if "collection_number" in data else 0
@@ -248,7 +263,9 @@ async def agent_reader(
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
+async def wipe_agent_memories(
+    agent_name: str, user=Depends(verify_api_key)
+) -> ResponseMessage:
     await WebsiteReader(agent_name=agent_name, collection_number=0).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
@@ -258,7 +275,9 @@ async def wipe_agent_memories(agent_name: str) -> ResponseMessage:
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
-async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseMessage:
+async def wipe_agent_memories(
+    agent_name: str, collection_number=0, user=Depends(verify_api_key)
+) -> ResponseMessage:
     try:
         collection_number = int(collection_number)
     except:
@@ -275,7 +294,7 @@ async def wipe_agent_memories(agent_name: str, collection_number=0) -> ResponseM
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_agent_memory(
-    agent_name: str, collection_number=0, memory_id=""
+    agent_name: str, collection_number=0, memory_id="", user=Depends(verify_api_key)
 ) -> ResponseMessage:
     try:
         collection_number = int(collection_number)
