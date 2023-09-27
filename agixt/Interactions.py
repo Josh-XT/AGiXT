@@ -275,6 +275,7 @@ class Interactions:
                     conversation_name=conversation_name,
                     role=self.agent_name,
                     message=f"I have read the file contents of {the_files}.",
+                    user=self.user,
                 )
             else:
                 the_files = "files."
@@ -412,8 +413,9 @@ class Interactions:
         log_interaction(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
-            role=self.user,
+            role="USER",
             message=user_input if user_input != "" else formatted_prompt,
+            user=self.user,
         )
         try:
             self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
@@ -464,6 +466,7 @@ class Interactions:
                 conversation_name=conversation_name,
                 role=self.agent_name,
                 message=self.response,
+                user=self.user,
             )
         if shots > 1:
             responses = [self.response]
@@ -556,6 +559,7 @@ class Interactions:
                                             conversation_name=f"{self.agent_name} Command Execution Log",
                                             role=self.agent_name,
                                             message=message,
+                                            user=self.user,
                                         )
                                     else:
                                         command_output = (
