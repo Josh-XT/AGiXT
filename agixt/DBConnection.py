@@ -1,6 +1,7 @@
 import os
 import uuid
 import time
+import logging
 from sqlalchemy import (
     create_engine,
     Column,
@@ -44,7 +45,7 @@ if DB_CONNECTED:
     try:
         engine = create_engine(DATABASE_URL)
     except Exception as e:
-        print(f"Error connecting to database: {e}")
+        logging.error(f"Error connecting to database: {e}")
     connection = engine.connect()
     Base = declarative_base()
 else:
@@ -278,7 +279,11 @@ class Prompt(Base):
 
 if __name__ == "__main__":
     if DB_CONNECTED:
-        print("Connecting to database...")
+        logging.info("Connecting to database...")
         time.sleep(10)
         Base.metadata.create_all(engine)
-        print("Connected to database.")
+        logging.info("Connected to database.")
+        # Check if the user table is empty
+        from db.imports import import_all_data
+
+        import_all_data()
