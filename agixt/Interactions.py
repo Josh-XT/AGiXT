@@ -19,9 +19,6 @@ from ApiClient import (
     get_conversation,
 )
 
-chain = Chain()
-cp = Prompts()
-
 
 def get_tokens(text: str) -> int:
     encoding = tiktoken.get_encoding("cl100k_base")
@@ -33,7 +30,7 @@ class Interactions:
     def __init__(self, agent_name: str = "", collection_number: int = 0, user="USER"):
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name)
+            self.agent = Agent(self.agent_name, user=user)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
                 agent_name=self.agent_name,
@@ -47,7 +44,6 @@ class Interactions:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
-
         self.agent_memory = WebsiteReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
@@ -57,6 +53,8 @@ class Interactions:
         self.browsed_links = []
         self.failures = 0
         self.user = user
+        self.chain = Chain(user=user)
+        self.cp = Prompts(user=user)
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -90,13 +88,13 @@ class Interactions:
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
         try:
-            prompt = cp.get_prompt(
+            prompt = self.cp.get_prompt(
                 prompt_name=prompt_name,
                 prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
                 if prompt_category == "Default"
                 else prompt_category,
             )
-            prompt_args = cp.get_prompt_args(prompt_text=prompt)
+            prompt_args = self.cp.get_prompt_args(prompt_text=prompt)
         except:
             prompt = prompt_name
             prompt_args = []
@@ -154,7 +152,7 @@ class Interactions:
                 for arg, value in kwargs.items():
                     if "{STEP" in value:
                         # get the response from the step number
-                        step_response = chain.get_step_response(
+                        step_response = self.chain.get_step_response(
                             chain_name=chain_name, step_number=step_number
                         )
                         # replace the {STEPx} with the response
@@ -163,12 +161,12 @@ class Interactions:
             except:
                 logging.info("No args to replace.")
             if "{STEP" in prompt:
-                step_response = chain.get_step_response(
+                step_response = self.chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
             if "{STEP" in user_input:
-                step_response = chain.get_step_response(
+                step_response = self.chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
                 user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
