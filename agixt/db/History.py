@@ -5,13 +5,20 @@ from DBConnection import (
     Conversation,
     Message,
     Agent,
+    User,
     get_session,
 )
 
 
 def export_conversation(agent_name, conversation_name=None, user="USER"):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -22,6 +29,7 @@ def export_conversation(agent_name, conversation_name=None, user="USER"):
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
@@ -55,7 +63,13 @@ def export_conversation(agent_name, conversation_name=None, user="USER"):
 
 def get_conversations(agent_name, user="USER"):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -63,6 +77,7 @@ def get_conversations(agent_name, user="USER"):
         session.query(Conversation)
         .filter(
             Conversation.agent_id == agent.id,
+            Conversation.user_id == user_id,
         )
         .all()
     )
@@ -73,7 +88,13 @@ def get_conversation(
     agent_name, conversation_name=None, limit=100, page=1, user="USER"
 ):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -84,6 +105,7 @@ def get_conversation(
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
@@ -109,7 +131,13 @@ def new_conversation(
     agent_name, conversation_name, conversation_content=[], user="USER"
 ):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -120,6 +148,7 @@ def new_conversation(
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
@@ -130,7 +159,9 @@ def new_conversation(
         return
 
     # Create a new conversation
-    conversation = Conversation(agent_id=agent.id, name=conversation_name)
+    conversation = Conversation(
+        agent_id=agent.id, name=conversation_name, user_id=user_id
+    )
     session.add(conversation)
     session.commit()
     if conversation_content != []:
@@ -150,7 +181,13 @@ def new_conversation(
 
 def log_interaction(agent_name, conversation_name, role, message, user="USER"):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -160,13 +197,16 @@ def log_interaction(agent_name, conversation_name, role, message, user="USER"):
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
 
     if not conversation:
         # Create a new conversation if it doesn't exist
-        conversation = Conversation(agent_id=agent.id, name=conversation_name)
+        conversation = Conversation(
+            agent_id=agent.id, name=conversation_name, user_id=user_id
+        )
         session.add(conversation)
         session.commit()
 
@@ -186,7 +226,13 @@ def log_interaction(agent_name, conversation_name, role, message, user="USER"):
 
 def delete_history(agent_name, conversation_name=None, user="USER"):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -197,6 +243,7 @@ def delete_history(agent_name, conversation_name=None, user="USER"):
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
@@ -205,7 +252,9 @@ def delete_history(agent_name, conversation_name=None, user="USER"):
         return
 
     session.query(Message).filter(Message.conversation_id == conversation.id).delete()
-    session.query(Conversation).filter(Conversation.id == conversation.id).delete()
+    session.query(Conversation).filter(
+        Conversation.id == conversation.id, Conversation.user_id == user_id
+    ).delete()
     session.commit()
 
     print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
@@ -213,7 +262,13 @@ def delete_history(agent_name, conversation_name=None, user="USER"):
 
 def delete_message(agent_name, conversation_name, message_id, user="USER"):
     session = get_session()
-    agent = session.query(Agent).filter(Agent.name == agent_name).first()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+    agent = (
+        session.query(Agent)
+        .filter(Agent.name == agent_name, Agent.user_id == user_id)
+        .first()
+    )
     if not agent:
         print(f"Agent '{agent_name}' not found in the database.")
         return
@@ -223,6 +278,7 @@ def delete_message(agent_name, conversation_name, message_id, user="USER"):
         .filter(
             Conversation.agent_id == agent.id,
             Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
         )
         .first()
     )
