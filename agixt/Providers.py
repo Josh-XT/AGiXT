@@ -4,6 +4,7 @@ import pkg_resources
 import glob
 import os
 import inspect
+import logging
 from Defaults import DEFAULT_SETTINGS
 from dotenv import load_dotenv
 
@@ -26,6 +27,7 @@ def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     if provider_name in DISABLED_PROVIDERS:
         return {}
+    logging.info(f"Getting options for provider: {provider_name}")
     # This will keep transformers from being installed unless needed.
     if provider_name == "pipeline":
         options = DEFAULT_SETTINGS.copy()

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from ApiClient import Prompts, verify_api_key
 from Models import (
     PromptName,
@@ -10,7 +10,7 @@ from Models import (
 from ApiClient import verify_api_key
 
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.post(

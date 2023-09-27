@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import APIRouter, Depends
 from ApiClient import (
     verify_api_key,
     get_conversations,
@@ -14,7 +14,7 @@ from Models import (
     ResponseMessage,
 )
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.get(

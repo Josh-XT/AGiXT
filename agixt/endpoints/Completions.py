@@ -1,7 +1,7 @@
 import string
 import random
 import time
-from fastapi import FastAPI, Depends
+from fastapi import APIRouter, Depends
 from Interactions import Interactions, get_tokens
 from Embedding import Embedding
 from ApiClient import Agent, verify_api_key
@@ -10,7 +10,7 @@ from Models import (
     EmbeddingModel,
 )
 
-app = FastAPI()
+app = APIRouter()
 
 
 @app.post(
