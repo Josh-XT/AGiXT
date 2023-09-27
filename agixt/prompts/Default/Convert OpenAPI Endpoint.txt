@@ -1,0 +1,6 @@
+Create an async Python function to interact with the API endpoint. The first paramter should be `self`. The base_uri can be found at `self.base_uri`. There is a requests session available at `self.session` that is already authenticated and has the necessary headers. Do not put it in a class. Do not add any imports, only the function. Any and all input variables and parameters for endpoint should also be input variables for the function.  The function should handle errors and return the json response.  Use `requests.exceptions.HTTPError` for error handling.
+
+API Endpoint:
+```json
+{api_endpoint_info}
+```

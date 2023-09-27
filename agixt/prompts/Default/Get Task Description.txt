@@ -1,0 +1,6 @@
+Objective: 
+```
+{user_input}
+```
+
+Give a very short description of the objective without using symbols except for spaces.

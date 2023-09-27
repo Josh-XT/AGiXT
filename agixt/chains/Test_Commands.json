@@ -1,0 +1,242 @@
+{
+    "chain_name": "Test_Commands",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Write to File",
+                "filename": "hello_world.py",
+                "text": "print('Hello, world!')"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Append to File",
+                "filename": "hello_world.py",
+                "text": "print('Hello, world!')"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Read File",
+                "filename": "hello_world.py"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Search Files",
+                "directory": "."
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Delete File",
+                "filename": "hello_world.py"
+            }
+        },
+        {
+            "step": 6,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Clone Github Repository",
+                "repo_url": "https://github.com/Josh-XT/AGiXT",
+                "clone_path": "AGiXT"
+            }
+        },
+        {
+            "step": 7,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Execute Python File",
+                "file": "hello_world.py"
+            }
+        },
+        {
+            "step": 8,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Execute Shell",
+                "command_line": "echo 'Hello, world!'"
+            }
+        },
+        {
+            "step": 9,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Scrape Text with Playwright",
+                "url": "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html"
+            }
+        },
+        {
+            "step": 10,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Scrape Links with Playwright",
+                "url": "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html"
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 18,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with MacOS TTS",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 19,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with TTS with BrianTTS",
+                "text": "This is test text."
+            }
+        },
+        {
+            "step": 20,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Speak with TTS Using Elevenlabs",
+                "text": "This is test text.",
+                "voice_index": 0
+            }
+        },
+        {
+            "step": 21,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Read Audio from File",
+                "audio_path": "test_audio.wav"
+            }
+        },
+        {
+            "step": 22,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Read Audio",
+                "audio": "test_value"
+            }
+        },
+        {
+            "step": 23,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Generate Image with Stable Diffusion",
+                "prompt": "Picture of a dragon.",
+                "filename": "test_image.png"
+            }
+        },
+        {
+            "step": 24,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Get Datetime"
+            }
+        },
+        {
+            "step": 25,
+            "agent_name": "gpt4free",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Use The Search Engine",
+                "query": "What is the capital of the United States?"
+            }
+        }
+    ]
+}

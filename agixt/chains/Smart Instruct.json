@@ -1,0 +1,37 @@
+{
+    "chain_name": "Smart Instruct",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartInstruct-StepByStep",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5,
+                "shots": 3
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartInstruct-Researcher",
+                "shot_count": "3",
+                "task": "{STEP1}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SmartInstruct-Resolver",
+                "shot_count": "3",
+                "task": "{STEP2}"
+            }
+        }
+    ]
+}

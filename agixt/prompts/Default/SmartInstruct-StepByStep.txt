@@ -1,0 +1,8 @@
+{command_list}
+{context}
+
+Today's date is {date}. 
+
+Task: {user_input}
+
+Answer: Let's work this out in a step by step way to be sure we are doing what is asked.

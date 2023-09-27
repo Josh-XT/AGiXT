@@ -1,0 +1,24 @@
+{
+    "chain_name": "Smart Prompt",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Expert Determination",
+                "task": "{user_input}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Prompt Generator",
+                "job_title": "{STEP1}",
+                "task": "{user_input}"
+            }
+        }
+    ]
+}

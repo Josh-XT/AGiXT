@@ -1,0 +1,58 @@
+{
+    "chain_name": "Generate Image",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "OpenAI",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "AGiXT SD Generator_V3",
+                "prompt_category": "Default",
+                "user_input": "{user_input}",
+                "shots": 1,
+                "context_results": 0,
+                "browse_links": false,
+                "websearch": false,
+                "websearch_depth": 0,
+                "disable_memory": true,
+                "inject_memories_from_collection_number": 0,
+                "conversation_results": 0
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "OpenAI",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Generate Image with Stable Diffusion",
+                "prompt": "{STEP1}",
+                "filename": "",
+                "negative_prompt": "",
+                "batch_size": "",
+                "cfg_scale": "",
+                "denoising_strength": "",
+                "enable_hr": "",
+                "eta": "",
+                "firstphase_height": "",
+                "firstphase_width": "",
+                "height": "",
+                "n_iter": "",
+                "restore_faces": "",
+                "s_churn": "",
+                "s_noise": "",
+                "s_tmax": "",
+                "s_tmin": "",
+                "sampler_index": "",
+                "seed": "",
+                "seed_resize_from_h": "",
+                "seed_resize_from_w": "",
+                "steps": "",
+                "styles": "",
+                "subseed": "",
+                "subseed_strength": "",
+                "tiling": "",
+                "width": ""
+            }
+        }
+    ]
+}
