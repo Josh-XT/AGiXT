@@ -4,6 +4,9 @@ import requests
 import os
 import re
 import subprocess
+import logging
+import docker
+from docker.errors import ImageNotFound
 from typing import List
 from Extensions import Extensions
 from agixtsdk import AGiXTSDK
@@ -95,6 +98,7 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
+        self.WORKING_DIRECTORY = "./WORKSPACE"
 
     async def read_file_content(self, file_path: str):
         with open(file_path, "r") as f:
@@ -521,21 +525,44 @@ class agixt_actions(Extensions):
         temp_file = os.path.join(workspace_dir, "temp.py")
         with open(temp_file, "w") as f:
             f.write(code)
-
         try:
-            # Execute the Python script and capture its output
-            response = subprocess.check_output(
-                ["python", temp_file], stderr=subprocess.STDOUT
+            client = docker.from_env()
+            image_name = "python:3.10"
+            try:
+                client.images.get(image_name)
+                logging.info(f"Image '{image_name}' found locally")
+            except ImageNotFound:
+                logging.info(
+                    f"Image '{image_name}' not found locally, pulling from Docker Hub"
+                )
+                low_level_client = docker.APIClient()
+                for line in low_level_client.pull(image_name, stream=True, decode=True):
+                    status = line.get("status")
+                    progress = line.get("progress")
+                    if status and progress:
+                        logging.info(f"{status}: {progress}")
+                    elif status:
+                        logging.info(status)
+            container = client.containers.run(
+                image_name,
+                f"python {temp_file}",
+                volumes={
+                    os.path.abspath(self.WORKING_DIRECTORY): {
+                        "bind": "/workspace",
+                        "mode": "ro",
+                    }
+                },
+                working_dir="/workspace",
+                stderr=True,
+                stdout=True,
+                detach=True,
             )
-        except subprocess.CalledProcessError as e:
-            # If the script raises an exception, return the error message
-            response = e.output
-
-        # Delete the temporary Python file
-        os.remove(temp_file)
-
-        # Decode the output from bytes to string and return it
-        return response.decode("utf-8")
+            container.wait()
+            logs = container.logs().decode("utf-8")
+            container.remove()
+            return logs
+        except Exception as e:
+            return f"Error: {str(e)}"
 
     async def get_mindmap(self, task: str):
         mindmap = ApiClient.prompt_agent(
