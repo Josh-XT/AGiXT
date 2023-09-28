@@ -98,7 +98,6 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
 
     async def read_file_content(self, file_path: str):
         with open(file_path, "r") as f:
@@ -547,7 +546,7 @@ class agixt_actions(Extensions):
                 image_name,
                 f"python {temp_file}",
                 volumes={
-                    os.path.abspath(self.WORKING_DIRECTORY): {
+                    os.path.abspath(workspace_dir): {
                         "bind": "/workspace",
                         "mode": "ro",
                     }
