@@ -559,6 +559,7 @@ class agixt_actions(Extensions):
             container.wait()
             logs = container.logs().decode("utf-8")
             container.remove()
+            os.remove(temp_file)
             return logs
         except Exception as e:
             return f"Error: {str(e)}"
