@@ -58,6 +58,10 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
+# Install SafeExecute Docker image
+RUN pip install safeexecute && \
+    python -c "from safeexecute import install_docker_image; install_docker_image()"
+
 COPY . .
 
 WORKDIR /agixt
