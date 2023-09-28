@@ -1,4 +1,5 @@
 agixtsdk==0.0.28
+safeexecute==0.0.4
 g4f==0.1.4.0
 llama-cpp-python
 whispercpp
