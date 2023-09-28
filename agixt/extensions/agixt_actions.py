@@ -3,7 +3,7 @@ import json
 import requests
 import os
 import re
-import subprocess
+from safeexecute import execute_python_code
 from typing import List
 from Extensions import Extensions
 from agixtsdk import AGiXTSDK
@@ -76,7 +76,7 @@ class agixt_actions(Extensions):
             "Generate Agent Helper Chain": self.generate_helper_chain,
             "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
             "Create a new command": self.create_command,
-            "Execute Python Code": self.execute_python_code,
+            "Execute Python Code": self.execute_python_code_internal,
             "Get Python Code from Response": self.get_python_code_from_response,
             "Get Mindmap for task to break it down": self.get_mindmap,
             "Store information in my long term memory": self.store_long_term_memory,
@@ -95,6 +95,8 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
+        self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
+        os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
 
     async def read_file_content(self, file_path: str):
         with open(file_path, "r") as f:
@@ -502,40 +504,8 @@ class agixt_actions(Extensions):
             response = response.split("```python")[1].split("```")[0]
         return response
 
-    async def execute_python_code(self, code: str) -> str:
-        # Check if there are any package requirements in the code to install
-        package_requirements = re.findall(r"pip install (.*)", code)
-        if package_requirements:
-            # Install the required packages
-            for package in package_requirements:
-                try:
-                    subprocess.check_output(["pip", "install", package])
-                except:
-                    pass
-        # Create the WORKSPACE directory if it doesn't exist
-        code = await self.get_python_code_from_response(code)
-        workspace_dir = os.path.join(os.getcwd(), "WORKSPACE")
-        os.makedirs(workspace_dir, exist_ok=True)
-
-        # Create a temporary Python file in the WORKSPACE directory
-        temp_file = os.path.join(workspace_dir, "temp.py")
-        with open(temp_file, "w") as f:
-            f.write(code)
-
-        try:
-            # Execute the Python script and capture its output
-            response = subprocess.check_output(
-                ["python", temp_file], stderr=subprocess.STDOUT
-            )
-        except subprocess.CalledProcessError as e:
-            # If the script raises an exception, return the error message
-            response = e.output
-
-        # Delete the temporary Python file
-        os.remove(temp_file)
-
-        # Decode the output from bytes to string and return it
-        return response.decode("utf-8")
+    async def execute_python_code_internal(self, code: str) -> str:
+        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
 
     async def get_mindmap(self, task: str):
         mindmap = ApiClient.prompt_agent(
