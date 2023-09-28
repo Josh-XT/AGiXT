@@ -2,8 +2,7 @@ from typing import List
 from Extensions import Extensions
 import os
 import subprocess
-import docker
-from docker.errors import ImageNotFound
+from safeexecute import execute_python_code
 import logging
 import re
 
@@ -51,50 +50,9 @@ class file_system(Extensions):
                 return result.stdout
             else:
                 return f"Error: {result.stderr}"
-
-        try:
-            client = docker.from_env()
-
-            image_name = "python:3.10"
-            try:
-                client.images.get(image_name)
-                logging.info(f"Image '{image_name}' found locally")
-            except ImageNotFound:
-                logging.info(
-                    f"Image '{image_name}' not found locally, pulling from Docker Hub"
-                )
-                low_level_client = docker.APIClient()
-                for line in low_level_client.pull(image_name, stream=True, decode=True):
-                    status = line.get("status")
-                    progress = line.get("progress")
-                    if status and progress:
-                        logging.info(f"{status}: {progress}")
-                    elif status:
-                        logging.info(status)
-
-            container = client.containers.run(
-                image_name,
-                f"python {file}",
-                volumes={
-                    os.path.abspath(self.WORKING_DIRECTORY): {
-                        "bind": "/workspace",
-                        "mode": "ro",
-                    }
-                },
-                working_dir="/workspace",
-                stderr=True,
-                stdout=True,
-                detach=True,
-            )
-
-            container.wait()
-            logs = container.logs().decode("utf-8")
-            container.remove()
-
-            return logs
-
-        except Exception as e:
-            return f"Error: {str(e)}"
+        with open(file_path, "r") as f:
+            code = f.read()
+        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
 
     async def execute_shell(self, command_line: str) -> str:
         current_dir = os.getcwd()

@@ -32,14 +32,4 @@ httpx
 anthropic
 arxiv
 numpy
-matplotlib
-seaborn
-scikit-learn
-yfinance
-scipy
-statsmodels
-sympy
-bokeh
-plotly
-dash
-networkx
+safeexecute
