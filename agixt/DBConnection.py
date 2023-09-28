@@ -43,7 +43,7 @@ if DB_CONNECTED:
             if not os.path.exists(f"{os.getcwd()}/data"):
                 os.makedirs(f"{os.getcwd()}/data")
             DATABASE_NAME = f"{os.getcwd()}/data/{DATABASE_NAME}"
-        DATABASE_URL = f"sqlite://{DATABASE_NAME}.db"
+        DATABASE_URL = f"sqlite:///{DATABASE_NAME}.db"
     elif DATABASE_TYPE == "oracle":
         DATABASE_URL = f"oracle://{LOGIN_URI}"
     try:
