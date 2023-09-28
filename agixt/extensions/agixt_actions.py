@@ -98,7 +98,7 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.WORKING_DIRECTORY = "./WORKSPACE"
+        self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
 
     async def read_file_content(self, file_path: str):
         with open(file_path, "r") as f:
