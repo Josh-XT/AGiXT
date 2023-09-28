@@ -1,0 +1,1 @@
+Persisted databases can go inside of this folder.
