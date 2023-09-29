@@ -37,8 +37,8 @@ class LlamacppProvider:
         THREADS_BATCH: int = 0,
         MAIN_GPU: int = 0,
         TENSOR_SPLIT: int = 0,
-        ROPE_FREQ_BASE: float = 10000.0,
-        ROPE_FREQ_SCALE: float = 1.0,
+        ROPE_FREQ_BASE: float = 0.0,
+        ROPE_FREQ_SCALE: float = 0.0,
         LAST_N_TOKENS_SIZE: int = 64,
         USE_LOW_VRAM: bool = False,
         USE_MUL_MAT_Q: bool = True,
@@ -69,8 +69,12 @@ class LlamacppProvider:
         self.LORA_SCALE = LORA_SCALE if LORA_SCALE else 1.0
         self.MAIN_GPU = MAIN_GPU if MAIN_GPU else 0
         self.TENSOR_SPLIT = TENSOR_SPLIT if TENSOR_SPLIT else 0
-        self.ROPE_FREQ_BASE = ROPE_FREQ_BASE if ROPE_FREQ_BASE else 10000.0
-        self.ROPE_FREQ_SCALE = ROPE_FREQ_SCALE if ROPE_FREQ_SCALE else 1.0
+        self.ROPE_FREQ_BASE = ROPE_FREQ_BASE if ROPE_FREQ_BASE else 0.0
+        self.ROPE_FREQ_SCALE = ROPE_FREQ_SCALE if ROPE_FREQ_SCALE else 0.0
+        if self.ROPE_FREQ_BASE == 0.0:
+            self.ROPE_FREQ_BASE = 0
+        if self.ROPE_FREQ_SCALE == 0.0:
+            self.ROPE_FREQ_SCALE = 0
         self.LAST_N_TOKENS_SIZE = LAST_N_TOKENS_SIZE if LAST_N_TOKENS_SIZE else 64
         self.USE_LOW_VRAM = USE_LOW_VRAM if USE_LOW_VRAM else False
         self.USE_MUL_MAT_Q = USE_MUL_MAT_Q if USE_MUL_MAT_Q else True
