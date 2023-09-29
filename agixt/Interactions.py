@@ -120,7 +120,7 @@ class Interactions:
                     collection_number=2,
                 ).get_memories(
                     user_input=user_input,
-                    limit=5,
+                    limit=3,
                     min_relevance_score=0.7,
                 )
                 negative_feedback = await WebsiteReader(
@@ -129,7 +129,7 @@ class Interactions:
                     collection_number=3,
                 ).get_memories(
                     user_input=user_input,
-                    limit=5,
+                    limit=3,
                     min_relevance_score=0.7,
                 )
                 if positive_feedback or negative_feedback:
