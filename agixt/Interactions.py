@@ -114,6 +114,30 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                positive_feedback = await WebsiteReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=2,
+                ).get_memories(
+                    user_input=user_input,
+                    limit=3,
+                    min_relevance_score=0.7,
+                )
+                negative_feedback = await WebsiteReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=3,
+                ).get_memories(
+                    user_input=user_input,
+                    limit=3,
+                    min_relevance_score=0.7,
+                )
+                if positive_feedback or negative_feedback:
+                    context += f"The users input makes you to remember some feedback from previous interactions:\n"
+                    if positive_feedback:
+                        context += f"Positive Feedback:\n{positive_feedback}\n"
+                    if negative_feedback:
+                        context += f"Negative Feedback:\n{negative_feedback}\n"
                 if websearch:
                     context += await WebsiteReader(
                         agent_name=self.agent_name,
