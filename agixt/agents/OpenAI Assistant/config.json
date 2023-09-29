@@ -1,0 +1,22 @@
+{
+    "commands": {},
+    "settings": {
+        "provider": "openai",
+        "AI_MODEL": "gpt-3.5-turbo-16k-0613",
+        "AI_TEMPERATURE": "0.7",
+        "MAX_TOKENS": "16000",
+        "embedder": "openai",
+        "AUTONOMOUS_EXECUTION": false,
+        "helper_agent_name": "OpenAI",
+        "WEBSEARCH_TIMEOUT": 0,
+        "OPENAI_API_KEY": "YOUR_OPENAI_API_KEY",
+        "AI_TOP_P": "1",
+        "API_URI": "https://api.openai.com/v1",
+        "WAIT_BETWEEN_REQUESTS": "1",
+        "WAIT_AFTER_FAILURE": "3",
+        "stream": "false",
+        "WORKING_DIRECTORY": "./WORKSPACE",
+        "WORKING_DIRECTORY_RESTRICTED": "True",
+        "HUGGINGFACE_AUDIO_TO_TEXT_MODEL": "facebook/wav2vec2-large-960h-lv60-self"
+    }
+}
