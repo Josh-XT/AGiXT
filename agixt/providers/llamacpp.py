@@ -29,7 +29,6 @@ class LlamacppProvider:
         MIROSTAT_MODE: int = 0,
         MIROSTAT_ETA: float = 0.1,
         MIROSTAT_TAU: float = 5.0,
-        PENALIZE_NL: bool = True,
         LOGITS_PROCESSOR=None,
         GRAMMAR=None,
         GPU_LAYERS: int = 0,
@@ -60,7 +59,6 @@ class LlamacppProvider:
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
         self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
-
         self.GPU_LAYERS = GPU_LAYERS if GPU_LAYERS else 0
         self.BATCH_SIZE = BATCH_SIZE if BATCH_SIZE else 2048
         self.THREADS = THREADS if THREADS != 0 else None
@@ -93,7 +91,6 @@ class LlamacppProvider:
         self.MIROSTAT_MODE = MIROSTAT_MODE if MIROSTAT_MODE else 0
         self.MIROSTAT_ETA = MIROSTAT_ETA if MIROSTAT_ETA else 0.1
         self.MIROSTAT_TAU = MIROSTAT_TAU if MIROSTAT_TAU else 5.0
-        self.PENALIZE_NL = PENALIZE_NL if PENALIZE_NL else True
         self.LOGITS_PROCESSOR = LOGITS_PROCESSOR if LOGITS_PROCESSOR else None
         self.GRAMMAR = GRAMMAR if GRAMMAR else None
         self.MODEL_PATH = MODEL_PATH
