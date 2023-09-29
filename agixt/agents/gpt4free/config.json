@@ -1,0 +1,20 @@
+{
+    "commands": {},
+    "settings": {
+        "provider": "gpt4free",
+        "AI_MODEL": "gpt-3.5-turbo",
+        "AI_TEMPERATURE": "0.4",
+        "MAX_TOKENS": "4000",
+        "embedder": "default",
+        "AUTONOMOUS_EXECUTION": false,
+        "helper_agent_name": "gpt4free",
+        "WEBSEARCH_TIMEOUT": 0,
+        "AI_TOP_P": "1",
+        "WAIT_BETWEEN_REQUESTS": "1",
+        "WAIT_AFTER_FAILURE": "3",
+        "stream": "false",
+        "WORKING_DIRECTORY": "./WORKSPACE",
+        "WORKING_DIRECTORY_RESTRICTED": "True",
+        "HUGGINGFACE_AUDIO_TO_TEXT_MODEL": "facebook/wav2vec2-large-960h-lv60-self"
+    }
+}
