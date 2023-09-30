@@ -61,7 +61,10 @@ class LlamacppProvider:
         self.AI_MODEL = AI_MODEL if AI_MODEL else "default"
         self.GPU_LAYERS = GPU_LAYERS if GPU_LAYERS else 0
         self.BATCH_SIZE = BATCH_SIZE if BATCH_SIZE else 2048
-        self.THREADS = THREADS if THREADS != 0 else None
+        try:
+            self.THREADS = int(THREADS) if THREADS and int(THREADS) != 0 else None
+        except:
+            self.THREADS = None
         self.THREADS_BATCH = THREADS_BATCH if THREADS_BATCH != 0 else None
         self.STOP_SEQUENCE = STOP_SEQUENCE if STOP_SEQUENCE else "</s>"
         self.LORA_BASE = LORA_BASE if LORA_BASE else ""
