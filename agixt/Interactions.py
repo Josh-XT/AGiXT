@@ -460,7 +460,7 @@ class Interactions:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            self.response = ApiClient.prompt_agent(
+            return ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name=prompt,
                 prompt_args={
