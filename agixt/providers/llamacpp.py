@@ -105,29 +105,35 @@ class LlamacppProvider:
         if os.path.isfile(self.MODEL_PATH):
             self.model = Llama(
                 model_path=self.MODEL_PATH,
-                n_gpu_layers=int(self.GPU_LAYERS),
-                n_threads=int(self.THREADS),
-                n_threads_batch=int(self.THREADS_BATCH),
-                n_batch=int(self.BATCH_SIZE),
+                n_gpu_layers=int(self.GPU_LAYERS) if self.GPU_LAYERS else None,
+                n_threads=int(self.THREADS) if self.THREADS else None,
+                n_threads_batch=int(self.THREADS_BATCH) if self.THREADS_BATCH else None,
+                n_batch=int(self.BATCH_SIZE) if self.BATCH_SIZE else None,
                 n_ctx=int(self.MAX_TOKENS),
                 seed=-1,
-                main_gpu=int(self.MAIN_GPU),
-                tensor_split=int(self.TENSOR_SPLIT),
-                rope_freq_base=float(self.ROPE_FREQ_BASE),
-                rope_freq_scale=float(self.ROPE_FREQ_SCALE),
-                last_n_tokens_size=int(self.LAST_N_TOKENS_SIZE),
-                low_vram=bool(self.USE_LOW_VRAM),
-                mul_mat_q=bool(self.USE_MUL_MAT_Q),
-                f16_kv=bool(self.USE_F16_KV),
-                logits_all=bool(self.USE_LOGITS_ALL),
-                vocab_only=bool(self.USE_VOCAB_ONLY),
-                use_mmap=bool(self.USE_MMAP),
-                use_mlock=bool(self.USE_MLOCK),
-                embedding=bool(self.USE_EMBEDDING),
-                numa=bool(self.USE_NUMA),
-                lora_base=self.LORA_BASE,
-                lora_path=self.LORA_PATH,
-                lora_scale=float(self.LORA_SCALE),
+                main_gpu=int(self.MAIN_GPU) if self.MAIN_GPU else None,
+                tensor_split=int(self.TENSOR_SPLIT) if self.TENSOR_SPLIT else None,
+                rope_freq_base=float(self.ROPE_FREQ_BASE)
+                if self.ROPE_FREQ_BASE
+                else None,
+                rope_freq_scale=float(self.ROPE_FREQ_SCALE)
+                if self.ROPE_FREQ_SCALE
+                else None,
+                last_n_tokens_size=int(self.LAST_N_TOKENS_SIZE)
+                if self.LAST_N_TOKENS_SIZE
+                else None,
+                low_vram=bool(self.USE_LOW_VRAM) if self.USE_LOW_VRAM else None,
+                mul_mat_q=bool(self.USE_MUL_MAT_Q) if self.USE_MUL_MAT_Q else None,
+                f16_kv=bool(self.USE_F16_KV) if self.USE_F16_KV else None,
+                logits_all=bool(self.USE_LOGITS_ALL) if self.USE_LOGITS_ALL else None,
+                vocab_only=bool(self.USE_VOCAB_ONLY) if self.USE_VOCAB_ONLY else None,
+                use_mmap=bool(self.USE_MMAP) if self.USE_MMAP else None,
+                use_mlock=bool(self.USE_MLOCK) if self.USE_MLOCK else None,
+                embedding=bool(self.USE_EMBEDDING) if self.USE_EMBEDDING else False,
+                numa=bool(self.USE_NUMA) if self.USE_NUMA else None,
+                lora_base=self.LORA_BASE if self.LORA_BASE else None,
+                lora_path=self.LORA_PATH if self.LORA_PATH else None,
+                lora_scale=float(self.LORA_SCALE) if self.LORA_SCALE else None,
             )
         else:
             logging.info("Unable to find model path.")
@@ -138,15 +144,19 @@ class LlamacppProvider:
             temperature=float(self.AI_TEMPERATURE),
             top_p=self.AI_TOP_P,
             top_k=self.AI_TOP_K,
-            repeat_penalty=float(self.REPEAT_PENALTY),
-            frequency_penalty=float(self.FREQUENCY_PENALTY),
-            presence_penalty=float(self.PRESENCE_PENALTY),
-            tfs_z=float(self.TFS_Z),
-            mirostat_mode=int(self.MIROSTAT_MODE),
-            mirostat_eta=float(self.MIROSTAT_ETA),
-            mirostat_tau=float(self.MIROSTAT_TAU),
-            logits_processor=self.LOGITS_PROCESSOR,
-            grammar=self.GRAMMAR,
+            repeat_penalty=float(self.REPEAT_PENALTY) if self.REPEAT_PENALTY else None,
+            frequency_penalty=float(self.FREQUENCY_PENALTY)
+            if self.FREQUENCY_PENALTY
+            else None,
+            presence_penalty=float(self.PRESENCE_PENALTY)
+            if self.PRESENCE_PENALTY
+            else None,
+            tfs_z=float(self.TFS_Z) if self.TFS_Z else None,
+            mirostat_mode=int(self.MIROSTAT_MODE) if self.MIROSTAT_MODE else None,
+            mirostat_eta=float(self.MIROSTAT_ETA) if self.MIROSTAT_ETA else None,
+            mirostat_tau=float(self.MIROSTAT_TAU) if self.MIROSTAT_TAU else None,
+            logits_processor=self.LOGITS_PROCESSOR if self.LOGITS_PROCESSOR else None,
+            grammar=self.GRAMMAR if self.GRAMMAR else None,
         )
         data = response["choices"][0]["text"]
         data = data.replace(prompt, "")
