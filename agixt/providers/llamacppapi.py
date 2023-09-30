@@ -9,10 +9,12 @@ class LlamacppapiProvider:
         self,
         AI_PROVIDER_URI: str = "http://localhost:8000",
         AI_MODEL: str = "default",
+        PROMPT_PREFIX: str = "",
+        PROMPT_SUFFIX: str = "",
         STOP_SEQUENCE: str = "</s>",
-        MAX_TOKENS: int = 2048,
-        AI_TEMPERATURE: float = 0.7,
-        AI_TOP_P: float = 0.7,
+        MAX_TOKENS: int = 4096,
+        AI_TEMPERATURE: float = 0.8,
+        AI_TOP_P: float = 0.95,
         AI_TOP_K: int = 40,
         TFS_Z: float = 1.0,
         TYPICAL_P: float = 1.0,
@@ -50,9 +52,12 @@ class LlamacppapiProvider:
         self.MIROSTAT_ETA = MIROSTAT_ETA if MIROSTAT_ETA else 0.1
         self.IGNORE_EOS = IGNORE_EOS if IGNORE_EOS else False
         self.LOGIT_BIAS = LOGIT_BIAS if LOGIT_BIAS else []
+        self.PROMPT_PREFIX = PROMPT_PREFIX if PROMPT_PREFIX else ""
+        self.PROMPT_SUFFIX = PROMPT_SUFFIX if PROMPT_SUFFIX else ""
 
     async def instruct(self, prompt, tokens: int = 0):
         max_tokens = int(self.MAX_TOKENS) - tokens
+        prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         params = {
             "prompt": prompt,
             "temperature": float(self.AI_TEMPERATURE),
