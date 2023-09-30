@@ -105,10 +105,10 @@ class LlamacppProvider:
         if os.path.isfile(self.MODEL_PATH):
             self.model = Llama(
                 model_path=self.MODEL_PATH,
-                n_gpu_layers=int(self.GPU_LAYERS) if self.GPU_LAYERS else None,
+                n_gpu_layers=int(self.GPU_LAYERS) if self.GPU_LAYERS else 0,
                 n_threads=int(self.THREADS) if self.THREADS else None,
                 n_threads_batch=int(self.THREADS_BATCH) if self.THREADS_BATCH else None,
-                n_batch=int(self.BATCH_SIZE) if self.BATCH_SIZE else None,
+                n_batch=int(self.BATCH_SIZE) if self.BATCH_SIZE else 512,
                 n_ctx=int(self.MAX_TOKENS),
                 seed=-1,
                 main_gpu=int(self.MAIN_GPU) if self.MAIN_GPU else None,
@@ -121,7 +121,7 @@ class LlamacppProvider:
                 else None,
                 last_n_tokens_size=int(self.LAST_N_TOKENS_SIZE)
                 if self.LAST_N_TOKENS_SIZE
-                else None,
+                else 64,
                 low_vram=bool(self.USE_LOW_VRAM) if self.USE_LOW_VRAM else None,
                 mul_mat_q=bool(self.USE_MUL_MAT_Q) if self.USE_MUL_MAT_Q else None,
                 f16_kv=bool(self.USE_F16_KV) if self.USE_F16_KV else None,
