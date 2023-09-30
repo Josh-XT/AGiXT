@@ -69,12 +69,8 @@ class LlamacppProvider:
         self.LORA_SCALE = LORA_SCALE if LORA_SCALE else 1.0
         self.MAIN_GPU = MAIN_GPU if MAIN_GPU else 0
         self.TENSOR_SPLIT = TENSOR_SPLIT if TENSOR_SPLIT else 0
-        self.ROPE_FREQ_BASE = (
-            ROPE_FREQ_BASE if ROPE_FREQ_BASE and ROPE_FREQ_BASE != 0.0 else 0
-        )
-        self.ROPE_FREQ_SCALE = (
-            ROPE_FREQ_SCALE if ROPE_FREQ_SCALE and ROPE_FREQ_SCALE != 0.0 else 0
-        )
+        self.ROPE_FREQ_BASE = ROPE_FREQ_BASE
+        self.ROPE_FREQ_SCALE = ROPE_FREQ_SCALE
         self.LAST_N_TOKENS_SIZE = LAST_N_TOKENS_SIZE if LAST_N_TOKENS_SIZE else 64
         self.USE_LOW_VRAM = USE_LOW_VRAM if USE_LOW_VRAM else False
         self.USE_MUL_MAT_Q = USE_MUL_MAT_Q if USE_MUL_MAT_Q else True
