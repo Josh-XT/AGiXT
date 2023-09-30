@@ -471,6 +471,7 @@ class Interactions:
                     "user_input": user_input,
                     "context_results": context_results,
                     "conversation_name": conversation_name,
+                    "prompt_category": prompt_category,
                     **kwargs,
                 },
             )
@@ -509,6 +510,7 @@ class Interactions:
                         "context_results": context_results,
                         "conversation_name": conversation_name,
                         "disable_memory": disable_memory,
+                        "prompt_category": prompt_category,
                         **kwargs,
                     },
                 )
