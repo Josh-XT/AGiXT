@@ -445,7 +445,10 @@ class Interactions:
             self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
         except Exception as e:
             # Log the error with the full traceback for the provider
-            logging.error(f"{self.agent.PROVIDER} Error: {e.with_traceback()}")
+            error = ""
+            for err in e:
+                error += f"{err.args}\n{err.name}\n{err.msg}\n"
+            logging.error(f"{self.agent.PROVIDER} Error: {error}")
             logging.info(f"PROMPT CONTENT: {formatted_prompt}")
             logging.info(f"TOKENS: {tokens}")
             self.failures += 1
