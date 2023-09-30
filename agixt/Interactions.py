@@ -473,7 +473,7 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            await self.execution_agent(conversaton_name=conversation_name)
+            await self.execution_agent(conversation_name=conversation_name)
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             if disable_memory != True:
