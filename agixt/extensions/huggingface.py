@@ -10,9 +10,10 @@ class huggingface(Extensions):
         self,
         HUGGINGFACE_API_KEY: str = "",
         HUGGINGFACE_AUDIO_TO_TEXT_MODEL: str = "facebook/wav2vec2-large-960h-lv60-self",
+        USE_HUGGINGFACE_TTS: bool = False,
         **kwargs,
     ):
-        self.requirements = ["pillow"]
+        self.requirements = []
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.HUGGINGFACE_AUDIO_TO_TEXT_MODEL = (
             HUGGINGFACE_AUDIO_TO_TEXT_MODEL
