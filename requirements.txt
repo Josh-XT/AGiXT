@@ -3,5 +3,10 @@ safeexecute==0.0.6
 g4f==0.1.4.2
 llama-cpp-python==0.2.11
 whispercpp==0.0.17
-hugchat
-bardapi
+google-generativeai==0.2.0
+discord==2.3.2
+anthropic==0.3.11
+arxiv==1.4.8
+PyGithub==2.1.1
+hugchat==0.3.0
+bardapi==0.1.35
