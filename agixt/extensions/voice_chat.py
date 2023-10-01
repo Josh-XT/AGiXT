@@ -32,16 +32,16 @@ class voice_chat(Extensions):
         self.commands = {
             "Chat with Voice": self.chat_with_voice,
         }
+        self.conversation_name = f"Voice Chat with {self.agent_name}"
+        if "conversation_name" in kwargs:
+            self.conversation_name = kwargs["conversation_name"]
 
     def chat_with_voice(
         self,
         base64_audio,
-        conversation_name="",
         conversation_results=3,
         context_results=10,
     ):
-        if conversation_name == "":
-            conversation_name = f"Voice Chat with {self.agent_name}"
         # Transcribe the audio to text.
         user_input = ApiClient.execute_command(
             agent_name=self.agent_name,
@@ -54,7 +54,7 @@ class voice_chat(Extensions):
             prompt_name=self.voice_prompt,
             prompt_args={
                 "user_input": user_input,
-                "conversation_name": conversation_name,
+                "conversation_name": self.conversation_name,
                 "conversation_results": conversation_results,
                 "context_results": context_results,
             },
