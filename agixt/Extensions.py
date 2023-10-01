@@ -150,6 +150,7 @@ class Extensions:
             "agent_name": self.agent_name,
             "command_name": command_name,
             "conversation_name": self.conversation_name,
+            "enabled_commands": self.get_enabled_commands(),
             **self.agent_config["settings"],
         }
         command_function, module, params = self.find_command(command_name=command_name)
