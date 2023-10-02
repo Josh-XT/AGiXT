@@ -9,4 +9,4 @@ anthropic==0.3.11
 arxiv==1.4.8
 PyGithub==2.1.1
 hugchat==0.3.0
-bardapi==0.1.37
+bardapi==0.1.38
