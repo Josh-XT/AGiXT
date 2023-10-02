@@ -1,6 +1,6 @@
 agixtsdk==0.0.28
 safeexecute==0.0.6
-g4f==0.1.4.2
+g4f==0.1.4.3
 llama-cpp-python==0.2.11
 whispercpp==0.0.17
 google-generativeai==0.2.0
