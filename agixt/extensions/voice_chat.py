@@ -14,11 +14,19 @@ class voice_chat(Extensions):
                 self.voice_prompt = "Voice Chat"
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
-            if kwargs["USE_STREAMLABS_TTS"].lower() == "true":
-                self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
+            if isinstance(kwargs["USE_STREAMLABS_TTS"], bool):
+                if kwargs["USE_STREAMLABS_TTS"]:
+                    self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
+            else:
+                if kwargs["USE_STREAMLABS_TTS"].lower() == "true":
+                    self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_GTTS" in kwargs:
-            if kwargs["USE_GTTS"].lower() == "true":
-                self.tts_command = "Speak with GTTS"
+            if isinstance(kwargs["USE_GTTS"], bool):
+                if kwargs["USE_GTTS"]:
+                    self.tts_command = "Speak with GTTS"
+            else:
+                if kwargs["USE_GTTS"].lower() == "true":
+                    self.tts_command = "Speak with GTTS"
         if "USE_HUGGINGFACE_TTS" in kwargs:
             if (
                 kwargs["USE_HUGGINGFACE_TTS"].lower() == "true"
