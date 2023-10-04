@@ -14,7 +14,7 @@ uvicorn==0.23.2
 python-dotenv==1.0.0
 ffmpeg==1.4
 cryptography==41.0.4
-pillow==9.5.0
+pillow==10.0.1
 SQLAlchemy==2.0.21
 psycopg2-binary==2.9.8
 openai==0.28.1
