@@ -42,22 +42,45 @@ class PromptCategoryList(BaseModel):
 
 
 class Completions(BaseModel):
-    prompt: str
+    model: str = None  # Model is actually the agent_name
+    prompt: str = None
+    suffix: str = None
     max_tokens: int = 100
     temperature: float = 0.9
     top_p: float = 1.0
     n: int = 1
     stream: bool = False
     logprobs: int = None
+    echo: bool = False
     stop: List[str] = None
     presence_penalty: float = 0.0
     frequency_penalty: float = 0.0
     best_of: int = 1
-    echo: bool = False
+    logit_bias: Dict[str, float] = None
     user: str = None
+
+
+class ChatCompletions(BaseModel):
     model: str = None  # Model is actually the agent_name
-    stop_sequence: List[str] = None
-    metadata: Dict[str, str] = None
+    messages: List[dict] = None
+    functions: List[dict] = None
+    function_call: str = None
+    temperature: float = 0.9
+    top_p: float = 1.0
+    n: int = 1
+    stream: bool = False
+    stop: List[str] = None
+    max_tokens: int = 8192
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    logit_bias: Dict[str, float] = None
+    user: str = None
+
+
+class EmbeddingModel(BaseModel):
+    input: str
+    model: str
+    user: str = None
 
 
 class ChainNewName(BaseModel):
@@ -120,11 +143,6 @@ class ResponseMessage(BaseModel):
 class UrlInput(BaseModel):
     url: str
     collection_number: int = 0
-
-
-class EmbeddingModel(BaseModel):
-    input: str
-    model: str
 
 
 class FileInput(BaseModel):
