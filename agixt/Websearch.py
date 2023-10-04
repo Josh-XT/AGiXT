@@ -255,6 +255,14 @@ class Websearch:
         await self.browse_links_in_input(
             user_input=user_input, search_depth=websearch_depth
         )
+        try:
+            websearch_depth = int(websearch_depth)
+        except:
+            websearch_depth = 0
+        try:
+            websearch_timeout = int(websearch_timeout)
+        except:
+            websearch_timeout = 0
         if websearch_depth > 0:
             search_string = ApiClient.prompt_agent(
                 agent_name=self.agent_name,
