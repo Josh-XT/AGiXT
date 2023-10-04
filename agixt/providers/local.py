@@ -32,7 +32,7 @@ class LocalProvider:
         openai.api_key = LOCAL_API_KEY
 
     def models(self):
-        models = requests.get("http://localhost:8091/v1/models")
+        models = requests.get(f"{self.API_URI}/models")
         return models.json()
 
     async def instruct(self, prompt, tokens: int = 0):

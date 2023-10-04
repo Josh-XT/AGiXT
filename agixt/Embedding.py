@@ -25,15 +25,19 @@ class Embedding:
             or self.agent_settings["embedder"] == "default"
         ):
             self.agent_settings["embedder"] = "default"
-            self.embedder = self.default_embedder
-            self.chunk_size = 256
-        else:
-            self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
-                "embed"
-            ]
-            self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
-                "chunk_size"
-            ]
+            if "provider" in self.agent_settings:
+                if "provider" == "local":
+                    self.agent_settings["embedder"] = "local"
+                elif "provider" == "azure":
+                    self.agent_settings["embedder"] = "azure"
+                elif "provider" == "openai":
+                    self.agent_settings["embedder"] = "openai"
+                elif "provider" == "palm":
+                    self.agent_settings["embedder"] = "google_vertex"
+        self.embedder = self.embedder_settings[self.agent_settings["embedder"]]["embed"]
+        self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
+            "chunk_size"
+        ]
 
     def get_embedder_settings(self):
         if "API_URI" in self.agent_settings:
@@ -47,6 +51,25 @@ class Embedding:
             "default": {
                 "chunk_size": 256,
                 "embed": self.default_embedder,
+            },
+            "local": {
+                "chunk_size": 1000,
+                "params": [
+                    "LOCAL_API_KEY",
+                    "AI_MODEL",
+                    "API_URI",
+                ],
+                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=self.agent_settings["LOCAL_API_KEY"]
+                    if "LOCAL_API_KEY" in self.agent_settings
+                    else "",
+                    model_name=self.agent_settings["AI_MODEL"]
+                    if "AI_MODEL" in self.agent_settings
+                    else "Mistral-7B-OpenOrca",
+                    api_base=self.agent_settings["API_URI"]
+                    if api_base
+                    else "https://localhost:8091/v1",
+                ),
             },
             "azure": {
                 "chunk_size": 1000,
@@ -86,15 +109,6 @@ class Embedding:
                 )
                 if "GOOGLE_PROJECT_ID" in self.agent_settings
                 and "GOOGLE_API_KEY" in self.agent_settings
-                else self.default_embedder,
-            },
-            "cohere": {
-                "chunk_size": 500,
-                "params": ["COHERE_API_KEY"],
-                "embed": embedding_functions.CohereEmbeddingFunction(
-                    api_key=self.agent_settings["COHERE_API_KEY"]
-                )
-                if "COHERE_API_KEY" in self.agent_settings
                 else self.default_embedder,
             },
         }
