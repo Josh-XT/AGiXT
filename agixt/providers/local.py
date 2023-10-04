@@ -8,7 +8,7 @@ class LocalProvider:
     def __init__(
         self,
         LOCAL_API_KEY: str = "",
-        AI_MODEL: str = "TheBloke/Mistral-7B-OpenOrca-GGUF",
+        AI_MODEL: str = "Mistral-7B-OpenOrca",
         API_URI: str = "https://localhost:8091/v1",
         MAX_TOKENS: int = 8192,
         AI_TEMPERATURE: float = 1.31,
@@ -17,8 +17,8 @@ class LocalProvider:
         WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
-        self.requirements = ["requests"]
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "TheBloke/Mistral-7B-OpenOrca-GGUF"
+        self.requirements = ["requests", "openai"]
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "Mistral-7B-OpenOrca"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.31
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 1.0
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 8192
