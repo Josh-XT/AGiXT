@@ -34,10 +34,16 @@ class Embedding:
                     self.agent_settings["embedder"] = "openai"
                 elif "provider" == "palm":
                     self.agent_settings["embedder"] = "google_vertex"
-        self.embedder = self.embedder_settings[self.agent_settings["embedder"]]["embed"]
-        self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
-            "chunk_size"
-        ]
+        try:
+            self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
+                "embed"
+            ]
+            self.chunk_size = self.embedder_settings[self.agent_settings["embedder"]][
+                "chunk_size"
+            ]
+        except:
+            self.embedder = self.default_embedder
+            self.chunk_size = 256
 
     def get_embedder_settings(self):
         if "API_URI" in self.agent_settings:
