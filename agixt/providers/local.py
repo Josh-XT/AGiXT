@@ -23,10 +23,10 @@ class LocalProvider:
             response = LLM(
                 models_dir="./models",
                 model=self.AI_MODEL,
-            ).completion(
-                prompt=prompt,
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
+            ).completion(
+                prompt=prompt,
             )
             return response["choices"][0]["text"]
         except Exception as e:
