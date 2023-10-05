@@ -86,7 +86,9 @@ class Embedding:
                     "API_URI",
                 ],
                 "embed": LocalLLMEmbedder(
-                    model_name=self.agent_settings["AI_MODEL"],
+                    model_name=self.agent_settings["AI_MODEL"]
+                    if "AI_MODEL" in self.agent_settings
+                    else "",
                 ),
             },
             "azure": {
