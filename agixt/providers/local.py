@@ -1,5 +1,6 @@
 from local_llm import LLM
 import logging
+import os
 
 
 class LocalProvider:
@@ -19,9 +20,10 @@ class LocalProvider:
         return LLM().models()
 
     async def instruct(self, prompt, tokens: int = 0):
+        models_dir = os.path.join(os.getcwd(), "models")
         try:
             response = LLM(
-                models_dir="./models",
+                models_dir=models_dir,
                 model=self.AI_MODEL,
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
