@@ -8,6 +8,7 @@ from typing import List
 from Extensions import Extensions
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
+from local_llm import LLM
 
 load_dotenv()
 agixt_api_key = os.getenv("AGIXT_API_KEY")
@@ -84,6 +85,7 @@ class agixt_actions(Extensions):
             "Read GitHub Repository into long term memory": self.read_github_repository,
             "Read Website Content into long term memory": self.write_website_to_memory,
             "Read non-image file content into long term memory": self.read_file_content,
+            "Get Local Model List": LLM().models,
         }
 
         for chain in chains:
