@@ -25,6 +25,8 @@ def get_providers():
 
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
+    if provider_name == "llamacppapi":
+        provider_name = "llamacpp"
     if provider_name in DISABLED_PROVIDERS:
         return {}
     logging.info(f"Getting options for provider: {provider_name}")

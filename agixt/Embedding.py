@@ -1,6 +1,26 @@
 import os
 import numpy as np
 from chromadb.utils import embedding_functions
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+from local_llm import LLM
+
+
+class LocalLLMEmbedder(EmbeddingFunction):
+    def __init__(
+        self,
+        model_name: str = "Mistral-7B-OpenOrca",
+    ):
+        self.model_name = model_name
+
+    def __call__(self, texts: Documents) -> Embeddings:
+        embeddings = LLM(
+            models_dir="./models",
+            model=self.model_name,
+        ).embedding(
+            texts
+        )["data"]
+        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
+        return [result["embedding"] for result in sorted_embeddings]
 
 
 class Embedding:
@@ -65,16 +85,8 @@ class Embedding:
                     "AI_MODEL",
                     "API_URI",
                 ],
-                "embed": embedding_functions.OpenAIEmbeddingFunction(
-                    api_key=self.agent_settings["LOCAL_API_KEY"]
-                    if "LOCAL_API_KEY" in self.agent_settings
-                    else "",
-                    model_name=self.agent_settings["AI_MODEL"]
-                    if "AI_MODEL" in self.agent_settings
-                    else "Mistral-7B-OpenOrca",
-                    api_base=self.agent_settings["API_URI"]
-                    if api_base
-                    else "https://localhost:8091/v1",
+                "embed": LocalLLMEmbedder(
+                    model_name=self.agent_settings["AI_MODEL"],
                 ),
             },
             "azure": {
