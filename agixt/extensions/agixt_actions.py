@@ -85,7 +85,7 @@ class agixt_actions(Extensions):
             "Read GitHub Repository into long term memory": self.read_github_repository,
             "Read Website Content into long term memory": self.write_website_to_memory,
             "Read non-image file content into long term memory": self.read_file_content,
-            "Get Local Model List": LLM().models,
+            "Get Local Model List": self.models,
         }
 
         for chain in chains:
@@ -99,6 +99,9 @@ class agixt_actions(Extensions):
         )
         self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
+
+    async def models(self):
+        return LLM().models()
 
     async def read_file_content(self, file_path: str):
         with open(file_path, "r") as f:
