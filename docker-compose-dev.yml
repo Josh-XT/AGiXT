@@ -3,8 +3,6 @@ services:
   agixt:
     image: joshxt/agixt:main
     init: true
-    depends_on:
-      - db
     environment:
       - DB_CONNECTED=${DB_CONNECTED:-false}
       - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
