@@ -21,7 +21,7 @@ services:
     ports:
       - "7437:7437"
     volumes:
-      - ./models:/model
+      - ./models:/agixt/models
       - ./agixt/WORKSPACE:/agixt/WORKSPACE
       - ./agixt/agents:/agixt/agents
       - ./agixt/prompts:/agixt/prompts
