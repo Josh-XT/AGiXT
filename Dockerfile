@@ -1,5 +1,5 @@
 # Use Python 3.10
-ARG BASE_IMAGE="python:3.10-buster"
+ARG BASE_IMAGE="python:3.10-bullseye"
 FROM ${BASE_IMAGE}
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
