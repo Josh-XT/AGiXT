@@ -237,6 +237,6 @@ class streamlabs_tts(Extensions):
         if response.status_code == 200:
             with open("speech.mp3", "wb") as f:
                 f.write(response.content)
-            return f"#GENERATED_AUDIO:{response.content.decode('utf-8')}"
+            return f"#GENERATED_AUDIO:{response.content}"
         else:
             return "Failed to generate audio."
