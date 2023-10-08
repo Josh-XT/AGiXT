@@ -55,7 +55,7 @@ class voice_chat(Extensions):
         user_input = ApiClient.execute_command(
             agent_name=self.agent_name,
             command_name="Transcribe Base64 Audio",
-            command_args={"base64_audio": base64_audio.decode("utf-8")},
+            command_args={"base64_audio": base64_audio},
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
         # Send the transcribed text to the agent.
