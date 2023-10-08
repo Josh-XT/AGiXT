@@ -14,12 +14,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update --fix-missing ; \
     apt-get upgrade -y ; \
     curl -sL https://deb.nodesource.com/setup_14.x | bash - ; \
-    apt-get install -y --fix-missing --no-install-recommends git build-essential gcc g++ sqlite3 libsqlite3-dev wget libgomp1 ffmpeg python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs libportaudio2 libasound-dev && \
+    apt-get install -y --fix-missing --no-install-recommends git build-essential gcc g++ sqlite3 libsqlite3-dev wget libgomp1 ffmpeg python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs libportaudio2 libasound-dev software-properties-common && \
     apt-get install -y gcc-10 g++-10 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
     awk '/^deb / && !seen[$0]++ {gsub(/^deb /, "deb-src "); print}' /etc/apt/sources.list | tee -a /etc/apt/sources.list && \
+    add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
     apt-get update && \
+    apt-get upgrade -y libstdc++6 && \
     apt-get build-dep sqlite3 -y && \
     rm -rf /var/lib/apt/lists/*
 
