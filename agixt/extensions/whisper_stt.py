@@ -7,7 +7,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "ffmpeg-python"])
     import ffmpeg
 try:
-    from whispercpp import Whisper
+    from whisper_cpp_python import Whisper
 except ImportError:
     import sys
     import subprocess
@@ -57,33 +57,20 @@ class whisper_stt(Extensions):
             open(model_path, "wb").write(r.content)
 
     def transcribe_audio_from_file(self, filename: str = "recording.wav"):
-        w = Whisper.from_pretrained(
-            model_name=self.WHISPER_MODEL, basedir=os.path.join(os.getcwd(), "models")
-        )
-        if not filename.startswith(os.path.join(os.getcwd(), "WORKSPACE")):
-            filename = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        try:
-            y, _ = (
-                ffmpeg.input(filename, threads=0)
-                .output("-", format="s16le", acodec="pcm_s16le", ac=1, ar=16000)
-                .run(
-                    cmd=["ffmpeg", "-nostdin"], capture_stdout=True, capture_stderr=True
-                )
-            )
-        except ffmpeg.Error as e:
-            raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
-
-        arr = np.frombuffer(y, np.int16).flatten().astype(np.float32) / 32768.0
-        return w.transcribe(arr)
+        w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        if not os.path.exists(filename):
+            raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
+        output = w.transcribe(open(file_path))
+        if "text" in output:
+            return output["text"]
 
     def transcribe_base64_audio(self, base64_audio: str):
-        w = Whisper.from_pretrained(
-            model_name=self.WHISPER_MODEL, basedir=os.path.join(os.getcwd(), "models")
-        )
-        arr = (
-            np.frombuffer(base64.b64decode(base64_audio), np.int16)
-            .flatten()
-            .astype(np.float32)
-            / 32768.0
-        )
-        return w.transcribe(arr)
+        # Save the audio as a file then run transcribe_audio_from_file.
+        audio = base64.b64decode(base64_audio)
+        filename = "recording.wav"
+        with open(filename, "wb") as f:
+            f.write(audio)
+        output = self.transcribe_audio_from_file(filename)
+        os.remove(filename)
+        return output
