@@ -56,7 +56,7 @@ class whisper_stt(Extensions):
             )
             open(model_path, "wb").write(r.content)
 
-    def transcribe_audio_from_file(self, filename: str = "recording.wav"):
+    async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
         w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(filename):
@@ -65,7 +65,7 @@ class whisper_stt(Extensions):
         if "text" in output:
             return output["text"]
 
-    def transcribe_base64_audio(self, base64_audio: str):
+    async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
         audio = base64.b64decode(base64_audio)
         filename = "recording.wav"
