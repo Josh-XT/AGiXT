@@ -1,24 +1,17 @@
 try:
-    import ffmpeg
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "ffmpeg-python"])
-    import ffmpeg
-try:
     from whisper_cpp_python import Whisper
 except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "whispercpp"])
-    from whispercpp import Whisper
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "whisper-cpp-python"]
+    )
+    from whisper_cpp_python import Whisper
 
 import base64
 import requests
 import os
-import numpy as np
 from Extensions import Extensions
 
 
@@ -59,7 +52,7 @@ class whisper_stt(Extensions):
     async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
         w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        if not os.path.exists(filename):
+        if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
         output = w.transcribe(open(file_path))
         if "text" in output:
