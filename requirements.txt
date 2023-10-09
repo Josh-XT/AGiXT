@@ -9,4 +9,4 @@ arxiv==1.4.8
 PyGithub==2.1.1
 hugchat==0.3.1
 bardapi==0.1.38
-whisper_cpp_python
+whisper-cpp-python==0.2.0
