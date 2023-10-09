@@ -10,6 +10,11 @@ ENV PYTHONUNBUFFERED=1 \
     LD_PRELOAD=libgomp.so.1 \
     LD_LIBRARY_PATH="/usr/local/lib64/:$LD_LIBRARY_PATH"
 
+# Install a newer libstdc++6
+RUN wget http://ftp.us.debian.org/debian/pool/main/g/gcc-11/libstdc++6_11.2.0-10_amd64.deb && \
+    dpkg -i libstdc++6_11.2.0-10_amd64.deb && \
+    rm libstdc++6_11.2.0-10_amd64.deb
+
 # Install system packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update --fix-missing ; \
