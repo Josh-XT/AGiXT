@@ -34,7 +34,7 @@ class ArxivReader(Memories):
             results = arxiv.Search(query=query, max_results=max_articles)
         if results:
             base_path = os.path.join(os.getcwd(), "WORKSPACE")
-            for result in results:
+            for result in results.results():
                 try:
                     filename = f"{result.get_short_id()}.pdf"
                     file_path = os.path.join(base_path, filename)
