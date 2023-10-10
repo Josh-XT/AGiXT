@@ -1,6 +1,6 @@
 agixtsdk==0.0.28
 safeexecute==0.0.6
-g4f==0.1.5.8
+g4f==0.1.5.9
 local-llm==0.0.14
 google-generativeai==0.2.0
 discord==2.3.2
