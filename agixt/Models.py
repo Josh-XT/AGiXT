@@ -219,7 +219,7 @@ class GitHubInput(BaseModel):
 class ArxivInput(BaseModel):
     query: str = None
     article_ids: str = None
-    max_articles: int = 5
+    max_results: int = 5
     collection_number: int = 0
 
 

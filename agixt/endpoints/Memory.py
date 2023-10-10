@@ -197,7 +197,7 @@ async def learn_arxiv(
     ).write_arxiv_articles_to_memory(
         query=arxiv_input.query,
         article_ids=arxiv_input.article_ids,
-        max_articles=arxiv_input.max_articles,
+        max_articles=arxiv_input.max_results,
     )
     return ResponseMessage(message="Agent learned the content from the arXiv articles.")
 
