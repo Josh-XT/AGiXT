@@ -27,11 +27,15 @@ class ArxivReader(Memories):
             results = arxiv.Search(
                 id_list=articles, query=query, max_results=max_articles
             )
-        if article_ids and not query:  # Comma separated list of article IDs
+        elif article_ids != None and article_ids != "":
+            # Comma separated list of article IDs
             articles = article_ids.split(",") if "," in article_ids else [article_ids]
+            articles = [article.strip() for article in articles]
             results = arxiv.Search(id_list=articles)
-        if query and not article_ids:  # Search query
+        elif query != None and query != "":  # Search query
             results = arxiv.Search(query=query, max_results=max_articles)
+        else:
+            return False
         if results:
             base_path = os.path.join(os.getcwd(), "WORKSPACE")
             for result in results.results():
