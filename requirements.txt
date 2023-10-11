@@ -7,6 +7,6 @@ discord==2.3.2
 anthropic==0.3.11
 arxiv==1.4.8
 PyGithub==2.1.1
-hugchat==0.3.1
+hugchat==0.3.3
 bardapi==0.1.38
 whisper-cpp-python==0.2.0
