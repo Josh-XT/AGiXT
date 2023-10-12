@@ -29,12 +29,17 @@ class voice_chat(Extensions):
                 if kwargs["USE_GTTS"].lower() == "true":
                     self.tts_command = "Speak with GTTS"
         if "USE_HUGGINGFACE_TTS" in kwargs:
-            if (
-                kwargs["USE_HUGGINGFACE_TTS"].lower() == "true"
-                and "HUGGINGFACE_API_KEY" in kwargs
-            ):
-                if kwargs["HUGGINGFACE_API_KEY"] != "":
-                    self.tts_command = "Read Audio with Huggingface"
+            if isinstance(kwargs["USE_HUGGINGFACE_TTS"], bool):
+                if kwargs["USE_HUGGINGFACE_TTS"] and "HUGGINGFACE_API_KEY" in kwargs:
+                    if kwargs["ELEVENLABS_API_KEY"] != "":
+                        self.tts_command = "Read Audio with Huggingface"
+            else:
+                if (
+                    kwargs["USE_HUGGINGFACE_TTS"].lower() == "true"
+                    and "HUGGINGFACE_API_KEY" in kwargs
+                ):
+                    if kwargs["HUGGINGFACE_API_KEY"] != "":
+                        self.tts_command = "Read Audio with Huggingface"
         if "ELEVENLABS_API_KEY" in kwargs:
             if kwargs["ELEVENLABS_API_KEY"] != "":
                 self.tts_command = "Speak with TTS Using Elevenlabs"
