@@ -9,4 +9,4 @@ arxiv==1.4.8
 PyGithub==2.1.1
 hugchat==0.3.3
 bardapi==0.1.38
-git+https://github.com/stlukey/whispercpp.py.git@7af678159c29edb3bc2a51a72665073d58f2352f
+git+https://github.com/aarnphm/whispercpp.git
