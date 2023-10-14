@@ -1,7 +1,6 @@
 import os
 import jwt
-import pynvml
-import logging
+import subprocess
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
 from fastapi import Header, HTTPException
@@ -68,16 +67,10 @@ def verify_api_key(authorization: str = Header(None)):
 
 
 def is_cuda():
-    cuda_gpu = False
     try:
-        pynvml.nvmlInit()
-        device_count = pynvml.nvmlDeviceGetCount()
-        if device_count > 0:
-            cuda_gpu = True
-        else:
-            cuda_gpu = False
-    except:
-        cuda_gpu = False
-    finally:
-        pynvml.nvmlShutdown()
-    return cuda_gpu
+        result = subprocess.run(
+            ["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        return "NVIDIA-SMI" in result.stdout
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
