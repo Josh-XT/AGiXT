@@ -1,1 +1,20 @@
-{"commands": {"Create Table in Postgres Database": false, "Insert Row in Postgres Database": false, "Select Rows in Postgres Database": false, "Update Rows in Postgres Database": false, "Delete Rows in Postgres Database": false, "Custom SQL Query in Postgres Database": false, "Get Database Schema from Postgres Database": false, "Get Table Schema from Postgres Database": false, "Scrape Text with Playwright": false, "Scrape Links with Playwright": false, "Take Screenshot with Playwright": false, "Create Task Chain": false, "Generate Extension from OpenAPI": false, "Generate Agent Helper Chain": false, "Ask for Help or Further Clarification to Complete Task": false, "Create a new command": false, "Execute Python Code": false, "Get Python Code from Response": false, "Get Mindmap for task to break it down": false, "Store information in my long term memory": false, "Research on arXiv": false, "Read GitHub Repository into long term memory": false, "Read Website Content into long term memory": false, "Read non-image file content into long term memory": false, "Get Local Model List": false, "Smart Instruct": false, "Smart Prompt": false, "Test_Commands": false, "Write a Poem": false, "Smart Chat - No Research": false, "Generate Task Chain": false, "Generate Image": false, "Generate Smart Task Chain": false, "Smart Chat": false, "Ask Helper Agent for Help": false, "Generate Smart Task Chain without Research": false, "Generate Task Chain without Research": false, "Create New Command": false, "Solve Math Problem": false, "Smart Instruct - No Research": false, "Write to File": false, "Read File": false, "Search Files": false, "Append to File": false, "Execute Python File": false, "Delete File": false, "Execute Shell": false, "Indent String for Python Code": false, "Generate Commands Dictionary": false, "Speak with TTS with Streamlabs Text to Speech": false, "Transcribe Audio from File": false, "Transcribe Base64 Audio": false, "Read Audio from File with Huggingface": false, "Read Audio with Huggingface": false, "Transcribe Base64 Audio with Huggingface": false, "Clone Github Repository": false, "Generate Image with Stable Diffusion": false, "Get Datetime": false, "Speak with TTS Using Elevenlabs": false, "Chat with Voice": false, "Use The Search Engine": false}, "settings": {"provider": "gpt4free", "AI_MODEL": "gpt-3.5-turbo", "AI_TEMPERATURE": "0.4", "MAX_TOKENS": "4000", "embedder": "default", "AUTONOMOUS_EXECUTION": false, "helper_agent_name": "gpt4free", "WEBSEARCH_TIMEOUT": 0, "AI_TOP_P": "1", "WAIT_BETWEEN_REQUESTS": "1", "WAIT_AFTER_FAILURE": "3", "stream": "false", "WORKING_DIRECTORY": "./WORKSPACE", "WORKING_DIRECTORY_RESTRICTED": "True", "HUGGINGFACE_AUDIO_TO_TEXT_MODEL": "facebook/wav2vec2-large-960h-lv60-self"}}
+{
+    "commands": {},
+    "settings": {
+        "provider": "gpt4free",
+        "AI_MODEL": "gpt-3.5-turbo",
+        "AI_TEMPERATURE": "0.4",
+        "MAX_TOKENS": "4000",
+        "embedder": "default",
+        "AUTONOMOUS_EXECUTION": false,
+        "helper_agent_name": "gpt4free",
+        "WEBSEARCH_TIMEOUT": 0,
+        "AI_TOP_P": "1",
+        "WAIT_BETWEEN_REQUESTS": "1",
+        "WAIT_AFTER_FAILURE": "3",
+        "stream": "false",
+        "WORKING_DIRECTORY": "./WORKSPACE",
+        "WORKING_DIRECTORY_RESTRICTED": "True",
+        "HUGGINGFACE_AUDIO_TO_TEXT_MODEL": "facebook/wav2vec2-large-960h-lv60-self"
+    }
+}
