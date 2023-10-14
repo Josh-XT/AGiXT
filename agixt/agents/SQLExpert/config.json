@@ -1,0 +1,7 @@
+{
+    "commands": {},
+    "settings": {
+        "provider": "local",
+        "AI_MODEL": "sqlcoder2"
+    }
+}
