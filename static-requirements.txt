@@ -27,3 +27,4 @@ tweepy==4.14.0
 sendgrid==6.10.0
 httpx==0.25.0
 numpy==1.26.0
+nvidia-ml-py3==7.352.0
