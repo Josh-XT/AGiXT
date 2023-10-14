@@ -1,0 +1,40 @@
+{
+    "chain_name": "MySQL Chat",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Get Database Schema from MySQL Database"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "SQLQuery",
+                "prompt_category": "Default",
+                "table_metadata_string": "{STEP1}",
+                "shots": 1,
+                "context_results": 0,
+                "browse_links": false,
+                "websearch": false,
+                "websearch_depth": 0,
+                "disable_memory": true,
+                "inject_memories_from_collection_number": 0,
+                "conversation_results": 0
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Custom SQL Query in MySQL Database",
+                "query": "{STEP2}"
+            }
+        }
+    ]
+}

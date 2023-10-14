@@ -10,3 +10,4 @@ PyGithub==2.1.1
 hugchat==0.3.3
 bardapi==0.1.38
 whisper-cpp-pybind==0.1.2
+mysql-connector-python==8.1.0

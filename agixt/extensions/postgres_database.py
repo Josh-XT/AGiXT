@@ -122,6 +122,8 @@ class postgres_database(Extensions):
         return f"Rows deleted from table '{table_name}'"
 
     async def execute_sql(self, query: str):
+        if "```sql" in query:
+            query = query.split("```sql")[1].split("```")[0]
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
             database=self.POSTGRES_DATABASE_NAME,
