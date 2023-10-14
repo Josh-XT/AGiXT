@@ -72,5 +72,5 @@ def is_cuda():
             ["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         return "NVIDIA-SMI" in result.stdout
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except:
         return False
