@@ -10,12 +10,13 @@ except ImportError:
             "-m",
             "pip",
             "install",
-            "whispercppy",
+            "git+https://github.com/stlukey/whispercpp.py",
         ]
     )
-    from whispercppy import Whisper
+    from whispercpp import Whisper
 
 import base64
+import requests
 import os
 from Extensions import Extensions
 
@@ -45,19 +46,17 @@ class whisper_stt(Extensions):
             self.WHISPER_MODEL = WHISPER_MODEL
         os.makedirs(os.path.join(os.getcwd(), "models", "whispercpp"), exist_ok=True)
         model_path = os.path.join(
-            os.getcwd(), "models", "whispercpp", f"ggml-{WHISPER_MODEL}-q5_1.bin"
+            os.getcwd(), "models", "whispercpp", f"ggml-{WHISPER_MODEL}.bin"
         )
-        self.model_path = model_path
 
     async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
-        w = Whisper.from_pretrained(
-            model_name=self.WHISPER_MODEL.lower(), basedir=self.model_path
-        )
+        w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
-        output = w.transcribe_from_file(file_path)
-        return output
+        output = w.transcribe(open(file_path))
+        if "text" in output:
+            return output["text"]
 
     async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
