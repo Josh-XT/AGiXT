@@ -1,16 +1,21 @@
 try:
-    from whisper_cpp_python import Whisper
+    from whispercppy import Whisper
 except ImportError:
     import sys
     import subprocess
 
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "whisper-cpp-python"]
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "whispercppy",
+        ]
     )
-    from whisper_cpp_python import Whisper
+    from whispercppy import Whisper
 
 import base64
-import requests
 import os
 from Extensions import Extensions
 
@@ -40,23 +45,19 @@ class whisper_stt(Extensions):
             self.WHISPER_MODEL = WHISPER_MODEL
         os.makedirs(os.path.join(os.getcwd(), "models", "whispercpp"), exist_ok=True)
         model_path = os.path.join(
-            os.getcwd(), "models", "whispercpp", f"ggml-{WHISPER_MODEL}.bin"
+            os.getcwd(), "models", "whispercpp", f"ggml-{WHISPER_MODEL}-q5_1.bin"
         )
-        if not os.path.exists(model_path):
-            r = requests.get(
-                f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{WHISPER_MODEL}.bin",
-                allow_redirects=True,
-            )
-            open(model_path, "wb").write(r.content)
+        self.model_path = model_path
 
     async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
-        w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
+        w = Whisper.from_pretrained(
+            model_name=self.WHISPER_MODEL.lower(), basedir=self.model_path
+        )
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
-        output = w.transcribe(open(file_path))
-        if "text" in output:
-            return output["text"]
+        output = w.transcribe_from_file(file_path)
+        return output
 
     async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
