@@ -38,7 +38,6 @@ class postgres_database(Extensions):
             "Delete Rows in Postgres Database": self.delete_rows,
             "Custom SQL Query in Postgres Database": self.execute_sql,
             "Get Database Schema from Postgres Database": self.get_schema,
-            "Get Table Schema from Postgres Database": self.get_table_schema,
         }
 
     async def create_table(self, table_name: str, columns: str):
@@ -139,24 +138,6 @@ class postgres_database(Extensions):
         connection.close()
         return rows
 
-    async def get_table_schema(self, table_name: str):
-        logging.info(f"Getting schema for table '{table_name}'")
-        connection = psycopg2.connect(
-            database=self.POSTGRES_DATABASE_NAME,
-            host=self.POSTGRES_DATABASE_HOST,
-            port=self.POSTGRES_DATABASE_PORT,
-            user=self.POSTGRES_DATABASE_USERNAME,
-            password=self.POSTGRES_DATABASE_PASSWORD,
-        )
-        cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cursor.execute(
-            f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}';"
-        )
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        return rows
-
     async def get_schema(self):
         logging.info(f"Getting schema for database '{self.POSTGRES_DATABASE_NAME}'")
         connection = psycopg2.connect(
@@ -168,9 +149,55 @@ class postgres_database(Extensions):
         )
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cursor.execute(
-            f"SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public';"
+            f"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema');"
         )
-        rows = cursor.fetchall()
+        schemas = cursor.fetchall()
         cursor.close()
+
+        sql_export = []
+
+        for schema in schemas:
+            schema_name = schema["schema_name"]
+            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            cursor.execute(
+                f"SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position FROM information_schema.columns WHERE table_schema = '{schema_name}';"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+
+            table_columns = {}
+            for row in rows:
+                table_name = row["table_name"]
+                if table_name not in table_columns:
+                    table_columns[table_name] = []
+                column_details = {
+                    "column_name": row["column_name"],
+                    "data_type": row["data_type"],
+                    "column_default": row["column_default"],
+                    "is_nullable": row["is_nullable"],
+                }
+                table_columns[table_name].append(column_details)
+
+            for table_name, columns in table_columns.items():
+                create_table_sql = f"CREATE TABLE {schema_name}.{table_name} ("
+                for column in columns:
+                    column_sql = f"{column['column_name']} {column['data_type']}"
+                    if column["column_default"]:
+                        column_sql += f" DEFAULT {column['column_default']}"
+                    if column["is_nullable"] == "NO":
+                        column_sql += " NOT NULL"
+                    create_table_sql += f"{column_sql}, "
+                create_table_sql = create_table_sql.rstrip(", ") + ");"
+                sql_export.append(create_table_sql)
+
         connection.close()
-        return rows
+
+        # Add relationship descriptions based on foreign keys manually
+        relationships = [
+            "-- sales.product_id can be joined with products.product_id",
+            "-- sales.customer_id can be joined with customers.customer_id",
+            "-- sales.salesperson_id can be joined with salespeople.salesperson_id",
+            "-- product_suppliers.product_id can be joined with products.product_id",
+        ]
+
+        return "\n\n".join(sql_export + relationships)
