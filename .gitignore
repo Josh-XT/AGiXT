@@ -48,3 +48,4 @@ onnx/
 text-generation-webui/
 # testing
 **/.ipynb_checkpoints/
+test.ipynb
