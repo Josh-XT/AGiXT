@@ -175,22 +175,82 @@ class mysql_database(Extensions):
 
     async def get_schema(self):
         logging.info(f"Getting schema for database '{self.MYSQL_DATABASE_NAME}'")
-        try:
-            connection = mysql.connector.connect(
-                host=self.MYSQL_DATABASE_HOST,
-                port=self.MYSQL_DATABASE_PORT,
-                database=self.MYSQL_DATABASE_NAME,
-                user=self.MYSQL_DATABASE_USERNAME,
-                password=self.MYSQL_DATABASE_PASSWORD,
-            )
-            cursor = connection.cursor(dictionary=True)
+        connection = mysql.connector.connect(
+            host=self.MYSQL_DATABASE_HOST,
+            port=self.MYSQL_DATABASE_PORT,
+            database=self.MYSQL_DATABASE_NAME,
+            user=self.MYSQL_DATABASE_USERNAME,
+            password=self.MYSQL_DATABASE_PASSWORD,
+        )
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT LIKE 'mysql%' AND schema_name NOT LIKE 'information_schema' AND schema_name NOT LIKE 'performance_schema'"
+        )
+        schemas = cursor.fetchall()
+        sql_export = []
+        key_relations = []
+
+        for schema in schemas:
+            schema = schema["schema_name"]
             cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public';"
+                f"""
+                SELECT 
+                    ke.table_name as foreign_table, kcu.table_name as primary_table, ke.column_name as foreign_column, 
+                    kcu.column_name as primary_column
+                FROM
+                    information_schema.table_constraints AS tc 
+                    JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.key_column_usage AS ke 
+                        ON ke.ordinal_position = kcu.ordinal_position
+                        AND ke.constraint_name = kcu.referenced_constraint_name
+                        AND ke.table_schema = kcu.referenced_table_schema
+                WHERE 
+                    tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_schema='{schema}';
+                """
+            )
+            relations = cursor.fetchall()
+
+            for relation in relations:
+                key_relations.append(
+                    f"-- {relation['foreign_table']}.{relation['foreign_column']} can be joined with {relation['primary_table']}.{relation['primary_column']}"
+                )
+
+            cursor.execute(
+                f"""
+                SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position 
+                FROM information_schema.columns 
+                WHERE table_schema = '{schema}';
+                """
             )
             rows = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return rows
-        except Error as e:
-            logging.error(f"Error getting database schema: {e}")
-            return []
+
+            table_columns = {}
+            for row in rows:
+                table_name = row["table_name"]
+                if table_name not in table_columns:
+                    table_columns[table_name] = []
+                column_details = {
+                    "column_name": row["column_name"],
+                    "data_type": row["data_type"],
+                    "column_default": row["column_default"],
+                    "is_nullable": row["is_nullable"],
+                }
+                table_columns[table_name].append(column_details)
+
+            for table_name, columns in table_columns.items():
+                create_table_sql = f"CREATE TABLE {schema}.{table_name} ("
+                for column in columns:
+                    column_sql = f"{column['column_name']} {column['data_type']}"
+                    if column["column_default"]:
+                        column_sql += f" DEFAULT {column['column_default']}"
+                    if column["is_nullable"] == "NO":
+                        column_sql += " NOT NULL"
+                    create_table_sql += f"{column_sql}, "
+                create_table_sql = create_table_sql.rstrip(", ") + ");"
+                sql_export.append(create_table_sql)
+
+        connection.close()
+        return "\n\n".join(sql_export + key_relations)
