@@ -1,5 +1,5 @@
 import logging
-from ApiClient import ApiClient, Chain, Prompts
+from ApiClient import ApiClient, Chain, Prompts, log_interaction
 from Extensions import Extensions
 
 
@@ -98,6 +98,15 @@ class Chains:
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
+        log_interaction(
+            role="USER",
+            message=user_input,
+            agent_name=agent_override if agent_override != "" else "AGiXT",
+            conversation_name=f"Chain Execution History: {chain_name}"
+            if "conversation_name" not in chain_args
+            else chain_args["conversation_name"],
+            user=self.user,
+        )
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
         for step_data in chain_data["steps"]:
