@@ -128,6 +128,8 @@ class postgres_database(Extensions):
         query = query.replace("FROM ", 'FROM "')
         query = query.replace(" WHERE ", '" WHERE ')
         query = query.replace(' " WHERE', '" WHERE')
+        if "WHERE" not in query:
+            query = query.replace(";", '";')
         query = query.strip()
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
