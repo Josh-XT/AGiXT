@@ -123,10 +123,10 @@ class postgres_database(Extensions):
     async def execute_sql(self, query: str):
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
+        query = query.replace("\n", " ")
         query = query.replace(".", '"."')
         query = query.replace("FROM ", 'FROM "')
         query = query.replace("WHERE ", '" WHERE ')
-        query = query.replace("\n", " ")
         query = query.replace(' " WHERE', '" WHERE')
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
@@ -141,7 +141,10 @@ class postgres_database(Extensions):
         rows = cursor.fetchall()
         cursor.close()
         connection.close()
-        return rows
+        rows_string = ""
+        for row in rows:
+            rows_string += str(row) + "\n"
+        return rows_string
 
     async def get_schema(self):
         logging.info(f"Getting schema for database '{self.POSTGRES_DATABASE_NAME}'")
