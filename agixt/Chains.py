@@ -98,15 +98,6 @@ class Chains:
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
         logging.info(f"Running chain '{chain_name}'")
-        log_interaction(
-            role="USER",
-            message=user_input,
-            agent_name=agent_override if agent_override != "" else "AGiXT",
-            conversation_name=f"Chain Execution History: {chain_name}"
-            if "conversation_name" not in chain_args
-            else chain_args["conversation_name"],
-            user=self.user,
-        )
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
         for step_data in chain_data["steps"]:
@@ -146,6 +137,15 @@ class Chains:
                     await self.chain.update_chain_responses(
                         chain_name=chain_name, responses=responses
                     )
+        log_interaction(
+            role="USER",
+            message=user_input,
+            agent_name=agent_override if agent_override != "" else "AGiXT",
+            conversation_name=f"Chain Execution History: {chain_name}"
+            if "conversation_name" not in chain_args
+            else chain_args["conversation_name"],
+            user=self.user,
+        )
         if all_responses:
             return responses
         else:
