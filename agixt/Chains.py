@@ -97,6 +97,15 @@ class Chains:
         chain_data = ApiClient.get_chain(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
+        log_interaction(
+            role="USER",
+            message=user_input,
+            agent_name=agent_override if agent_override != "" else "AGiXT",
+            conversation_name=f"Chain Execution History: {chain_name}"
+            if "conversation_name" not in chain_args
+            else chain_args["conversation_name"],
+            user=self.user,
+        )
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
@@ -137,15 +146,6 @@ class Chains:
                     await self.chain.update_chain_responses(
                         chain_name=chain_name, responses=responses
                     )
-        log_interaction(
-            role="USER",
-            message=user_input,
-            agent_name=agent_override if agent_override != "" else "AGiXT",
-            conversation_name=f"Chain Execution History: {chain_name}"
-            if "conversation_name" not in chain_args
-            else chain_args["conversation_name"],
-            user=self.user,
-        )
         if all_responses:
             return responses
         else:
