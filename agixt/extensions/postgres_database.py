@@ -145,6 +145,8 @@ class postgres_database(Extensions):
         rows_string = ""
         for row in rows:
             rows_string += str(row) + "\n"
+        rows_string = rows_string[:-1]
+        rows_string = rows_string.strip()
         rows_string = rows_string[1:-1]
         return rows_string
 
