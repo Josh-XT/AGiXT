@@ -35,7 +35,8 @@
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Custom SQL Query in Postgres Database",
-                "query": "{STEP2}"
+                "query": "{STEP2}",
+                "conversation": "AGiXT Terminal"
             }
         }
     ]
