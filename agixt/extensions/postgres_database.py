@@ -147,6 +147,16 @@ class postgres_database(Extensions):
         cursor.close()
         connection.close()
         rows_string = ""
+        # If there is only 1 row and 1 column, return the value as a string
+        if len(rows) == 1 and len(rows[0]) == 1:
+            return str(rows[0][0])
+        # If there is more than 1 column and at least 1 row, return it as a CSV format
+        if len(rows) >= 1 and len(rows[0]) > 1:
+            for row in rows:
+                rows_string += ",".join([str(r) for r in row]) + "\n"
+            rows_string = rows_string[:-1]
+            rows_string = rows_string.strip()
+            return rows_string
         for row in rows:
             rows_string += str(row) + "\n"
         rows_string = rows_string[:-1]
