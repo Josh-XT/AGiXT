@@ -1,0 +1,23 @@
+# Mysql
+from extensions.mysql_database import mysql_database
+import tiktoken
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
+
+
+db = mysql_database(
+    MYSQL_DATABASE_NAME="mysql",
+    MYSQL_DATABASE_HOST="localhost",
+    MYSQL_DATABASE_PORT=3306,
+    MYSQL_DATABASE_USERNAME="root",
+    MYSQL_DATABASE_PASSWORD="password",
+)
+
+result = await db.get_schema()
+tokens = get_tokens(result)
+print(f"Token count: {tokens}")
+print(result)

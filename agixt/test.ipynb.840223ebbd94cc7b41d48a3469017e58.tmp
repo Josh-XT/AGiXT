@@ -1,0 +1,23 @@
+# Postgres
+from extensions.postgres_database import postgres_database
+import tiktoken
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
+
+
+db = postgres_database(
+    POSTGRES_DATABASE_NAME="postgres",
+    POSTGRES_DATABASE_HOST="xtprod01",
+    POSTGRES_DATABASE_PORT="5433",
+    POSTGRES_DATABASE_USERNAME="postgres",
+    POSTGRES_DATABASE_PASSWORD="WKfBaoPH0GkfNotCDd3uxbrPKwf2BxBxK3EWXkqoOMk8n0Xdl2YjA4ZS5kucgrk0",
+)
+
+result = await db.get_schema()
+tokens = get_tokens(result)
+print(f"Token count: {tokens}")
+print(result)

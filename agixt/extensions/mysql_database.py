@@ -164,29 +164,34 @@ class mysql_database(Extensions):
         )
         cursor = connection.cursor(dictionary=True)
 
+        # List of MySQL default tables to exclude
+        sys_tables = [
+            "information_schema",
+            "performance_schema",
+            "mysql",
+            "sys",
+        ]
+
         # Getting relationships
         cursor.execute(
             f"""
-            SELECT constraint_name, update_rule, delete_rule, 
-                table_name, referenced_table_name 
+            SELECT constraint_name, update_rule, delete_rule, table_name, referenced_table_name 
             FROM information_schema.referential_constraints 
-            WHERE constraint_schema = '{self.MYSQL_DATABASE_NAME}';
-            """
+            WHERE constraint_schema = '{self.MYSQL_DATABASE_NAME}' AND
+            referenced_table_name NOT IN ({','.join(["%s"]*len(sys_tables))})
+        """,
+            tuple(sys_tables),
         )
         relations = cursor.fetchall()
-        relations_map = {}
-        for relation in relations:
-            print(relation)
-            key = f"{relation['table_name']}_{relation['constraint_name']}"
-            relations_map[key] = relation["referenced_table_name"]
 
-        # Getting all tables
+        # Doing the same for tables...
         cursor.execute(
             f"""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = '{self.MYSQL_DATABASE_NAME}';
-            """
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema = '{self.MYSQL_DATABASE_NAME}' AND
+            table_name NOT IN ({','.join(["%s"]*len(sys_tables))})
+        """,
+            tuple(sys_tables),
         )
         tables = cursor.fetchall()
         schema_sql = []
@@ -199,10 +204,10 @@ class mysql_database(Extensions):
             schema_sql.append(create_table_sql)
 
             # Adding comments about relationships if any
-            for key in relations_map:
+            for key in relations:
                 if key.startswith(table_name + "_"):
                     relations_sql.append(
-                        f"-- {table_name}.{key.split('_')[1]} can be joined with {relations_map[key]}"
+                        f"-- {table_name}.{key.split('_')[1]} can be joined with {relations[key]}"
                     )
 
         connection.close()
