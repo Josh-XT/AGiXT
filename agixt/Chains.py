@@ -150,6 +150,15 @@ class Chains:
             return responses
         else:
             # Return only the last response in the chain.
+            log_interaction(
+                role=agent_override if agent_override != "" else "AGiXT",
+                message=last_response,
+                agent_name=agent_override if agent_override != "" else "AGiXT",
+                conversation_name=f"Chain Execution History: {chain_name}"
+                if "conversation_name" not in chain_args
+                else chain_args["conversation_name"],
+                user=self.user,
+            )
             return last_response
 
     def get_chain_args(self, chain_name):
