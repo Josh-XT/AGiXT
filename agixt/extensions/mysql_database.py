@@ -28,7 +28,6 @@ class mysql_database(Extensions):
             "Delete Rows in MySQL Database": self.delete_rows,
             "Custom SQL Query in MySQL Database": self.execute_sql,
             "Get Database Schema from MySQL Database": self.get_schema,
-            "Get Table Schema from MySQL Database": self.get_table_schema,
         }
 
     async def create_table(self, table_name: str, columns: str):
@@ -151,26 +150,6 @@ class mysql_database(Extensions):
             return rows
         except Error as e:
             logging.error(f"Error executing SQL query: {e}")
-            return []
-
-    async def get_table_schema(self, table_name: str):
-        logging.info(f"Getting schema for table '{table_name}'")
-        try:
-            connection = mysql.connector.connect(
-                host=self.MYSQL_DATABASE_HOST,
-                port=self.MYSQL_DATABASE_PORT,
-                database=self.MYSQL_DATABASE_NAME,
-                user=self.MYSQL_DATABASE_USERNAME,
-                password=self.MYSQL_DATABASE_PASSWORD,
-            )
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute(f"DESCRIBE {table_name};")
-            rows = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            return rows
-        except Error as e:
-            logging.error(f"Error getting table schema: {e}")
             return []
 
     async def get_schema(self):
