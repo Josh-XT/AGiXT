@@ -41,6 +41,8 @@ class Chains:
 
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
+                if "conversation" in args:
+                    args["conversation_name"] = args["conversation"]
                 if prompt_type == "Command":
                     return ApiClient.execute_command(
                         agent_name=agent_name,
