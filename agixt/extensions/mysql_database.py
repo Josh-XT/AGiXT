@@ -215,4 +215,11 @@ class mysql_database(Extensions):
         joined_schema_sql = re.sub(r"\/\*!\d{5}.*COMMENT=", "-- ", joined_schema_sql)
         joined_schema_sql = re.sub(r"\/\*.*", "", joined_schema_sql)
         joined_schema_sql = re.sub(r"\).*COMMENT=", ") -- ", joined_schema_sql)
+        joined_schema_sql = (
+            joined_schema_sql.replace(" COLLATE utf8mb3_bin", "")
+            .replace(" CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci", "")
+            .replace(" CHARACTER SET ascii COLLATE ascii_general_ci", "")
+            .replace(" CHARACTER SET utf8mb3 ", "")
+            .replace(" int unsigned ", " int ")
+        )
         return joined_schema_sql
