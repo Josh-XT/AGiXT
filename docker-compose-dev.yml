@@ -13,6 +13,7 @@ services:
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - TOKENIZERS_PARALLELISM=False
+      - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
     volumes:
@@ -32,6 +33,7 @@ services:
       - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - HIDE_DOCS=${HIDE_DOCS:-false}
+      - TZ=${TZ-America/New_York}
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
@@ -43,6 +45,7 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=${AGIXT_URI:-http://agixt:7437}
       - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
+      - TZ=${TZ-America/New_York}
     ports:
       - "24498:24498"
     volumes:
