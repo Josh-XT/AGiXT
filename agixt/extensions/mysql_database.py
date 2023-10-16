@@ -2,6 +2,7 @@ import logging
 import mysql.connector
 from mysql.connector import Error
 from Extensions import Extensions
+import re
 
 
 class mysql_database(Extensions):
@@ -162,74 +163,51 @@ class mysql_database(Extensions):
             password=self.MYSQL_DATABASE_PASSWORD,
         )
         cursor = connection.cursor(dictionary=True)
+
+        # Getting relationships
         cursor.execute(
-            "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT LIKE 'mysql%' AND schema_name NOT LIKE 'information_schema' AND schema_name NOT LIKE 'performance_schema'"
+            f"""
+            SELECT constraint_name, update_rule, delete_rule, 
+                table_name, referenced_table_name 
+            FROM information_schema.referential_constraints 
+            WHERE constraint_schema = '{self.MYSQL_DATABASE_NAME}';
+            """
         )
-        schemas = cursor.fetchall()
-        sql_export = []
-        key_relations = []
+        relations = cursor.fetchall()
+        relations_map = {}
+        for relation in relations:
+            print(relation)
+            key = f"{relation['table_name']}_{relation['constraint_name']}"
+            relations_map[key] = relation["referenced_table_name"]
 
-        for schema in schemas:
-            schema = schema["schema_name"]
-            cursor.execute(
-                f"""
-                SELECT 
-                    ke.table_name as foreign_table, kcu.table_name as primary_table, ke.column_name as foreign_column, 
-                    kcu.column_name as primary_column
-                FROM
-                    information_schema.table_constraints AS tc 
-                    JOIN information_schema.key_column_usage AS kcu
-                        ON tc.constraint_name = kcu.constraint_name
-                        AND tc.table_schema = kcu.table_schema
-                    JOIN information_schema.key_column_usage AS ke 
-                        ON ke.ordinal_position = kcu.ordinal_position
-                        AND ke.constraint_name = kcu.referenced_constraint_name
-                        AND ke.table_schema = kcu.referenced_table_schema
-                WHERE 
-                    tc.constraint_type = 'FOREIGN KEY'
-                    AND tc.table_schema='{schema}';
-                """
-            )
-            relations = cursor.fetchall()
+        # Getting all tables
+        cursor.execute(
+            f"""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = '{self.MYSQL_DATABASE_NAME}';
+            """
+        )
+        tables = cursor.fetchall()
+        schema_sql = []
+        relations_sql = []
 
-            for relation in relations:
-                key_relations.append(
-                    f"-- {relation['foreign_table']}.{relation['foreign_column']} can be joined with {relation['primary_table']}.{relation['primary_column']}"
-                )
+        for table in tables:
+            table_name = table["TABLE_NAME"]
+            cursor.execute(f"SHOW CREATE TABLE {table_name}")
+            create_table_sql = cursor.fetchone()["Create Table"]
+            schema_sql.append(create_table_sql)
 
-            cursor.execute(
-                f"""
-                SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position 
-                FROM information_schema.columns 
-                WHERE table_schema = '{schema}';
-                """
-            )
-            rows = cursor.fetchall()
-
-            table_columns = {}
-            for row in rows:
-                table_name = row["table_name"]
-                if table_name not in table_columns:
-                    table_columns[table_name] = []
-                column_details = {
-                    "column_name": row["column_name"],
-                    "data_type": row["data_type"],
-                    "column_default": row["column_default"],
-                    "is_nullable": row["is_nullable"],
-                }
-                table_columns[table_name].append(column_details)
-
-            for table_name, columns in table_columns.items():
-                create_table_sql = f"CREATE TABLE {schema}.{table_name} ("
-                for column in columns:
-                    column_sql = f"{column['column_name']} {column['data_type']}"
-                    if column["column_default"]:
-                        column_sql += f" DEFAULT {column['column_default']}"
-                    if column["is_nullable"] == "NO":
-                        column_sql += " NOT NULL"
-                    create_table_sql += f"{column_sql}, "
-                create_table_sql = create_table_sql.rstrip(", ") + ");"
-                sql_export.append(create_table_sql)
+            # Adding comments about relationships if any
+            for key in relations_map:
+                if key.startswith(table_name + "_"):
+                    relations_sql.append(
+                        f"-- {table_name}.{key.split('_')[1]} can be joined with {relations_map[key]}"
+                    )
 
         connection.close()
-        return "\n\n".join(sql_export + key_relations)
+        joined_schema_sql = "\n\n".join(schema_sql + relations_sql)
+        joined_schema_sql = re.sub(r"\/\*!\d{5}.*COMMENT=", "-- ", joined_schema_sql)
+        joined_schema_sql = re.sub(r"\/\*.*", "", joined_schema_sql)
+        joined_schema_sql = re.sub(r"\).*COMMENT=", ") -- ", joined_schema_sql)
+        return joined_schema_sql
