@@ -152,6 +152,12 @@ class postgres_database(Extensions):
             return str(rows[0][0])
         # If there is more than 1 column and at least 1 row, return it as a CSV format
         if len(rows) >= 1 and len(rows[0]) > 1:
+            # Build column heading for CSV
+            column_heading = ""
+            for column in rows[0]:
+                column_heading += str(column) + ","
+            column_heading = column_heading[:-1]
+            rows_string += column_heading + "\n"
             for row in rows:
                 rows_string += ",".join([str(r) for r in row]) + "\n"
             rows_string = rows_string[:-1]
