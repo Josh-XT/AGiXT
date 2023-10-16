@@ -221,5 +221,6 @@ class mysql_database(Extensions):
             .replace(" CHARACTER SET ascii COLLATE ascii_general_ci", "")
             .replace(" CHARACTER SET utf8mb3 ", "")
             .replace(" int unsigned ", " int ")
+            .replace(" NOT NULL", "")
         )
         return joined_schema_sql
