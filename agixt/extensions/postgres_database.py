@@ -123,6 +123,11 @@ class postgres_database(Extensions):
     async def execute_sql(self, query: str):
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
+        query = query.replace(".", '"."')
+        query = query.replace("FROM ", 'FROM "')
+        query = query.replace("WHERE ", '" WHERE ')
+        query = query.replace("\n", " ")
+        query = query.replace(' " WHERE', '" WHERE')
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
             database=self.POSTGRES_DATABASE_NAME,
