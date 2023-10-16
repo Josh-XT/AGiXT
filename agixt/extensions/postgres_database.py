@@ -152,18 +152,43 @@ class postgres_database(Extensions):
             f"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema');"
         )
         schemas = cursor.fetchall()
-        cursor.close()
-
         sql_export = []
-
+        key_relations = []
         for schema in schemas:
             schema_name = schema["schema_name"]
-            cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
             cursor.execute(
-                f"SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position FROM information_schema.columns WHERE table_schema = '{schema_name}';"
+                f"""
+                SELECT kcu.table_name as foreign_table, rel_tco.table_name as primary_table,
+                kcu.column_name as foreign_column, rel_kcu.column_name as primary_column
+                FROM information_schema.table_constraints tco
+                JOIN information_schema.key_column_usage kcu 
+                                            ON kcu.constraint_name = tco.constraint_name
+                                            AND kcu.constraint_schema = tco.constraint_schema
+                JOIN information_schema.referential_constraints rco ON tco.constraint_name = rco.constraint_name
+                                            AND tco.constraint_schema = rco.constraint_schema
+                JOIN information_schema.key_column_usage rel_kcu ON rco.unique_constraint_name = rel_kcu.constraint_name
+                                            AND rco.unique_constraint_schema = rel_kcu.constraint_schema
+                JOIN information_schema.table_constraints rel_tco ON rel_kcu.constraint_name = rel_tco.constraint_name
+                                            AND rel_kcu.constraint_schema = rel_tco.constraint_schema
+                WHERE tco.constraint_type = 'FOREIGN KEY' AND tco.table_schema = '{schema_name}' 
+                """
+            )
+            relations = cursor.fetchall()
+            if relations:
+                for relation in relations:
+                    key_relations.append(
+                        f"-- {relation['foreign_table']}.{relation['foreign_column']} can be joined with "
+                        f"{relation['primary_table']}.{relation['primary_column']}"
+                    )
+
+            cursor.execute(
+                f"""
+                SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position 
+                FROM information_schema.columns 
+                WHERE table_schema = '{schema_name}';
+                """
             )
             rows = cursor.fetchall()
-            cursor.close()
 
             table_columns = {}
             for row in rows:
@@ -189,15 +214,5 @@ class postgres_database(Extensions):
                     create_table_sql += f"{column_sql}, "
                 create_table_sql = create_table_sql.rstrip(", ") + ");"
                 sql_export.append(create_table_sql)
-
         connection.close()
-
-        # Add relationship descriptions based on foreign keys manually
-        relationships = [
-            "-- sales.product_id can be joined with products.product_id",
-            "-- sales.customer_id can be joined with customers.customer_id",
-            "-- sales.salesperson_id can be joined with salespeople.salesperson_id",
-            "-- product_suppliers.product_id can be joined with products.product_id",
-        ]
-
-        return "\n\n".join(sql_export + relationships)
+        return "\n\n".join(sql_export + key_relations)
