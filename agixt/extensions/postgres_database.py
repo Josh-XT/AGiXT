@@ -130,6 +130,8 @@ class postgres_database(Extensions):
         query = query.replace(' " WHERE', '" WHERE')
         if "WHERE" not in query:
             query = query.replace(";", '";')
+        if ";" not in query and "WHERE" not in query:
+            query += '";'
         query = query.strip()
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
