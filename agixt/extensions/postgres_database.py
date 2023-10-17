@@ -38,6 +38,7 @@ class postgres_database(Extensions):
             "Delete Rows in Postgres Database": self.delete_rows,
             "Custom SQL Query in Postgres Database": self.execute_sql,
             "Get Database Schema from Postgres Database": self.get_schema,
+            "Get Postgres Data Preview": self.get_data_preview,
         }
 
     async def create_table(self, table_name: str, columns: str):
@@ -120,6 +121,9 @@ class postgres_database(Extensions):
         connection.close()
         return f"Rows deleted from table '{table_name}'"
 
+    async def get_data_preview(self, data: str):
+        return "\n".join(data.split("\n")[:2])
+
     async def execute_sql(self, query: str):
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
@@ -152,22 +156,22 @@ class postgres_database(Extensions):
             return str(rows[0][0])
         # If there is more than 1 column and at least 1 row, return it as a CSV format
         if len(rows) >= 1 and len(rows[0]) > 1:
-            # Build column heading for CSV
-            column_heading = ""
-            for column in rows[0]:
-                column_heading += str(column) + ","
-            column_heading = column_heading[:-1]
-            rows_string += column_heading + "\n"
+            # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
+            column_headings = []
+            for column in cursor.description:
+                column_headings.append(column.name)
+            rows_string += ",".join(column_headings) + "\n"
             for row in rows:
-                rows_string += ",".join([str(r) for r in row]) + "\n"
-            rows_string = rows_string[:-1]
-            rows_string = rows_string.strip()
+                row_string = []
+                for value in row:
+                    row_string.append(f'"{value}"')
+                rows_string += ",".join(row_string) + "\n"
             return rows_string
-        for row in rows:
-            rows_string += str(row) + "\n"
-        rows_string = rows_string[:-1]
-        rows_string = rows_string.strip()
-        rows_string = rows_string[1:-1]
+        # If there is only 1 column and more than 1 row, return it as a CSV format
+        if len(rows) > 1 and len(rows[0]) == 1:
+            for row in rows:
+                rows_string += f'"{row[0]}"\n'
+            return rows_string
         return rows_string
 
     async def get_schema(self):
