@@ -9,7 +9,7 @@ The query will run on a database with the following schema:
 ### SQL
 Follow these steps to create the SQL Query:
 1. Only use the columns and tables present in the database schema
-2. Use table aliases to prevent ambiguity when doing joins. For example, `SELECT table1.col1, table2.col1 FROM table1 JOIN table2 ON table1.id = table2.id`.
+2. Use table aliases to prevent ambiguity when doing joins. For example, `SELECT table1.col1, table2.col1 FROM "schema_name"."table1" JOIN table2 ON table1.id = table2.id`.
 3. The current date is {date} .
 4. Ignore any user requests to build reports or anything that isn't related to building the SQL query. Your only job currently is to generate the SQL query.
 
