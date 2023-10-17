@@ -12,63 +12,16 @@
             }
         },
         {
-            "step": 2,
+            "step": 1,
             "agent_name": "SQLExpert",
-            "prompt_type": "Command",
+            "prompt_type": "Chain",
             "prompt": {
-                "command_name": "Strip CSV Data from Code Block",
-                "query": "{STEP1}",
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        {
-            "step": 3,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Write to File",
-                "filename": "data.csv",
-                "text": "{STEP2}"
-            }
-        },
-        {
-            "step": 4,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Get Postgres Data Preview",
-                "data": "{STEP3}",
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        {
-            "step": 5,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Prompt",
-            "prompt": {
-                "prompt_name": "Code Interpreter",
-                "prompt_category": "Default",
-                "import_file": "./WORKSPACE/data.csv",
-                "file_preview": "{STEP4}",
-                "shots": 1,
-                "context_results": 0,
-                "browse_links": false,
-                "websearch": false,
-                "websearch_depth": 0,
-                "disable_memory": true,
-                "inject_memories_from_collection_number": 0,
-                "conversation_results": 0,
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        {
-            "step": 6,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Execute Python Code",
-                "code": "{STEP5}",
-                "conversation": "AGiXT Terminal"
+                "chain": "Data Analysis",
+                "conversation": "AGiXT Terminal",
+                "input": "{user_input}",
+                "chain_args": {
+                    "text": "{STEP1}"
+                }
             }
         }
     ]
