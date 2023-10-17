@@ -28,6 +28,7 @@ class file_system(Extensions):
             "Execute Shell": self.execute_shell,
             "Indent String for Python Code": self.indent_string,
             "Generate Commands Dictionary": self.generate_commands_dict,
+            "Get CSV Preview": self.get_csv_preview,
         }
         self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
@@ -169,3 +170,11 @@ class file_system(Extensions):
         commands_string = commands_string[:-1]
         commands_string += "}"
         return commands_string
+
+    async def get_csv_preview(self, filename: str):
+        # Get first 2 lines of the file
+        filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+        with open(filepath, "r") as f:
+            lines = f.readlines()
+        lines = lines[:2]
+        return lines
