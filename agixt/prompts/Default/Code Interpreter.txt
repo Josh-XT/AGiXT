@@ -22,11 +22,10 @@ Remember, You are constantly learning and improving. You are capable of generati
 
 If the user's input doesn't request any specific analysis, write code that will provide insights into the data through visualizations.
 
-You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it.
-
-Here is a preview of the `{import_file}` file:
-
+You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it. CSV file preview:
+```csv
 {file_preview}
+```
 
 User's input: {user_input} 
 
