@@ -86,6 +86,8 @@ class agixt_actions(Extensions):
             "Read Website Content into long term memory": self.write_website_to_memory,
             "Read non-image file content into long term memory": self.read_file_content,
             "Get Local Model List": self.models,
+            "Make CSV Code Block": self.make_csv_code_block,
+            "Strip CSV Data from Code Block": self.get_csv_from_response,
         }
 
         for chain in chains:
@@ -522,3 +524,9 @@ class agixt_actions(Extensions):
             },
         )
         return parse_mindmap(mindmap=mindmap)
+
+    async def make_csv_code_block(self, data: str) -> str:
+        return f"```csv\n{data}\n```"
+
+    async def get_csv_from_response(self, response: str) -> str:
+        return response.split("```csv")[1].split("```")[0]
