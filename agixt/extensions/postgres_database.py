@@ -128,20 +128,6 @@ class postgres_database(Extensions):
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
         query = query.replace("\n", " ")
-        """
-        original_from_line = query.split("FROM ")[1].split("WHERE")[0].strip()
-        from_line = original_from_line.replace(".", '"."')
-        if "AS" in from_line:
-            from_line = from_line.replace(" AS ", '" AS "')
-        query = query.replace(original_from_line, from_line)
-        query = query.replace("FROM ", 'FROM "')
-        query = query.replace(" WHERE ", '" WHERE ')
-        query = query.replace(' " WHERE', '" WHERE')
-        if "WHERE" not in query:
-            query = query.replace(";", '";')
-        if ";" not in query and "WHERE" not in query:
-            query += '";'
-        """
         query = query.strip()
         logging.info(f"Executing SQL Query: {query}")
         connection = psycopg2.connect(
