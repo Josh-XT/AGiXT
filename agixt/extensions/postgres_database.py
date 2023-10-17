@@ -121,8 +121,8 @@ class postgres_database(Extensions):
         connection.close()
         return f"Rows deleted from table '{table_name}'"
 
-    async def get_data_preview(self, data: str):
-        return "\n".join(data.split("\n")[:2])
+    async def get_data_preview(self, text: str):
+        return "\n".join(text.split("\n")[:2])
 
     async def execute_sql(self, query: str):
         if "```sql" in query:

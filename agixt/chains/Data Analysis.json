@@ -18,7 +18,7 @@
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Get Postgres Data Preview",
-                "data": "{text}",
+                "text": "{text}",
                 "conversation": "AGiXT Terminal"
             }
         },
