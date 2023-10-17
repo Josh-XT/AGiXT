@@ -512,7 +512,7 @@ class agixt_actions(Extensions):
         return response
 
     async def execute_python_code_internal(self, code: str) -> str:
-        return execute_python_code(code=code)
+        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
 
     async def get_mindmap(self, task: str):
         mindmap = ApiClient.prompt_agent(
