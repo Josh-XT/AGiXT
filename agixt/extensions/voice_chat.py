@@ -1,4 +1,4 @@
-from ApiClient import ApiClient
+from ApiClient import ApiClient, log_interaction
 from Extensions import Extensions
 import logging
 
@@ -57,7 +57,16 @@ class voice_chat(Extensions):
         user_input = ApiClient.execute_command(
             agent_name=self.agent_name,
             command_name="Transcribe Base64 Audio",
-            command_args={"base64_audio": base64_audio},
+            command_args={
+                "base64_audio": base64_audio,
+            },
+        )
+        log_interaction(
+            agent_name=self.agent_name,
+            conversation_name=self.conversation_name,
+            role="USER",
+            message=user_input,
+            user="USER",
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
         # Send the transcribed text to the agent.
@@ -66,8 +75,6 @@ class voice_chat(Extensions):
             prompt_name=self.voice_prompt,
             prompt_args={
                 "user_input": user_input,
-                "conversation_name": self.conversation_name,
-                "conversation_results": conversation_results,
                 "context_results": context_results,
             },
         )
@@ -78,5 +85,12 @@ class voice_chat(Extensions):
             command_name=self.tts_command,
             command_args={"text": text_response},
         )
+        log_interaction(
+            agent_name=self.agent_name,
+            conversation_name=self.conversation_name,
+            role=self.agent_name,
+            message=audio_response,
+            user="USER",
+        )
         logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
-        return f"{text_response}\n{audio_response}"
+        return f"{audio_response}"
