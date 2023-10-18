@@ -11,7 +11,6 @@ except ImportError:
 
 import psycopg2.extras
 import logging
-import csv
 from Extensions import Extensions
 from ApiClient import ApiClient
 
@@ -156,25 +155,22 @@ class postgres_database(Extensions):
             # If there is more than 1 column and at least 1 row, return it as a CSV format
             if len(rows) >= 1 and len(rows[0]) > 1:
                 # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
-                # Replace double quotes in all values with single quotes
-                for row in rows:
-                    for index, value in enumerate(row):
-                        if isinstance(value, str):
-                            row[index] = value.replace('"', "'")
-                # Build column heading
-                column_heading = ""
+                column_headings = []
                 for column in cursor.description:
-                    column_heading += f'"{column[0]}",'
-                column_heading = column_heading.rstrip(",")
-                rows_string += f"{column_heading}\n"
-                # Build rows
+                    column_headings.append(column.name)
+                rows_string += ",".join(column_headings) + "\n"
                 for row in rows:
-                    row_string = ""
+                    row_string = []
                     for value in row:
-                        row_string += f'"{value}",'
-                    row_string = row_string.rstrip(",")
-                    rows_string += f"{row_string}\n"
+                        row_string.append(f'"{value}"')
+                    rows_string += ",".join(row_string) + "\n"
                 return rows_string
+            # If there is only 1 column and more than 1 row, return it as a CSV format
+            if len(rows) > 1 and len(rows[0]) == 1:
+                for row in rows:
+                    rows_string += f'"{row[0]}"\n'
+                return rows_string
+            return rows_string
         except Exception as e:
             logging.error(f"Error executing SQL Query: {str(e)}")
             # Reformat the query if it is invalid.
