@@ -9,10 +9,7 @@ class voice_chat(Extensions):
             self.agent_name = kwargs["agent_name"]
         else:
             self.agent_name = "gpt4free"
-        self.voice_prompt = "Voice Chat without Commands"
-        if "enabled_commands" in kwargs:
-            if len(kwargs["enabled_commands"]) > 0:
-                self.voice_prompt = "Voice Chat"
+        self.voice_prompt = "Voice Chat"
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
             if isinstance(kwargs["USE_STREAMLABS_TTS"], bool):
