@@ -57,7 +57,7 @@ class whisper_stt(Extensions):
             open(model_path, "wb").write(r.content)
 
     async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
-        w = Whisper(model_path=os.path.join(os.getcwd(), "models"))
+        w = Whisper(model_path=os.path.join(os.getcwd(), "models", "whispercpp"))
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
