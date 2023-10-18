@@ -82,4 +82,4 @@ class voice_chat(Extensions):
             command_args={"text": text_response},
         )
         logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
-        return audio_response
+        return f"{text_response}\n{audio_response}"
