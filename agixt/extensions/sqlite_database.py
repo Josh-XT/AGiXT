@@ -89,9 +89,7 @@ class sqlite_database(Extensions):
         key_relations = []
         for table in tables:
             table_name = table[0]
-            cursor.execute(
-                f"PRAGMA foreign_key_list({table_name});"
-            )
+            cursor.execute(f"PRAGMA foreign_key_list({table_name});")
             relations = cursor.fetchall()
             if relations:
                 for relation in relations:
@@ -100,9 +98,7 @@ class sqlite_database(Extensions):
                         f"{relation[2]}.{relation[4]}"
                     )
 
-            cursor.execute(
-                f"PRAGMA table_info({table_name});"
-            )
+            cursor.execute(f"PRAGMA table_info({table_name});")
             rows = cursor.fetchall()
 
             table_columns = []
@@ -111,7 +107,7 @@ class sqlite_database(Extensions):
                     "column_name": row[1],
                     "data_type": row[2],
                     "column_default": row[4],
-                    "is_nullable": 'YES' if row[3]==0 else 'NO',
+                    "is_nullable": "YES" if row[3] == 0 else "NO",
                 }
                 table_columns.append(column_details)
 
