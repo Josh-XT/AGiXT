@@ -71,10 +71,11 @@ class whisper_stt(Extensions):
         output_string = base64_audio
         while re.search(timestamp_pattern, output_string):
             output_string = re.sub(timestamp_pattern, "", output_string)
+        print(f"Transcribing audio: {output_string}...")
         audio = base64.b64decode(output_string)
         filename = "recording.wav"
         with open(filename, "wb") as f:
             f.write(audio)
-        output = self.transcribe_audio_from_file(filename)
+        output = await self.transcribe_audio_from_file(filename)
         os.remove(filename)
         return output
