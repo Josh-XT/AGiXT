@@ -42,6 +42,9 @@ async def get_extensions(user=Depends(verify_api_key)):
 async def run_command(
     agent_name: str, command: CommandExecution, user=Depends(verify_api_key)
 ):
+    print("Command receieved (Extension.py)")
+    print(command.command_name)
+    print(command.command_args)
     agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
     command_output = await Extensions(
         agent_name=agent_name,
