@@ -15,12 +15,28 @@ except ImportError:
     )
     from whisper_cpp import Whisper
 
+try:
+    from pydub import AudioSegment
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "pydub",
+        ]
+    )
+    from pydub import AudioSegment
+
 import base64
 import requests
 import os
-import re
+import io
 from Extensions import Extensions
-import ffmpeg
 
 
 class whisper_stt(Extensions):
@@ -66,16 +82,13 @@ class whisper_stt(Extensions):
         return w.output()
 
     async def transcribe_base64_audio(self, base64_audio: str):
-        # Save the audio as a file then run transcribe_audio_from_file.
-        timestamp_pattern = r"\d{4}-[^Z]+Z?"
-        output_string = base64_audio
-        while re.search(timestamp_pattern, output_string):
-            output_string = re.sub(timestamp_pattern, "", output_string)
-        print(f"Transcribing audio: {output_string}")
+        # Convert the base64 audio to a 16k WAV format
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
+        audio_segment = audio_segment.set_frame_rate(16000)
         filename = "recording.wav"
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        with open(file_path, "wb") as f:
-            f.write(output_string)
+        audio_segment.export(file_path, format="wav")
         output = await self.transcribe_audio_from_file(filename)
         os.remove(file_path)
         return output
