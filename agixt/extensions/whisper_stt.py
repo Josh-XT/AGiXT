@@ -73,8 +73,9 @@ class whisper_stt(Extensions):
         print(f"Transcribing audio: {output_string}")
         audio = base64.b64decode(output_string)
         filename = "recording.wav"
-        with open(filename, "wb") as f:
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        with open(file_path, "wb") as f:
             f.write(audio)
         output = await self.transcribe_audio_from_file(filename)
-        os.remove(filename)
+        os.remove(file_path)
         return output
