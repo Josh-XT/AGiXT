@@ -146,6 +146,9 @@ class Extensions:
         return commands_list
 
     async def execute_command(self, command_name: str, command_args: dict = None):
+        print("Running Command (Extensions.py)")
+        print(command_name)
+        print(command_args)
         injection_variables = {
             "agent_name": self.agent_name,
             "command_name": command_name,
