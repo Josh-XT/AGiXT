@@ -46,18 +46,18 @@ class whisper_stt(Extensions):
         else:
             self.WHISPER_MODEL = WHISPER_MODEL
         os.makedirs(os.path.join(os.getcwd(), "models", "whispercpp"), exist_ok=True)
-        model_path = os.path.join(
+        self.model_path = os.path.join(
             os.getcwd(), "models", "whispercpp", f"ggml-{WHISPER_MODEL}.bin"
         )
-        if not os.path.exists(model_path):
+        if not os.path.exists(self.model_path):
             r = requests.get(
                 f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{WHISPER_MODEL}.bin",
                 allow_redirects=True,
             )
-            open(model_path, "wb").write(r.content)
+            open(self.model_path, "wb").write(r.content)
 
     async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
-        w = Whisper(model_path=os.path.join(os.getcwd(), "models", "whispercpp"))
+        w = Whisper(model_path=self.model_path)
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
