@@ -12,6 +12,7 @@ except ImportError:
 import psycopg2.extras
 import logging
 from Extensions import Extensions
+from ApiClient import ApiClient
 
 
 class postgres_database(Extensions):
@@ -24,6 +25,10 @@ class postgres_database(Extensions):
         POSTGRES_DATABASE_PASSWORD: str = "",
         **kwargs,
     ):
+        if "agent_name" in kwargs:
+            self.agent_name = kwargs["agent_name"]
+        else:
+            self.agent_name = "gpt4free"
         self.POSTGRES_DATABASE_NAME = POSTGRES_DATABASE_NAME
         self.POSTGRES_DATABASE_HOST = POSTGRES_DATABASE_HOST
         self.POSTGRES_DATABASE_PORT = POSTGRES_DATABASE_PORT
@@ -138,33 +143,47 @@ class postgres_database(Extensions):
             password=self.POSTGRES_DATABASE_PASSWORD,
         )
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        rows_string = ""
-        # If there is only 1 row and 1 column, return the value as a string
-        if len(rows) == 1 and len(rows[0]) == 1:
-            return str(rows[0][0])
-        # If there is more than 1 column and at least 1 row, return it as a CSV format
-        if len(rows) >= 1 and len(rows[0]) > 1:
-            # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
-            column_headings = []
-            for column in cursor.description:
-                column_headings.append(column.name)
-            rows_string += ",".join(column_headings) + "\n"
-            for row in rows:
-                row_string = []
-                for value in row:
-                    row_string.append(f'"{value}"')
-                rows_string += ",".join(row_string) + "\n"
+        try:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            cursor.close()
+            connection.close()
+            rows_string = ""
+            # If there is only 1 row and 1 column, return the value as a string
+            if len(rows) == 1 and len(rows[0]) == 1:
+                return str(rows[0][0])
+            # If there is more than 1 column and at least 1 row, return it as a CSV format
+            if len(rows) >= 1 and len(rows[0]) > 1:
+                # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
+                column_headings = []
+                for column in cursor.description:
+                    column_headings.append(column.name)
+                rows_string += ",".join(column_headings) + "\n"
+                for row in rows:
+                    row_string = []
+                    for value in row:
+                        row_string.append(f'"{value}"')
+                    rows_string += ",".join(row_string) + "\n"
+                return rows_string
+            # If there is only 1 column and more than 1 row, return it as a CSV format
+            if len(rows) > 1 and len(rows[0]) == 1:
+                for row in rows:
+                    rows_string += f'"{row[0]}"\n'
+                return rows_string
             return rows_string
-        # If there is only 1 column and more than 1 row, return it as a CSV format
-        if len(rows) > 1 and len(rows[0]) == 1:
-            for row in rows:
-                rows_string += f'"{row[0]}"\n'
-            return rows_string
-        return rows_string
+        except Exception as e:
+            logging.error(f"Error executing SQL Query: {str(e)}")
+            # Reformat the query if it is invalid.
+            new_query = ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Validate SQL",
+                prompt_args={
+                    "database_type": "Postgres",
+                    "schema": await self.get_schema(),
+                    "query": query,
+                },
+            )
+            return await self.execute_sql(query=new_query)
 
     async def get_schema(self):
         logging.info(f"Getting schema for database '{self.POSTGRES_DATABASE_NAME}'")
