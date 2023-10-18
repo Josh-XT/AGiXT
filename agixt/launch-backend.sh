@@ -33,4 +33,4 @@ if [ "$DB_CONNECTED" = "true" ]; then
 fi
 
 echo "Starting AGiXT... Please wait until you see 'Applicaton startup complete' before opening Streamlit..."
-uvicorn app:app --host 0.0.0.0 --port 7437 --workers $workers --limit-request-body=1073741824 --proxy-headers
+uvicorn app:app --host 0.0.0.0 --port 7437 --workers $workers --proxy-headers
