@@ -20,6 +20,7 @@ import requests
 import os
 import re
 from Extensions import Extensions
+import ffmpeg
 
 
 class whisper_stt(Extensions):
@@ -71,11 +72,10 @@ class whisper_stt(Extensions):
         while re.search(timestamp_pattern, output_string):
             output_string = re.sub(timestamp_pattern, "", output_string)
         print(f"Transcribing audio: {output_string}")
-        audio = base64.b64decode(output_string)
         filename = "recording.wav"
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         with open(file_path, "wb") as f:
-            f.write(audio)
+            f.write(output_string)
         output = await self.transcribe_audio_from_file(filename)
         os.remove(file_path)
         return output
