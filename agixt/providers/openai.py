@@ -19,7 +19,7 @@ class OpenaiProvider:
         AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
         API_URI: str = "https://api.openai.com/v1",
         stream: str = "false",
-        MAX_TOKENS: int = 16384,
+        MAX_TOKENS: int = 16385,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         WAIT_BETWEEN_REQUESTS: int = 1,
