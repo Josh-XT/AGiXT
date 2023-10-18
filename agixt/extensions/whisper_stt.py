@@ -66,12 +66,11 @@ class whisper_stt(Extensions):
 
     async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
-        # Find any timestamps that start with year- like "2023-" until the end of the timestamp with a "Z " and remove them
-        timestamp_pattern = r"\d{4}-[^Z]+Z ?"
+        timestamp_pattern = r"\d{4}-[^Z]+Z?"
         output_string = base64_audio
         while re.search(timestamp_pattern, output_string):
             output_string = re.sub(timestamp_pattern, "", output_string)
-        print(f"Transcribing audio: {output_string}...")
+        print(f"Transcribing audio: {output_string}")
         audio = base64.b64decode(output_string)
         filename = "recording.wav"
         with open(filename, "wb") as f:
