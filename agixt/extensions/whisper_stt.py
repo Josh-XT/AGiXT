@@ -18,6 +18,7 @@ except ImportError:
 import base64
 import requests
 import os
+import re
 from Extensions import Extensions
 
 
@@ -65,7 +66,12 @@ class whisper_stt(Extensions):
 
     async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
-        audio = base64.b64decode(base64_audio)
+        # Find any timestamps that start with year- like "2023-" until the end of the timestamp with a "Z " and remove them
+        timestamp_pattern = r"\d{4}-[^Z]+Z ?"
+        output_string = base64_audio
+        while re.search(timestamp_pattern, output_string):
+            output_string = re.sub(timestamp_pattern, "", output_string)
+        audio = base64.b64decode(output_string)
         filename = "recording.wav"
         with open(filename, "wb") as f:
             f.write(audio)
