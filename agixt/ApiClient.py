@@ -65,7 +65,6 @@ def verify_api_key(authorization: str = Header(None)):
         return "USER"
 
 
-# TODO: Replace all references of ApiClient with get_api_client().  Needs to be passed in from FastAPI modules.
 def get_api_client(authorization: str = Header(None)):
     scheme, _, api_key = authorization.partition(" ")
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=api_key)
