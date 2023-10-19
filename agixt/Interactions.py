@@ -239,6 +239,13 @@ class Interactions:
                     )
                     role = interaction["role"] if "role" in interaction else ""
                     message = interaction["message"] if "message" in interaction else ""
+                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
+                    # Strip code blocks out of the message
+                    message = regex.sub(r"(```.*?```)", "", message)
+                    # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
+                    message = regex.sub(
+                        r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
+                    )
                     conversation_history += f"{timestamp} {role}: {message} \n "
                     x += 1
                 else:
