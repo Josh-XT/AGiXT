@@ -92,7 +92,7 @@ def get_agents(user="USER"):
 
 
 class Agent:
-    def __init__(self, agent_name=None, user="USER"):
+    def __init__(self, agent_name=None, user="USER", ApiClient=None):
         self.USER = user
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.config_path, self.folder_path = get_agent_file_paths(
@@ -105,7 +105,9 @@ class Agent:
                 self.PROVIDER_SETTINGS = DEFAULT_SETTINGS
             if "provider" in self.PROVIDER_SETTINGS:
                 self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
-                self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+                self.PROVIDER = Providers(
+                    name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                )
                 self._load_agent_config_keys(
                     ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "AUTONOMOUS_EXECUTION"]
                 )

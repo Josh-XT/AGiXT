@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
-from ApiClient import Chain, verify_api_key
+from fastapi import APIRouter, HTTPException, Depends, Header
+from ApiClient import Chain, verify_api_key, get_api_client
 from Chains import Chains
 from Models import (
     RunChain,
@@ -54,9 +54,13 @@ async def get_chain_responses(chain_name: str, user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain(
-    chain_name: str, user_input: RunChain, user=Depends(verify_api_key)
+    chain_name: str,
+    user_input: RunChain,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
-    chain_response = await Chains(user=user).run_chain(
+    ApiClient = get_api_client(authorization=authorization)
+    chain_response = await Chains(user=user, ApiClient=ApiClient).run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
@@ -82,6 +86,7 @@ async def run_chain_step(
     step_number: str,
     user_input: RunChainStep,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     chain = Chain(user=user)
     chain_steps = chain.get_chain(chain_name=chain_name)
@@ -91,7 +96,8 @@ async def run_chain_step(
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    chain_step_response = await Chains(user=user).run_chain_step(
+    ApiClient = get_api_client(authorization=authorization)
+    chain_step_response = await Chains(user=user, ApiClient=ApiClient).run_chain_step(
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -114,8 +120,13 @@ async def run_chain_step(
     tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_chain_args(chain_name: str, user=Depends(verify_api_key)):
-    chain_args = Chains(user=user).get_chain_args(chain_name=chain_name)
+async def get_chain_args(
+    chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    ApiClient = get_api_client(authorization=authorization)
+    chain_args = Chains(user=user, ApiClient=ApiClient).get_chain_args(
+        chain_name=chain_name
+    )
     return {"chain_args": chain_args}
 
 

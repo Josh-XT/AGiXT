@@ -11,12 +11,14 @@ class ArxivReader(Memories):
         agent_name: str = "AGiXT",
         agent_config=None,
         collection_number: int = 0,
+        ApiClient=None,
         **kwargs,
     ):
         super().__init__(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
+            ApiClient=ApiClient,
         )
 
     async def write_arxiv_articles_to_memory(

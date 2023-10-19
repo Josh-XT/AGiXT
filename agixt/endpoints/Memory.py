@@ -1,7 +1,7 @@
 import os
 import base64
-from fastapi import APIRouter, HTTPException, Depends
-from ApiClient import Agent, verify_api_key
+from fastapi import APIRouter, HTTPException, Depends, Header
+from ApiClient import Agent, verify_api_key, get_api_client
 from typing import Dict, Any, List
 from readers.github import GithubReader
 from readers.file import FileReader
@@ -30,16 +30,21 @@ async def query_memories(
     memory: AgentMemoryQuery,
     collection_number=0,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> Dict[str, Any]:
+    ApiClient = get_api_client(authorization=authorization)
     try:
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     memories = await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=collection_number,
+        ApiClient=ApiClient,
     ).get_memories_data(
         user_input=memory.user_input,
         limit=memory.limit,
@@ -55,12 +60,14 @@ async def query_memories(
     dependencies=[Depends(verify_api_key)],
 )
 async def export_agent_memories(
-    agent_name: str, user=Depends(verify_api_key)
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, Any]:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     memories = await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
+        agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient
     ).export_collections_to_json()
     return {"memories": memories}
 
@@ -71,12 +78,17 @@ async def export_agent_memories(
     dependencies=[Depends(verify_api_key)],
 )
 async def import_agent_memories(
-    agent_name: str, memories: List[dict], user=Depends(verify_api_key)
+    agent_name: str,
+    memories: List[dict],
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
+        agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient
     ).import_collections_from_json(memories)
     return ResponseMessage(message="Memories imported.")
 
@@ -87,13 +99,20 @@ async def import_agent_memories(
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_text(
-    agent_name: str, data: TextMemoryInput, user=Depends(verify_api_key)
+    agent_name: str,
+    data: TextMemoryInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=data.collection_number,
+        ApiClient=ApiClient,
     ).write_text_to_memory(
         user_input=data.user_input, text=data.text, external_source="user input"
     )
@@ -108,8 +127,12 @@ async def learn_text(
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_file(
-    agent_name: str, file: FileInput, user=Depends(verify_api_key)
+    agent_name: str,
+    file: FileInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
     # Strip any path information from the file name
     file.file_name = os.path.basename(file.file_name)
     base_path = os.path.join(os.getcwd(), "WORKSPACE")
@@ -120,11 +143,14 @@ async def learn_file(
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
-        agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+        agent_config = Agent(
+            agent_name=agent_name, user=user, ApiClient=ApiClient
+        ).get_agent_config()
         await FileReader(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=file.collection_number,
+            ApiClient=ApiClient,
         ).write_file_to_memory(file_path=file_path)
         try:
             os.remove(file_path)
@@ -145,13 +171,20 @@ async def learn_file(
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_url(
-    agent_name: str, url: UrlInput, user=Depends(verify_api_key)
+    agent_name: str,
+    url: UrlInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=url.collection_number,
+        ApiClient=ApiClient,
     ).write_website_to_memory(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
@@ -162,14 +195,21 @@ async def learn_url(
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_github_repo(
-    agent_name: str, git: GitHubInput, user=Depends(verify_api_key)
+    agent_name: str,
+    git: GitHubInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = (get_api_client(authorization=authorization),)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await GithubReader(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=git.collection_number,
         use_agent_settings=git.use_agent_settings,
+        ApiClient=ApiClient,
     ).write_github_repository_to_memory(
         github_repo=git.github_repo,
         github_user=git.github_user,
@@ -187,13 +227,20 @@ async def learn_github_repo(
     dependencies=[Depends(verify_api_key)],
 )
 async def learn_arxiv(
-    agent_name: str, arxiv_input: ArxivInput, user=Depends(verify_api_key)
+    agent_name: str,
+    arxiv_input: ArxivInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await ArxivReader(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=arxiv_input.collection_number,
+        ApiClient=ApiClient,
     ).write_arxiv_articles_to_memory(
         query=arxiv_input.query,
         article_ids=arxiv_input.article_ids,
@@ -208,21 +255,30 @@ async def learn_arxiv(
     dependencies=[Depends(verify_api_key)],
 )
 async def agent_reader(
-    agent_name: str, reader_name: str, data: dict, user=Depends(verify_api_key)
+    agent_name: str,
+    reader_name: str,
+    data: dict,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     collection_number = data["collection_number"] if "collection_number" in data else 0
     if reader_name == "file":
         response = await FileReader(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
+            ApiClient=ApiClient,
         ).write_file_to_memory(file_path=data["file_path"])
     elif reader_name == "website":
         response = await WebsiteReader(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
+            ApiClient=ApiClient,
         ).write_website_to_memory(url=data["url"])
     elif reader_name == "github":
         response = await GithubReader(
@@ -232,6 +288,7 @@ async def agent_reader(
             use_agent_settings=data["use_agent_settings"]
             if "use_agent_settings" in data
             else False,
+            ApiClient=ApiClient,
         ).write_github_repository_to_memory(
             github_repo=data["github_repo"],
             github_user=data["github_user"] if "github_user" in data else None,
@@ -243,6 +300,7 @@ async def agent_reader(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
+            ApiClient=ApiClient,
         ).write_arxiv_articles_to_memory(
             query=data["query"],
             article_ids=data["article_ids"],
@@ -264,11 +322,15 @@ async def agent_reader(
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
-    agent_name: str, user=Depends(verify_api_key)
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
-    agent = Agent(agent_name=agent_name, user=user)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
-        agent_name=agent_name, agent_config=agent.AGENT_CONFIG, collection_number=0
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=0,
+        ApiClient=ApiClient,
     ).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
@@ -279,17 +341,22 @@ async def wipe_agent_memories(
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
-    agent_name: str, collection_number=0, user=Depends(verify_api_key)
+    agent_name: str,
+    collection_number=0,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
     try:
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent = Agent(agent_name=agent_name, user=user)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
+        ApiClient=ApiClient,
     ).wipe_memory()
     return ResponseMessage(message=f"Memories for agent {agent_name} deleted.")
 
@@ -300,17 +367,23 @@ async def wipe_agent_memories(
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_agent_memory(
-    agent_name: str, collection_number=0, memory_id="", user=Depends(verify_api_key)
+    agent_name: str,
+    collection_number=0,
+    memory_id="",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
     try:
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent = Agent(agent_name=agent_name, user=user)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
+        ApiClient=ApiClient,
     ).delete_memory(key=memory_id)
     return ResponseMessage(
         message=f"Memory {memory_id} for agent {agent_name} deleted."

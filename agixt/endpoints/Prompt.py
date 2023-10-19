@@ -7,7 +7,6 @@ from Models import (
     ResponseMessage,
     CustomPromptModel,
 )
-from ApiClient import verify_api_key
 
 
 app = APIRouter()
