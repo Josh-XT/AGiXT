@@ -7,14 +7,14 @@ class LocalProvider:
     def __init__(
         self,
         AI_MODEL: str = "Mistral-7B-OpenOrca",
-        AI_TEMPERATURE: float = 1.31,
-        AI_TOP_P: float = 1.0,
+        AI_TEMPERATURE: float = 0.7,
+        AI_TOP_P: float = 0.95,
         **kwargs,
     ):
         self.requirements = ["local-llm"]
         self.AI_MODEL = AI_MODEL if AI_MODEL else "Mistral-7B-OpenOrca"
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.31
-        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 1.0
+        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
 
     def models(self):
         return LLM().models()
