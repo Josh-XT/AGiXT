@@ -122,9 +122,13 @@ async def get_agentconfig(
     dependencies=[Depends(verify_api_key)],
 )
 async def prompt_agent(
-    agent_name: str, agent_prompt: AgentPrompt, user=Depends(verify_api_key)
+    agent_name: str,
+    agent_prompt: AgentPrompt,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
-    agent = Interactions(agent_name=agent_name, user=user)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
