@@ -1,10 +1,10 @@
 import string
 import random
 import time
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from Interactions import Interactions, get_tokens
 from Embedding import Embedding
-from ApiClient import Agent, verify_api_key
+from ApiClient import Agent, verify_api_key, get_api_client
 from Models import (
     Completions,
     EmbeddingModel,
@@ -16,9 +16,12 @@ app = APIRouter()
 @app.post(
     "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
 )
-async def completion(prompt: Completions, user=Depends(verify_api_key)):
+async def completion(
+    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
+):
     # prompt.model is the agent name
-    agent = Interactions(agent_name=prompt.model, user=user)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
     agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
@@ -65,9 +68,12 @@ async def completion(prompt: Completions, user=Depends(verify_api_key)):
     tags=["Completions"],
     dependencies=[Depends(verify_api_key)],
 )
-async def chat_completion(prompt: Completions, user=Depends(verify_api_key)):
+async def chat_completion(
+    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
+):
     # prompt.model is the agent name
-    agent = Interactions(agent_name=prompt.model, user=user)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
     agent_config = agent.agent.AGENT_CONFIG
     if "settings" in agent_config:
         if "AI_MODEL" in agent_config["settings"]:
@@ -117,9 +123,16 @@ async def chat_completion(prompt: Completions, user=Depends(verify_api_key)):
 @app.post(
     "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
 )
-async def embedding(embedding: EmbeddingModel, user=Depends(verify_api_key)):
+async def embedding(
+    embedding: EmbeddingModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
     agent_name = embedding.model
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     agent_settings = agent_config["settings"] if "settings" in agent_config else None
     tokens = get_tokens(embedding.input)
     embedding = Embedding(agent_settings=agent_settings).embed_text(

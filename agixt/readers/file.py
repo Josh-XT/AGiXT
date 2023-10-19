@@ -5,7 +5,6 @@ import docx2txt
 import pdfplumber
 import zipfile
 import shutil
-from ApiClient import ApiClient
 
 
 class FileReader(Memories):
@@ -14,13 +13,16 @@ class FileReader(Memories):
         agent_name: str = "AGiXT",
         agent_config=None,
         collection_number: int = 0,
+        ApiClient=None,
         **kwargs,
     ):
         super().__init__(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
+            ApiClient=ApiClient,
         )
+        self.ApiClient = ApiClient
         self.workspace_restricted = True
         if "WORKSPACE_RESTRICTED" in self.agent_settings:
             if isinstance(self.agent_settings["WORKSPACE_RESTRICTED"], str):
@@ -68,7 +70,7 @@ class FileReader(Memories):
                 with open(file_path, "rb") as f:
                     audio_data = f.read()
                 base64_audio = audio_data.encode("base64")
-                content = ApiClient.execute_command(
+                content = self.ApiClient.execute_command(
                     agent_name=self.agent_name,
                     command_name="Transcribe Base64 Audio",
                     command_args={"base64_audio": base64_audio},

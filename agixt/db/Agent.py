@@ -201,7 +201,7 @@ def import_agent_config(agent_name, user="USER"):
 
 
 class Agent:
-    def __init__(self, agent_name=None, user="USER"):
+    def __init__(self, agent_name=None, user="USER", ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
@@ -212,7 +212,9 @@ class Agent:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
         self.AI_PROVIDER = self.AGENT_CONFIG["settings"]["provider"]
-        self.PROVIDER = Providers(self.AI_PROVIDER, **self.PROVIDER_SETTINGS)
+        self.PROVIDER = Providers(
+            name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
         self.available_commands = Extensions(
             agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()

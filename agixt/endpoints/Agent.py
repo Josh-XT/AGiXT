@@ -1,6 +1,6 @@
 import logging
 from typing import Dict
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from Interactions import Interactions
 from ApiClient import (
     Agent,
@@ -9,6 +9,7 @@ from ApiClient import (
     rename_agent,
     get_agents,
     verify_api_key,
+    get_api_client,
 )
 from Models import (
     AgentNewName,
@@ -58,11 +59,15 @@ async def renameagent(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
 async def update_agent_settings(
-    agent_name: str, settings: AgentSettings, user=Depends(verify_api_key)
+    agent_name: str,
+    settings: AgentSettings,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    update_config = Agent(agent_name=agent_name, user=user).update_agent_config(
-        new_config=settings.settings, config_key="settings"
-    )
+    ApiClient = get_api_client(authorization=authorization)
+    update_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).update_agent_config(new_config=settings.settings, config_key="settings")
     return ResponseMessage(message=update_config)
 
 
@@ -72,11 +77,15 @@ async def update_agent_settings(
     dependencies=[Depends(verify_api_key)],
 )
 async def update_agent_commands(
-    agent_name: str, commands: AgentCommands, user=Depends(verify_api_key)
+    agent_name: str,
+    commands: AgentCommands,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    update_config = Agent(agent_name=agent_name, user=user).update_agent_config(
-        new_config=commands.commands, config_key="commands"
-    )
+    ApiClient = get_api_client(authorization=authorization)
+    update_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).update_agent_config(new_config=commands.commands, config_key="commands")
     return ResponseMessage(message=update_config)
 
 
@@ -97,8 +106,13 @@ async def getagents(user=Depends(verify_api_key)):
 @app.get(
     "/api/agent/{agent_name}", tags=["Agent"], dependencies=[Depends(verify_api_key)]
 )
-async def get_agentconfig(agent_name: str, user=Depends(verify_api_key)):
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+async def get_agentconfig(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     return {"agent": agent_config}
 
 
@@ -123,8 +137,11 @@ async def prompt_agent(
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_commands(agent_name: str, user=Depends(verify_api_key)):
-    agent = Agent(agent_name=agent_name, user=user)
+async def get_commands(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     return {"commands": agent.AGENT_CONFIG["commands"]}
 
 
@@ -134,9 +151,13 @@ async def get_commands(agent_name: str, user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def toggle_command(
-    agent_name: str, payload: ToggleCommandPayload, user=Depends(verify_api_key)
+    agent_name: str,
+    payload: ToggleCommandPayload,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent = Agent(agent_name=agent_name, user=user)
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     try:
         if payload.command_name == "*":
             for each_command_name in agent.AGENT_CONFIG["commands"]:

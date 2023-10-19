@@ -12,7 +12,6 @@ from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
-from ApiClient import ApiClient
 
 
 if sys.platform == "win32":
@@ -100,7 +99,11 @@ def query_results_to_records(results: "QueryResult"):
 
 class Memories:
     def __init__(
-        self, agent_name: str = "AGiXT", agent_config=None, collection_number: int = 0
+        self,
+        agent_name: str = "AGiXT",
+        agent_config=None,
+        collection_number: int = 0,
+        ApiClient=None,
     ):
         self.agent_name = agent_name
         self.collection_name = camel_to_snake(agent_name)

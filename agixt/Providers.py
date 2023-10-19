@@ -67,10 +67,11 @@ def get_providers_with_settings():
 
 
 class Providers:
-    def __init__(self, name, **kwargs):
+    def __init__(self, name, ApiClient, **kwargs):
         if name in DISABLED_PROVIDERS:
             raise AttributeError(f"module {__name__} has no attribute {name}")
         try:
+            kwargs["ApiClient"] = ApiClient
             module = importlib.import_module(f"providers.{name}")
             provider_class = getattr(module, f"{name.capitalize()}Provider")
             self.instance = provider_class(**kwargs)
