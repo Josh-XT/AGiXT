@@ -35,7 +35,7 @@ class Interactions:
     ):
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name, user=user)
+            self.agent = Agent(self.agent_name, user=user, ApiClient=ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
                 agent_name=self.agent_name,

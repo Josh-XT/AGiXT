@@ -126,9 +126,13 @@ async def chat_completion(
 async def embedding(
     embedding: EmbeddingModel,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
+    ApiClient = get_api_client(authorization=authorization)
     agent_name = embedding.model
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     agent_settings = agent_config["settings"] if "settings" in agent_config else None
     tokens = get_tokens(embedding.input)
     embedding = Embedding(agent_settings=agent_settings).embed_text(

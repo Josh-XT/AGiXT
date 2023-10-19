@@ -37,7 +37,9 @@ async def query_memories(
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     memories = await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -61,7 +63,9 @@ async def export_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     memories = await WebsiteReader(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient
     ).export_collections_to_json()
@@ -80,7 +84,9 @@ async def import_agent_memories(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient
     ).import_collections_from_json(memories)
@@ -99,7 +105,9 @@ async def learn_text(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -135,7 +143,9 @@ async def learn_file(
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
-        agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+        agent_config = Agent(
+            agent_name=agent_name, user=user, ApiClient=ApiClient
+        ).get_agent_config()
         await FileReader(
             agent_name=agent_name,
             agent_config=agent_config,
@@ -167,7 +177,9 @@ async def learn_url(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -189,7 +201,9 @@ async def learn_github_repo(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = (get_api_client(authorization=authorization),)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await GithubReader(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -219,7 +233,9 @@ async def learn_arxiv(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     await ArxivReader(
         agent_name=agent_name,
         agent_config=agent_config,
@@ -246,7 +262,9 @@ async def agent_reader(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     collection_number = data["collection_number"] if "collection_number" in data else 0
     if reader_name == "file":
         response = await FileReader(
@@ -307,7 +325,7 @@ async def wipe_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
@@ -333,7 +351,7 @@ async def wipe_agent_memories(
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent = Agent(agent_name=agent_name, user=user)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
@@ -360,7 +378,7 @@ async def delete_agent_memory(
         collection_number = int(collection_number)
     except:
         collection_number = 0
-    agent = Agent(agent_name=agent_name, user=user)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,

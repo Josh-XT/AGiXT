@@ -46,7 +46,9 @@ async def run_command(
     authorization: str = Header(None),
 ):
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
     command_output = await Extensions(
         agent_name=agent_name,
         agent_config=agent_config,
