@@ -16,13 +16,14 @@ class Websearch:
         self,
         agent_name: str = "AGiXT",
         searxng_instance_url: str = "",
+        agent_config: dict = {},
         ApiClient=None,
         **kwargs,
     ):
         self.agent_name = agent_name
         self.searx_instance_url = searxng_instance_url
         self.ApiClient = ApiClient
-        self.agent_config = self.ApiClient.get_agentconfig(agent_name=self.agent_name)
+        self.agent_config = agent_config
         self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
         self.failures = []

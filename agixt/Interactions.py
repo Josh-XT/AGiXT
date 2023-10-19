@@ -39,6 +39,7 @@ class Interactions:
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
                 agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
                 ApiClient=ApiClient,
                 searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
                     "SEARXNG_INSTANCE_URL"
