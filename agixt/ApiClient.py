@@ -66,5 +66,8 @@ def verify_api_key(authorization: str = Header(None)):
 
 
 def get_api_client(authorization: str = Header(None)):
-    scheme, _, api_key = authorization.partition(" ")
+    try:
+        scheme, _, api_key = authorization.partition(" ")
+    except:
+        api_key = None
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=api_key)
