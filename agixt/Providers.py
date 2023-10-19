@@ -67,7 +67,7 @@ def get_providers_with_settings():
 
 
 class Providers:
-    def __init__(self, name, ApiClient, **kwargs):
+    def __init__(self, name, ApiClient=None, **kwargs):
         if name in DISABLED_PROVIDERS:
             raise AttributeError(f"module {__name__} has no attribute {name}")
         try:
