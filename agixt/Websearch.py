@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
-from ApiClient import ApiClient
 
 
 class Websearch:
@@ -17,11 +16,13 @@ class Websearch:
         self,
         agent_name: str = "AGiXT",
         searxng_instance_url: str = "",
+        ApiClient=None,
         **kwargs,
     ):
         self.agent_name = agent_name
         self.searx_instance_url = searxng_instance_url
-        self.agent_config = ApiClient.get_agentconfig(agent_name=self.agent_name)
+        self.ApiClient = ApiClient
+        self.agent_config = self.ApiClient.get_agentconfig(agent_name=self.agent_name)
         self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
         self.failures = []
@@ -52,7 +53,7 @@ class Websearch:
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
-                ApiClient.learn_url(
+                self.ApiClient.learn_url(
                     agent_name=self.agent_name, url=url, collection_number=1
                 )
                 self.browsed_links.append(url)
@@ -115,7 +116,7 @@ class Websearch:
                                 if len(link_list) > 5:
                                     link_list = link_list[:3]
                                 try:
-                                    pick_a_link = ApiClient.prompt_agent(
+                                    pick_a_link = self.ApiClient.prompt_agent(
                                         agent_name=self.agent_name,
                                         prompt_name="Pick-a-Link",
                                         prompt_args={
@@ -179,12 +180,12 @@ class Websearch:
             except:  # Select default remote server that typically works if unable to get list.
                 self.searx_instance_url = "https://search.us.projectsegfau.lt"
             self.agent_settings["SEARXNG_INSTANCE_URL"] = self.searx_instance_url
-            ApiClient.update_agent_settings(
+            self.ApiClient.update_agent_settings(
                 agent_name=self.agent_name, settings=self.agent_settings
             )
         server = self.searx_instance_url.rstrip("/")
         self.agent_settings["SEARXNG_INSTANCE_URL"] = server
-        ApiClient.update_agent_settings(
+        self.ApiClient.update_agent_settings(
             agent_name=self.agent_name, settings=self.agent_settings
         )
         endpoint = f"{server}/search"
@@ -213,7 +214,7 @@ class Websearch:
             if len(self.failures) > 5:
                 logging.info("Failed 5 times. Trying DDG...")
                 self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
-                ApiClient.update_agent_settings(
+                self.ApiClient.update_agent_settings(
                     agent_name=self.agent_name, settings=self.agent_settings
                 )
                 return await self.ddg_search(query=query)
@@ -264,7 +265,7 @@ class Websearch:
         except:
             websearch_timeout = 0
         if websearch_depth > 0:
-            search_string = ApiClient.prompt_agent(
+            search_string = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="WebSearch",
                 prompt_args={

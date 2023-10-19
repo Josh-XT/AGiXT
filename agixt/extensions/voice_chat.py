@@ -1,10 +1,11 @@
-from ApiClient import ApiClient, log_interaction
+from ApiClient import log_interaction
 from Extensions import Extensions
 import logging
 
 
 class voice_chat(Extensions):
     def __init__(self, **kwargs):
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         if "agent_name" in kwargs:
             self.agent_name = kwargs["agent_name"]
         else:
@@ -54,7 +55,7 @@ class voice_chat(Extensions):
         context_results=10,
     ):
         # Transcribe the audio to text.
-        user_input = ApiClient.execute_command(
+        user_input = self.ApiClient.execute_command(
             agent_name=self.agent_name,
             command_name="Transcribe Base64 Audio",
             command_args={
@@ -70,7 +71,7 @@ class voice_chat(Extensions):
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
         # Send the transcribed text to the agent.
-        text_response = ApiClient.prompt_agent(
+        text_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name=self.voice_prompt,
             prompt_args={
@@ -80,7 +81,7 @@ class voice_chat(Extensions):
         )
         logging.info(f"[Whisper]: Text Response from LLM: {text_response}")
         # Get the audio response from the TTS engine and return it.
-        audio_response = ApiClient.execute_command(
+        audio_response = self.ApiClient.execute_command(
             agent_name=self.agent_name,
             command_name=self.tts_command,
             command_args={"text": text_response},

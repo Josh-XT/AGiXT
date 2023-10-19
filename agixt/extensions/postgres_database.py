@@ -12,7 +12,6 @@ except ImportError:
 import psycopg2.extras
 import logging
 from Extensions import Extensions
-from ApiClient import ApiClient
 
 
 class postgres_database(Extensions):
@@ -45,6 +44,7 @@ class postgres_database(Extensions):
             "Get Database Schema from Postgres Database": self.get_schema,
             "Get Postgres Data Preview": self.get_data_preview,
         }
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
 
     async def create_table(self, table_name: str, columns: str):
         logging.info(f"Creating table '{table_name}'")
@@ -174,7 +174,7 @@ class postgres_database(Extensions):
         except Exception as e:
             logging.error(f"Error executing SQL Query: {str(e)}")
             # Reformat the query if it is invalid.
-            new_query = ApiClient.prompt_agent(
+            new_query = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Validate SQL",
                 prompt_args={

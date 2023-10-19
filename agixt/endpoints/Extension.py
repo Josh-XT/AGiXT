@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
-from ApiClient import Agent, log_interaction, verify_api_key
+from ApiClient import Agent, log_interaction, verify_api_key, get_api_client
 from Models import CommandExecution
 
 
@@ -40,16 +40,18 @@ async def get_extensions(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def run_command(
-    agent_name: str, command: CommandExecution, user=Depends(verify_api_key)
+    agent_name: str,
+    command: CommandExecution,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
-    print("Command receieved (Extension.py)")
-    print(command.command_name)
-    print(command.command_args)
+    ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(agent_name=agent_name, user=user).get_agent_config()
     command_output = await Extensions(
         agent_name=agent_name,
         agent_config=agent_config,
         conversation_name=command.conversation_name,
+        ApiClient=ApiClient,
     ).execute_command(
         command_name=command.command_name, command_args=command.command_args
     )
