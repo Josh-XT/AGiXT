@@ -93,5 +93,5 @@ class Providers:
                 subprocess.run(["pip", "install", requirement], check=True)
 
 
-def __getattr__(name):
-    return Providers(name)
+def __getattr__(name, ApiClient=None):
+    return Providers(name=name, ApiClient=ApiClient)
