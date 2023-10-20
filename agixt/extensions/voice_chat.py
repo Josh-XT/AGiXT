@@ -2,6 +2,25 @@ from ApiClient import log_interaction
 from Extensions import Extensions
 import logging
 import os
+import base64
+import io
+
+try:
+    from pydub import AudioSegment
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "pydub",
+        ]
+    )
+    from pydub import AudioSegment
 
 
 class voice_chat(Extensions):
@@ -49,25 +68,29 @@ class voice_chat(Extensions):
         if "conversation_name" in kwargs:
             self.conversation_name = kwargs["conversation_name"]
 
+    async def convert_m4a_to_wav(
+        self, base64_audio: str, filename: str = "recording.wav"
+    ):
+        # Convert the base64 audio to a 16k WAV format
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
+        audio_segment = audio_segment.set_frame_rate(16000)
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        audio_segment.export(file_path, format="wav")
+        with open(file_path, "rb") as f:
+            audio = f.read()
+        return f"{base64.b64encode(audio).decode('utf-8')}"
+
     async def chat_with_voice(
         self,
         base64_audio,
-        conversation_results=3,
         context_results=10,
     ):
         # Convert from M4A to WAV
         filename = "recording.wav"
-        user_audio_path = self.ApiClient.execute_command(
-            agent_name=self.agent_name,
-            command_name="Convert M4A to WAV",
-            command_args={
-                "base64_audio": base64_audio,
-                "filename": filename,
-            },
+        user_audio = await self.convert_m4a_to_wav(
+            base64_audio=base64_audio, filename=filename
         )
-        # Get content of audio file.
-        with open(user_audio_path, "rb") as f:
-            user_audio = f.read()
         # Transcribe the audio to text.
         user_input = self.ApiClient.execute_command(
             agent_name=self.agent_name,
