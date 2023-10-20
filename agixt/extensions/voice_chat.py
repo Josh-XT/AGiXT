@@ -1,6 +1,7 @@
 from ApiClient import log_interaction
 from Extensions import Extensions
 import logging
+import os
 
 
 class voice_chat(Extensions):
@@ -54,19 +55,33 @@ class voice_chat(Extensions):
         conversation_results=3,
         context_results=10,
     ):
+        # Convert from M4A to WAV
+        filename = "recording.wav"
+        user_audio_path = self.ApiClient.execute_command(
+            agent_name=self.agent_name,
+            command_name="Convert M4A to WAV",
+            command_args={
+                "base64_audio": base64_audio,
+                "filename": filename,
+            },
+        )
+        # Get content of audio file.
+        with open(user_audio_path, "rb") as f:
+            user_audio = f.read()
         # Transcribe the audio to text.
         user_input = self.ApiClient.execute_command(
             agent_name=self.agent_name,
-            command_name="Transcribe Base64 Audio",
+            command_name="Transcribe Audio from File",
             command_args={
-                "base64_audio": base64_audio,
+                "filename": filename,
             },
         )
+        user_message = f"{user_input}\n#GENERATED_AUDIO:{user_audio}"
         log_interaction(
             agent_name=self.agent_name,
             conversation_name=self.conversation_name,
             role="USER",
-            message=user_input,
+            message=user_message,
             user="USER",
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
