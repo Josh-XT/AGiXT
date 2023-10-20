@@ -1,4 +1,5 @@
 import logging
+import json
 
 try:
     from hugchat.hugchat import ChatBot
@@ -13,7 +14,7 @@ except ImportError:
 class HuggingchatProvider:
     def __init__(
         self,
-        HUGGINGCHAT_COOKIE_PATH: str = "./huggingchat-cookies.json",
+        HUGGINGCHAT_COOKIE: str = "",
         MODEL_PATH: str = None,
         AI_MODEL: str = "meta-llama/Llama-2-70b-chat-hf",
         MAX_TOKENS: int = 2048,
@@ -24,7 +25,11 @@ class HuggingchatProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_MODEL = AI_MODEL
-        self.HUGGINGCHAT_COOKIE_PATH = HUGGINGCHAT_COOKIE_PATH
+        self.HUGGINGCHAT_COOKIE = HUGGINGCHAT_COOKIE
+        try:
+            self.HUGGINGCHAT_COOKIE = json.loads(HUGGINGCHAT_COOKIE)
+        except:
+            self.HUGGINGCHAT_COOKIE = {}
         self.MODELS = {
             "OpenAssistant/oasst-sft-6-llama-30b-xor",
             "meta-llama/Llama-2-70b-chat-hf",
@@ -39,7 +44,7 @@ class HuggingchatProvider:
             logging.info(e)
 
     def load_session(self):
-        self.session = ChatBot(cookie_path=self.HUGGINGCHAT_COOKIE_PATH)
+        self.session = ChatBot(cookies=self.HUGGINGCHAT_COOKIE)
         if self.MODEL_PATH:
             self.session.switch_llm(self.MODELS.index(self.MODEL_PATH))
 
