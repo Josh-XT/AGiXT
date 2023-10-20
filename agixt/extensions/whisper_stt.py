@@ -15,27 +15,8 @@ except ImportError:
     )
     from whisper_cpp import Whisper
 
-try:
-    from pydub import AudioSegment
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "pydub",
-        ]
-    )
-    from pydub import AudioSegment
-
-import base64
 import requests
 import os
-import io
 from Extensions import Extensions
 
 
@@ -43,7 +24,6 @@ class whisper_stt(Extensions):
     def __init__(self, WHISPER_MODEL="base.en", **kwargs):
         self.commands = {
             "Transcribe Audio from File": self.transcribe_audio_from_file,
-            "Convert M4A to WAV": self.convert_m4a_to_wav,
         }
         # https://huggingface.co/ggerganov/whisper.cpp
         # Models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v1
@@ -80,14 +60,3 @@ class whisper_stt(Extensions):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
         w.transcribe(file_path)
         return w.output()
-
-    async def convert_m4a_to_wav(
-        self, base64_audio: str, filename: str = "recording.wav"
-    ):
-        # Convert the base64 audio to a 16k WAV format
-        audio_data = base64.b64decode(base64_audio)
-        audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
-        audio_segment = audio_segment.set_frame_rate(16000)
-        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        audio_segment.export(file_path, format="wav")
-        return file_path
