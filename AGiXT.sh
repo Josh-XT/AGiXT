@@ -192,7 +192,6 @@ docker_install_dev() {
   echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    update
     docker-compose -f docker-compose-dev.yml pull
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
