@@ -35,7 +35,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Running and Updating AGiXT](#running-and-updating-agixt)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
-  - [Other Repositorities](#other-repositorities)
+  - [Other Repositories](#other-repositories)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Our Team 🧑‍💻](#our-team-)
@@ -129,7 +129,7 @@ Each AGiXT Agent has its own settings for interfacing with AI providers, and oth
 
 Need more information? Check out the [documentation](https://josh-xt.github.io/AGiXT) for more details to get a better understanding of the concepts and features of AGiXT.
 
-## Other Repositorities
+## Other Repositories
 
 Check out the other AGiXT repositories at https://github.com/orgs/AGiXT/repositories - these include the AGiXT NextJS Web UI, AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
 
