@@ -1,13 +1,13 @@
 agixtsdk==0.0.28
 safeexecute==0.0.6
-g4f==0.1.6.8
+g4f==0.1.7.2
 local-llm==0.0.15
 google-generativeai==0.2.1
 discord==2.3.2
 anthropic==0.4.1
 arxiv==1.4.8
 PyGithub==2.1.1
-hugchat==0.3.6
+hugchat==0.3.7
 bardapi==0.1.38
 whisper-cpp-pybind==0.1.2
 mysql-connector-python==8.1.0
