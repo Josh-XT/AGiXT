@@ -104,16 +104,19 @@ def get_chroma_client():
     chroma_settings = Settings(
         anonymized_telemetry=False,
     )
-    if chroma_host and chroma_port and chroma_api_key:
+    if chroma_host and chroma_port:
         # Use external Chroma server
         chroma_ssl = (
             False if os.environ.get("CHROMA_SSL", "false").lower() != "true" else True
         )
+        chroma_headers = (
+            {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
+        )
         return chromadb.HttpClient(
             host=chroma_host,
-            port=os.environ.get("CHROMA_PORT"),
+            port=chroma_port,
             ssl=chroma_ssl,
-            headers={"Authorization": f"Bearer {chroma_api_key}"},
+            headers=chroma_headers,
             settings=chroma_settings,
         )
     else:
