@@ -99,35 +99,38 @@ def query_results_to_records(results: "QueryResult"):
 
 def get_chroma_client():
     chroma_host = os.environ.get("CHROMA_HOST", None)
-    chroma_port = os.environ.get("CHROMA_PORT", None)
     chroma_settings = Settings(
         anonymized_telemetry=False,
     )
-    if chroma_host and chroma_port:
+    if chroma_host:
         # Use external Chroma server
-        chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
-        chroma_ssl = (
-            False if os.environ.get("CHROMA_SSL", "false").lower() != "true" else True
-        )
-        chroma_headers = (
-            {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
-        )
-        return chromadb.HttpClient(
-            host=chroma_host,
-            port=chroma_port,
-            ssl=chroma_ssl,
-            headers=chroma_headers,
-            settings=chroma_settings,
-        )
-    else:
-        # Persist to local memories folder
-        memories_dir = os.path.join(os.getcwd(), "memories")
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        return chromadb.PersistentClient(
-            path=memories_dir,
-            settings=chroma_settings,
-        )
+        try:
+            chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
+            chroma_headers = (
+                {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
+            )
+            return chromadb.HttpClient(
+                host=chroma_host,
+                port=os.environ.get("CHROMA_PORT", "8000"),
+                ssl=False
+                if os.environ.get("CHROMA_SSL", "false").lower() != "true"
+                else True,
+                headers=chroma_headers,
+                settings=chroma_settings,
+            )
+        except:
+            # If the external Chroma server is not available, use local memories folder
+            logging.warning(
+                f"Chroma server at {chroma_host} is not available. Using local memories folder."
+            )
+    # Persist to local memories folder
+    memories_dir = os.path.join(os.getcwd(), "memories")
+    if not os.path.exists(memories_dir):
+        os.makedirs(memories_dir)
+    return chromadb.PersistentClient(
+        path=memories_dir,
+        settings=chroma_settings,
+    )
 
 
 class Memories:
