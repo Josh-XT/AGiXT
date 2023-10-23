@@ -107,7 +107,7 @@ def get_chroma_client():
     if chroma_host and chroma_port and chroma_api_key:
         # Use external Chroma server
         chroma_ssl = (
-            False if os.environ.get("CHROMA_SSL", False).lower() != "true" else True
+            False if os.environ.get("CHROMA_SSL", "false").lower() != "true" else True
         )
         return chromadb.HttpClient(
             host=chroma_host,
