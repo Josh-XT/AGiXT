@@ -100,12 +100,12 @@ def query_results_to_records(results: "QueryResult"):
 def get_chroma_client():
     chroma_host = os.environ.get("CHROMA_HOST", None)
     chroma_port = os.environ.get("CHROMA_PORT", None)
-    chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
     chroma_settings = Settings(
         anonymized_telemetry=False,
     )
     if chroma_host and chroma_port:
         # Use external Chroma server
+        chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
         chroma_ssl = (
             False if os.environ.get("CHROMA_SSL", "false").lower() != "true" else True
         )
