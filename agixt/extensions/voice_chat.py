@@ -172,13 +172,6 @@ class voice_chat(Extensions):
             command_name=self.tts_command,
             command_args={"text": text_response},
         )
-        log_interaction(
-            agent_name=self.agent_name,
-            conversation_name=self.conversation_name,
-            role=self.agent_name,
-            message=audio_response,
-            user="USER",
-        )
         logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
         os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
         return f"{audio_response}"

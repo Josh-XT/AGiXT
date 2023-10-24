@@ -1,0 +1,4 @@
+Content:
+{text}
+
+**Task: Summarize the content in as little text as possible without losing any context. Do not summarize anything inside of code blocks, return fully populated code blocks if they exist.**

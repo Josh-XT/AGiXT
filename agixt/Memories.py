@@ -97,6 +97,42 @@ def query_results_to_records(results: "QueryResult"):
     return memory_records
 
 
+def get_chroma_client():
+    chroma_host = os.environ.get("CHROMA_HOST", None)
+    chroma_settings = Settings(
+        anonymized_telemetry=False,
+    )
+    if chroma_host:
+        # Use external Chroma server
+        try:
+            chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
+            chroma_headers = (
+                {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
+            )
+            return chromadb.HttpClient(
+                host=chroma_host,
+                port=os.environ.get("CHROMA_PORT", "8000"),
+                ssl=False
+                if os.environ.get("CHROMA_SSL", "false").lower() != "true"
+                else True,
+                headers=chroma_headers,
+                settings=chroma_settings,
+            )
+        except:
+            # If the external Chroma server is not available, use local memories folder
+            logging.warning(
+                f"Chroma server at {chroma_host} is not available. Using local memories folder."
+            )
+    # Persist to local memories folder
+    memories_dir = os.path.join(os.getcwd(), "memories")
+    if not os.path.exists(memories_dir):
+        os.makedirs(memories_dir)
+    return chromadb.PersistentClient(
+        path=memories_dir,
+        settings=chroma_settings,
+    )
+
+
 class Memories:
     def __init__(
         self,
@@ -104,6 +140,7 @@ class Memories:
         agent_config=None,
         collection_number: int = 0,
         ApiClient=None,
+        summarize_content: bool = False,
     ):
         self.agent_name = agent_name
         self.collection_name = camel_to_snake(agent_name)
@@ -120,18 +157,12 @@ class Memories:
             if "settings" in self.agent_config
             else {"embedder": "default"}
         )
-        memories_dir = os.path.join(os.getcwd(), "memories")
-        if not os.path.exists(memories_dir):
-            os.makedirs(memories_dir)
-        self.chroma_client = chromadb.PersistentClient(
-            path=memories_dir,
-            settings=Settings(
-                anonymized_telemetry=False,
-            ),
-        )
+        self.chroma_client = get_chroma_client()
+        self.ApiClient = ApiClient
         self.embed = Embedding(agent_settings=self.agent_settings)
         self.chunk_size = self.embed.chunk_size
         self.embedder = self.embed.embedder
+        self.summarize_content = summarize_content
 
     async def wipe_memory(self):
         try:
@@ -229,6 +260,24 @@ class Memories:
         except:
             return False
 
+    async def summarize_text(self, text: str) -> str:
+        # Chunk size is 1/2 the max tokens of the agent
+        try:
+            chunk_size = int(self.agent_config["settings"]["MAX_TOKENS"]) / 2
+        except:
+            chunk_size = 2000
+        chunks = await self.chunk_content(text=text, chunk_size=chunk_size)
+        summary = ""
+        for chunk in chunks:
+            # Prompt the agent asking to summarize the information in the chunk.
+            response = await self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Summarize Content",
+                prompt_args={"text": chunk},
+            )
+            summary += response
+        return summary
+
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
@@ -236,7 +285,9 @@ class Memories:
         if text:
             if not isinstance(text, str):
                 text = str(text)
-            chunks = await self.chunk_content(content=text, chunk_size=self.chunk_size)
+            if self.summarize_content:
+                text = await self.summarize_text(text=text)
+            chunks = await self.chunk_content(text=text, chunk_size=self.chunk_size)
             for chunk in chunks:
                 metadata = {
                     "timestamp": datetime.now().isoformat(),
@@ -334,8 +385,8 @@ class Memories:
         score = sum(chunk_counter[keyword] for keyword in keywords)
         return score
 
-    async def chunk_content(self, content: str, chunk_size: int) -> List[str]:
-        doc = nlp(content)
+    async def chunk_content(self, text: str, chunk_size: int) -> List[str]:
+        doc = nlp(text)
         sentences = list(doc.sents)
         content_chunks = []
         chunk = []
