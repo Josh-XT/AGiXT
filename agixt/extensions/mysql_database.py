@@ -162,65 +162,16 @@ class mysql_database(Extensions):
             user=self.MYSQL_DATABASE_USERNAME,
             password=self.MYSQL_DATABASE_PASSWORD,
         )
-        cursor = connection.cursor(dictionary=True)
-
-        # List of MySQL default tables to exclude
-        sys_tables = [
-            "information_schema",
-            "performance_schema",
-            "mysql",
-            "sys",
-        ]
-
-        # Getting relationships
-        cursor.execute(
-            f"""
-            SELECT constraint_name, update_rule, delete_rule, table_name, referenced_table_name 
-            FROM information_schema.referential_constraints 
-            WHERE constraint_schema = '{self.MYSQL_DATABASE_NAME}' AND
-            referenced_table_name NOT IN ({','.join(["%s"]*len(sys_tables))})
-        """,
-            tuple(sys_tables),
-        )
-        relations = cursor.fetchall()
-
-        # Doing the same for tables...
-        cursor.execute(
-            f"""
-            SELECT table_name FROM information_schema.tables 
-            WHERE table_schema = '{self.MYSQL_DATABASE_NAME}' AND
-            table_name NOT IN ({','.join(["%s"]*len(sys_tables))})
-        """,
-            tuple(sys_tables),
-        )
+        cursor = connection.cursor()
+        cursor.execute("SHOW TABLES")
         tables = cursor.fetchall()
-        schema_sql = []
-        relations_sql = []
-
+        schema = ""
         for table in tables:
-            table_name = table["TABLE_NAME"]
-            cursor.execute(f"SHOW CREATE TABLE {table_name}")
-            create_table_sql = cursor.fetchone()["Create Table"]
-            schema_sql.append(create_table_sql)
-
-            # Adding comments about relationships if any
-            for key in relations:
-                if key.startswith(table_name + "_"):
-                    relations_sql.append(
-                        f"-- {table_name}.{key.split('_')[1]} can be joined with {relations[key]}"
-                    )
-
-        connection.close()
-        joined_schema_sql = "\n\n".join(schema_sql + relations_sql)
-        joined_schema_sql = re.sub(r"\/\*!\d{5}.*COMMENT=", "-- ", joined_schema_sql)
-        joined_schema_sql = re.sub(r"\/\*.*", "", joined_schema_sql)
-        joined_schema_sql = re.sub(r"\).*COMMENT=", ") -- ", joined_schema_sql)
-        joined_schema_sql = (
-            joined_schema_sql.replace(" COLLATE utf8mb3_bin", "")
-            .replace(" CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci", "")
-            .replace(" CHARACTER SET ascii COLLATE ascii_general_ci", "")
-            .replace(" CHARACTER SET utf8mb3 ", "")
-            .replace(" int unsigned ", " int ")
-            .replace(" NOT NULL", "")
-        )
-        return joined_schema_sql
+            cursor.execute(f"SHOW COLUMNS FROM {table[0]}")
+            columns = cursor.fetchall()
+            new_columns = ""
+            for column in columns:
+                new_columns += f"`{column[0]}` {column[1].decode('utf-8')}, "
+            new_columns = new_columns[:-2]
+            schema += f"CREATE TABLE {table[0]} ({new_columns});\n"
+        return schema
