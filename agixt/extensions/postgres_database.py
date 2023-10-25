@@ -91,9 +91,9 @@ class postgres_database(Extensions):
             # Reformat the query if it is invalid.
             new_query = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                prompt_name="Validate SQL",
+                prompt_name="Validate PostgreSQL",
                 prompt_args={
-                    "database_type": "Postgres",
+                    "database_type": "PostgreSQL",
                     "schema": await self.get_schema(),
                     "query": query,
                 },

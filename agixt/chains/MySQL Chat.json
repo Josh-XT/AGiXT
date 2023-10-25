@@ -14,7 +14,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "MySQLQuery",
+                "prompt_name": "SQLQuery",
                 "prompt_category": "Default",
                 "table_metadata_string": "{STEP1}",
                 "database_type": "MySQL",
