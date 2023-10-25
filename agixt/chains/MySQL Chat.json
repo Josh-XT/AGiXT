@@ -14,7 +14,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SQLQuery",
+                "prompt_name": "MySQLQuery",
                 "prompt_category": "Default",
                 "table_metadata_string": "{STEP1}",
                 "database_type": "MySQL",
@@ -35,6 +35,16 @@
             "prompt": {
                 "command_name": "Custom SQL Query in MySQL Database",
                 "query": "{STEP2}"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Make CSV Code Block",
+                "data": "{STEP3}",
+                "conversation": "AGiXT Terminal"
             }
         }
     ]
