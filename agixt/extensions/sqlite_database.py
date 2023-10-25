@@ -1,128 +1,106 @@
+try:
+    import sqlite3
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "sqlite3"])
+    import sqlite3
+
 import logging
-import sqlite3
 from Extensions import Extensions
 
 
 class sqlite_database(Extensions):
-    def __init__(self, SQLITE_DATABASE_PATH: str = "", **kwargs):
+    def __init__(
+        self,
+        SQLITE_DATABASE_PATH: str = "",
+        **kwargs,
+    ):
+        self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.SQLITE_DATABASE_PATH = SQLITE_DATABASE_PATH
-
         self.commands = {
-            "Create Table in SQLite Database": self.create_table,
-            "Insert Row in SQLite Database": self.insert_row,
-            "Select Rows in SQLite Database": self.select_rows,
-            "Update Rows in SQLite Database": self.update_rows,
-            "Delete Rows in SQLite Database": self.delete_rows,
             "Custom SQL Query in SQLite Database": self.execute_sql,
             "Get Database Schema from SQLite Database": self.get_schema,
         }
 
-    async def create_table(self, table_name: str, columns: str):
-        logging.info("Creating table '{}'".format(table_name))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("CREATE TABLE {} ({});".format(table_name, columns))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return "Table '{}' created".format(table_name)
-
-    async def insert_row(self, table_name: str, values: str):
-        logging.info("Inserting row into table '{}'".format(table_name))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO {} VALUES ({});".format(table_name, values))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return "Row inserted into table '{}'".format(table_name)
-
-    async def select_rows(self, table_name: str, columns: str, where: str):
-        logging.info("Selecting rows from table '{}'".format(table_name))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT {} FROM {} WHERE {};".format(columns, table_name, where))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return rows
-
-    async def update_rows(self, table_name: str, set_clause: str, where: str):
-        logging.info("Updating rows in table '{}'".format(table_name))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE {} SET {} WHERE {};".format(table_name, set_clause, where)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return "Rows updated in table '{}'".format(table_name)
-
-    async def delete_rows(self, table_name: str, where: str):
-        logging.info("Deleting rows from table '{}'".format(table_name))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM {} WHERE {};".format(table_name, where))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return "Rows deleted from table '{}'".format(table_name)
+    def get_connection(self):
+        try:
+            connection = sqlite3.connect(self.SQLITE_DATABASE_PATH)
+            return connection
+        except Exception as e:
+            logging.error(f"Error connecting to SQLite Database. Error: {str(e)}")
+            return None
 
     async def execute_sql(self, query: str):
-        logging.info("Executing SQL Query: {}".format(query))
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return rows
+        if "```sql" in query:
+            query = query.split("```sql")[1].split("```")[0]
+        query = query.replace("\n", " ")
+        query = query.strip()
+        logging.info(f"Executing SQL Query: {query}")
+        connection = self.get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            cursor.close()
+            connection.close()
+            rows_string = ""
+            # If there is only 1 row and 1 column, return the value as a string
+            if len(rows) == 1 and len(rows[0]) == 1:
+                return str(rows[0][0])
+            # If there is more than 1 column and at least 1 row, return it as a CSV format
+            if len(rows) >= 1 and len(rows[0]) > 1:
+                # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
+                column_headings = [description[0] for description in cursor.description]
+                rows_string += ",".join(column_headings) + "\n"
+                for row in rows:
+                    row_string = []
+                    for value in row:
+                        row_string.append(f'"{value}"')
+                    rows_string += ",".join(row_string) + "\n"
+                return rows_string
+            # If there is only 1 column and more than 1 row, return it as a CSV format
+            if len(rows) > 1 and len(rows[0]) == 1:
+                for row in rows:
+                    rows_string += f'"{row[0]}"\n'
+                return rows_string
+            return rows_string
+        except Exception as e:
+            logging.error(f"Error executing SQL Query: {str(e)}")
+            new_query = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Validate SQL",
+                prompt_args={
+                    "database_type": "SQLite",
+                    "schema": await self.get_schema(),
+                    "query": query,
+                },
+            )
+            return await self.execute_sql(query=new_query)
 
     async def get_schema(self):
-        logging.info(f"Getting schema for database '{self.SQLITE_DATABASE_NAME}'")
-        connection = sqlite3.connect(self.SQLITE_DATABASE_PATH)
+        logging.info(f"Getting schema for database '{self.SQLITE_DATABASE_PATH}'")
+        connection = self.get_connection()
         cursor = connection.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = cursor.fetchall()
         sql_export = []
-        key_relations = []
         for table in tables:
             table_name = table[0]
-            cursor.execute(f"PRAGMA foreign_key_list({table_name});")
-            relations = cursor.fetchall()
-            if relations:
-                for relation in relations:
-                    key_relations.append(
-                        f"-- {table_name}.{relation[3]} can be joined with "
-                        f"{relation[2]}.{relation[4]}"
-                    )
-
             cursor.execute(f"PRAGMA table_info({table_name});")
             rows = cursor.fetchall()
 
-            table_columns = []
-            for row in rows:
-                column_details = {
-                    "column_name": row[1],
-                    "data_type": row[2],
-                    "column_default": row[4],
-                    "is_nullable": "YES" if row[3] == 0 else "NO",
-                }
-                table_columns.append(column_details)
-
             create_table_sql = f"CREATE TABLE {table_name} ("
-            for column in table_columns:
-                column_sql = f"{column['column_name']} {column['data_type']}"
-                if column["column_default"]:
-                    column_sql += f" DEFAULT {column['column_default']}"
-                if column["is_nullable"] == "NO":
+            for row in rows:
+                column_sql = f"{row[1]} {row[2]}"
+                if row[4]:
+                    column_sql += f" DEFAULT {row[4]}"
+                if row[3] == 1:
                     column_sql += " NOT NULL"
                 create_table_sql += f"{column_sql}, "
             create_table_sql = create_table_sql.rstrip(", ") + ");"
             sql_export.append(create_table_sql)
         connection.close()
-        return "\n\n".join(sql_export + key_relations)
-
-    def _get_connection(self):
-        return sqlite3.connect(self.SQLITE_DATABASE_PATH)
+        return "\n\n".join(sql_export)
