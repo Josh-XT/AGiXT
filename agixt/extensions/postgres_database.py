@@ -24,21 +24,17 @@ class postgres_database(Extensions):
         POSTGRES_DATABASE_PASSWORD: str = "",
         **kwargs,
     ):
-        if "agent_name" in kwargs:
-            self.agent_name = kwargs["agent_name"]
-        else:
-            self.agent_name = "gpt4free"
+        self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.POSTGRES_DATABASE_NAME = POSTGRES_DATABASE_NAME
         self.POSTGRES_DATABASE_HOST = POSTGRES_DATABASE_HOST
         self.POSTGRES_DATABASE_PORT = POSTGRES_DATABASE_PORT
         self.POSTGRES_DATABASE_USERNAME = POSTGRES_DATABASE_USERNAME
         self.POSTGRES_DATABASE_PASSWORD = POSTGRES_DATABASE_PASSWORD
-
         self.commands = {
             "Custom SQL Query in Postgres Database": self.execute_sql,
             "Get Database Schema from Postgres Database": self.get_schema,
         }
-        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
 
     def get_connection(self):
         try:

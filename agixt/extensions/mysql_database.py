@@ -13,6 +13,8 @@ class mysql_database(Extensions):
         MYSQL_DATABASE_PASSWORD: str = "",
         **kwargs,
     ):
+        self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.MYSQL_DATABASE_NAME = MYSQL_DATABASE_NAME
         self.MYSQL_DATABASE_HOST = MYSQL_DATABASE_HOST
         self.MYSQL_DATABASE_PORT = MYSQL_DATABASE_PORT
