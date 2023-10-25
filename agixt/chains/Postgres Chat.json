@@ -15,10 +15,10 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "SQLQuery",
+                "prompt_name": "PostgreSQLQuery",
                 "prompt_category": "Default",
                 "table_metadata_string": "{STEP1}",
-                "database_type": "Postgres",
+                "database_type": "PostgreSQL",
                 "shots": 1,
                 "context_results": 0,
                 "browse_links": false,
