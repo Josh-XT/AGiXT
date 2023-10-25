@@ -12,4 +12,3 @@ bardapi==0.1.38
 whisper-cpp-pybind==0.1.2
 mysql-connector-python==8.1.0
 pydub==0.25.1
-pyodbc==5.0.1
