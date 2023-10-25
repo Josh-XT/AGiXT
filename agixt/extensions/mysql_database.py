@@ -171,7 +171,11 @@ class mysql_database(Extensions):
             columns = cursor.fetchall()
             new_columns = ""
             for column in columns:
-                new_columns += f"`{column[0]}` {column[1].decode('utf-8')}, "
+                try:
+                    column_type = column[1].decode("utf-8")
+                except:
+                    column_type = column[1]
+                new_columns += f"`{column[0]}` {column_type}, "
             new_columns = new_columns[:-2]
             schema += f"CREATE TABLE {table[0]} ({new_columns});\n"
         return schema
