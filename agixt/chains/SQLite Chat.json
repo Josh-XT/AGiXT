@@ -6,7 +6,8 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Get Database Schema from SQLite Database"
+                "command_name": "Get Database Schema from SQLite Database",
+                "conversation": "AGiXT Terminal"
             }
         },
         {
@@ -25,7 +26,8 @@
                 "websearch_depth": 0,
                 "disable_memory": true,
                 "inject_memories_from_collection_number": 0,
-                "conversation_results": 0
+                "conversation_results": 0,
+                "conversation": "AGiXT Terminal"
             }
         },
         {
@@ -34,7 +36,8 @@
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Custom SQL Query in SQLite Database",
-                "query": "{STEP2}"
+                "query": "{STEP2}",
+                "conversation": "AGiXT Terminal"
             }
         },
         {
