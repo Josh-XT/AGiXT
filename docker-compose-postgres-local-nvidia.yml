@@ -45,7 +45,7 @@ services:
     depends_on:
       - agixt
     environment:
-      - NEXT_PUBLIC_API_URL=${AGIXT_URI:-http://agixt:7437}
+      - NEXT_PUBLIC_API_URI=${NEXT_PUBLIC_API_URI:-http://localhost:7437}
       - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
     ports:
       - "24498:24498"
