@@ -49,4 +49,4 @@ services:
       - "24498:24498"
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
-      - ./.env:/.env
+      - ./.env:/app/.env
