@@ -44,10 +44,9 @@ services:
     depends_on:
       - agixt
     environment:
-      - NEXT_PUBLIC_API_URI=${NEXT_PUBLIC_API_URI:-http://localhost:7437}
-      - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
       - TZ=${TZ-America/New_York}
     ports:
       - "24498:24498"
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
+      - ./.env:/.env
