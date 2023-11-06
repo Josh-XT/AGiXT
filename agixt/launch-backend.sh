@@ -1,7 +1,7 @@
 #!/bin/sh
 if [ "$DB_CONNECTED" = "true" ]; then
-  python3 DBConnection.py
-  sleep 5
+    echo "Connecting to database..."
+    python3 DBConnection.py
 fi
 echo "Starting AGiXT..."
 workers="${UVICORN_WORKERS:-10}"
