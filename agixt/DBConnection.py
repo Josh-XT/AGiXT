@@ -282,6 +282,7 @@ class Prompt(Base):
 
 
 if __name__ == "__main__":
+    print("DB_CONNECTED:", DB_CONNECTED)
     if DB_CONNECTED:
         logging.info("Connecting to database...")
         time.sleep(10)
