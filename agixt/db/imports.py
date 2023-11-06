@@ -19,6 +19,7 @@ from DBConnection import (
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
+from fb.Agent import Agent as FB_Agent
 
 
 def import_agents(user="USER"):
@@ -39,11 +40,25 @@ def import_agents(user="USER"):
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
-            agent = Agent(name=agent_name, user_id=user_id)
+            # Get the agent settings
+            agent_config = FB_Agent(agent_name).get_agent_config()
+            provider_name = agent_config.get("provider", "gpt4free")
+            provider = (
+                session.query(Provider).filter_by(name=provider_name).one_or_none()
+            )
+            if not provider:
+                print(f"Provider '{provider_name}' not found.")
+                continue
+            agent = Agent(
+                name=agent_name,
+                user_id=user_id,
+                provider_id=provider.id,
+            )
             session.add(agent)
             session.flush()  # Save the agent object to generate an ID
             existing_agent_names.append(agent_name)
             print(f"Adding agent: {agent_name}")
+            session.commit()
         import_agent_config(agent_name)
     session.commit()
 
