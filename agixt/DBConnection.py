@@ -81,7 +81,7 @@ class ProviderSetting(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
     name = Column(Text, nullable=False)
-    value = Column(Text)
+    value = Column(Text, nullable=True)
 
 
 class AgentProviderSetting(Base):
