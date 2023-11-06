@@ -16,10 +16,9 @@ DISABLED_PROVIDERS = os.getenv("DISABLED_PROVIDERS", "").replace(" ", "").split(
 def get_providers():
     providers = []
     for provider in glob.glob("providers/*.py"):
-        if provider in DISABLED_PROVIDERS:
-            continue
-        if "__init__.py" not in provider:
-            providers.append(os.path.splitext(os.path.basename(provider))[0])
+        provider_name = os.path.splitext(os.path.basename(provider))[0]
+        if provider_name not in DISABLED_PROVIDERS and "__init__.py" not in provider:
+            providers.append(provider_name)
     return providers
 
 
