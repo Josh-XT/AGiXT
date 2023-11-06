@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 if [ "$DB_CONNECTED" = "true" ]; then
     echo "Connecting to database..."
     python3 DBConnection.py
