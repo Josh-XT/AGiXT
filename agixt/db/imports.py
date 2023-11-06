@@ -40,9 +40,15 @@ def import_agents(user="USER"):
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
-            # Get the agent settings
-            agent_config = FB_Agent(agent_name).get_agent_config()
-            provider_name = agent_config.get("provider", "gpt4free")
+            # Get the agent config from agents/agent_name/config.json
+            agent_config_file = os.path.join(agent_folder, agent_name, "config.json")
+            if not os.path.exists(agent_config_file):
+                print(f"Agent '{agent_name}' config not found.")
+                continue
+            with open(agent_config_file, "r") as f:
+                agent_config = json.load(f)
+            agent_settings = agent_config.get("settings", {"provider": "gpt4free"})
+            provider_name = agent_settings["provider"]
             provider = (
                 session.query(Provider).filter_by(name=provider_name).one_or_none()
             )
