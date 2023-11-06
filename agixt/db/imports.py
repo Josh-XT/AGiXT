@@ -39,7 +39,7 @@ def import_agents(user="USER"):
         if agent:
             print(f"Updating agent: {agent_name}")
         else:
-            agent = Agent(name=agent_name)
+            agent = Agent(name=agent_name, user_id=user_id)
             session.add(agent)
             session.flush()  # Save the agent object to generate an ID
             existing_agent_names.append(agent_name)
@@ -417,10 +417,10 @@ def import_all_data():
         session.commit()
         logging.info("Default user created.")
         logging.info("Importing data...")
-        import_providers()
-        import_agents()
-        import_extensions()
-        import_prompts()
-        import_chains()
-        import_conversations()
+        import_providers()  # Works
+        import_extensions()  # Works
+        import_prompts()  # Works
+        import_agents()  # Does not work
+        import_chains()  # Partially works, chains
+        import_conversations()  # Does not work
         logging.info("Import complete.")
