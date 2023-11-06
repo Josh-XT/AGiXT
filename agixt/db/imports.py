@@ -364,7 +364,6 @@ def import_providers():
     providers = get_providers()
     existing_providers = session.query(Provider).all()
     existing_provider_names = [provider.name for provider in existing_providers]
-
     for provider in existing_providers:
         if provider.name not in providers:
             session.delete(provider)
@@ -381,6 +380,7 @@ def import_providers():
             session.add(provider)
             existing_provider_names.append(provider_name)
             print(f"Adding provider: {provider_name}")
+            session.commit()
 
         for option_name, option_value in provider_options.items():
             provider_setting = (
@@ -417,10 +417,10 @@ def import_all_data():
         session.commit()
         logging.info("Default user created.")
         logging.info("Importing data...")
+        import_providers()
         import_agents()
         import_extensions()
         import_prompts()
         import_chains()
         import_conversations()
-        import_providers()
         logging.info("Import complete.")
