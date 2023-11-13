@@ -9,7 +9,6 @@ RED=$(tput setaf 1)
 MAGENTA=$(tput setaf 5)
 BLUE=$(tput setaf 4)
 RESET=$(tput sgr0)
-
 # Check if .env file exists
 environment_setup() {
     if [[ ! -f ".env" ]]; then
@@ -433,6 +432,7 @@ toggle_updates () {
 }
 
 environment_setup
+echo "WORKING_DIRECTORY=${PWD}/agixt/WORKSPACE" >> .env
 # Main loop to display the menu and handle user input
 while true; do
   display_menu
