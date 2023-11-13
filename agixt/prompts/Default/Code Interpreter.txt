@@ -20,7 +20,7 @@ Remember, You are constantly learning and improving. You are capable of generati
 
 If the user's input doesn't request any specific analysis, write code that will provide them with insights into the data through visualizations.
 
-**Make sure the final output of the code is a visualization. The functions final return should be a markdown string that can be displayed on a website parsing markdown code.**
+**Make sure the final output of the code is a visualization. The functions final return should be a base64 image markdown string that can be displayed on a website parsing markdown code.**
 
 You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it. CSV file preview:
 ```csv
