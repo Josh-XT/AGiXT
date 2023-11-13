@@ -36,7 +36,7 @@ def execute_python_code(code: str, working_directory: str = None) -> str:
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-    temp_file = os.path.join(working_directory, "temp.py")
+    temp_file = os.path.join(os.getcwd(), "WORKSPACE", "temp.py")
     with open(temp_file, "w") as f:
         f.write(code)
     logging.info(f"Contents of working directory: {os.listdir(working_directory)}")
