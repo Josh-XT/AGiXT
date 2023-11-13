@@ -12,12 +12,12 @@ class LocalLLMEmbedder(EmbeddingFunction):
     ):
         self.model_name = model_name
 
-    def __call__(self, texts: Documents) -> Embeddings:
+    def __call__(self, input: Documents) -> Embeddings:
         embeddings = LLM(
             models_dir="./models",
             model=self.model_name,
         ).embedding(
-            texts
+            input
         )["data"]
         sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
         return [result["embedding"] for result in sorted_embeddings]
