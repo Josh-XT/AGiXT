@@ -39,7 +39,7 @@
             "prompt": {
                 "command_name": "Execute Python Code",
                 "code": "{STEP2}",
-                "csv_content": "{STEP1}",
+                "csv_content": "{text}",
                 "conversation": "AGiXT Terminal"
             }
         }
