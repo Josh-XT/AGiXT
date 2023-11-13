@@ -17,6 +17,7 @@ services:
       - DB_CONNECTED=false
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
+      - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
     ports:
       - "7437:7437"
