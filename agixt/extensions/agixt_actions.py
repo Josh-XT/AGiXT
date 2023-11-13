@@ -79,6 +79,8 @@ class agixt_actions(Extensions):
             "Read non-image file content into long term memory": self.read_file_content,
             "Get Local Model List": self.models,
             "Make CSV Code Block": self.make_csv_code_block,
+            "Get CSV Preview": self.get_csv_preview,
+            "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
         }
 
@@ -520,6 +522,18 @@ class agixt_actions(Extensions):
 
     async def make_csv_code_block(self, data: str) -> str:
         return f"```csv\n{data}\n```"
+
+    async def get_csv_preview(self, filename: str):
+        # Get first 2 lines of the file
+        filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+        with open(filepath, "r") as f:
+            lines = f.readlines()
+        lines = lines[:2]
+        return lines
+
+    async def get_csv_preview_text(self, text: str):
+        # Get first 2 lines of the text
+        return text[:2]
 
     async def get_csv_from_response(self, response: str) -> str:
         return response.split("```csv")[1].split("```")[0]

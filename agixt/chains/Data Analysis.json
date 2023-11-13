@@ -17,7 +17,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Get Postgres Data Preview",
+                "command_name": "Get CSV Preview Text",
                 "text": "{text}",
                 "conversation": "AGiXT Terminal"
             }
