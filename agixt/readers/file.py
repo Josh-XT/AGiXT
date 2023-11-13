@@ -67,13 +67,10 @@ class FileReader(Memories):
             elif file_path.endswith(
                 (".mp3", ".wav", ".ogg", ".m4a", ".flac", ".wma", ".aac")
             ):
-                with open(file_path, "rb") as f:
-                    audio_data = f.read()
-                base64_audio = audio_data.encode("base64")
                 content = self.ApiClient.execute_command(
                     agent_name=self.agent_name,
-                    command_name="Transcribe Base64 Audio",
-                    command_args={"base64_audio": base64_audio},
+                    command_name="Transcribe Audio from File",
+                    command_args={"filename": file_path},
                 )
             # Otherwise just read the file
             else:
