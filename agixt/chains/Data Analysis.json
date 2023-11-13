@@ -6,8 +6,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Write to File",
-                "filename": "data.csv",
+                "command_name": "Get CSV Preview Text",
                 "text": "{text}",
                 "conversation": "AGiXT Terminal"
             }
@@ -15,23 +14,13 @@
         {
             "step": 2,
             "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Get CSV Preview Text",
-                "text": "{text}",
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        {
-            "step": 3,
-            "agent_name": "SQLExpert",
             "prompt_type": "Prompt",
             "prompt": {
                 "user_input": "{user_input}",
                 "prompt_name": "Code Interpreter",
                 "prompt_category": "Default",
                 "import_file": "./data.csv",
-                "file_preview": "{STEP2}",
+                "file_preview": "{STEP1}",
                 "shots": 1,
                 "context_results": 0,
                 "browse_links": false,
@@ -44,12 +33,13 @@
             }
         },
         {
-            "step": 4,
+            "step": 3,
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Execute Python Code",
-                "code": "{STEP3}",
+                "code": "{STEP2}",
+                "csv_content": "{STEP1}",
                 "conversation": "AGiXT Terminal"
             }
         }

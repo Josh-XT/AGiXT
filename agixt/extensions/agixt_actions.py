@@ -588,8 +588,22 @@ class agixt_actions(Extensions):
             response = response.split("```python")[1].split("```")[0]
         return response
 
-    async def execute_python_code_internal(self, code: str) -> str:
+    async def execute_python_code_internal(
+        self, code: str, csv_content: str = ""
+    ) -> str:
         working_dir = os.environ.get("WORKING_DIRECTORY", self.WORKING_DIRECTORY)
+        if csv_content:
+            csv_content_header = csv_content.split("\n")[0]
+            # Remove any trailing spaces from any headers
+            csv_headers = [header.strip() for header in csv_content_header.split(",")]
+            # Replace the first line with the headers
+            csv_content = (
+                "\n".join(csv_headers) + "\n" + "\n".join(csv_content.split("\n")[1:])
+            )
+            filename = "data.csv"
+            filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+            with open(filepath, "w") as f:
+                f.write(csv_content)
         return execute_python_code(code=code, working_directory=working_dir)
 
     async def get_mindmap(self, task: str):
