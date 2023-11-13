@@ -12,12 +12,12 @@ class LocalLLMEmbedder(EmbeddingFunction):
     ):
         self.model_name = model_name
 
-    def __call__(self, input: Documents) -> Embeddings:
+    def __call__(self, texts: Documents) -> Embeddings:
         embeddings = LLM(
             models_dir="./models",
             model=self.model_name,
         ).embedding(
-            input
+            texts
         )["data"]
         sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
         return [result["embedding"] for result in sorted_embeddings]
@@ -135,7 +135,7 @@ class Embedding:
         return embedder_settings
 
     def embed_text(self, text) -> np.ndarray:
-        embedding = self.embedder.__call__(input=[text])[0]
+        embedding = self.embedder.__call__(texts=[text])[0]
         return embedding
 
 
