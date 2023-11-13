@@ -53,7 +53,9 @@ class sqlite_database(Extensions):
             # If there is more than 1 column and at least 1 row, return it as a CSV format
             if len(rows) >= 1 and len(rows[0]) > 1:
                 # If there is more than 1 column and at least 1 row, return it as a CSV format, build column heading, and make sure each row value is quoted
-                column_headings = [description[0] for description in cursor.description]
+                column_headings = []
+                for column in cursor.description:
+                    column_headings.append(f'"{column[0]}"')
                 rows_string += ",".join(column_headings) + "\n"
                 for row in rows:
                     row_string = []
