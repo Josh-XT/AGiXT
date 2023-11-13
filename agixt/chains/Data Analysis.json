@@ -30,7 +30,7 @@
                 "user_input": "{user_input}",
                 "prompt_name": "Code Interpreter",
                 "prompt_category": "Default",
-                "import_file": "data.csv",
+                "import_file": "/workspace/data.csv",
                 "file_preview": "{STEP2}",
                 "shots": 1,
                 "context_results": 0,
