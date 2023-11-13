@@ -135,7 +135,7 @@ class Embedding:
         return embedder_settings
 
     def embed_text(self, text) -> np.ndarray:
-        embedding = self.embedder.__call__(texts=[text])[0]
+        embedding = self.embedder.__call__(input=[text])[0]
         return embedding
 
 
