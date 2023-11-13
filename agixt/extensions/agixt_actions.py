@@ -533,7 +533,9 @@ class agixt_actions(Extensions):
 
     async def get_csv_preview_text(self, text: str):
         # Get first 2 lines of the text
-        return text[:2]
+        lines = text.split("\n")
+        lines = lines[:2]
+        return lines
 
     async def get_csv_from_response(self, response: str) -> str:
         return response.split("```csv")[1].split("```")[0]
