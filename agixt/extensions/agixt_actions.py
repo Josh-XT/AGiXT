@@ -28,7 +28,7 @@ def install_docker_image():
 def execute_python_code(code: str, working_directory: str = None) -> str:
     if working_directory is None:
         working_directory = os.path.join(os.getcwd(), "WORKSPACE")
-    print(f"Working directory: {working_directory}")
+    logging.info(f"Working directory: {working_directory}")
     if not os.path.exists(working_directory):
         os.makedirs(working_directory)
     # Check if there are any package requirements in the code to install
@@ -39,7 +39,7 @@ def execute_python_code(code: str, working_directory: str = None) -> str:
     temp_file = os.path.join(working_directory, "temp.py")
     with open(temp_file, "w") as f:
         f.write(code)
-    print(f"Contents of working directory: {os.listdir(working_directory)}")
+    logging.info(f"Contents of working directory: {os.listdir(working_directory)}")
     os.chmod(temp_file, 0o755)  # Set executable permissions
     try:
         client = install_docker_image()
@@ -65,6 +65,24 @@ def execute_python_code(code: str, working_directory: str = None) -> str:
                 except Exception as e:
                     logging.error(f"Error installing package '{package}': {str(e)}")
                     return f"Error: {str(e)}"
+        # Check directory contents in the container
+
+        dir_content = client.containers.run(
+            IMAGE_NAME,
+            "ls /workspace",
+            volumes={
+                os.path.abspath(working_directory): {
+                    "bind": "/workspace",
+                    "mode": "rw",
+                }
+            },
+            working_dir="/workspace",
+            stderr=True,
+            stdout=True,
+            detach=True,
+        )
+        workspace_content = dir_content.logs().decode("utf-8")
+        logging.info(f"Contents of working directory in container: {workspace_content}")
         # Run the Python code in the container
         container = client.containers.run(
             IMAGE_NAME,
