@@ -596,9 +596,9 @@ class agixt_actions(Extensions):
             csv_content_header = csv_content.split("\n")[0]
             # Remove any trailing spaces from any headers
             csv_headers = [header.strip() for header in csv_content_header.split(",")]
-            # Replace the first line with the headers
+            # Replace the first line with the comma separated headers
             csv_content = (
-                "\n".join(csv_headers) + "\n" + "\n".join(csv_content.split("\n")[1:])
+                ",".join(csv_headers) + "\n" + "\n".join(csv_content.split("\n")[1:])
             )
             filename = "data.csv"
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
