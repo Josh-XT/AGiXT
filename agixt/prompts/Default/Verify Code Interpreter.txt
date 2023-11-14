@@ -1,0 +1,22 @@
+The date today is {date} .
+
+You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it. CSV file preview:
+```csv
+{file_preview}
+```
+
+We built python code to build a visualization for the user's input.
+
+User's input: {user_input} 
+
+**Ensure the code does not modify the file system, if it does, remove the portion of the code that does.**
+
+**Make sure the final output of the code is a visualization. The functions final return should be a print of base64 image markdown string that can be displayed on a website parsing markdown code. Example `print('![Generated Image](data:image/png;base64,IMAGE_CONTENT)')`**
+
+**Confirm that the code follows the rules and CSV format. Return full updated code without placeholders that is confirmed.**
+
+```python
+{code}
+```
+
+```python
