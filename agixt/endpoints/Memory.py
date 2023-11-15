@@ -139,7 +139,10 @@ async def learn_file(
     file_path = os.path.normpath(os.path.join(base_path, file.file_name))
     if not file_path.startswith(base_path):
         raise Exception("Path given not allowed")
-    file_content = base64.b64decode(file.file_content)
+    try:
+        file_content = base64.b64decode(file.file_content)
+    except:
+        file_content = file.file_content
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
