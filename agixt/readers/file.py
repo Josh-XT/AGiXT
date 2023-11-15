@@ -77,7 +77,7 @@ class FileReader(Memories):
                 # TODO: Add a store_image function to use if it is an image
                 # If the file isn't an image extension file, just read it
                 if not file_path.endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
+                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp", ".gz")
                 ):
                     with open(file_path, "r") as f:
                         content = f.read()
