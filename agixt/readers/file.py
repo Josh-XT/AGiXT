@@ -5,6 +5,7 @@ import docx2txt
 import pdfplumber
 import zipfile
 import shutil
+import logging
 
 
 class FileReader(Memories):
@@ -58,9 +59,10 @@ class FileReader(Memories):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=os.path.join(base_path, "temp"))
                 # Iterate over every file that was extracted including subdirectories
-                for root, dirs, files in os.walk(os.getcwd()):
+                for root, dirs, files in os.walk(os.path.join(base_path, "temp")):
                     for name in files:
                         file_path = os.path.join(root, name)
+                        logging.info(f"Reading file: {file_path}")
                         await self.write_file_to_memory(file_path=file_path)
                 shutil.rmtree(os.path.join(base_path, "temp"))
             # If it is an audio file, convert it to base64 and read with Whisper STT
