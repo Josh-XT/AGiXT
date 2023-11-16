@@ -432,7 +432,9 @@ toggle_updates () {
 }
 
 environment_setup
-echo "WORKING_DIRECTORY=${PWD}/agixt/WORKSPACE" >> .env
+if [[ -z "${WORKING_DIRECTORY}" ]]; then
+  echo "WORKING_DIRECTORY=${PWD}/agixt/WORKSPACE" >> .env
+fi
 # Main loop to display the menu and handle user input
 while true; do
   display_menu
