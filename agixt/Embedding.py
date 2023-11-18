@@ -114,7 +114,11 @@ class Embedding:
                 "params": ["OPENAI_API_KEY", "API_URI"],
                 "embed": embedding_functions.OpenAIEmbeddingFunction(
                     api_key=self.agent_settings["OPENAI_API_KEY"],
-                    model_name="text-embedding-ada-002",
+                    model_name="text-embedding-ada-002"
+                    if api_base == "https://api.openai.com/v1"
+                    else self.agent_settings["AI_MODEL"]
+                    if "AI_MODEL" in self.agent_settings
+                    else "Mistral-7B-OpenOrca",
                     api_base=api_base,
                 )
                 if "OPENAI_API_KEY" in self.agent_settings
