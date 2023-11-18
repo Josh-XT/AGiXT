@@ -69,10 +69,9 @@ class OpenaiProvider:
                 max_tokens=max_new_tokens,
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stop=None,
                 stream=False,
             )
-            return response.choices[0].message.content.strip()
+            return response["messages"][-1]["content"]
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
             if "," in self.API_URI:
