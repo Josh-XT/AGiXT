@@ -18,7 +18,6 @@ class OpenaiProvider:
         OPENAI_API_KEY: str = "",
         AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
         API_URI: str = "https://api.openai.com/v1",
-        stream: str = "false",
         MAX_TOKENS: int = 16000,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
@@ -36,9 +35,6 @@ class OpenaiProvider:
         self.WAIT_BETWEEN_REQUESTS = (
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
-        if not stream:
-            self.stream = False
-        self.stream = True if str(stream).lower() == "true" else False
         self.OPENAI_API_KEY = OPENAI_API_KEY
         openai.api_base = self.API_URI
         openai.api_key = OPENAI_API_KEY
@@ -60,57 +56,23 @@ class OpenaiProvider:
                 return (
                     "Please go to the Agent Management page to set your OpenAI API key."
                 )
-        max_new_tokens = int(self.MAX_TOKENS) - tokens
+        max_new_tokens = int(self.MAX_TOKENS) - tokens - 100
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
-            if not self.AI_MODEL.startswith("gpt-"):
-                # Use completion API
-                response = openai.Completion.create(
-                    engine=self.AI_MODEL,
-                    prompt=prompt,
-                    temperature=float(self.AI_TEMPERATURE),
-                    max_tokens=max_new_tokens,
-                    top_p=float(self.AI_TOP_P),
-                    frequency_penalty=0,
-                    presence_penalty=0,
-                    stream=bool(self.stream),
-                )
-                if not self.stream:
-                    return response.choices[0].text.strip()
-                else:
-                    answer = []
-                    for event in response:
-                        event_text = event["choices"][0]["text"]
-                        if event_text:
-                            answer.append(event_text.get("text", ""))
-                        time.sleep(0.1)
-                    new_response = " ".join(answer)
-                    return new_response.strip()
-            else:
-                # Use chat completion API
-                messages = [{"role": "system", "content": prompt}]
-                response = openai.ChatCompletion.create(
-                    model=self.AI_MODEL,
-                    messages=messages,
-                    temperature=float(self.AI_TEMPERATURE),
-                    max_tokens=max_new_tokens,
-                    top_p=float(self.AI_TOP_P),
-                    n=1,
-                    stop=None,
-                    stream=bool(self.stream),
-                )
-                if not self.stream:
-                    return response.choices[0].message.content.strip()
-                else:
-                    answer = []
-                    for event in response:
-                        event_text = event["choices"][0]["delta"]
-                        if event_text:
-                            answer.append(event_text.get("content", ""))
-                        time.sleep(0.1)
-                    new_response = " ".join(answer)
-                    return new_response.strip()
+            # Use chat completion API
+            messages = [{"role": "system", "content": prompt}]
+            response = openai.ChatCompletion.create(
+                model=self.AI_MODEL,
+                messages=messages,
+                temperature=float(self.AI_TEMPERATURE),
+                max_tokens=max_new_tokens,
+                top_p=float(self.AI_TOP_P),
+                n=1,
+                stop=None,
+                stream=False,
+            )
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
             if "," in self.API_URI:
