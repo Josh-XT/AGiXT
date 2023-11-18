@@ -56,7 +56,10 @@ class OpenaiProvider:
 
     async def instruct(self, prompt, tokens: int = 0):
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
-            return "Please go to the Agent Management page to set your OpenAI API key."
+            if self.API_URI == "https://api.openai.com/v1":
+                return (
+                    "Please go to the Agent Management page to set your OpenAI API key."
+                )
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
