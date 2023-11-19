@@ -222,7 +222,7 @@ def delete_history(agent_name, conversation_name=None, user="USER"):
     print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
 
 
-def delete_message(agent_name, conversation_name, message_id, user="USER"):
+def delete_message(message, conversation_name=None, agent_name=None, user="USER"):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -239,7 +239,14 @@ def delete_message(agent_name, conversation_name, message_id, user="USER"):
     if not conversation:
         print(f"No conversation found for agent '{agent_name}'.")
         return
-
+    message_id = (
+        session.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.content == message,
+        )
+        .first()
+    )
     message = (
         session.query(Message)
         .filter(
