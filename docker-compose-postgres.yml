@@ -17,14 +17,13 @@ services:
       - db
     environment:
       - DB_CONNECTED=true
-      - USING_JWT=false
-      - DATABASE_TYPE=${DATABASE_TYPE:-postgresql}
       - DATABASE_HOST=${DATABASE_HOST:-db}
       - DATABASE_USER=${DATABASE_USER:-postgres}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
       - DATABASE_NAME=${DATABASE_NAME:-postgres}
       - DATABASE_PORT=${DATABASE_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
+      - USING_JWT=${USING_JWT:-false}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - DISABLED_EXTENSIONS=${DISABLED_EXTENSIONS:-}
       - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
