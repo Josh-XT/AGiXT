@@ -136,7 +136,6 @@ class AgentCommand(Base):
 class Conversation(Base):
     __tablename__ = "conversation"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     name = Column(Text, nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     user = relationship("User", backref="conversation")
