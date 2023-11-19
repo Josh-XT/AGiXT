@@ -321,6 +321,8 @@ def import_conversations(user="USER"):
     conversations = get_conversations(user=user)
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
+        print(f"Importing conversation: {conversation_name}")
+        print(conversation)
         for interaction in conversation:
             agent_name = interaction["role"]
             message = interaction["message"]
