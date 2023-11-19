@@ -3,59 +3,44 @@ services:
   db:
     image: postgres
     ports:
-      - ${POSTGRES_PORT:-5432}:5432
+      - ${DATABASE_PORT:-5432}:5432
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-postgres}
     volumes:
       - ./data:/var/lib/postgresql/data
   agixt:
-    image: joshxt/agixt:latest
+    image: joshxt/agixt:main
     init: true
     depends_on:
       - db
     environment:
       - DB_CONNECTED=true
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - USING_JWT=false
+      - DATABASE_TYPE=${DATABASE_TYPE:-postgresql}
+      - DATABASE_HOST=${DATABASE_HOST:-db}
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-postgres}
+      - DATABASE_PORT=${DATABASE_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
-      - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
+      - DISABLED_EXTENSIONS=${DISABLED_EXTENSIONS:-}
+      - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
       - TOKENIZERS_PARALLELISM=False
+      - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
     volumes:
       - ./models:/agixt/models
       - ./agixt/WORKSPACE:/agixt/WORKSPACE
-      - ./agixt/agents:/agixt/agents
-      - ./agixt/prompts:/agixt/prompts
-      - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
-      - ./agixt/conversations:/agixt/conversations
-      - ./.env:/.env
-  streamlit:
-    image: joshxt/streamlit:latest
-    depends_on:
-      - agixt
-    environment:
-      - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
-      - AGIXT_API_KEY=${AGIXT_API_KEY}
-    volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE
-    ports:
-      - "8501:8501"
   nextjs:
     image: joshxt/agixt-nextjs:latest
     depends_on:
       - agixt
     environment:
-      - NEXT_PUBLIC_API_URI=${NEXT_PUBLIC_API_URI:-http://localhost:7437}
-      - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
+      - TZ=${TZ-America/New_York}
     ports:
       - "24498:24498"
-    volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE
