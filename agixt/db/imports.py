@@ -19,7 +19,7 @@ from DBConnection import (
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import import_agent_config
-from fb.Agent import Agent as FB_Agent
+from fb.History import get_conversation, get_conversations
 
 
 def import_agents(user="USER"):
@@ -318,65 +318,34 @@ def import_conversations(user="USER"):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    agents_dir = "agents"  # Directory containing agent folders
-    for agent_name in os.listdir(agents_dir):
-        agent_dir = os.path.join(agents_dir, agent_name)
-        history_file = os.path.join(agent_dir, "history.yaml")
-
-        if not os.path.exists(history_file):
-            continue  # Skip agent if history file doesn't exist
-
-        # Get agent ID from the database based on agent name
-        agent = (
-            session.query(Agent)
-            .filter(Agent.name == agent_name, Agent.user_id == user_id)
-            .first()
-        )
-        if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
-            continue
-
-        # Load conversation history from the YAML file
-        with open(history_file, "r") as file:
-            history = yaml.safe_load(file)
-
-        # Check if the conversation already exists for the agent
-        existing_conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.agent_id == agent.id,
-                Conversation.name == f"{agent_name} History",
-                Conversation.user_id == user_id,
+    conversations = get_conversations(user=user)
+    for conversation_name in conversations:
+        conversation = get_conversation(conversation_name=conversation_name, user=user)
+        for interaction in conversation:
+            agent_name = interaction["role"]
+            message = interaction["message"]
+            timestamp = interaction["timestamp"]
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
-        if existing_conversation:
-            continue
-
-        # Create a new conversation
-        conversation = Conversation(
-            agent_id=agent.id, name=f"{agent_name} History", user_id=user_id
-        )
-        session.add(conversation)
-        session.commit()
-
-        for conversation_data in history["interactions"]:
-            # Create a new message for the conversation
-            try:
-                role = conversation_data["role"]
-                content = conversation_data["message"]
-                timestamp = conversation_data["timestamp"]
-            except KeyError:
-                continue
+            if not conversation:
+                # Create the conversation
+                conversation = Conversation(name=conversation_name, user_id=user_id)
+                session.add(conversation)
+                session.commit()
             message = Message(
-                role=role,
-                content=content,
+                role=agent_name,
+                content=message,
                 timestamp=timestamp,
                 conversation_id=conversation.id,
             )
             session.add(message)
             session.commit()
-
         print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
 
 
