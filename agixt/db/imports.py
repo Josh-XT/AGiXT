@@ -414,5 +414,5 @@ def import_all_data():
         import_prompts()  # Works
         import_agents()  # Does not work
         import_chains()  # Partially works, chains
-        import_conversations()  # Does not work
+        import_conversations()  # Works
         logging.info("Import complete.")
