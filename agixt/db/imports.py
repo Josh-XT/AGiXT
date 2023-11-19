@@ -319,36 +319,36 @@ def import_conversations(user="USER"):
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
     conversations = get_conversations(user=user)
+    print(f"Conversations: {conversations}")
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
-        print(f"Importing conversation: {conversation_name}")
-        if "interactions" not in conversation:
-            continue
-        for interaction in conversation["interactions"]:
-            agent_name = interaction["role"]
-            message = interaction["message"]
-            timestamp = interaction["timestamp"]
-            conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.name == conversation_name,
-                    Conversation.user_id == user_id,
+        if "interactions" in conversation:
+            print(f"Importing conversation: {conversation_name}")
+            for interaction in conversation["interactions"]:
+                agent_name = interaction["role"]
+                message = interaction["message"]
+                timestamp = interaction["timestamp"]
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == conversation_name,
+                        Conversation.user_id == user_id,
+                    )
+                    .first()
                 )
-                .first()
-            )
-            if not conversation:
-                # Create the conversation
-                conversation = Conversation(name=conversation_name, user_id=user_id)
-                session.add(conversation)
+                if not conversation:
+                    # Create the conversation
+                    conversation = Conversation(name=conversation_name, user_id=user_id)
+                    session.add(conversation)
+                    session.commit()
+                message = Message(
+                    role=agent_name,
+                    content=message,
+                    timestamp=timestamp,
+                    conversation_id=conversation.id,
+                )
+                session.add(message)
                 session.commit()
-            message = Message(
-                role=agent_name,
-                content=message,
-                timestamp=timestamp,
-                conversation_id=conversation.id,
-            )
-            session.add(message)
-            session.commit()
 
 
 def import_providers():
