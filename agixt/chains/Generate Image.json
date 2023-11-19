@@ -3,7 +3,7 @@
     "steps": [
         {
             "step": 1,
-            "agent_name": "OpenAI",
+            "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
                 "prompt_name": "AGiXT SD Generator_V3",
@@ -21,7 +21,7 @@
         },
         {
             "step": 2,
-            "agent_name": "OpenAI",
+            "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Generate Image with Stable Diffusion",
