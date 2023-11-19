@@ -92,7 +92,7 @@ class Chain:
         return [chain.name for chain in chains]
 
     def add_chain(self, chain_name):
-        chain = ChainDB(name=chain_name)
+        chain = ChainDB(name=chain_name, user_id=self.user_id)
         self.session.add(chain)
         self.session.commit()
 
@@ -102,8 +102,9 @@ class Chain:
             .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
             .first()
         )
-        chain.name = new_name
-        self.session.commit()
+        if chain:
+            chain.name = new_name
+            self.session.commit()
 
     def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
         chain = (
