@@ -203,6 +203,7 @@ def import_agent_config(agent_name, user="USER"):
 class Agent:
     def __init__(self, agent_name=None, user="USER", ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
+        self.session = get_session()
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -219,7 +220,6 @@ class Agent:
             agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()
         self.user = user
-        self.session = get_session()
         user_data = self.session.query(User).filter(User.email == self.user).first()
         self.user_id = user_data.id
 
