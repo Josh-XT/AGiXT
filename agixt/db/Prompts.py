@@ -192,3 +192,11 @@ class Prompts:
         if prompt:
             prompt.name = new_prompt_name
             self.session.commit()
+
+    def get_prompt_categories(self):
+        prompt_categories = (
+            self.session.query(PromptCategory)
+            .filter(PromptCategory.user_id == self.user_id)
+            .all()
+        )
+        return [category.name for category in prompt_categories]
