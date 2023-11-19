@@ -246,7 +246,8 @@ def delete_message(message, conversation_name=None, agent_name=None, user="USER"
             Message.content == message,
         )
         .first()
-    )
+    ).id
+
     message = (
         session.query(Message)
         .filter(
