@@ -322,35 +322,30 @@ def import_conversations(user="USER"):
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
         for interaction in conversation:
-            try:
-                agent_name = interaction["role"]
-                message = interaction["message"]
-                timestamp = interaction["timestamp"]
-                conversation = (
-                    session.query(Conversation)
-                    .filter(
-                        Conversation.name == conversation_name,
-                        Conversation.user_id == user_id,
-                    )
-                    .first()
+            agent_name = interaction["role"]
+            message = interaction["message"]
+            timestamp = interaction["timestamp"]
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == conversation_name,
+                    Conversation.user_id == user_id,
                 )
-                if not conversation:
-                    # Create the conversation
-                    conversation = Conversation(name=conversation_name, user_id=user_id)
-                    session.add(conversation)
-                    session.commit()
-                message = Message(
-                    role=agent_name,
-                    content=message,
-                    timestamp=timestamp,
-                    conversation_id=conversation.id,
-                )
-                session.add(message)
+                .first()
+            )
+            if not conversation:
+                # Create the conversation
+                conversation = Conversation(name=conversation_name, user_id=user_id)
+                session.add(conversation)
                 session.commit()
-            except Exception as e:
-                print(f"Error importing conversation: {str(e)}")
-                print(interaction)
-        print(f"Imported `{agent_name} History` conversation for agent '{agent_name}'.")
+            message = Message(
+                role=agent_name,
+                content=message,
+                timestamp=timestamp,
+                conversation_id=conversation.id,
+            )
+            session.add(message)
+            session.commit()
 
 
 def import_providers():
