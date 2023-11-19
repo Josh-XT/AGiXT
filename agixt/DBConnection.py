@@ -263,6 +263,7 @@ class Prompt(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     prompt_category = relationship("PromptCategory", backref="prompts")
     user = relationship("User", backref="prompt")
+    arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
 if __name__ == "__main__":
