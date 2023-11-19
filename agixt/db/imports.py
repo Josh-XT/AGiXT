@@ -322,8 +322,9 @@ def import_conversations(user="USER"):
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
         print(f"Importing conversation: {conversation_name}")
-        print(conversation)
-        for interaction in conversation:
+        if "interactions" not in conversation:
+            continue
+        for interaction in conversation["interactions"]:
             agent_name = interaction["role"]
             message = interaction["message"]
             timestamp = interaction["timestamp"]
