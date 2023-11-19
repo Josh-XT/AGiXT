@@ -204,6 +204,9 @@ class Agent:
     def __init__(self, agent_name=None, user="USER", ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.session = get_session()
+        self.user = user
+        user_data = self.session.query(User).filter(User.email == self.user).first()
+        self.user_id = user_data.id
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -219,9 +222,6 @@ class Agent:
         self.available_commands = Extensions(
             agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
         ).get_available_commands()
-        self.user = user
-        user_data = self.session.query(User).filter(User.email == self.user).first()
-        self.user_id = user_data.id
 
     def load_config_keys(self):
         config_keys = [
