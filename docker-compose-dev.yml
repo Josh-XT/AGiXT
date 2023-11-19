@@ -4,12 +4,6 @@ services:
     image: joshxt/agixt:main
     init: true
     environment:
-      - DB_CONNECTED=${DB_CONNECTED:-false}
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
@@ -26,28 +20,11 @@ services:
       - ./agixt/memories:/agixt/memories
       - ./agixt/conversations:/agixt/conversations
       - /var/run/docker.sock:/var/run/docker.sock
-  streamlit:
-    image: joshxt/streamlit:main
-    depends_on:
-      - agixt
-    environment:
-      - AGIXT_URI=${AGIXT_URI:-http://agixt:7437}
-      - AGIXT_API_KEY=${AGIXT_API_KEY}
-      - HIDE_DOCS=${HIDE_DOCS:-false}
-      - TZ=${TZ-America/New_York}
-    volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE
-    ports:
-      - "8501:8501"
   nextjs:
-    image: joshxt/agixt-nextjs:main
+    image: joshxt/agixt-nextjs:latest
     depends_on:
       - agixt
     environment:
-      - NEXT_PUBLIC_API_URI=${NEXT_PUBLIC_API_URI:-http://localhost:7437}
-      - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
       - TZ=${TZ-America/New_York}
     ports:
       - "24498:24498"
-    volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE

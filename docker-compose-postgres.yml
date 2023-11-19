@@ -28,6 +28,7 @@ services:
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - DISABLED_EXTENSIONS=${DISABLED_EXTENSIONS:-}
       - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
+      - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
       - TZ=${TZ-America/New_York}
     ports:
@@ -36,6 +37,7 @@ services:
       - ./models:/agixt/models
       - ./agixt/WORKSPACE:/agixt/WORKSPACE
       - ./agixt/memories:/agixt/memories
+      - /var/run/docker.sock:/var/run/docker.sock
   nextjs:
     image: joshxt/agixt-nextjs:latest
     depends_on:

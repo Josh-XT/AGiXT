@@ -143,18 +143,10 @@ update_docker() {
     git pull
     echo "${BOLD}${YELLOW}Updating Text generation web UI Docker image...${RESET}"
     cd ..
-    if [[ "$DB_CONNECTED" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia.yml build text-generation-webui
-    else
-      docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
-    fi
+    docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    docker-compose -f docker-compose-postgres.yml pull
-  else
-    docker-compose pull
-  fi
+  docker-compose pull
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
 
@@ -178,11 +170,7 @@ docker_install() {
     update
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    docker-compose -f docker-compose-postgres.yml up
-  else
-    docker-compose up
-  fi
+  docker-compose up
 }
 docker_install_dev() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -284,17 +272,10 @@ docker_install_local_nvidia() {
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia.yml pull
-    fi
-    docker-compose -f docker-compose-postgres-local-nvidia.yml up
-  else
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-local-nvidia.yml pull
-    fi
-    docker-compose -f docker-compose-local-nvidia.yml up
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    docker-compose -f docker-compose-local-nvidia.yml pull
   fi
+  docker-compose -f docker-compose-local-nvidia.yml up
 }
 docker_install_local_nvidia_sd() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -336,17 +317,10 @@ docker_install_local_nvidia_sd() {
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia-sd.yml pull
-    fi
-    docker-compose -f docker-compose-postgres-local-nvidia-sd.yml up
-  else
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-local-nvidia-sd.yml pull
-    fi
-    docker-compose -f docker-compose-local-nvidia-sd.yml up
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    docker-compose -f docker-compose-local-nvidia-sd.yml pull
   fi
+  docker-compose -f docker-compose-local-nvidia-sd.yml up
 }
 # Function to perform the local install
 local_install() {

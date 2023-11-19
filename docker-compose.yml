@@ -4,11 +4,11 @@ services:
     image: joshxt/agixt:latest
     init: true
     environment:
-      - DB_CONNECTED=false
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
+      - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
     volumes:
@@ -19,7 +19,7 @@ services:
       - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
       - ./agixt/conversations:/agixt/conversations
-      - ./.env:/.env
+      - /var/run/docker.sock:/var/run/docker.sock
   streamlit:
     image: joshxt/streamlit:latest
     depends_on:
@@ -36,9 +36,6 @@ services:
     depends_on:
       - agixt
     environment:
-      - NEXT_PUBLIC_API_URI=${NEXT_PUBLIC_API_URI:-http://localhost:7437}
-      - NEXT_PUBLIC_API_KEY=${AGIXT_API_KEY}
+      - TZ=${TZ-America/New_York}
     ports:
       - "24498:24498"
-    volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE
