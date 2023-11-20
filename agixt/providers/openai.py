@@ -71,7 +71,13 @@ class OpenaiProvider:
                 n=1,
                 stream=False,
             )
-            return response["messages"][-1]["content"]
+            try:
+                return response["messages"][-1]["content"]
+            except:
+                try:
+                    return response["choices"][-1]["text"]
+                except:
+                    return str(response)
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
             if "," in self.API_URI:
