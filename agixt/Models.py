@@ -227,3 +227,9 @@ class CommandExecution(BaseModel):
     command_name: str
     command_args: dict
     conversation_name: str = "AGiXT Terminal Command Execution"
+
+
+class User(BaseModel):
+    email: str
+    role: str
+    api_key: str
