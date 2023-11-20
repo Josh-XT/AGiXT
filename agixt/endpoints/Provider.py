@@ -2,7 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, Depends
 from Providers import get_provider_options, get_providers, get_providers_with_settings
 from Embedding import get_embedding_providers, get_embedders
-from ApiClient import verify_api_key
+from ApiClient import verify_api_key, DB_CONNECTED
 from typing import Any
 
 app = APIRouter()
@@ -53,3 +53,14 @@ async def get_embed_providers(user=Depends(verify_api_key)):
 )
 async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
     return {"embedders": get_embedders()}
+
+
+if DB_CONNECTED:
+    from db.User import create_user
+    from Models import User
+
+    @app.post("/api/user", tags=["User"])
+    async def createuser(account: User):
+        return create_user(
+            api_key=account.api_key, email=account.email, role=account.role
+        )
