@@ -263,7 +263,12 @@ class Interactions:
         if persona != "":
             persona = f"Your persona is: {persona}\n\n"
         verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
-        for command in self.agent.available_commands:
+        agent_commands = self.agent.AGENT_CONFIG["commands"]
+        # Get only the commands that are available to the agent, they're set to true in agent_commands. { "friendly name": true }
+        available_commands = [
+            command for command in agent_commands if agent_commands[command] == True
+        ]
+        for command in available_commands:
             verbose_commands += f'    "{command["friendly_name"]}": {{\n'
             for arg in command["args"]:
                 verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
