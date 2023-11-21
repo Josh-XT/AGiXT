@@ -266,7 +266,9 @@ class Interactions:
         agent_commands = self.agent.AGENT_CONFIG["commands"]
         # Get only the commands that are available to the agent, they're set to true in agent_commands. { "friendly name": true }
         available_commands = [
-            command for command in agent_commands if agent_commands[command] == True
+            command
+            for command in agent_commands
+            if str(agent_commands[command]).lower() == "true"
         ]
         for command in available_commands:
             verbose_commands += f'    "{command}": {{\n'
