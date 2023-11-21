@@ -270,7 +270,12 @@ class Interactions:
         ]
         for command in available_commands:
             verbose_commands += f'    "{command}": {{\n'
-            for arg in command["args"]:
+            command_args = Extensions(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                ApiClient=self.ApiClient,
+            ).get_command_args(command_name=command)
+            for arg in command_args:
                 verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
             verbose_commands += "    },\n"
         verbose_commands += "}\n```"
