@@ -183,7 +183,6 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
@@ -354,7 +353,7 @@ class Interactions:
             agent_name=self.agent_name,
             COMMANDS=self.agent_commands,
             context=context,
-            command_list=command_list,
+            command_list=self.agent_commands,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
