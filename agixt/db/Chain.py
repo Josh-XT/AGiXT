@@ -21,17 +21,23 @@ class Chain:
 
     def get_chain(self, chain_name):
         chain_name = chain_name.replace("%20", " ")
+        user_data = self.session.query(User).filter(User.email == "USER").first()
         chain_db = (
             self.session.query(ChainDB)
-            .filter(
-                ChainDB.name == chain_name,
-                ChainDB.user_id == self.user_id,
-            )
+            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
             .first()
         )
         if chain_db is None:
-            return None
-
+            chain_db = (
+                self.session.query(ChainDB)
+                .filter(
+                    ChainDB.name == chain_name,
+                    ChainDB.user_id == self.user_id,
+                )
+                .first()
+            )
+        if chain_db is None:
+            return []
         chain_steps = (
             self.session.query(ChainStep)
             .filter(ChainStep.chain_id == chain_db.id)
@@ -86,10 +92,19 @@ class Chain:
         return chain_data
 
     def get_chains(self):
+        user_data = self.session.query(User).filter(User.email == "USER").first()
+        global_chains = (
+            self.session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+        )
         chains = (
             self.session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
         )
-        return [chain.name for chain in chains]
+        chain_list = []
+        for chain in chains:
+            chain_list.append(chain.name)
+        for chain in global_chains:
+            chain_list.append(chain.name)
+        return chain_list
 
     def add_chain(self, chain_name):
         chain = ChainDB(name=chain_name, user_id=self.user_id)
@@ -318,34 +333,41 @@ class Chain:
         self.session.delete(chain)
         self.session.commit()
 
-    def get_step(self, chain_name, step_number):
-        chain = (
-            self.session.query(ChainDB)
-            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
-            .first()
-        )
-        chain_step = (
-            self.session.query(ChainStep)
-            .filter(
-                ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
-            )
-            .first()
-        )
-        return chain_step
-
     def get_steps(self, chain_name):
-        chain = (
+        chain_name = chain_name.replace("%20", " ")
+        user_data = self.session.query(User).filter(User.email == "USER").first()
+        chain_db = (
             self.session.query(ChainDB)
-            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
             .first()
         )
+        if chain_db is None:
+            chain_db = (
+                self.session.query(ChainDB)
+                .filter(
+                    ChainDB.name == chain_name,
+                    ChainDB.user_id == self.user_id,
+                )
+                .first()
+            )
+        if chain_db is None:
+            return []
         chain_steps = (
             self.session.query(ChainStep)
-            .filter(ChainStep.chain_id == chain.id)
+            .filter(ChainStep.chain_id == chain_db.id)
             .order_by(ChainStep.step_number)
             .all()
         )
         return chain_steps
+
+    def get_step(self, chain_name, step_number):
+        steps = self.get_steps(chain_name=chain_name)
+        chain_step = None
+        for step in steps:
+            if step.step_number == step_number:
+                chain_step = step
+                break
+        return chain_step
 
     def move_step(self, chain_name, current_step_number, new_step_number):
         chain = (
@@ -381,12 +403,7 @@ class Chain:
         self.session.commit()
 
     def get_step_response(self, chain_name, step_number="all"):
-        chain = (
-            self.session.query(ChainDB)
-            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
-            .first()
-        )
-
+        chain = self.get_chain(chain_name=chain_name)
         if step_number == "all":
             chain_steps = (
                 self.session.query(ChainStep)
@@ -429,17 +446,7 @@ class Chain:
                 return None
 
     def get_chain_responses(self, chain_name):
-        chain = (
-            self.session.query(ChainDB)
-            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
-            .first()
-        )
-        chain_steps = (
-            self.session.query(ChainStep)
-            .filter(ChainStep.chain_id == chain.id)
-            .order_by(ChainStep.step_number)
-            .all()
-        )
+        chain_steps = self.get_steps(chain_name=chain_name)
         responses = {}
         for step in chain_steps:
             chain_step_responses = (
