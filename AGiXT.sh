@@ -149,25 +149,13 @@ update_docker() {
   docker-compose pull
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
 }
-
-update() {
-  if [[ "$AGIXT_URI" == "http://agixt:7437" ]]; then
-    update_docker
-  else
-    update_local
-  fi
-  echo "${BOLD}${GREEN}Update complete.${RESET}"
-  sleep 2
-}
 # Function to perform the Docker install
 docker_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
-  sed -i '/^TEXTGEN_URI=/d' .env
-  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    update
+    docker-compose pull
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose up
