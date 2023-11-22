@@ -50,19 +50,33 @@ class Prompts:
         self.session.commit()
 
     def get_prompt(self, prompt_name, prompt_category="Default"):
+        user_data = self.session.query(User).filter(User.email == "USER").first()
         prompt = (
             self.session.query(Prompt)
             .filter(
                 Prompt.name == prompt_name,
-                Prompt.user_id == self.user_id,
-                Prompt.prompt_category.has(name=prompt_category),
+                Prompt.user_id == user_data.id,
+                Prompt.prompt_category.has(name="Default"),
             )
             .join(PromptCategory)
-            .filter(
-                PromptCategory.name == prompt_category, Prompt.user_id == self.user_id
-            )
+            .filter(PromptCategory.name == "Default", Prompt.user_id == user_data.id)
             .first()
         )
+        if not prompt:
+            prompt = (
+                self.session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt_name,
+                    Prompt.user_id == self.user_id,
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .join(PromptCategory)
+                .filter(
+                    PromptCategory.name == prompt_category,
+                    Prompt.user_id == self.user_id,
+                )
+                .first()
+            )
         if not prompt and prompt_category != "Default":
             # Prompt not found in specified category, try the default category
             prompt = (
@@ -83,7 +97,20 @@ class Prompts:
         return None
 
     def get_prompts(self, prompt_category="Default"):
-        prompts = (
+        user_data = self.session.query(User).filter(User.email == "USER").first()
+        global_prompts = (
+            self.session.query(Prompt)
+            .filter(
+                Prompt.user_id == user_data.id,
+                Prompt.prompt_category.has(name=prompt_category),
+            )
+            .join(PromptCategory)
+            .filter(
+                PromptCategory.name == prompt_category, Prompt.user_id == user_data.id
+            )
+            .all()
+        )
+        user_prompts = (
             self.session.query(Prompt)
             .join(PromptCategory)
             .filter(
@@ -91,7 +118,12 @@ class Prompts:
             )
             .all()
         )
-        return [prompt.name for prompt in prompts]
+        prompts = []
+        for prompt in global_prompts:
+            prompts.append(prompt.name)
+        for prompt in user_prompts:
+            prompts.append(prompt.name)
+        return prompts
 
     def get_prompt_args(self, prompt_text):
         prompt_args = []
@@ -194,9 +226,20 @@ class Prompts:
             self.session.commit()
 
     def get_prompt_categories(self):
-        prompt_categories = (
+        user_data = self.session.query(User).filter(User.email == "USER").first()
+        global_prompt_categories = (
+            self.session.query(PromptCategory)
+            .filter(PromptCategory.user_id == user_data.id)
+            .all()
+        )
+        user_prompt_categories = (
             self.session.query(PromptCategory)
             .filter(PromptCategory.user_id == self.user_id)
             .all()
         )
-        return [category.name for category in prompt_categories]
+        prompt_categories = []
+        for prompt_category in global_prompt_categories:
+            prompt_categories.append(prompt_category.name)
+        for prompt_category in user_prompt_categories:
+            prompt_categories.append(prompt_category.name)
+        return prompt_categories
