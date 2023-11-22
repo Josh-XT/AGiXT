@@ -243,35 +243,32 @@ class Agent:
             )
             .first()
         )
+        config = {"settings": {}, "commands": {}}
         if agent:
-            agent_setting = (
-                self.session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "config",
-                )
-                .first()
+            all_commands = self.session.query(Command).all()
+            agent_settings = (
+                self.session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
             )
-            if agent_setting:
-                config = json.loads(agent_setting.value)
-
-                # Retrieve the enabled commands for the agent
-                agent_commands = (
-                    self.session.query(AgentCommand)
-                    .join(Command)
-                    .filter(
-                        AgentCommand.agent_id == agent.id,
-                        AgentCommand.state == True,  # Only get enabled commands
-                    )
-                    .all()
+            agent_commands = (
+                self.session.query(AgentCommand)
+                .join(Command)
+                .filter(
+                    AgentCommand.agent_id == agent.id,
+                    AgentCommand.state == True,
                 )
-                enabled_commands = [ac.command.name for ac in agent_commands]
-
-                # Add the enabled commands to the config
-                config["enabled_commands"] = enabled_commands
-
-                return config
-        return {}
+                .all()
+            )
+            for command in all_commands:
+                config["commands"].update(
+                    {
+                        command.name: command.name
+                        in [ac.command.name for ac in agent_commands]
+                    }
+                )
+            for setting in agent_settings:
+                config["settings"][setting.name] = setting.value
+            return config
+        return {"settings": DEFAULT_SETTINGS, "commands": {}}
 
     async def instruct(self, prompt, tokens):
         if not prompt:
