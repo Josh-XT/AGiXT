@@ -75,7 +75,7 @@ class OpenaiProvider:
                 return response["messages"][-1]["content"]
             except:
                 try:
-                    return response["choices"][-1]["text"]
+                    return response["choices"][0]["message"]["content"]
                 except:
                     return str(response)
         except Exception as e:
