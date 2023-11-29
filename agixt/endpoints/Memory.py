@@ -142,7 +142,7 @@ async def learn_file(
     try:
         file_content = base64.b64decode(file.file_content)
     except:
-        file_content = file.file_content
+        file_content = file.file_content.encode("utf-8")
     with open(file_path, "wb") as f:
         f.write(file_content)
     try:
