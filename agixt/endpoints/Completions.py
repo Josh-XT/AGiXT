@@ -8,6 +8,8 @@ from ApiClient import Agent, verify_api_key, get_api_client
 from Models import (
     Completions,
     EmbeddingModel,
+    GenerateModel,
+    GenerateResponse,
 )
 
 app = APIRouter()
@@ -144,3 +146,48 @@ async def embedding(
         "object": "list",
         "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
     }
+
+
+@app.post(
+    "/api/v1/{agent_name}/generate",
+    tags=["Completions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def generate_text(
+    generate: GenerateModel,
+    agent_name: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    response = await agent.run(
+        user_input=generate.inputs, prompt="Custom Input", **generate.parameters
+    )
+    tokens = get_tokens(response)
+    details = {
+        "best_of_sequences": [
+            {
+                "finish_reason": "length",
+                "generated_text": response,
+                "generated_tokens": tokens,
+                "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
+                "seed": 42,
+                "tokens": [
+                    {"id": 0, "logprob": -0.34, "special": False, "text": response}
+                ],
+                "top_tokens": [
+                    [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
+                ],
+            }
+        ],
+        "finish_reason": "length",
+        "generated_tokens": tokens,
+        "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
+        "seed": 42,
+        "tokens": [{"id": 0, "logprob": -0.34, "special": False, "text": response}],
+        "top_tokens": [
+            [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
+        ],
+    }
+    return GenerateResponse(details=details, generated_text=response)
