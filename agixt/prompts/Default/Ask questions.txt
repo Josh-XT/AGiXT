@@ -1,0 +1,7 @@
+## Context:
+
+```
+ {memory} 
+```
+
+**What questions could be asked and answered with the information in context? List as many questions as you can come up with up to 100 questions.**
