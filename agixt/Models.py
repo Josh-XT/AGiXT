@@ -233,3 +233,13 @@ class User(BaseModel):
     email: str
     role: str
     api_key: str
+
+
+class GenerateModel(BaseModel):
+    inputs: str
+    parameters: dict
+
+
+class GenerateResponse(BaseModel):
+    details: dict
+    generated_text: str
