@@ -232,7 +232,6 @@ class CommandExecution(BaseModel):
 class User(BaseModel):
     email: str
     role: str
-    api_key: str
 
 
 class GenerateModel(BaseModel):
