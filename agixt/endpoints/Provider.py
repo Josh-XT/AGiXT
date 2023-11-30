@@ -1,5 +1,5 @@
 from typing import Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from Providers import get_provider_options, get_providers, get_providers_with_settings
 from Embedding import get_embedding_providers, get_embedders
 from ApiClient import verify_api_key, DB_CONNECTED
@@ -60,7 +60,7 @@ if DB_CONNECTED:
     from Models import User
 
     @app.post("/api/user", tags=["User"])
-    async def createuser(account: User):
+    async def createuser(account: User, authorization: str = Header(None)):
         return create_user(
-            api_key=account.api_key, email=account.email, role=account.role
+            api_key=authorization, email=account.email, role=account.role
         )
