@@ -216,28 +216,19 @@ STREAMLABS_VOICES = [
 class streamlabs_tts(Extensions):
     def __init__(
         self,
-        USE_STREAMLABS_TTS: bool = True,
         STREAMLABS_VOICE: str = "Brian",
         **kwargs,
     ):
-        self.USE_STREAMLABS_TTS = USE_STREAMLABS_TTS
-
         if STREAMLABS_VOICE not in STREAMLABS_VOICES:
             self.STREAMLABS_VOICE = random.choice(STREAMLABS_VOICES)
         else:
             self.STREAMLABS_VOICE = STREAMLABS_VOICE
-        if self.USE_STREAMLABS_TTS:
-            self.commands = {
-                "Speak with TTS with Streamlabs Text to Speech": self.speak_with_streamlabs_tts
-            }
+        self.commands = {
+            "Speak with TTS with Streamlabs Text to Speech": self.speak_with_streamlabs_tts
+        }
 
-    async def speak_with_streamlabs_tts(self, text: str) -> bool:
+    async def speak_with_streamlabs_tts(self, text: str):
         response = requests.get(
             f"https://api.streamelements.com/kappa/v2/speech?voice={self.STREAMLABS_VOICE}&text={text}"
         )
-        if response.status_code == 200:
-            with open("speech.mp3", "wb") as f:
-                f.write(response.content)
-            return f"{text}\n#GENERATED_AUDIO:{base64.b64encode(response.content).decode('utf-8')}"
-        else:
-            return "Failed to generate audio."
+        return f"{text}\n#GENERATED_AUDIO:{base64.b64encode(response.content).decode('utf-8')}"
