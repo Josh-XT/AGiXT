@@ -231,7 +231,6 @@ class CommandExecution(BaseModel):
 
 class User(BaseModel):
     email: str
-    role: str
 
 
 class GenerateModel(BaseModel):
