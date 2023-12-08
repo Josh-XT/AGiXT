@@ -66,7 +66,7 @@ class OpenaiProvider:
                 model=self.AI_MODEL,
                 messages=messages,
                 temperature=float(self.AI_TEMPERATURE),
-                max_tokens=max_new_tokens,
+                max_tokens=4096,
                 top_p=float(self.AI_TOP_P),
                 n=1,
                 stream=False,
