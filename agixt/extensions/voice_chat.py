@@ -49,6 +49,9 @@ class voice_chat(Extensions):
         else:
             self.agent_name = "gpt4free"
         self.voice_prompt = "Custom Input"
+        self.tts_command = "Speak with GTTS"
+        # Streamlabs TTS seems broken at the moment.
+        """
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
             if isinstance(kwargs["USE_STREAMLABS_TTS"], bool):
@@ -64,6 +67,7 @@ class voice_chat(Extensions):
             else:
                 if kwargs["USE_GTTS"].lower() == "true":
                     self.tts_command = "Speak with GTTS"
+        """
         if "USE_HUGGINGFACE_TTS" in kwargs:
             if isinstance(kwargs["USE_HUGGINGFACE_TTS"], bool):
                 if kwargs["USE_HUGGINGFACE_TTS"] and "HUGGINGFACE_API_KEY" in kwargs:
@@ -79,6 +83,7 @@ class voice_chat(Extensions):
         if "ELEVENLABS_API_KEY" in kwargs:
             if kwargs["ELEVENLABS_API_KEY"] != "":
                 self.tts_command = "Speak with TTS Using Elevenlabs"
+
         self.commands = {
             "Chat with Voice": self.chat_with_voice,
             "Transcribe Audio from File": self.transcribe_audio_from_file,
