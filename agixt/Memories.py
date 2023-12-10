@@ -416,38 +416,54 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
+    async def prompt_iterator(
+        self,
+        iterator,
+        prompt_name,
+        prompt_category="Default",
+        batch_size: int = 10,
+        **kwargs,
+    ):
+        i = 0
+        tasks = []
+        for item in iterator:
+            i += 1
+            if i % batch_size == 0:
+                await asyncio.gather(**tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name=prompt_name,
+                    prompt_args={
+                        "prompt_category": prompt_category,
+                        "user_input": item,
+                        **kwargs,
+                    },
+                )
+            )
+            tasks.append(task)
+        return await asyncio.gather(**tasks)
+
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(self, batch_size: int = 10):
         memories = []
-        tasks = []
         questions = []
-        response = []
+        messages = []
         collections = await self.get_collections()
         for collection in collections:
             self.collection_name = collection
             memories += await self.export_collection_to_json()
         print(f"There are {len(memories)} memories.")
-        i = 0
         # Get a list of questions about each memory
-        for memory in memories:
-            i += 1
-            print(f"Processing memory {i} of {len(memories)}")
-            if i % batch_size == 0:
-                response += await asyncio.gather(**tasks)
-                tasks = []
-            task = asyncio.create_task(
-                await self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="Ask Questions",
-                    prompt_args={
-                        "memory": memory["text"],
-                        "conversation_name": "AGiXT Terminal",
-                    },
-                )
-            )
-            tasks.append(task)
-        response += await asyncio.gather(**tasks)
-        for response in response:
+        question_list = self.prompt_iterator(
+            iterator=[memory["text"] for memory in memories],
+            prompt_name="Ask Questions",
+            prompt_category="Default",
+            batch_size=batch_size,
+            conversation_name="AGiXT Terminal",
+        )
+        for response in question_list:
             # Convert the response to a list of questions
             response = response.split("\n")
             response = [
@@ -456,35 +472,21 @@ class Memories:
             response = [item for item in response if item]
             response = [item.lstrip("0123456789.*- ") for item in response]
             questions += response
-        i = 0
-        tasks = []
         # Answer each question with context injected
-        for question in questions:
-            i += 1
-            if i % batch_size == 0:
-                await asyncio.gather(**tasks)
-                tasks = []
-            task = asyncio.create_task(
-                await self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="Basic With Memory",
-                    prompt_args={
-                        "user_input": question,
-                        "context_results": 10,
-                        "conversation_name": f"{self.conversation_name} Dataset",
-                        "persist_context_in_history": True,
-                    },
-                )
-            )
-            tasks.append(task)
-        await asyncio.gather(**tasks)
-
+        answers = self.prompt_iterator(
+            iterator=questions,
+            prompt_name="Answer Question with Memory",
+            prompt_category="Default",
+            batch_size=batch_size,
+            conversation_name=f"{self.conversation_name} Dataset",
+            persist_context_in_history=True,
+            context_results=10,
+        )
         # Get conversation history of the Q&A session into sharegpt format
         conversation_history = await self.ApiClient.get_conversation(
             agent_name=self.agent_name,
             conversation_name=f"{self.conversation_name} Dataset",
         )
-        messages = []
         for message in conversation_history:
             if message["role"] == "USER":
                 messages.append(
