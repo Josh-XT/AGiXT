@@ -417,7 +417,11 @@ class Memories:
         return [chunk_text for score, chunk_text in content_chunks]
 
     async def get_context(
-        self, user_input: str, limit: int = 10, websearch: bool = False
+        self,
+        user_input: str,
+        limit: int = 10,
+        websearch: bool = False,
+        additional_collections: List[str] = [],
     ) -> str:
         self.collection_number = 0
         context = await self.get_memories(
@@ -450,6 +454,14 @@ class Memories:
                 limit=limit,
                 min_relevance_score=0.2,
             )
+        if additional_collections:
+            for collection in additional_collections:
+                self.collection_number = collection
+                context += await self.get_memories(
+                    user_input=user_input,
+                    limit=limit,
+                    min_relevance_score=0.2,
+                )
         return context
 
     # Answer a question with context injected, return in sharegpt format
