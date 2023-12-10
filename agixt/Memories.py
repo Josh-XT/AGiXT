@@ -429,6 +429,7 @@ class Memories:
         responses = []
         for item in iterator:
             i += 1
+            logging.info(f"[{i}/{len(iterator)}] Running Prompt: {prompt_name}")
             if i % batch_size == 0:
                 responses += await asyncio.gather(**tasks)
                 tasks = []
@@ -456,7 +457,7 @@ class Memories:
         for collection in collections:
             self.collection_name = collection
             memories += await self.export_collection_to_json()
-        print(f"There are {len(memories)} memories.")
+        logging.info(f"There are {len(memories)} memories.")
         # Get a list of questions about each memory
         question_list = self.prompt_iterator(
             iterator=[memory["text"] for memory in memories],
