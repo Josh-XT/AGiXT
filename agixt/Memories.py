@@ -465,15 +465,15 @@ class Memories:
             batch_size=batch_size,
             conversation_name="AGiXT Terminal",
         )
-        for response in question_list:
+        for question in question_list:
             # Convert the response to a list of questions
-            response = response.split("\n")
-            response = [
-                item.lstrip("0123456789.*- ") for item in response if item.lstrip()
+            question = question.split("\n")
+            question = [
+                item.lstrip("0123456789.*- ") for item in question if item.lstrip()
             ]
-            response = [item for item in response if item]
-            response = [item.lstrip("0123456789.*- ") for item in response]
-            questions += response
+            question = [item for item in question if item]
+            question = [item.lstrip("0123456789.*- ") for item in question]
+            questions += question
         # Answer each question with context injected
         answers = self.prompt_iterator(
             iterator=questions,
@@ -484,29 +484,12 @@ class Memories:
             persist_context_in_history=True,
             context_results=10,
         )
-        # Get conversation history of the Q&A session into sharegpt format
-        conversation_history = await self.ApiClient.get_conversation(
-            agent_name=self.agent_name,
-            conversation_name=f"{self.conversation_name} Dataset",
-        )
-        for message in conversation_history:
-            if message["role"] == "USER":
-                messages.append(
-                    {
-                        "from": "human",
-                        "value": message["text"],
-                    }
-                )
-            else:
-                messages.append(
-                    {
-                        "from": "gpt",
-                        "value": message["text"],
-                    }
-                )
+        # Combine the questions with the answers into sharegpt format
+        for question, answer in zip(questions, answers):
+            messages.append({"from": "human", "text": question})
+            messages.append({"from": "gpt", "text": answer})
         conversations = {"conversations": [messages]}
         # Save messages to a json file to be used as a dataset
-        file_name = f"{datetime.now().isoformat()}-dataset.json"
-        with open(file_name, "w") as f:
+        with open(f"{datetime.now().isoformat()}-dataset.json", "w") as f:
             f.write(json.dumps(conversations))
         return conversations
