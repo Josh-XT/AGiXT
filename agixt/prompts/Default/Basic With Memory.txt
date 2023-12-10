@@ -1,4 +1,4 @@
-### Context from Memory
+### Context
 {context}
 
 ### User input
