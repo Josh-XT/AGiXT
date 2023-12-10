@@ -487,8 +487,8 @@ class Memories:
         )
         # Combine the questions with the answers into sharegpt format
         for question, answer in zip(questions, answers):
-            messages.append({"from": "human", "text": question})
-            messages.append({"from": "gpt", "text": answer})
+            messages.append({"from": "human", "value": question})
+            messages.append({"from": "gpt", "value": answer})
         conversations = {"conversations": [messages]}
         # Save messages to a json file to be used as a dataset
         with open(f"{datetime.now().isoformat()}-dataset.json", "w") as f:
