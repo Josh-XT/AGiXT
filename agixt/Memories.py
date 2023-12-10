@@ -416,20 +416,59 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
+    async def get_context(
+        self, user_input: str, limit: int = 10, websearch: bool = False
+    ) -> str:
+        self.collection_number = 0
+        context = await self.get_memories(
+            user_input=user_input,
+            limit=limit,
+            min_relevance_score=0.2,
+        )
+        self.collection_number = 2
+        positive_feedback = await self.get_memories(
+            user_input=user_input,
+            limit=3,
+            min_relevance_score=0.7,
+        )
+        self.collection_number = 3
+        negative_feedback = await self.get_memories(
+            user_input=user_input,
+            limit=3,
+            min_relevance_score=0.7,
+        )
+        if positive_feedback or negative_feedback:
+            context += f"The users input makes you to remember some feedback from previous interactions:\n"
+            if positive_feedback:
+                context += f"Positive Feedback:\n{positive_feedback}\n"
+            if negative_feedback:
+                context += f"Negative Feedback:\n{negative_feedback}\n"
+        if websearch:
+            self.collection_number = 1
+            context += await self.get_memories(
+                user_input=user_input,
+                limit=limit,
+                min_relevance_score=0.2,
+            )
+        return context
+
     # Answer a question with context injected, return in sharegpt format
-    async def agent_qa(self, question: str = ""):
+    async def agent_qa(self, question: str = "", context_results: int = 10):
+        context = await self.get_context(user_input=question, limit=context_results)
         answer = await self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Answer Question with Memory",
             prompt_args={
                 "prompt_category": "Default",
                 "user_input": question,
-                "persist_context_in_history": True,
-                "context_results": 10,
+                "context_results": context_results,
             },
         )
         qa = [
-            {"from": "human", "value": question},
+            {
+                "from": "human",
+                "value": f"### Context\n{context}\n### Question\n{question}",
+            },
             {"from": "gpt", "value": answer},
         ]
         return qa
@@ -465,7 +504,7 @@ class Memories:
                     },
                 )
                 if not qa
-                else await self.agent_qa(question=user_input)
+                else await self.agent_qa(question=user_input, context_results=10)
             )
             tasks.append(task)
         responses += await asyncio.gather(**tasks)
@@ -484,11 +523,11 @@ class Memories:
             self.collection_name = collection
             memories += await self.export_collection_to_json()
         logging.info(f"There are {len(memories)} memories.")
+        memories = [memory["text"] for memory in memories]
         # Get a list of questions about each memory
         question_list = self.batch_prompt(
-            user_inputs=[memory["text"] for memory in memories],
-            prompt_name="Ask Questions",
-            prompt_category="Default",
+            user_inputs=memories,
+            qa=False,
             batch_size=batch_size,
         )
         for question in question_list:
