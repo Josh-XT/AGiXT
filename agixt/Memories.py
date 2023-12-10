@@ -476,6 +476,13 @@ class Memories:
                 "context_results": context_results,
             },
         )
+        # Create a memory with question and answer
+        self.collection_number = 0
+        await self.write_text_to_memory(
+            user_input=question,
+            text=answer,
+            external_source="Synthetic QA",
+        )
         qa = [
             {
                 "from": "human",
