@@ -449,10 +449,14 @@ class Memories:
         return responses
 
     # Creates a synthetic dataset from memories in sharegpt format
-    async def create_dataset_from_memories(self, batch_size: int = 10):
+    async def create_dataset_from_memories(
+        self, dataset_name: str = "", batch_size: int = 10
+    ):
         memories = []
         questions = []
         messages = []
+        if dataset_name == "":
+            dataset_name = f"{datetime.now().isoformat()}-dataset"
         collections = await self.get_collections()
         for collection in collections:
             self.collection_name = collection
@@ -491,6 +495,6 @@ class Memories:
             messages.append({"from": "gpt", "value": answer})
         conversations = {"conversations": [messages]}
         # Save messages to a json file to be used as a dataset
-        with open(f"{datetime.now().isoformat()}-dataset.json", "w") as f:
+        with open(f"{dataset_name}.json", "w") as f:
             f.write(json.dumps(conversations))
         return conversations
