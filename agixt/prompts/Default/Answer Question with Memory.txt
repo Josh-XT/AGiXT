@@ -1,5 +1,5 @@
 ### Context
 {context}
 
-### User input
+### Question
 {user_input}
