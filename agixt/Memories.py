@@ -426,10 +426,11 @@ class Memories:
     ):
         i = 0
         tasks = []
+        responses = []
         for item in iterator:
             i += 1
             if i % batch_size == 0:
-                await asyncio.gather(**tasks)
+                responses += await asyncio.gather(**tasks)
                 tasks = []
             task = asyncio.create_task(
                 await self.ApiClient.prompt_agent(
@@ -443,7 +444,8 @@ class Memories:
                 )
             )
             tasks.append(task)
-        return await asyncio.gather(**tasks)
+        responses += await asyncio.gather(**tasks)
+        return responses
 
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(self, batch_size: int = 10):
