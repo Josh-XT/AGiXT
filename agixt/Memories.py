@@ -2,6 +2,7 @@ import logging
 import os
 import asyncio
 import sys
+import json
 import spacy
 import chromadb
 from chromadb.config import Settings
@@ -414,3 +415,94 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
+
+    async def convert_response_to_list(self, response):
+        response = response.split("\n")
+        response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
+        response = [item for item in response if item]
+        response = [item.lstrip("0123456789.*- ") for item in response]
+        return response
+
+    # Creates a synthetic dataset from memories in sharegpt format
+    async def create_dataset_from_memories(self, batch_size: int = 10):
+        memories = []
+        tasks = []
+        questions = []
+        response = []
+        collections = await self.get_collections()
+        for collection in collections:
+            self.collection_name = collection
+            memories += await self.export_collection_to_json()
+        print(f"There are {len(memories)} memories.")
+        i = 0
+        # Get a list of questions about each memory
+        for memory in memories:
+            i += 1
+            print(f"Processing memory {i} of {len(memories)}")
+            if i % batch_size == 0:
+                response += await asyncio.gather(**tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Ask Questions",
+                    prompt_args={
+                        "memory": memory["text"],
+                        "conversation_name": "AGiXT Terminal",
+                    },
+                )
+            )
+            tasks.append(task)
+        response += await asyncio.gather(**tasks)
+        for response in response:
+            questions += await self.convert_response_to_list(response)
+        # Answer each question with context injected
+        tasks = []
+        i = 0
+        for question in questions:
+            i += 1
+            if i % batch_size == 0:
+                await asyncio.gather(**tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Basic With Memory",
+                    prompt_args={
+                        "user_input": question,
+                        "context_results": 10,
+                        "conversation_name": f"{self.conversation_name} Dataset",
+                        "persist_context_in_history": True,
+                    },
+                )
+            )
+            tasks.append(task)
+        await asyncio.gather(**tasks)
+
+        # Get conversation history of the Q&A session into sharegpt format
+        conversation_history = await self.ApiClient.get_conversation(
+            agent_name=self.agent_name,
+            conversation_name=f"{self.conversation_name} Dataset",
+        )
+        messages = []
+        for message in conversation_history:
+            if message["role"] == "USER":
+                messages.append(
+                    {
+                        "from": "human",
+                        "value": message["text"],
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "from": "gpt",
+                        "value": message["text"],
+                    }
+                )
+        conversations = {"conversations": [messages]}
+        # Save messages to a json file to be used as a dataset
+        file_name = f"{datetime.now().isoformat()}-dataset.json"
+        with open(file_name, "w") as f:
+            f.write(json.dumps(conversations))
+        return conversations
