@@ -416,20 +416,42 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    async def prompt_iterator(
+    # Answer a question with context injected, return in sharegpt format
+    async def agent_qa(self, question: str = ""):
+        answer = await self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Answer Question with Memory",
+            prompt_args={
+                "prompt_category": "Default",
+                "user_input": question,
+                "conversation_name": f"{self.conversation_name} Dataset",
+                "persist_context_in_history": True,
+                "context_results": 10,
+            },
+        )
+        qa = [
+            {"from": "human", "value": question},
+            {"from": "gpt", "value": answer},
+        ]
+        return qa
+
+    async def batch_prompt(
         self,
-        iterator,
-        prompt_name,
-        prompt_category="Default",
+        user_inputs: List[str] = [],
+        prompt_name: str = "Ask Questions",
+        prompt_category: str = "Default",
         batch_size: int = 10,
+        qa: bool = False,
         **kwargs,
     ):
         i = 0
         tasks = []
         responses = []
-        for item in iterator:
+        if user_inputs == []:
+            return []
+        for user_input in user_inputs:
             i += 1
-            logging.info(f"[{i}/{len(iterator)}] Running Prompt: {prompt_name}")
+            logging.info(f"[{i}/{len(user_inputs)}] Running Prompt: {prompt_name}")
             if i % batch_size == 0:
                 responses += await asyncio.gather(**tasks)
                 tasks = []
@@ -439,10 +461,12 @@ class Memories:
                     prompt_name=prompt_name,
                     prompt_args={
                         "prompt_category": prompt_category,
-                        "user_input": item,
+                        "user_input": user_input,
                         **kwargs,
                     },
                 )
+                if not qa
+                else await self.agent_qa(question=user_input)
             )
             tasks.append(task)
         responses += await asyncio.gather(**tasks)
@@ -454,7 +478,6 @@ class Memories:
     ):
         memories = []
         questions = []
-        messages = []
         if dataset_name == "":
             dataset_name = f"{datetime.now().isoformat()}-dataset"
         collections = await self.get_collections()
@@ -463,8 +486,8 @@ class Memories:
             memories += await self.export_collection_to_json()
         logging.info(f"There are {len(memories)} memories.")
         # Get a list of questions about each memory
-        question_list = self.prompt_iterator(
-            iterator=[memory["text"] for memory in memories],
+        question_list = self.batch_prompt(
+            user_inputs=[memory["text"] for memory in memories],
             prompt_name="Ask Questions",
             prompt_category="Default",
             batch_size=batch_size,
@@ -480,20 +503,12 @@ class Memories:
             question = [item.lstrip("0123456789.*- ") for item in question]
             questions += question
         # Answer each question with context injected
-        answers = self.prompt_iterator(
-            iterator=questions,
-            prompt_name="Answer Question with Memory",
-            prompt_category="Default",
+        qa = self.batch_prompt(
+            user_inputs=questions,
+            qa=True,
             batch_size=batch_size,
-            conversation_name=f"{self.conversation_name} Dataset",
-            persist_context_in_history=True,
-            context_results=10,
         )
-        # Combine the questions with the answers into sharegpt format
-        for question, answer in zip(questions, answers):
-            messages.append({"from": "human", "value": question})
-            messages.append({"from": "gpt", "value": answer})
-        conversations = {"conversations": [messages]}
+        conversations = {"conversations": [qa]}
         # Save messages to a json file to be used as a dataset
         with open(f"{dataset_name}.json", "w") as f:
             f.write(json.dumps(conversations))
