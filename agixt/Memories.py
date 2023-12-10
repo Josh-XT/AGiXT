@@ -424,7 +424,6 @@ class Memories:
             prompt_args={
                 "prompt_category": "Default",
                 "user_input": question,
-                "conversation_name": f"{self.conversation_name} Dataset",
                 "persist_context_in_history": True,
                 "context_results": 10,
             },
@@ -491,7 +490,6 @@ class Memories:
             prompt_name="Ask Questions",
             prompt_category="Default",
             batch_size=batch_size,
-            conversation_name="AGiXT Terminal",
         )
         for question in question_list:
             # Convert the response to a list of questions
