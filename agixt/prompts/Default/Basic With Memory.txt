@@ -1,0 +1,5 @@
+### Context from Memory
+{context}
+
+### User input
+{user_input}

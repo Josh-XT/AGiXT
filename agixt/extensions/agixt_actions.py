@@ -9,6 +9,7 @@ from local_llm import LLM
 from ApiClient import Chain
 import logging
 import docker
+import asyncio
 
 IMAGE_NAME = "joshxt/safeexecute:latest"
 
@@ -634,3 +635,33 @@ class agixt_actions(Extensions):
 
     async def get_csv_from_response(self, response: str) -> str:
         return response.split("```csv")[1].split("```")[0]
+
+    # Convert LLM response of a list of either numbers like a numbered list, *'s, -'s to a list from the string response
+    async def convert_llm_response_to_list(self, response):
+        response = response.split("\n")
+        response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
+        response = [item for item in response if item]
+        response = [item.lstrip("0123456789.*- ") for item in response]
+        return response
+
+    async def convert_questions_to_dataset(self, response):
+        questions = await self.convert_llm_response_to_list(response)
+        tasks = []
+        i = 0
+        for question in questions:
+            i += 1
+            if i % 10 == 0:
+                await asyncio.gather(*tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Basic With Memory",
+                    prompt_args={
+                        "user_input": question,
+                        "context_results": 10,
+                        "conversation_name": self.conversation_name,
+                    },
+                )
+            )
+            tasks.append(task)
