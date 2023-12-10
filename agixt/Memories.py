@@ -416,13 +416,6 @@ class Memories:
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
 
-    async def convert_response_to_list(self, response):
-        response = response.split("\n")
-        response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
-        response = [item for item in response if item]
-        response = [item.lstrip("0123456789.*- ") for item in response]
-        return response
-
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(self, batch_size: int = 10):
         memories = []
@@ -455,10 +448,17 @@ class Memories:
             tasks.append(task)
         response += await asyncio.gather(**tasks)
         for response in response:
-            questions += await self.convert_response_to_list(response)
-        # Answer each question with context injected
-        tasks = []
+            # Convert the response to a list of questions
+            response = response.split("\n")
+            response = [
+                item.lstrip("0123456789.*- ") for item in response if item.lstrip()
+            ]
+            response = [item for item in response if item]
+            response = [item.lstrip("0123456789.*- ") for item in response]
+            questions += response
         i = 0
+        tasks = []
+        # Answer each question with context injected
         for question in questions:
             i += 1
             if i % batch_size == 0:
