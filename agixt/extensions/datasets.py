@@ -29,7 +29,7 @@ class agixt_actions(Extensions):
         response = [item.lstrip("0123456789.*- ") for item in response]
         return response
 
-    async def ask_questions_about_memories(self):
+    async def convert_memories_to_dataset(self):
         memories = await self.ApiClient.export_agent_memories(self.agent_name)
         tasks = []
         for memory in memories:
@@ -39,19 +39,16 @@ class agixt_actions(Extensions):
                     prompt_name="Ask Questions",
                     prompt_args={
                         "memory": memory["text"],
-                        "context_results": 10,
-                        "conversation_name": f"{self.conversation_name} Dataset",
-                        "persist_context_in_history": True,
+                        "conversation_name": "AGiXT Terminal",
                     },
                 )
             )
             tasks.append(task)
-        await asyncio.gather(*tasks)
-        return {"status": "Success"}
+        responses = await asyncio.gather(*tasks)
+        questions = []
+        for response in responses:
+            questions += await self.convert_llm_response_to_list(response)
 
-    async def convert_questions_to_dataset(self, response):
-        questions = await self.convert_llm_response_to_list(response)
-        tasks = []
         i = 0
         for question in questions:
             i += 1
@@ -72,4 +69,10 @@ class agixt_actions(Extensions):
             )
             tasks.append(task)
         await asyncio.gather(*tasks)
-        return {"status": "Success"}
+
+        # Get conversation history of Dataset
+        conversation_history = await self.ApiClient.get_conversation(
+            agent_name=self.agent_name,
+            conversation_name=f"{self.conversation_name} Dataset",
+        )
+        return conversation_history
