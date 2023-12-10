@@ -380,6 +380,7 @@ class Interactions:
         conversation_name: str = "",
         browse_links: bool = False,
         prompt_category: str = "Default",
+        persist_context_in_history: bool = False,
         **kwargs,
     ):
         shots = int(shots)
@@ -450,11 +451,16 @@ class Interactions:
             websearch=websearch,
             **kwargs,
         )
+        log_message = (
+            user_input
+            if user_input != "" and persist_context_in_history == False
+            else formatted_prompt
+        )
         log_interaction(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
             role="USER",
-            message=user_input if user_input != "" else formatted_prompt,
+            message=log_message,
             user=self.user,
         )
         try:
