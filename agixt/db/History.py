@@ -21,8 +21,11 @@ def export_conversation(agent_name, conversation_name=None, user=DEFAULT_USER):
         .first()
     )
     if not agent:
-        print(f"Agent '{agent_name}' not found in the database.")
-        return
+        global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+        agent = Agent(name=agent_name, user_id=global_user.id)
+        if not agent:
+            print(f"Agent '{agent_name}' not found in the database.")
+            return
     if not conversation_name:
         conversation_name = f"{str(datetime.now())} Conversation"
     conversation = (
@@ -133,8 +136,11 @@ def new_conversation(
         .first()
     )
     if not agent:
-        print(f"Agent '{agent_name}' not found in the database.")
-        return
+        global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+        agent = Agent(name=agent_name, user_id=global_user.id)
+        if not agent:
+            print(f"Agent '{agent_name}' not found in the database.")
+            return
     if not existing_conversation:
         # Create a new conversation
         conversation = Conversation(name=conversation_name, user_id=user_id)
@@ -164,8 +170,11 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
         .first()
     )
     if not agent:
-        print(f"Agent '{agent_name}' not found in the database.")
-        return
+        global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+        agent = Agent(name=agent_name, user_id=global_user.id)
+        if not agent:
+            print(f"Agent '{agent_name}' not found in the database.")
+            return
 
     conversation = (
         session.query(Conversation)
