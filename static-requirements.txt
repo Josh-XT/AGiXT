@@ -9,7 +9,6 @@ playwright==1.40.0
 pandas==2.1.4
 PyYAML==6.0.1
 requests==2.31.0
-protobuf==3.20.*
 uvicorn==0.24.0.post1
 python-dotenv==1.0.0
 ffmpeg==1.4
