@@ -291,7 +291,6 @@ def import_conversations(user=DEFAULT_USER):
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
     conversations = get_conversations(user=user)
-    print(f"Conversations: {conversations}")
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
         if "interactions" in conversation:
@@ -380,11 +379,16 @@ def import_all_data():
         session.add(user)
         session.commit()
         print("Default user created.")
-        print("Importing data...")
+        print("Importing providers...")
         import_providers()
+        print("Importing extensions...")
         import_extensions()
+        print("Importing prompts...")
         import_prompts()
+        print("Importing agents...")
         import_agents()
+        print("Importing chains...")
         import_chains()  # Partially works
+        print("Importing conversations...")
         import_conversations()
-        print("Import complete.")
+        print("Imports complete.")
