@@ -1,5 +1,4 @@
 import os
-import yaml
 import json
 import logging
 from DBConnection import (
@@ -23,50 +22,16 @@ from fb.History import get_conversation, get_conversations
 
 
 def import_agents(user="USER"):
-    session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
-    user_id = user_data.id
-    agent_folder = "agents"
+    logging.info("Importing agents...")
     agents = [
         f.name
-        for f in os.scandir(agent_folder)
+        for f in os.scandir("agents")
         if f.is_dir() and not f.name.startswith("__")
     ]
-    existing_agents = session.query(Agent).filter(Agent.user_id == user_id).all()
-    existing_agent_names = [agent.name for agent in existing_agents]
-
     for agent_name in agents:
-        agent = session.query(Agent).filter_by(name=agent_name, user_id=user_id).first()
-        if agent:
-            print(f"Updating agent: {agent_name}")
-        else:
-            # Get the agent config from agents/agent_name/config.json
-            agent_config_file = os.path.join(agent_folder, agent_name, "config.json")
-            if not os.path.exists(agent_config_file):
-                print(f"Agent '{agent_name}' config not found.")
-                continue
-            with open(agent_config_file, "r") as f:
-                agent_config = json.load(f)
-            agent_settings = agent_config.get("settings", {"provider": "gpt4free"})
-            provider_name = agent_settings["provider"]
-            provider = (
-                session.query(Provider).filter_by(name=provider_name).one_or_none()
-            )
-            if not provider:
-                print(f"Provider '{provider_name}' not found.")
-                continue
-            agent = Agent(
-                name=agent_name,
-                user_id=user_id,
-                provider_id=provider.id,
-            )
-            session.add(agent)
-            session.flush()  # Save the agent object to generate an ID
-            existing_agent_names.append(agent_name)
-            print(f"Adding agent: {agent_name}")
-            session.commit()
-        import_agent_config(agent_name)
-    session.commit()
+        logging.info(f"Importing agent: {agent_name}")
+        import_agent_config(agent_name=agent_name, user=user)
+    logging.info("Agent import complete.")
 
 
 def import_extensions():

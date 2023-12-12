@@ -136,12 +136,15 @@ def import_agent_config(agent_name, user="USER"):
         .first()
     )
 
-    if not agent:
-        print(f"Agent '{agent_name}' does not exist in the database.")
+    if agent:
+        print(f"Agent '{agent_name}' already exists in the database.")
         return
 
     # Get the provider ID based on the provider name in the config
-    provider_name = config["settings"]["provider"]
+    try:
+        provider_name = config["settings"]["provider"]
+    except:
+        provider_name = "gpt4free"
     provider = session.query(ProviderModel).filter_by(name=provider_name).first()
 
     if not provider:
