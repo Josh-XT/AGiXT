@@ -464,34 +464,6 @@ class Memories:
                 )
         return context
 
-    # Answer a question with context injected, return in sharegpt format
-    async def agent_qa(self, question: str = "", context_results: int = 10):
-        context = await self.get_context(user_input=question, limit=context_results)
-        answer = await self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Answer Question with Memory",
-            prompt_args={
-                "prompt_category": "Default",
-                "user_input": question,
-                "context_results": context_results,
-            },
-        )
-        # Create a memory with question and answer
-        self.collection_number = 0
-        await self.write_text_to_memory(
-            user_input=question,
-            text=answer,
-            external_source="Synthetic QA",
-        )
-        qa = [
-            {
-                "from": "human",
-                "value": f"### Context\n{context}\n### Question\n{question}",
-            },
-            {"from": "gpt", "value": answer},
-        ]
-        return qa
-
     async def batch_prompt(
         self,
         user_inputs: List[str] = [],
@@ -528,6 +500,34 @@ class Memories:
             tasks.append(task)
         responses += await asyncio.gather(**tasks)
         return responses
+
+    # Answer a question with context injected, return in sharegpt format
+    async def agent_qa(self, question: str = "", context_results: int = 10):
+        context = await self.get_context(user_input=question, limit=context_results)
+        answer = await self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Answer Question with Memory",
+            prompt_args={
+                "prompt_category": "Default",
+                "user_input": question,
+                "context_results": context_results,
+            },
+        )
+        # Create a memory with question and answer
+        self.collection_number = 0
+        await self.write_text_to_memory(
+            user_input=question,
+            text=answer,
+            external_source="Synthetic QA",
+        )
+        qa = [
+            {
+                "from": "human",
+                "value": f"### Context\n{context}\n### Question\n{question}",
+            },
+            {"from": "gpt", "value": answer},
+        ]
+        return qa
 
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(
