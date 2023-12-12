@@ -16,10 +16,10 @@ from DBConnection import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Defaults import DEFAULT_SETTINGS
+from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
 
 
-def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
+def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
@@ -60,7 +60,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
     return {"message": f"Agent {agent_name} created."}
 
 
-def delete_agent(agent_name, user="USER"):
+def delete_agent(agent_name, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -105,7 +105,7 @@ def delete_agent(agent_name, user="USER"):
     return {"message": f"Agent {agent_name} deleted."}, 200
 
 
-def rename_agent(agent_name, new_name, user="USER"):
+def rename_agent(agent_name, new_name, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -123,7 +123,7 @@ def rename_agent(agent_name, new_name, user="USER"):
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
-def get_agents(user="USER"):
+def get_agents(user=DEFAULT_USER):
     session = get_session()
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
@@ -135,7 +135,7 @@ def get_agents(user="USER"):
 
 
 class Agent:
-    def __init__(self, agent_name=None, user="USER", ApiClient=None):
+    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.session = get_session()
         self.user = user

@@ -18,11 +18,7 @@ from DBConnection import (
 from Providers import get_providers, get_provider_options
 from db.Agent import add_agent
 from fb.History import get_conversation, get_conversations
-from dotenv import load_dotenv
-
-load_dotenv()
-
-DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
+from Defaults import DEFAULT_USER
 
 
 def import_agents(user=DEFAULT_USER):
@@ -380,8 +376,8 @@ def import_all_data():
     user_count = session.query(User).count()
     if user_count == 0:
         # Create the default user
-        logging.info("Creating default user...")
-        user = User(email=DEFAULT_USER)
+        logging.info("Creating default admin user...")
+        user = User(email=DEFAULT_USER, role="admin")
         session.add(user)
         session.commit()
         logging.info("Default user created.")
