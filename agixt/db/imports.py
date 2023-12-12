@@ -7,7 +7,6 @@ from DBConnection import (
     ProviderSetting,
     Conversation,
     Message,
-    Agent,
     Prompt,
     PromptCategory,
     Argument,
@@ -17,11 +16,16 @@ from DBConnection import (
     User,
 )
 from Providers import get_providers, get_provider_options
-from db.Agent import import_agent_config
+from db.Agent import add_agent
 from fb.History import get_conversation, get_conversations
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 
 
-def import_agents(user="USER"):
+def import_agents(user=DEFAULT_USER):
     logging.info("Importing agents...")
     agents = [
         f.name
@@ -30,7 +34,15 @@ def import_agents(user="USER"):
     ]
     for agent_name in agents:
         logging.info(f"Importing agent: {agent_name}")
-        import_agent_config(agent_name=agent_name, user=user)
+        config_path = f"agents/{agent_name}/config.json"
+        with open(config_path) as f:
+            config = json.load(f)
+        add_agent(
+            agent_name=agent_name,
+            provider_settings=config["settings"],
+            commands=config["commands"],
+            user=user,
+        )
     logging.info("Agent import complete.")
 
 
@@ -163,7 +175,7 @@ def import_extensions():
     session.commit()
 
 
-def import_chains(user="USER"):
+def import_chains(user=DEFAULT_USER):
     chain_dir = os.path.abspath("chains")
     chain_files = [
         file
@@ -191,7 +203,7 @@ def import_chains(user="USER"):
                 print(f"Error importing chain from '{file}': {str(e)}")
 
 
-def import_prompts(user="USER"):
+def import_prompts(user=DEFAULT_USER):
     session = get_session()
     # Add default category if it doesn't exist
     user_data = session.query(User).filter(User.email == user).first()
@@ -279,7 +291,7 @@ def import_prompts(user="USER"):
                 print(f"Adding prompt argument: {arg} for {prompt_name}")
 
 
-def import_conversations(user="USER"):
+def import_conversations(user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -369,15 +381,15 @@ def import_all_data():
     if user_count == 0:
         # Create the default user
         logging.info("Creating default user...")
-        user = User(email="USER")
+        user = User(email=DEFAULT_USER)
         session.add(user)
         session.commit()
         logging.info("Default user created.")
         logging.info("Importing data...")
-        import_providers()  # Works
-        import_extensions()  # Works
-        import_prompts()  # Works
-        import_agents()  # Does not work
-        import_chains()  # Partially works, chains
-        import_conversations()  # Works
+        import_providers()
+        import_extensions()
+        import_prompts()
+        import_agents()
+        import_chains()  # Partially works
+        import_conversations()
         logging.info("Import complete.")

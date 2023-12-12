@@ -8,6 +8,7 @@ load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
 USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
 # Defining these here to be referenced externally.
 if DB_CONNECTED:
@@ -42,32 +43,32 @@ def verify_api_key(authorization: str = Header(None)):
             raise HTTPException(
                 status_code=401, detail="Authorization header is missing"
             )
-        try:
+        if USING_JWT:
             scheme, _, api_key = authorization.partition(" ")
             if scheme.lower() != "bearer":
                 raise HTTPException(
                     status_code=401, detail="Invalid authentication scheme"
                 )
-            if USING_JWT:
+            try:
                 token = jwt.decode(
                     jwt=api_key,
                     key=AGIXT_API_KEY,
                     algorithms=["HS256"],
                 )
                 return token["email"]
-            else:
+            except Exception as e:
                 if api_key != AGIXT_API_KEY:
                     raise HTTPException(status_code=401, detail="Invalid API Key")
-                return "USER"
-        except Exception as e:
+                return DEFAULT_USER
+        if authorization != AGIXT_API_KEY:
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
-        return "USER"
+        return DEFAULT_USER
 
 
 def get_api_client(authorization: str = Header(None)):
     try:
         scheme, _, api_key = authorization.partition(" ")
     except:
-        api_key = None
+        api_key = authorization
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=api_key)

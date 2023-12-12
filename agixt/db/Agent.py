@@ -134,23 +134,6 @@ def get_agents(user="USER"):
     return output
 
 
-def import_agent_config(agent_name, user="USER"):
-    config_path = f"agents/{agent_name}/config.json"
-
-    # Load the config JSON file
-    with open(config_path) as f:
-        config = json.load(f)
-
-    add_agent(
-        agent_name=agent_name,
-        provider_settings=config["settings"],
-        commands=config["commands"],
-        user=user,
-    )
-
-    print(f"Agent config imported successfully for agent: {agent_name}")
-
-
 class Agent:
     def __init__(self, agent_name=None, user="USER", ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
