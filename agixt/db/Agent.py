@@ -25,23 +25,36 @@ def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
         return {"message": "Agent name cannot be empty."}
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    agent = AgentModel(name=agent_name, user_id=user_id)
-    session.add(agent)
-    session.commit()
 
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
-
-    settings = {
-        "commands": commands,
-        "settings": provider_settings,
-    }
-    agent_setting = AgentSettingModel(
-        agent_id=agent.id,
-        name="config",
-        value=json.dumps(settings),
+    if commands is None or commands == "" or commands == {}:
+        commands = {}
+    # Get provider ID based on provider name from provider_settings["provider"]
+    provider = (
+        session.query(ProviderModel)
+        .filter_by(name=provider_settings["provider"])
+        .first()
     )
-    session.add(agent_setting)
+    agent = AgentModel(name=agent_name, user_id=user_id, provider_id=provider.id)
+    session.add(agent)
+    session.commit()
+
+    for key, value in provider_settings.items():
+        agent_setting = AgentSettingModel(
+            agent_id=agent.id,
+            name=key,
+            value=value,
+        )
+        session.add(agent_setting)
+    if commands:
+        for command_name, enabled in commands.items():
+            command = session.query(Command).filter_by(name=command_name).first()
+            if command:
+                agent_command = AgentCommand(
+                    agent_id=agent.id, command_id=command.id, state=enabled
+                )
+                session.add(agent_command)
     session.commit()
 
     return {"message": f"Agent {agent_name} created."}
@@ -122,80 +135,19 @@ def get_agents(user="USER"):
 
 
 def import_agent_config(agent_name, user="USER"):
-    session = get_session()
     config_path = f"agents/{agent_name}/config.json"
 
     # Load the config JSON file
     with open(config_path) as f:
         config = json.load(f)
 
-    # Get the agent from the database
-    agent = (
-        session.query(AgentModel)
-        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
-        .first()
+    add_agent(
+        agent_name=agent_name,
+        provider_settings=config["settings"],
+        commands=config["commands"],
+        user=user,
     )
 
-    if agent:
-        print(f"Agent '{agent_name}' already exists in the database.")
-        return
-
-    # Get the provider ID based on the provider name in the config
-    try:
-        provider_name = config["settings"]["provider"]
-    except:
-        provider_name = "gpt4free"
-    provider = session.query(ProviderModel).filter_by(name=provider_name).first()
-
-    if not provider:
-        print(f"Provider '{provider_name}' does not exist in the database.")
-        return
-
-    # Import agent commands
-    commands = config.get("commands", {})
-    for command_name, enabled in commands.items():
-        command = session.query(Command).filter_by(name=command_name).first()
-        if command:
-            agent_command = AgentCommand(
-                agent_id=agent.id, command_id=command.id, state=enabled
-            )
-            session.add(agent_command)
-
-    # Import agent settings
-    settings = config.get("settings", {})
-    for setting_name, setting_value in settings.items():
-        if provider.id:
-            provider_setting = (
-                session.query(ProviderSetting)
-                .filter_by(provider_id=provider.id, name=setting_name)
-                .first()
-            )
-            if provider_setting:
-                agent_provider = (
-                    session.query(AgentProvider)
-                    .filter_by(provider_id=provider.id, agent_id=agent.id)
-                    .first()
-                )
-                if not agent_provider:
-                    agent_provider = AgentProvider(
-                        provider_id=provider.id, agent_id=agent.id
-                    )
-                    session.add(agent_provider)
-                    session.flush()  # Save the agent_provider object to generate an ID
-                if setting_value:
-                    agent_provider_setting = AgentProviderSetting(
-                        provider_setting_id=provider_setting.id,
-                        agent_provider_id=provider.id,
-                        value=setting_value,
-                    )
-                    session.add(agent_provider_setting)
-            else:
-                if setting_value:
-                    agent_setting = AgentSettingModel(
-                        agent_id=agent.id, name=setting_name, value=setting_value
-                    )
-                    session.add(agent_setting)
-    session.commit()
     print(f"Agent config imported successfully for agent: {agent_name}")
 
 
