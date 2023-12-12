@@ -23,7 +23,7 @@ class ClaudeProvider:
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-2"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - int(tokens)
         try:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)

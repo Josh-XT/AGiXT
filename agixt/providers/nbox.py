@@ -15,7 +15,7 @@ class NboxProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4085
         self.AI_MODEL = AI_MODEL.lower() if AI_MODEL else "llama-2-chat-70b-4k"
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         max_new_tokens = int(self.MAX_TOKENS) - tokens
         if max_new_tokens < 0:
             raise Exception(f"Max tokens exceeded: {max_new_tokens}")

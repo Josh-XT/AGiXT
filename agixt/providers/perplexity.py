@@ -353,7 +353,7 @@ class PerplexityProvider:
                     print("Account successfully created")
                 self.exec_nb = 1
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         self.exec_nb += 1
         if self.perplexity_cli is None:
             self.load_account()
@@ -375,7 +375,7 @@ if __name__ == "__main__":
 
     async def run_test():
         global response
-        response = await perplexity.instruct(
+        response = await perplexity.inference(
             "Tell me what's going on in the world today?"
         )
         print(response)

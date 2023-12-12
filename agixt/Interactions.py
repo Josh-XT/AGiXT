@@ -465,7 +465,7 @@ class Interactions:
             user=self.user,
         )
         try:
-            self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
+            self.response = await self.agent.inference(formatted_prompt, tokens=tokens)
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""

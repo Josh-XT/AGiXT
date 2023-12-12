@@ -148,10 +148,10 @@ class Agent:
             ).get_available_commands()
             self.clean_agent_config_commands()
 
-    async def instruct(self, prompt, tokens):
+    async def inference(self, prompt, tokens):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
+        answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
         return answer
 
     def _load_agent_config_keys(self, keys):

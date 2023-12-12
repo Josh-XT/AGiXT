@@ -65,7 +65,7 @@ class RunpodProvider:
         self.API_KEY = API_KEY
         self.requirements = []
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         headers = {"Authorization": f"Bearer {self.API_KEY}"}
         new_tokens = int(self.MAX_TOKENS) - tokens
 

@@ -80,7 +80,7 @@ class HuggingfaceProvider:
         if content_type == "application/json":
             return response.json()
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         result = self.request(
             prompt,
             temperature=self.AI_TEMPERATURE,
@@ -101,13 +101,13 @@ if __name__ == "__main__":
     import asyncio
 
     async def run_test():
-        response = await HuggingfaceProvider().instruct(
+        response = await HuggingfaceProvider().inference(
             "<|system|>\n<|end|>\n<|user|>\nHello<|end|>\n<|assistant|>\n"
         )
         print(f"Test: {response}")
         response = await HuggingfaceProvider(
             "OpenAssistant/oasst-sft-4-pythia-12b-epoch-3.5", stop=["<|endoftext|>"]
-        ).instruct("<|prompter|>Hello<|endoftext|><|assistant|>")
+        ).inference("<|prompter|>Hello<|endoftext|><|assistant|>")
         print(f"Test2: {response}")
 
     asyncio.run(run_test())

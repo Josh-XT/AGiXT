@@ -20,7 +20,7 @@ class KoboldProvider:
         self.PROMPT_PREFIX = PROMPT_PREFIX if PROMPT_PREFIX else ""
         self.PROMPT_SUFFIX = PROMPT_SUFFIX if PROMPT_SUFFIX else ""
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         try:
             max_tokens = int(self.MAX_TOKENS - tokens)

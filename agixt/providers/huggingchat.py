@@ -48,7 +48,7 @@ class HuggingchatProvider:
         if self.MODEL_PATH:
             self.session.switch_llm(self.MODELS.index(self.MODEL_PATH))
 
-    async def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def inference(self, prompt: str, tokens: int = 0) -> str:
         for result in self(
             prompt,
             temperature=self.AI_TEMPERATURE,
