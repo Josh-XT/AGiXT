@@ -1,4 +1,3 @@
-import json
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
@@ -131,6 +130,12 @@ def get_agents(user=DEFAULT_USER):
     for agent in agents:
         output.append({"name": agent.name, "status": False})
 
+    # Get global agents that belong to DEFAULT_USER
+    global_agents = (
+        session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
+    )
+    for agent in global_agents:
+        output.append({"name": agent.name, "status": False})
     return output
 
 
@@ -177,6 +182,20 @@ class Agent:
             )
             .first()
         )
+        if not agent:
+            # Check if it is a global agent
+            global_user = (
+                self.session.query(User).filter(User.email == DEFAULT_USER).first()
+            )
+            agent = (
+                self.session.query(AgentModel)
+                .filter(
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == global_user.id,
+                )
+                .first()
+            )
+
         config = {"settings": {}, "commands": {}}
         if agent:
             all_commands = self.session.query(Command).all()
