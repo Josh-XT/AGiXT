@@ -21,14 +21,12 @@ from Defaults import DEFAULT_USER
 
 
 def import_agents(user=DEFAULT_USER):
-    print("Importing agents...")
     agents = [
         f.name
         for f in os.scandir("agents")
         if f.is_dir() and not f.name.startswith("__")
     ]
     for agent_name in agents:
-        print(f"Importing agent: {agent_name}")
         config_path = f"agents/{agent_name}/config.json"
         with open(config_path) as f:
             config = json.load(f)
@@ -38,7 +36,7 @@ def import_agents(user=DEFAULT_USER):
             commands=config["commands"],
             user=user,
         )
-    print("Agent import complete.")
+        print(f"Imported agent: {agent_name}")
 
 
 def import_extensions():
@@ -107,7 +105,7 @@ def import_extensions():
                 session.add(command)
                 session.flush()
                 existing_commands.append(command)
-                print(f"Adding command: {command_name}")
+                print(f"Imported command: {command_name}")
 
             # Add command arguments
             if "command_args" in command_data:
@@ -124,7 +122,7 @@ def import_extensions():
                         name=arg,
                     )
                     session.add(command_arg)
-                    print(f"Adding argument: {arg} to command: {command_name}")
+                    print(f"Imported argument: {arg} to command: {command_name}")
 
     session.commit()
 
@@ -136,7 +134,7 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            print(f"Adding extension: {extension_name}")
+            print(f"Imported extension: {extension_name}")
 
     session.commit()
 
@@ -165,7 +163,9 @@ def import_extensions():
                     value=setting_value,
                 )
                 session.add(setting)
-                print(f"Adding setting: {setting_name} for extension: {extension_name}")
+                print(
+                    f"Imported setting: {setting_name} for extension: {extension_name}"
+                )
 
     session.commit()
 
@@ -213,7 +213,7 @@ def import_prompts(user=DEFAULT_USER):
         )
         session.add(default_category)
         session.commit()
-        print("Adding Default prompt category")
+        print("Imported Default prompt category")
 
     # Get all prompt files in the specified folder
     for root, dirs, files in os.walk("prompts"):
@@ -267,7 +267,7 @@ def import_prompts(user=DEFAULT_USER):
                 )
                 session.add(prompt)
                 session.commit()
-                print(f"Adding prompt: {prompt_name}")
+                print(f"Imported prompt: {prompt_name}")
 
             # Populate prompt arguments
             for arg in prompt_args:
@@ -283,7 +283,7 @@ def import_prompts(user=DEFAULT_USER):
                 )
                 session.add(argument)
                 session.commit()
-                print(f"Adding prompt argument: {arg} for {prompt_name}")
+                print(f"Imported prompt argument: {arg} for {prompt_name}")
 
 
 def import_conversations(user=DEFAULT_USER):
@@ -295,7 +295,6 @@ def import_conversations(user=DEFAULT_USER):
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
         if "interactions" in conversation:
-            print(f"Importing conversation: {conversation_name}")
             for interaction in conversation["interactions"]:
                 agent_name = interaction["role"]
                 message = interaction["message"]
@@ -321,6 +320,7 @@ def import_conversations(user=DEFAULT_USER):
                 )
                 session.add(message)
                 session.commit()
+            print(f"Imported conversation: {conversation_name}")
 
 
 def import_providers():
@@ -343,7 +343,7 @@ def import_providers():
             provider = Provider(name=provider_name)
             session.add(provider)
             existing_provider_names.append(provider_name)
-            print(f"Adding provider: {provider_name}")
+            print(f"Imported provider: {provider_name}")
             session.commit()
 
         for option_name, option_value in provider_options.items():
@@ -365,7 +365,7 @@ def import_providers():
                 )
                 session.add(provider_setting)
                 print(
-                    f"Adding provider setting: {option_name} for provider: {provider_name}"
+                    f"Imported provider setting: {option_name} for provider: {provider_name}"
                 )
     session.commit()
 
