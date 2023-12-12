@@ -26,7 +26,7 @@ class PalmProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4000
         palm.configure(api_key=self.PALM_API_KEY)
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         new_max_tokens = int(self.MAX_TOKENS) - tokens
         completion = palm.generate_text(
             model="models/text-bison-001",

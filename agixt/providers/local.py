@@ -19,7 +19,7 @@ class LocalProvider:
     def models(self):
         return LLM().models()
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         models_dir = os.path.join(os.getcwd(), "models")
         try:
             response = LLM(

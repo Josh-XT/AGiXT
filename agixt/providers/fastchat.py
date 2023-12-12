@@ -17,7 +17,7 @@ class FastchatProvider:
         self.MODEL_PATH = MODEL_PATH
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 2048
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         messages = [{"role": "system", "content": prompt}]
         params = {"model": self.MODEL_PATH, "messages": messages}
         response = requests.post(

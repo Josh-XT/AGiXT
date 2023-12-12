@@ -14,7 +14,7 @@ class BardProvider:
         self.AI_MODEL = "bard"
         self.BARD_TOKEN = BARD_TOKEN
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         try:
             response = Bard(token=self.BARD_TOKEN).get_answer(input_text=prompt)
             return response["content"].replace("\n", "\n")

@@ -50,7 +50,7 @@ class OpenaiProvider:
                 openai.api_base = self.API_URI
                 break
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
             if self.API_URI == "https://api.openai.com/v1":
                 return (
@@ -84,5 +84,5 @@ class OpenaiProvider:
                 self.rotate_uri()
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.instruct(prompt=prompt, tokens=tokens)
+                return await self.inference(prompt=prompt, tokens=tokens)
             return str(response)

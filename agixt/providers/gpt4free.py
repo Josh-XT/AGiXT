@@ -31,7 +31,7 @@ class Gpt4freeProvider:
         )
         self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
 
-    async def instruct(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         max_new_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     async def run_test():
         petal = Gpt4freeProvider()
         start = time.time()
-        response = await petal.instruct("What is the meaning of life?")
+        response = await petal.inference("What is the meaning of life?")
         print(response)
         print(f"{round(time.time()-start, 2)} secs")
 

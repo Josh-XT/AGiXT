@@ -38,7 +38,7 @@ class AzureProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
 
-    async def instruct(self, prompt: str, tokens: int = 0) -> str:
+    async def inference(self, prompt: str, tokens: int = 0) -> str:
         num_retries = 3
         messages = [{"role": "system", "content": prompt}]
         for _ in range(num_retries):

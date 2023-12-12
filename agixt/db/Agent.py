@@ -226,10 +226,10 @@ class Agent:
             return config
         return {"settings": DEFAULT_SETTINGS, "commands": {}}
 
-    async def instruct(self, prompt, tokens):
+    async def inference(self, prompt, tokens):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
+        answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
         return answer
 
     def get_commands_string(self):
