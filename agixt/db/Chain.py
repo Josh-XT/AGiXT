@@ -555,7 +555,7 @@ class Chain:
                 self.session.add(chain_step_argument)
                 self.session.commit()
 
-        return f"Imported chain: '{chain_name}'"
+        return f"Imported chain: {chain_name}"
 
     def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
         if isinstance(prompt_content, dict):
