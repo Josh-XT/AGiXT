@@ -141,6 +141,7 @@ class voice_chat(Extensions):
         self,
         base64_audio,
         context_results=10,
+        tts=False,
     ):
         # Convert from M4A to WAV
         filename = "recording.wav"
@@ -168,12 +169,14 @@ class voice_chat(Extensions):
             },
         )
         logging.info(f"[Whisper]: Text Response from LLM: {text_response}")
-        # Get the audio response from the TTS engine and return it.
-        audio_response = self.ApiClient.execute_command(
-            agent_name=self.agent_name,
-            command_name=self.tts_command,
-            command_args={"text": text_response},
-        )
-        logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
-        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
-        return f"{audio_response}"
+        if str(tts).lower() == "true":
+            # Get the audio response from the TTS engine and return it.
+            audio_response = self.ApiClient.execute_command(
+                agent_name=self.agent_name,
+                command_name=self.tts_command,
+                command_args={"text": text_response},
+            )
+            logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
+            os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+            return f"{audio_response}"
+        return f"{text_response}"
