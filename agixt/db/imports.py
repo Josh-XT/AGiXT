@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 from DBConnection import (
     get_session,
     Provider,
@@ -22,14 +21,14 @@ from Defaults import DEFAULT_USER
 
 
 def import_agents(user=DEFAULT_USER):
-    logging.info("Importing agents...")
+    print("Importing agents...")
     agents = [
         f.name
         for f in os.scandir("agents")
         if f.is_dir() and not f.name.startswith("__")
     ]
     for agent_name in agents:
-        logging.info(f"Importing agent: {agent_name}")
+        print(f"Importing agent: {agent_name}")
         config_path = f"agents/{agent_name}/config.json"
         with open(config_path) as f:
             config = json.load(f)
@@ -39,7 +38,7 @@ def import_agents(user=DEFAULT_USER):
             commands=config["commands"],
             user=user,
         )
-    logging.info("Agent import complete.")
+    print("Agent import complete.")
 
 
 def import_extensions():
@@ -376,16 +375,16 @@ def import_all_data():
     user_count = session.query(User).count()
     if user_count == 0:
         # Create the default user
-        logging.info("Creating default admin user...")
+        print("Creating default admin user...")
         user = User(email=DEFAULT_USER, role="admin")
         session.add(user)
         session.commit()
-        logging.info("Default user created.")
-        logging.info("Importing data...")
+        print("Default user created.")
+        print("Importing data...")
         import_providers()
         import_extensions()
         import_prompts()
         import_agents()
         import_chains()  # Partially works
         import_conversations()
-        logging.info("Import complete.")
+        print("Import complete.")
