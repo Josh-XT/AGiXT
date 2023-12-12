@@ -151,19 +151,15 @@ def import_agent_config(agent_name, user="USER"):
         print(f"Provider '{provider_name}' does not exist in the database.")
         return
 
-    # Update the agent's provider_id
-    agent.provider_id = provider.id
-
     # Import agent commands
     commands = config.get("commands", {})
     for command_name, enabled in commands.items():
-        if enabled:
-            command = session.query(Command).filter_by(name=command_name).first()
-            if command:
-                agent_command = AgentCommand(
-                    agent_id=agent.id, command_id=command.id, state=True
-                )
-                session.add(agent_command)
+        command = session.query(Command).filter_by(name=command_name).first()
+        if command:
+            agent_command = AgentCommand(
+                agent_id=agent.id, command_id=command.id, state=enabled
+            )
+            session.add(agent_command)
 
     # Import agent settings
     settings = config.get("settings", {})
@@ -189,7 +185,7 @@ def import_agent_config(agent_name, user="USER"):
                 if setting_value:
                     agent_provider_setting = AgentProviderSetting(
                         provider_setting_id=provider_setting.id,
-                        agent_provider_id=agent_provider.id,
+                        agent_provider_id=provider.id,
                         value=setting_value,
                     )
                     session.add(agent_provider_setting)
