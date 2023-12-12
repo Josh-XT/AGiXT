@@ -1,4 +1,5 @@
 from ApiClient import log_interaction
+from Defaults import DEFAULT_USER
 from Extensions import Extensions
 import logging
 import os
@@ -48,6 +49,7 @@ class voice_chat(Extensions):
             self.agent_name = kwargs["agent_name"]
         else:
             self.agent_name = "gpt4free"
+        self.user = kwargs["user"] if "user" in kwargs else DEFAULT_USER
         self.voice_prompt = "Custom Input"
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
@@ -153,7 +155,7 @@ class voice_chat(Extensions):
             conversation_name=self.conversation_name,
             role="USER",
             message=user_message,
-            user="USER",
+            user=self.user,
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
         # Send the transcribed text to the agent.

@@ -1,8 +1,9 @@
 from DBConnection import Prompt, PromptCategory, Argument, User, get_session
+from Defaults import DEFAULT_USER
 
 
 class Prompts:
-    def __init__(self, user="USER"):
+    def __init__(self, user=DEFAULT_USER):
         self.session = get_session()
         self.user = user
         user_data = self.session.query(User).filter(User.email == self.user).first()
@@ -50,7 +51,7 @@ class Prompts:
         self.session.commit()
 
     def get_prompt(self, prompt_name, prompt_category="Default"):
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         prompt = (
             self.session.query(Prompt)
             .filter(
@@ -97,7 +98,7 @@ class Prompts:
         return None
 
     def get_prompts(self, prompt_category="Default"):
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         global_prompts = (
             self.session.query(Prompt)
             .filter(
@@ -226,7 +227,7 @@ class Prompts:
             self.session.commit()
 
     def get_prompt_categories(self):
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         global_prompt_categories = (
             self.session.query(PromptCategory)
             .filter(PromptCategory.user_id == user_data.id)

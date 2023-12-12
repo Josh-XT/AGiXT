@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 if DB_CONNECTED:
     DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
     DATABASE_PASSWORD = os.getenv(
@@ -51,8 +52,8 @@ def get_session():
 class User(Base):
     __tablename__ = "user"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, default="USER", unique=True)
-    role = Column(String, default="USER")
+    email = Column(String, default=DEFAULT_USER, unique=True)
+    role = Column(String, default="user")
 
 
 class Provider(Base):

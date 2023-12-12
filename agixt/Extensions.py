@@ -4,6 +4,7 @@ import glob
 from inspect import signature, Parameter
 import logging
 import inspect
+from Defaults import DEFAULT_USER
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,12 +19,14 @@ class Extensions:
         agent_config=None,
         conversation_name="",
         ApiClient=None,
+        user=DEFAULT_USER,
     ):
         self.agent_config = agent_config
         self.agent_name = agent_name if agent_name else "gpt4free"
         self.conversation_name = conversation_name
         self.ApiClient = ApiClient
         self.commands = self.load_commands()
+        self.user = user
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -145,6 +148,7 @@ class Extensions:
 
     async def execute_command(self, command_name: str, command_args: dict = None):
         injection_variables = {
+            "user": self.user,
             "agent_name": self.agent_name,
             "command_name": command_name,
             "conversation_name": self.conversation_name,

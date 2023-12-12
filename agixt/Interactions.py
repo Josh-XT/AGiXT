@@ -17,6 +17,7 @@ from ApiClient import (
     log_interaction,
     get_conversation,
 )
+from Defaults import DEFAULT_USER
 
 
 def get_tokens(text: str) -> int:
@@ -30,7 +31,7 @@ class Interactions:
         self,
         agent_name: str = "",
         collection_number: int = 0,
-        user="USER",
+        user=DEFAULT_USER,
         ApiClient=None,
     ):
         if agent_name != "":
@@ -597,6 +598,8 @@ class Interactions:
                                             agent_name=self.agent_name,
                                             agent_config=self.agent.AGENT_CONFIG,
                                             conversation_name=conversation_name,
+                                            ApiClient=self.ApiClient,
+                                            user=self.user,
                                         )
                                         command_output = await ext.execute_command(
                                             command_name=command_name,

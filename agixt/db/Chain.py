@@ -10,10 +10,11 @@ from DBConnection import (
     Command,
     User,
 )
+from Defaults import DEFAULT_USER
 
 
 class Chain:
-    def __init__(self, user="USER"):
+    def __init__(self, user=DEFAULT_USER):
         self.session = get_session()
         self.user = user
         user_data = self.session.query(User).filter(User.email == self.user).first()
@@ -21,7 +22,7 @@ class Chain:
 
     def get_chain(self, chain_name):
         chain_name = chain_name.replace("%20", " ")
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         chain_db = (
             self.session.query(ChainDB)
             .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
@@ -92,7 +93,7 @@ class Chain:
         return chain_data
 
     def get_chains(self):
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         global_chains = (
             self.session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
         )
@@ -335,7 +336,7 @@ class Chain:
 
     def get_steps(self, chain_name):
         chain_name = chain_name.replace("%20", " ")
-        user_data = self.session.query(User).filter(User.email == "USER").first()
+        user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         chain_db = (
             self.session.query(ChainDB)
             .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)

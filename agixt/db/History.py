@@ -8,9 +8,10 @@ from DBConnection import (
     User,
     get_session,
 )
+from Defaults import DEFAULT_USER
 
 
-def export_conversation(agent_name, conversation_name=None, user="USER"):
+def export_conversation(agent_name, conversation_name=None, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -60,7 +61,7 @@ def export_conversation(agent_name, conversation_name=None, user="USER"):
     print(f"Exported conversation for agent '{agent_name}' to {history_file}.")
 
 
-def get_conversations(agent_name, user="USER"):
+def get_conversations(agent_name, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -75,7 +76,7 @@ def get_conversations(agent_name, user="USER"):
 
 
 def get_conversation(
-    agent_name, conversation_name=None, limit=100, page=1, user="USER"
+    agent_name, conversation_name=None, limit=100, page=1, user=DEFAULT_USER
 ):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -112,7 +113,7 @@ def get_conversation(
 
 
 def new_conversation(
-    agent_name, conversation_name, conversation_content=[], user="USER"
+    agent_name, conversation_name, conversation_content=[], user=DEFAULT_USER
 ):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -153,7 +154,7 @@ def new_conversation(
         )
 
 
-def log_interaction(agent_name, conversation_name, role, message, user="USER"):
+def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -195,7 +196,7 @@ def log_interaction(agent_name, conversation_name, role, message, user="USER"):
     print(f"Logged interaction: [{timestamp}] {role}: {message}")
 
 
-def delete_history(agent_name, conversation_name=None, user="USER"):
+def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -222,7 +223,7 @@ def delete_history(agent_name, conversation_name=None, user="USER"):
     print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
 
 
-def delete_message(message, conversation_name=None, agent_name=None, user="USER"):
+def delete_message(message, conversation_name=None, agent_name=None, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
