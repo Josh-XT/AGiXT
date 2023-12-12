@@ -159,7 +159,10 @@ class Agent:
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         self.available_commands = Extensions(
-            agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
+            agent_name=self.agent_name,
+            agent_config=self.AGENT_CONFIG,
+            ApiClient=ApiClient,
+            user=self.user,
         ).get_available_commands()
 
     def load_config_keys(self):

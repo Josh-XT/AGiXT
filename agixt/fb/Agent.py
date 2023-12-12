@@ -141,7 +141,10 @@ class Agent:
                 self.AUTONOMOUS_EXECUTION = True
             self.commands = self.load_commands()
             self.available_commands = Extensions(
-                agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
+                agent_name=self.agent_name,
+                agent_config=self.AGENT_CONFIG,
+                ApiClient=ApiClient,
+                user=user,
             ).get_available_commands()
             self.clean_agent_config_commands()
 
