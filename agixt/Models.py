@@ -21,6 +21,11 @@ class AgentMemoryQuery(BaseModel):
     min_relevance_score: float = 0.0
 
 
+class Dataset(BaseModel):
+    dataset_name: str
+    batch_size: int = 5
+
+
 class Objective(BaseModel):
     objective: str
 

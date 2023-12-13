@@ -1,7 +1,8 @@
 import os
 import base64
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
-from ApiClient import Agent, verify_api_key, get_api_client
+from ApiClient import Agent, verify_api_key, get_api_client, WORKERS
 from typing import Dict, Any, List
 from readers.github import GithubReader
 from readers.file import FileReader
@@ -15,6 +16,7 @@ from Models import (
     GitHubInput,
     ArxivInput,
     ResponseMessage,
+    Dataset,
 )
 
 app = APIRouter()
@@ -390,4 +392,36 @@ async def delete_agent_memory(
     ).delete_memory(key=memory_id)
     return ResponseMessage(
         message=f"Memory {memory_id} for agent {agent_name} deleted."
+    )
+
+
+# Create dataset
+@app.post(
+    "/api/agent/{agent_name}/memory/dataset",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Create a dataset from the agent's memories",
+)
+async def create_dataset(
+    agent_name: str,
+    dataset: Dataset,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
+    asyncio.create_task(
+        await WebsiteReader(
+            agent_name=agent_name,
+            agent_config=agent.AGENT_CONFIG,
+            collection_number=0,
+            ApiClient=ApiClient,
+        ).create_dataset_from_memories(
+            dataset_name=dataset.dataset_name,
+            batch_size=batch_size,
+        )
+    )
+    return ResponseMessage(
+        message=f"Creation of dataset {dataset.dataset_name} for agent {agent_name} started."
     )
