@@ -142,6 +142,7 @@ class voice_chat(Extensions):
         base64_audio,
         context_results=10,
         tts=False,
+        inject_memories_from_collection_number=0,
     ):
         # Convert from M4A to WAV
         filename = "recording.wav"
@@ -166,6 +167,7 @@ class voice_chat(Extensions):
             prompt_args={
                 "user_input": user_input,
                 "context_results": context_results,
+                "inject_memories_from_collection_number": inject_memories_from_collection_number,
             },
         )
         logging.info(f"[Whisper]: Text Response from LLM: {text_response}")
