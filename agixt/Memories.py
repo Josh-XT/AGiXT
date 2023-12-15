@@ -13,6 +13,7 @@ from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
+from Defaults import DEFAULT_USER
 
 
 if sys.platform == "win32":
@@ -142,9 +143,14 @@ class Memories:
         collection_number: int = 0,
         ApiClient=None,
         summarize_content: bool = False,
+        user=DEFAULT_USER,
     ):
         self.agent_name = agent_name
-        self.collection_name = camel_to_snake(agent_name)
+        if user != DEFAULT_USER:
+            clean_user = camel_to_snake(user.replace("@", "_").replace(".", "_"))
+            self.collection_name = f"{clean_user}_{camel_to_snake(agent_name)}"
+        else:
+            self.collection_name = camel_to_snake(agent_name)
         self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"

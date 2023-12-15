@@ -12,6 +12,7 @@ class ArxivReader(Memories):
         agent_config=None,
         collection_number: int = 0,
         ApiClient=None,
+        user=None,
         **kwargs,
     ):
         super().__init__(
@@ -19,6 +20,7 @@ class ArxivReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
             ApiClient=ApiClient,
+            user=user,
         )
 
     async def write_arxiv_articles_to_memory(
