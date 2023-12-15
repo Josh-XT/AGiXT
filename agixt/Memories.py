@@ -30,8 +30,8 @@ def nlp(text):
     return sp(text)
 
 
-def camel_to_snake(camel_str):
-    camel_str = camel_str.replace(" ", "")
+def camel_to_snake(camel_str: str = ""):
+    camel_str = camel_str.replace(" ", "").replace("@", "_").replace(".", "_")
     snake_str = ""
     for i, char in enumerate(camel_str):
         if char.isupper():
@@ -147,8 +147,9 @@ class Memories:
     ):
         self.agent_name = agent_name
         if user != DEFAULT_USER:
-            clean_user = camel_to_snake(user.replace("@", "_").replace(".", "_"))
-            self.collection_name = f"{clean_user}_{camel_to_snake(agent_name)}"
+            self.collection_name = (
+                f"{camel_to_snake(user)}_{camel_to_snake(agent_name)}"
+            )
         else:
             self.collection_name = camel_to_snake(agent_name)
         self.collection_number = collection_number
