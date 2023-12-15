@@ -57,6 +57,7 @@ class Interactions:
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=int(collection_number),
             ApiClient=ApiClient,
+            user=user,
         )
         self.stop_running_event = None
         self.browsed_links = []
@@ -129,6 +130,7 @@ class Interactions:
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=2,
                     ApiClient=self.ApiClient,
+                    user=self.user,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -139,6 +141,7 @@ class Interactions:
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=3,
                     ApiClient=self.ApiClient,
+                    user=self.user,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -156,6 +159,7 @@ class Interactions:
                         agent_config=self.agent.AGENT_CONFIG,
                         collection_number=1,
                         ApiClient=self.ApiClient,
+                        user=self.user,
                     ).get_memories(
                         user_input=user_input,
                         limit=top_results,
@@ -170,6 +174,7 @@ class Interactions:
                                 kwargs["inject_memories_from_collection_number"]
                             ),
                             ApiClient=self.ApiClient,
+                            user=self.user,
                         ).get_memories(
                             user_input=user_input,
                             limit=top_results,
@@ -270,6 +275,7 @@ class Interactions:
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection=4,
+                user=self.user,
             )
             # import_files should be formatted like [{"file_name": "file_content"}]
             files = []

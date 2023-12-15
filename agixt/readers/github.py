@@ -12,6 +12,7 @@ class GithubReader(Memories):
         collection_number: int = 0,
         use_agent_settings: bool = False,
         ApiClient=None,
+        user=None,
         **kwargs,
     ):
         super().__init__(
@@ -19,9 +20,10 @@ class GithubReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
             ApiClient=ApiClient,
+            user=user,
         )
         self.file_reader = FileReader(
-            agent_name=self.agent_name, agent_config=self.agent_config
+            agent_name=self.agent_name, agent_config=self.agent_config, user=user
         )
         self.use_agent_settings = use_agent_settings
         if (

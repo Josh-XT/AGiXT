@@ -10,6 +10,7 @@ class WebsiteReader(Memories):
         agent_config=None,
         collection_number: int = 0,
         ApiClient=None,
+        user=None,
         **kwargs,
     ):
         super().__init__(
@@ -17,6 +18,7 @@ class WebsiteReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
             ApiClient=ApiClient,
+            user=user,
         )
 
     async def write_website_to_memory(self, url: str):
