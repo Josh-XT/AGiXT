@@ -1,8 +1,13 @@
 import os
 import numpy as np
-from chromadb.utils import embedding_functions
+from chromadb.utils.embedding_functions import (
+    ONNXMiniLM_L6_V2,
+    GoogleVertexEmbeddingFunction,
+)
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from local_llm import LLM
+from typing import Optional
+import openai
 
 
 class LocalLLMEmbedder(EmbeddingFunction):
@@ -23,12 +28,43 @@ class LocalLLMEmbedder(EmbeddingFunction):
         return [result["embedding"] for result in sorted_embeddings]
 
 
+class OpenAIEmbeddingFunction(EmbeddingFunction):
+    def __init__(
+        self,
+        api_key: Optional[str] = "",
+        model_name: str = "text-embedding-ada-002",
+        organization_id: Optional[str] = None,
+        api_base: Optional[str] = None,
+        api_type: Optional[str] = None,
+    ):
+        openai.api_key = api_key
+        if api_base is not None:
+            openai.api_base = api_base
+        if api_type is not None:
+            openai.api_type = api_type
+        if organization_id is not None:
+            openai.organization = organization_id
+        self._client = openai.Embedding
+        self.model_name = model_name
+
+    def __call__(self, texts: Documents) -> Embeddings:
+        texts = [t.replace("\n", " ") for t in texts]
+        try:
+            embeddings = self._client.create(input=texts, model=self.model_name)["data"]
+        except:
+            embeddings = self._client.create(input=texts, engine=self.model_name)[
+                "data"
+            ]
+        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])  # type: ignore
+        return [result["embedding"] for result in sorted_embeddings]
+
+
 class Embedding:
     def __init__(self, agent_settings=None):
         self.agent_settings = (
             agent_settings if agent_settings is not None else {"embedder": "default"}
         )
-        self.default_embedder = embedding_functions.ONNXMiniLM_L6_V2()
+        self.default_embedder = ONNXMiniLM_L6_V2()
         self.default_embedder.DOWNLOAD_PATH = os.getcwd()
         try:
             self.embedder_settings = self.get_embedder_settings()
@@ -98,7 +134,7 @@ class Embedding:
                     "AZURE_DEPLOYMENT_NAME",
                     "AZURE_OPENAI_ENDPOINT",
                 ],
-                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                "embed": OpenAIEmbeddingFunction(
                     api_key=self.agent_settings["AZURE_API_KEY"],
                     organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
                     api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
@@ -112,7 +148,7 @@ class Embedding:
             "openai": {
                 "chunk_size": 1000,
                 "params": ["OPENAI_API_KEY", "API_URI"],
-                "embed": embedding_functions.OpenAIEmbeddingFunction(
+                "embed": OpenAIEmbeddingFunction(
                     api_key=self.agent_settings["OPENAI_API_KEY"],
                     model_name="text-embedding-ada-002"
                     if api_base == "https://api.openai.com/v1"
@@ -127,7 +163,7 @@ class Embedding:
             "google_vertex": {
                 "chunk_size": 1000,
                 "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
-                "embed": embedding_functions.GoogleVertexEmbeddingFunction(
+                "embed": GoogleVertexEmbeddingFunction(
                     api_key=self.agent_settings["GOOGLE_API_KEY"],
                     project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
                 )
