@@ -50,7 +50,6 @@ class voice_chat(Extensions):
         else:
             self.agent_name = "gpt4free"
         self.user = kwargs["user"] if "user" in kwargs else DEFAULT_USER
-        self.voice_prompt = "Custom Input"
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
             if isinstance(kwargs["USE_STREAMLABS_TTS"], bool):
@@ -143,6 +142,7 @@ class voice_chat(Extensions):
         context_results=10,
         tts=False,
         inject_memories_from_collection_number=0,
+        prompt_name="Custom Input",
     ):
         # Convert from M4A to WAV
         filename = "recording.wav"
@@ -163,7 +163,7 @@ class voice_chat(Extensions):
         # Send the transcribed text to the agent.
         text_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name=self.voice_prompt,
+            prompt_name=prompt_name,
             prompt_args={
                 "user_input": user_input,
                 "context_results": context_results,
