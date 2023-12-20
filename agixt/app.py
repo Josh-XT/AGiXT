@@ -36,50 +36,50 @@ try:
 
     app.include_router(agent_endpoints)
 except Exception as e:
-    logging.error(f"Error loading agent endpoints: {e}")
+    logging.info(f"Error loading agent endpoints: {e}")
 try:
     from endpoints.Chain import app as chain_endpoints
 
     app.include_router(chain_endpoints)
 except Exception as e:
-    logging.error(f"Error loading chain endpoints: {e}")
+    logging.info(f"Error loading chain endpoints: {e}")
 try:
     from endpoints.Completions import app as completions_endpoints
 
     app.include_router(completions_endpoints)
 except Exception as e:
-    logging.error(f"Error loading completions endpoints: {e}")
+    logging.info(f"Error loading completions endpoints: {e}")
 try:
     from endpoints.Conversation import app as conversation_endpoints
 
     app.include_router(conversation_endpoints)
 except Exception as e:
-    logging.error(f"Error loading conversation endpoints: {e}")
+    logging.info(f"Error loading conversation endpoints: {e}")
 try:
     from endpoints.Extension import app as extension_endpoints
 
     app.include_router(extension_endpoints)
 except Exception as e:
-    logging.error(f"Error loading extension endpoints: {e}")
+    logging.info(f"Error loading extension endpoints: {e}")
 
 try:
     from endpoints.Memory import app as memory_endpoints
 
     app.include_router(memory_endpoints)
 except Exception as e:
-    logging.error(f"Error loading memory endpoints: {e}")
+    logging.info(f"Error loading memory endpoints: {e}")
 try:
     from endpoints.Prompt import app as prompt_endpoints
 
     app.include_router(prompt_endpoints)
 except Exception as e:
-    logging.error(f"Error loading prompt endpoints: {e}")
+    logging.info(f"Error loading prompt endpoints: {e}")
 try:
     from endpoints.Provider import app as provider_endpoints
 
     app.include_router(provider_endpoints)
 except Exception as e:
-    logging.error(f"Error loading provider endpoints: {e}")
+    logging.info(f"Error loading provider endpoints: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)
