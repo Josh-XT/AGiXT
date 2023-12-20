@@ -3,14 +3,6 @@ import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from endpoints.Agent import app as agent_endpoints
-from endpoints.Chain import app as chain_endpoints
-from endpoints.Completions import app as completions_endpoints
-from endpoints.Conversation import app as conversation_endpoints
-from endpoints.Extension import app as extension_endpoints
-from endpoints.Memory import app as memory_endpoints
-from endpoints.Prompt import app as prompt_endpoints
-from endpoints.Provider import app as provider_endpoints
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -38,14 +30,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(agent_endpoints)
-app.include_router(chain_endpoints)
-app.include_router(completions_endpoints)
-app.include_router(conversation_endpoints)
-app.include_router(extension_endpoints)
-app.include_router(memory_endpoints)
-app.include_router(prompt_endpoints)
-app.include_router(provider_endpoints)
+
+try:
+    from endpoints.Agent import app as agent_endpoints
+
+    app.include_router(agent_endpoints)
+except Exception as e:
+    logging.error(f"Error loading agent endpoints: {e}")
+try:
+    from endpoints.Chain import app as chain_endpoints
+
+    app.include_router(chain_endpoints)
+except Exception as e:
+    logging.error(f"Error loading chain endpoints: {e}")
+try:
+    from endpoints.Completions import app as completions_endpoints
+
+    app.include_router(completions_endpoints)
+except Exception as e:
+    logging.error(f"Error loading completions endpoints: {e}")
+try:
+    from endpoints.Conversation import app as conversation_endpoints
+
+    app.include_router(conversation_endpoints)
+except Exception as e:
+    logging.error(f"Error loading conversation endpoints: {e}")
+try:
+    from endpoints.Extension import app as extension_endpoints
+
+    app.include_router(extension_endpoints)
+except Exception as e:
+    logging.error(f"Error loading extension endpoints: {e}")
+
+try:
+    from endpoints.Memory import app as memory_endpoints
+
+    app.include_router(memory_endpoints)
+except Exception as e:
+    logging.error(f"Error loading memory endpoints: {e}")
+try:
+    from endpoints.Prompt import app as prompt_endpoints
+
+    app.include_router(prompt_endpoints)
+except Exception as e:
+    logging.error(f"Error loading prompt endpoints: {e}")
+try:
+    from endpoints.Provider import app as provider_endpoints
+
+    app.include_router(provider_endpoints)
+except Exception as e:
+    logging.error(f"Error loading provider endpoints: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)
