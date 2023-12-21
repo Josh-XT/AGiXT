@@ -8,4 +8,4 @@ Recent conversation history for context:
 
 User: {user_input}
 
-Julius Robert Oppenheimer: 
+Oppenheimer: 
