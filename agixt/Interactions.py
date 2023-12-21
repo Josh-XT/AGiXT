@@ -238,29 +238,30 @@ class Interactions:
         conversation_history = ""
         if "interactions" in conversation:
             if conversation["interactions"] != []:
-                x = 1
-                for interaction in conversation["interactions"]:
-                    if conversation_results > x:
-                        timestamp = (
-                            interaction["timestamp"]
-                            if "timestamp" in interaction
-                            else ""
-                        )
-                        role = interaction["role"] if "role" in interaction else ""
-                        message = (
-                            interaction["message"] if "message" in interaction else ""
-                        )
-                        # Inject minimal conversation history into the prompt, just enough to give the agent some context.
-                        # Strip code blocks out of the message
-                        message = regex.sub(r"(```.*?```)", "", message)
-                        # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
-                        message = regex.sub(
-                            r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
-                        )
-                        conversation_history += f"{timestamp} {role}: {message} \n "
-                        x += 1
-                    else:
-                        break
+                total_results = len(conversation["interactions"])
+                # Get the last conversation_results interactions from the conversation
+                new_conversation_history = []
+                if total_results > conversation_results:
+                    new_conversation_history = conversation["interactions"][
+                        total_results - conversation_results : total_results
+                    ]
+                else:
+                    new_conversation_history = conversation["interactions"]
+
+                for interaction in new_conversation_history:
+                    timestamp = (
+                        interaction["timestamp"] if "timestamp" in interaction else ""
+                    )
+                    role = interaction["role"] if "role" in interaction else ""
+                    message = interaction["message"] if "message" in interaction else ""
+                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
+                    # Strip code blocks out of the message
+                    message = regex.sub(r"(```.*?```)", "", message)
+                    # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
+                    message = regex.sub(
+                        r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
+                    )
+                    conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:
             if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
