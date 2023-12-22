@@ -69,7 +69,7 @@ class VllmProvider:
                 max_tokens=model_max_tokens,
                 top_p=float(self.AI_TOP_P),
                 n=1,
-                stop=self.STOP_STRING,
+                stop=[self.STOP_STRING],
                 stream=False,
             )
             return response.choices[0].text
