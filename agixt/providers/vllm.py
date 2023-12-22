@@ -23,7 +23,7 @@ class VllmProvider:
         AI_TOP_P: float = 0.9,
         WAIT_BETWEEN_REQUESTS: int = 1,
         WAIT_AFTER_FAILURE: int = 3,
-        PROMPT_PREFIX: str = "[INST]",
+        PROMPT_PREFIX: str = "<s>[INST]",
         PROMPT_SUFFIX: str = "[/INST]",
         STOP_STRING: str = "</s>",
         **kwargs,
