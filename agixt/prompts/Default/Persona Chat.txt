@@ -7,3 +7,5 @@ The current date is {date} .
 {user_input}
 
 **Respond only once as {agent_name}, then wait for the person to respond.**
+
+{agent_name}: 
