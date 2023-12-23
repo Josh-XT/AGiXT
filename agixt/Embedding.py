@@ -90,6 +90,8 @@ class Embedding:
                     self.agent_settings["embedder"] = "openai"
                 elif "provider" == "palm":
                     self.agent_settings["embedder"] = "google_vertex"
+                else:
+                    self.agent_settings["embedder"] = "default"
         try:
             self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
                 "embed"
