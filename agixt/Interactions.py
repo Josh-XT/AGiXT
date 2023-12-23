@@ -384,7 +384,7 @@ class Interactions:
         chain_name: str = "",
         step_number: int = 0,
         shots: int = 1,
-        disable_memory: bool = False,
+        disable_memory: bool = True,
         conversation_name: str = "",
         browse_links: bool = False,
         prompt_category: str = "Default",
