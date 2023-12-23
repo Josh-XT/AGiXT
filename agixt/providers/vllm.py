@@ -1,6 +1,7 @@
 import time
 import logging
 import random
+from providers.gpt4free import Gpt4freeProvider
 
 try:
     import openai
@@ -41,6 +42,7 @@ class VllmProvider:
         openai.api_base = self.API_URI
         openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
+        self.failure_count = 0
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
@@ -68,9 +70,13 @@ class VllmProvider:
             answer = response.choices[0].text
             return answer.lstrip()
         except Exception as e:
+            self.failure_count += 1
             logging.info(f"vLLM API Error: {e}")
             if "," in self.API_URI:
                 self.rotate_uri()
+            if self.failure_count >= 3:
+                logging.info("vLLM failed 3 times, switching to GPT4Free")
+                return await Gpt4freeProvider().inference(prompt=prompt, tokens=tokens)
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens)
