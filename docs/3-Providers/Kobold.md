@@ -1,14 +1,33 @@
 # Kobold
-- [Kobold](https://github.com/KoboldAI/KoboldAI-Client)
+- [KoboldCpp](https://github.com/LostRuins/koboldcpp)
+- [KoboldAI Client](https://github.com/KoboldAI/KoboldAI-Client)
 - [AGiXT](https://github.com/Josh-XT/AGiXT)
 
 ## Quick Start Guide
-_Note: AI_MODEL should stay `default` unless there is a folder in `prompts` specific to the model that you're using. You can also create one and add your own prompts._
+
+_Note: `AI_MODEL` should stay `default` unless there is a folder in `prompts` specific to the model that you're using. You can also create one and add your own prompts._
 
 ### Update your agent settings
 1. Set `AI_MODEL` to `default` or the name of the model from the `prompts` folder.
-2. Set `AI_PROVIDER_URI` to `http://localhost:5050/api/v1`, or the URI of your Kobold server.
-3. If you're running from options 1-3 in the AGiXT installer, localhost would be the incorrect destination for your Kobold instance. You will need to use your local IP for the computer it is hosted on. Keep in mind that in docker, your local machine is not the localhost, it is like a machine within your machine and will have to communicate with your machine over the network by your IP that should be something similar to 192.168.1.xxx.
+2. The default `AI_PROVIDER_URI` is `http://host.docker.internal:5001`. Here, `host.docker.internal` refers to docker's dns, which resolves to the internal IP address address of the host.`5001` is the default port of KoboldCpp. Update this if you're using a different port on localhost or if you need to speicfy a different URI for the Kobold server.
+3. If you encounter issues using `host.docker.internal`, refer to the troubleshooting section.
+
+## Parameters
+Refer to the API documentation for more details. For both KoboldAI and KoboldCpp you can view them locally by adding `/api` at the end of the endpoint url (e.g `localhost:5001/api`).
+
+Here are some key notes and considerations on certain parameters:
+
+- `MAX_CONTEXT_LENGTH`: Defaults to the current configuration from the host if unset.
+- `MAX_LENGTH`: If unset, AGiXT dynamically calculates this by subtracting the tokens sent from `MAX_CONTEXT_LENGTH` to fit within the context window. If `MAX_LENGTH` is greater than or equal to `MAX_CONTEXT_LENGTH`, it defaults to `0`.
+- `STOP_SEQUENCE`: If unset, AGiXT will utilize `PROMPT_PREFIX` and/or `PROMPT_SUFFIX` if available. Avoid enclosing keywords in quotes and be mindful of whitespaces and escaped characters between commas. e.g `<s> , \n</s> ` is interpreted as  `["</s> ", " \n</s> "]`.
+- Parameters such as `"memory"`, `"soft_prompt"`, `"use_authors_note"`, etc., are intentionally excluded as they modify the context window and could lead to unintended results with agents.
+- `"trim_stop"` is omitted as AGiXT automatically applies it to all outputs.
+
+_Note: For any input field, strings are already encapsulated so no need to add `""`_
+
+**Important:** There's a chance that an extra backslash is added to escaped characters (e.g `\n`). If this is the case for you, edit the `config.json` of the agent and manually remove them.
+
+## Troubleshooting
 
 ### Setting the correct host for Koboldcpp
 
