@@ -100,13 +100,13 @@ class Interactions:
         prompt_name = prompt if prompt != "" else "Custom Input"
         try:
             prompt = self.cp.get_prompt(
-                prompt_name=prompt_name,
-                prompt_category=self.agent.AGENT_CONFIG["settings"]["AI_MODEL"]
-                if prompt_category == "Default"
-                else prompt_category,
+                prompt_name=prompt_name, prompt_category=prompt_category
             )
             prompt_args = self.cp.get_prompt_args(prompt_text=prompt)
-        except:
+        except Exception as e:
+            logging.error(
+                f"Error: {self.agent_name} failed to get prompt {prompt_name} from prompt category {prompt_category}. {e}"
+            )
             prompt = prompt_name
             prompt_args = []
         logging.info(f"CONTEXT RESULTS: {top_results}")
