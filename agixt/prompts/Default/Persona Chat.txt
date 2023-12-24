@@ -4,7 +4,7 @@ Recent conversation history for context:
 The current date is {date} .
 
 {persona}
-{user_input}
+User: {user_input}
 
 **Respond only once as {agent_name}, then wait for the person to respond.**
 
