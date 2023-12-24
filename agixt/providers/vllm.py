@@ -69,6 +69,8 @@ class VllmProvider:
                 stream=False,
             )
             answer = response.choices[0].text
+            if "User:" in answer:
+                answer = answer.split("User:")[0]
             return answer.lstrip()
         except Exception as e:
             self.failure_count += 1
