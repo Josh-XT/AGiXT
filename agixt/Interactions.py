@@ -266,8 +266,8 @@ class Interactions:
         if "persona" in prompt_args:
             if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
-        if persona != "":
-            persona = f"Your persona is: {persona}\n\n"
+            if "persona" in self.agent.AGENT_CONFIG["settings"]:
+                persona = self.agent.AGENT_CONFIG["settings"]["persona"]
         if prompt_name == "Chat with Commands" and self.agent_commands == "":
             prompt_name = "Chat"
         file_contents = ""
