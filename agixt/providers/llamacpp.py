@@ -62,7 +62,7 @@ class LlamacppProvider:
             "prompt": prompt,
             "temperature": float(self.AI_TEMPERATURE),
             "top_p": float(self.AI_TOP_P),
-            "stop": self.STOP_SEQUENCE,
+            "stop": [self.STOP_SEQUENCE],
             "seed": random.randint(1, 1000000000),
             "n_predict": int(max_tokens),
             "stream": False,
