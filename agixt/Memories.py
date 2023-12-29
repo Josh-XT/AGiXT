@@ -281,7 +281,7 @@ class Memories:
             response = await self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Summarize Content",
-                prompt_args={"text": chunk},
+                prompt_args={"user_input": chunk},
             )
             summary += response
         return summary
