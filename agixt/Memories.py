@@ -30,23 +30,21 @@ def nlp(text):
     return sp(text)
 
 
-def camel_to_snake(camel_str: str = ""):
-    camel_str = camel_str.replace(" ", "").replace("@", "_").replace(".", "_")
+def snake(_str: str = ""):
+    _str = _str.replace(" ", "").replace("@", "_").replace(".", "_")
     snake_str = ""
-    for i, char in enumerate(camel_str):
+    for i, char in enumerate(_str):
         if char.isupper():
-            if i != 0 and camel_str[i - 1].islower():
+            if i != 0 and _str[i - 1].islower():
                 snake_str += "_"
-            if i != len(camel_str) - 1 and camel_str[i + 1].islower():
+            if i != len(_str) - 1 and _str[i + 1].islower():
                 snake_str += "_"
         snake_str += char.lower()
     snake_str = snake_str.strip("_")
     return snake_str
 
 
-def chroma_compute_similarity_scores(
-    embedding: ndarray, embedding_array: ndarray, logger=None
-) -> ndarray:
+def compute_similarity_scores(embedding: ndarray, embedding_array: ndarray) -> ndarray:
     query_norm = linalg.norm(embedding)
     collection_norm = linalg.norm(embedding_array, axis=1)
     valid_indices = (query_norm != 0) & (collection_norm != 0)
@@ -56,17 +54,8 @@ def chroma_compute_similarity_scores(
         similarity_scores[valid_indices] = embedding.dot(
             embedding_array[valid_indices].T
         ) / (query_norm * collection_norm[valid_indices])
-        if not valid_indices.all() and logger:
-            logger.warning(
-                "Some vectors in the embedding collection are zero vectors."
-                "Ignoring cosine similarity score computation for those vectors."
-            )
     else:
-        raise ValueError(
-            f"Invalid vectors, cannot compute cosine similarity scores"
-            f"for zero vectors"
-            f"{embedding_array} or {embedding}"
-        )
+        raise ValueError(f"Invalid vectors: {embedding_array} or {embedding}")
     return similarity_scores
 
 
@@ -100,6 +89,13 @@ def query_results_to_records(results: "QueryResult"):
 
 
 def get_chroma_client():
+    """
+    To use an external Chroma server, set the following environment variables:
+        CHROMA_HOST: The host of the Chroma server
+        CHROMA_PORT: The port of the Chroma server
+        CHROMA_API_KEY: The API key of the Chroma server
+        CHROMA_SSL: Set to "true" if the Chroma server uses SSL
+    """
     chroma_host = os.environ.get("CHROMA_HOST", None)
     chroma_settings = Settings(
         anonymized_telemetry=False,
@@ -147,11 +143,9 @@ class Memories:
     ):
         self.agent_name = agent_name
         if user != DEFAULT_USER:
-            self.collection_name = (
-                f"{camel_to_snake(user)}_{camel_to_snake(agent_name)}"
-            )
+            self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
-            self.collection_name = camel_to_snake(agent_name)
+            self.collection_name = snake(agent_name)
         self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"
@@ -219,7 +213,7 @@ class Memories:
                 except:
                     collection_number = 0
                 self.collection_number = collection_number
-                self.collection_name = camel_to_snake(self.agent_name)
+                self.collection_name = snake(self.agent_name)
                 if collection_number > 0:
                     self.collection_name = f"{self.collection_name}_{collection_number}"
                 for val in value[self.collection_name]:
@@ -236,7 +230,7 @@ class Memories:
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
         if int(self.collection_number) > 0:
-            collection_name = camel_to_snake(self.agent_name)
+            collection_name = snake(self.agent_name)
             collection_name = f"{collection_name}_{self.collection_number}"
         else:
             collection_name = self.collection_name
@@ -339,7 +333,7 @@ class Memories:
             embedding = embedding.reshape(
                 embedding.shape[1],
             )
-        similarity_score = chroma_compute_similarity_scores(
+        similarity_score = compute_similarity_scores(
             embedding=embedding, embedding_array=embedding_array
         )
         record_list = []
