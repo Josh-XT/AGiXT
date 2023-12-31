@@ -42,7 +42,7 @@ services:
   text-generation-webui:
     build:
       context: text-generation-webui/.
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/nvidia/Dockerfile
       args:
         # specify which cuda version your card supports: https://developer.nvidia.com/cuda-gpus
         TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST:-7.5}
