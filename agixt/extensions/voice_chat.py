@@ -82,7 +82,7 @@ class voice_chat(Extensions):
                 self.tts_command = "Speak with TTS Using Elevenlabs"
         self.commands = {
             "Chat with Voice": self.chat_with_voice,
-            "Transcribe Audio from File": self.transcribe_audio_from_file,
+            "Transcribe M4A Audio": self.transcribe_audio,
         }
         self.conversation_name = f"Voice Chat with {self.agent_name}"
         if "conversation_name" in kwargs:
@@ -135,6 +135,19 @@ class voice_chat(Extensions):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
         w.transcribe(file_path)
         return w.output()
+
+    async def transcribe_audio(
+        self,
+        base64_audio: str,
+    ):
+        # Convert from M4A to WAV
+        filename = "recording.wav"
+        user_audio = await self.convert_m4a_to_wav(
+            base64_audio=base64_audio, filename=filename
+        )
+        # Transcribe the audio to text.
+        user_input = await self.transcribe_audio_from_file(filename=filename)
+        return user_input
 
     async def chat_with_voice(
         self,
