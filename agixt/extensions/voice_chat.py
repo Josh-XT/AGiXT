@@ -6,6 +6,7 @@ import os
 import base64
 import io
 import requests
+import uuid
 
 try:
     from whisper_cpp import Whisper
@@ -82,7 +83,8 @@ class voice_chat(Extensions):
                 self.tts_command = "Speak with TTS Using Elevenlabs"
         self.commands = {
             "Chat with Voice": self.chat_with_voice,
-            "Transcribe M4A Audio": self.transcribe_audio,
+            "Transcribe WAV Audio": self.transcribe_wav_audio,
+            "Transcribe M4A Audio": self.transcribe_m4a_audio,
         }
         self.conversation_name = f"Voice Chat with {self.agent_name}"
         if "conversation_name" in kwargs:
@@ -136,17 +138,31 @@ class voice_chat(Extensions):
         w.transcribe(file_path)
         return w.output()
 
-    async def transcribe_audio(
+    async def transcribe_wav_audio(
+        self,
+        base64_audio: str,
+    ):
+        filename = f"{uuid.uuid4().hex}.wav"
+        # Write the base64 audio to a file.
+        with open(os.path.join(os.getcwd(), "WORKSPACE", filename), "wb") as f:
+            f.write(base64.b64decode(base64_audio))
+        # Transcribe the audio to text.
+        user_input = await self.transcribe_audio_from_file(filename=filename)
+        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+        return user_input
+
+    async def transcribe_m4a_audio(
         self,
         base64_audio: str,
     ):
         # Convert from M4A to WAV
-        filename = "recording.wav"
+        filename = f"{uuid.uuid4().hex}.wav"
         user_audio = await self.convert_m4a_to_wav(
             base64_audio=base64_audio, filename=filename
         )
         # Transcribe the audio to text.
         user_input = await self.transcribe_audio_from_file(filename=filename)
+        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
         return user_input
 
     async def chat_with_voice(
@@ -158,7 +174,7 @@ class voice_chat(Extensions):
         prompt_name="Custom Input",
     ):
         # Convert from M4A to WAV
-        filename = "recording.wav"
+        filename = f"{uuid.uuid4().hex}.wav"
         user_audio = await self.convert_m4a_to_wav(
             base64_audio=base64_audio, filename=filename
         )
