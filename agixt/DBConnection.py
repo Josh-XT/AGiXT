@@ -33,7 +33,7 @@ if DB_CONNECTED:
     LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
     DATABASE_URL = f"postgresql://{LOGIN_URI}"
     try:
-        engine = create_engine(DATABASE_URL)
+        engine = create_engine(DATABASE_URL, pool_size=40, max_overflow=-1)
     except Exception as e:
         logging.error(f"Error connecting to database: {e}")
     connection = engine.connect()
