@@ -1,9 +1,9 @@
 agixtsdk==0.0.29
 safeexecute==0.0.9
-local-llm==0.0.37
-google-generativeai==0.2.2
+local-llm==0.0.38
+google-generativeai==0.3.2
 discord==2.3.2
-anthropic==0.7.7
+anthropic==0.8.1
 arxiv==1.4.8
 PyGithub==2.1.1
 hugchat==0.3.9
