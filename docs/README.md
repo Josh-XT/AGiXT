@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-Sponsor%20Josh%20XT-blue?logo=github&style=plastic)](https://github.com/sponsors/Josh-XT) [![PayPal](https://img.shields.io/badge/PayPal-Sponsor%20Josh%20XT-blue.svg?logo=paypal&style=plastic)](https://paypal.me/joshxt) [![Ko-Fi](https://img.shields.io/badge/Kofi-Sponsor%20Josh%20XT-blue.svg?logo=kofi&style=plastic)](https://ko-fi.com/joshxt)
 
-[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Core-blue?logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20NextJS%20Web%20UI-blue?logo=github&style=plastic)](https://github.com/AGiXT/nextjs)
+[![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Core-blue?logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT) [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Web%20UI-blue?logo=github&style=plastic)](https://github.com/AGiXT/streamlit)
 
 [![GitHub](https://img.shields.io/badge/GitHub-AGiXT%20Python%20SDK-blue?logo=github&style=plastic)](https://github.com/AGiXT/python-sdk) [![pypi](https://img.shields.io/badge/pypi-AGiXT%20Python%20SDK-blue?logo=pypi&style=plastic)](https://pypi.org/project/agixtsdk/)
 
@@ -131,7 +131,7 @@ Need more information? Check out the [documentation](https://josh-xt.github.io/A
 
 ## Other Repositories
 
-Check out the other AGiXT repositories at https://github.com/orgs/AGiXT/repositories - these include the AGiXT NextJS Web UI, AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
+Check out the other AGiXT repositories at https://github.com/orgs/AGiXT/repositories - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
 
 ## Contributing
 
