@@ -22,7 +22,7 @@ class Gpt4freeProvider:
         elif AI_MODEL in ModelUtils.convert:
             self.AI_MODEL = ModelUtils.convert[AI_MODEL]
         else:
-            raise ValueError(f"Model not found: {AI_MODEL}")
+            self.AI_MODEL = ModelUtils.convert["gpt-3.5-turbo"]
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
