@@ -293,6 +293,9 @@ def import_conversations(user=DEFAULT_USER):
     conversations = get_conversations(user=user)
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
+        if not conversation:
+            print(f"Conversation '{conversation_name}' is empty, skipping.")
+            continue
         if "interactions" in conversation:
             for interaction in conversation["interactions"]:
                 agent_name = interaction["role"]
