@@ -153,13 +153,13 @@ class Extensions:
                 for arg in command_args:
                     if "is_m4a_audio" in command_args:
                         if arg == command_args["is_m4a_audio"]:
-                            new_command_args[arg] = self.execute_command(
+                            new_command_args[arg] = await self.execute_command(
                                 command_name="Transcribe M4A Audio",
                                 command_args={"base64_audio": command_args[arg]},
                             )
                     if "is_wav_audio" in command_args:
                         if arg == command_args["is_wav_audio"]:
-                            new_command_args[arg] = self.execute_command(
+                            new_command_args[arg] = await self.execute_command(
                                 command_name="Transcribe WAV Audio",
                                 command_args={"base64_audio": command_args[arg]},
                             )
