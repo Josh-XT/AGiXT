@@ -134,7 +134,7 @@ class Chains:
                             chain_args=chain_args,
                         )  # Get the response of the current step.
                     except Exception as e:
-                        logging.error(e)
+                        logging.error(f"Error running chain step: {e}")
                         step_response = None
                     if step_response == None:
                         return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed."
@@ -197,5 +197,5 @@ class Chains:
                     if arg not in prompt_args and arg not in skip_args:
                         prompt_args.append(arg)
             except Exception as e:
-                logging.error(e)
+                logging.error(f"Error getting chain args: {e}")
         return prompt_args
