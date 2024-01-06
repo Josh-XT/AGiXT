@@ -86,6 +86,7 @@ class Chain:
             steps.append(step_data)
 
         chain_data = {
+            "id": chain_db.id,
             "chain_name": chain_db.name,
             "steps": steps,
         }
