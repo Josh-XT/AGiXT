@@ -151,17 +151,19 @@ class Extensions:
             if "is_m4a_audio" in command_args or "is_wav_audio" in command_args:
                 new_command_args = {}
                 for arg in command_args:
-                    if arg == command_args["is_m4a_audio"]:
-                        new_command_args[arg] = self.execute_command(
-                            command_name="Transcribe M4A Audio",
-                            command_args={"base64_audio": command_args[arg]},
-                        )
-                    elif arg == command_args["is_wav_audio"]:
-                        new_command_args[arg] = self.execute_command(
-                            command_name="Transcribe WAV Audio",
-                            command_args={"base64_audio": command_args[arg]},
-                        )
-                    else:
+                    if "is_m4a_audio" in command_args:
+                        if arg == command_args["is_m4a_audio"]:
+                            new_command_args[arg] = self.execute_command(
+                                command_name="Transcribe M4A Audio",
+                                command_args={"base64_audio": command_args[arg]},
+                            )
+                    if "is_wav_audio" in command_args:
+                        if arg == command_args["is_wav_audio"]:
+                            new_command_args[arg] = self.execute_command(
+                                command_name="Transcribe WAV Audio",
+                                command_args={"base64_audio": command_args[arg]},
+                            )
+                    if arg not in new_command_args:
                         new_command_args[arg] = command_args[arg]
                 command_args = new_command_args
         injection_variables = {
