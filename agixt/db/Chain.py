@@ -408,7 +408,7 @@ class Chain:
         if step_number == "all":
             chain_steps = (
                 self.session.query(ChainStep)
-                .filter(ChainStep.chain_id == chain.id)
+                .filter(ChainStep.chain_id == chain["id"])
                 .order_by(ChainStep.step_number)
                 .all()
             )
@@ -429,7 +429,8 @@ class Chain:
             chain_step = (
                 self.session.query(ChainStep)
                 .filter(
-                    ChainStep.chain_id == chain.id, ChainStep.step_number == step_number
+                    ChainStep.chain_id == chain["id"],
+                    ChainStep.step_number == step_number,
                 )
                 .first()
             )
