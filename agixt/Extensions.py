@@ -147,22 +147,23 @@ class Extensions:
         return commands_list
 
     async def execute_command(self, command_name: str, command_args: dict = None):
-        if "is_m4a_audio" in command_args and "is_wav_audio" in command_args:
-            new_command_args = {}
-            for arg in command_args:
-                if arg == command_args["is_m4a_audio"]:
-                    new_command_args[arg] = self.execute_command(
-                        command_name="Transcribe M4A Audio",
-                        command_args={"base64_audio": command_args[arg]},
-                    )
-                elif arg == command_args["is_wav_audio"]:
-                    new_command_args[arg] = self.execute_command(
-                        command_name="Transcribe WAV Audio",
-                        command_args={"base64_audio": command_args[arg]},
-                    )
-                else:
-                    new_command_args[arg] = command_args[arg]
-            command_args = new_command_args
+        if command_args:
+            if "is_m4a_audio" in command_args or "is_wav_audio" in command_args:
+                new_command_args = {}
+                for arg in command_args:
+                    if arg == command_args["is_m4a_audio"]:
+                        new_command_args[arg] = self.execute_command(
+                            command_name="Transcribe M4A Audio",
+                            command_args={"base64_audio": command_args[arg]},
+                        )
+                    elif arg == command_args["is_wav_audio"]:
+                        new_command_args[arg] = self.execute_command(
+                            command_name="Transcribe WAV Audio",
+                            command_args={"base64_audio": command_args[arg]},
+                        )
+                    else:
+                        new_command_args[arg] = command_args[arg]
+                command_args = new_command_args
         injection_variables = {
             "user": self.user,
             "agent_name": self.agent_name,
