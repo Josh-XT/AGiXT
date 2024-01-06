@@ -162,6 +162,7 @@ class voice_chat(Extensions):
         )
         # Transcribe the audio to text.
         user_input = await self.transcribe_audio_from_file(filename=filename)
+        user_input.replace("[BLANK_AUDIO]", "")
         os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
         return user_input
 
