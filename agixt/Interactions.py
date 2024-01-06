@@ -389,8 +389,30 @@ class Interactions:
         browse_links: bool = False,
         prompt_category: str = "Default",
         persist_context_in_history: bool = False,
+        is_m4a_audio: bool = False,
+        is_wav_audio: bool = False,
         **kwargs,
     ):
+        ext = Extensions(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            conversation_name=conversation_name,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        )
+        # Convert the audio to text
+        if is_m4a_audio:
+            command_output = await ext.execute_command(
+                command_name="Transcribe M4A Audio",
+                command_args={"base64_audio": user_input},
+            )
+            user_input = command_output
+        if is_wav_audio:
+            command_output = await ext.execute_command(
+                command_name="Transcribe WAV Audio",
+                command_args={"base64_audio": user_input},
+            )
+            user_input = command_output
         shots = int(shots)
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
