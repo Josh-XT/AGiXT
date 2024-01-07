@@ -26,13 +26,17 @@ class LocalProvider:
     async def inference(self, prompt, tokens: int = 0):
         models_dir = os.path.join(os.getcwd(), "models")
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
+        if self.PROMPT_PREFIX != "" and self.PROMPT_SUFFIX != "":
+            format_prompt = False
+        else:
+            format_prompt = True
         try:
             response = LLM(
                 models_dir=models_dir,
                 model=self.AI_MODEL,
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
-            ).completion(prompt=prompt, format_prompt=False)
+            ).completion(prompt=prompt, format_prompt=format_prompt)
             return response["choices"][0]["text"]
         except Exception as e:
             logging.error(f"Local-LLM Error: {e}")
