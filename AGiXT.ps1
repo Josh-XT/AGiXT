@@ -1,8 +1,19 @@
-function SetupEnvironment {
-    if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
-        Write-Host "Docker is not installed, please install Docker and try again."
-        exit
-    }
+if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
+    Write-Host "Docker is not installed, please install Docker and try again."
+    exit
+}
+
+Write-Host "    ___   _______ _  ________"
+Write-Host "   /   | / ____(_) |/ /_  __/"
+Write-Host "  / /| |/ / __/ /|   / / /   "
+Write-Host " / ___ / /_/ / //   | / /    "
+Write-Host "/_/  |_\____/_//_/|_|/_/     "
+Write-Host "                              "
+Write-Host "-------------------------------"
+Write-Host "Visit our documentation at https://AGiXT.com"
+
+if( !(Test-Path "$(Get-Location)\.env") ) {
+    Write-Host "Welcome to the AGiXT Environment Setup!"
     $env:AGIXT_AUTO_UPDATE = Read-Host "Would you like AGiXT to auto update? (Y/N - default: Y)"
     $env:AGIXT_API_KEY = Read-Host "Would you like to set an API Key for AGiXT? Enter it if so, otherwise press enter to proceed. (default is blank)"
     $env:UVICORN_WORKERS = Read-Host "Enter the number of AGiXT workers to run (default: 10)"
@@ -21,53 +32,32 @@ function SetupEnvironment {
     Set-Content -Path "$(Get-Location)\.env" -Value "AGIXT_AUTO_UPDATE=$env:AGIXT_AUTO_UPDATE`nAGIXT_API_KEY=$env:AGIXT_API_KEY`nAGIXT_URI=$env:AGIXT_URI`nUVICORN_WORKERS=$env:UVICORN_WORKERS`nWORKING_DIRECTORY=$env:WORKING_DIRECTORY"
 }
 
-function RunAGiXT ($environment) {
-    switch($environment) {
-        "1" {
-            $file = "docker-compose.yml"
-        }
-        "2" {
-            $file = "docker-compose-dev.yml"
-        }
-        "3" {
-            $file = "backend.yml"
-        }
-        default {
-            exit
-        }
-    }
-    docker-compose -f $file down
-    if ($env:AGIXT_AUTO_UPDATE -eq "true" -or $null -eq $env:AGIXT_AUTO_UPDATE) {
-        Write-Host "Updating AGiXT..."
-        docker-compose -f $file pull
-    }
-    Write-Host "Starting AGiXT..."
-    docker-compose -f $file up
-}
+Write-Host "Welcome to AGiXT!"
+Write-Host "Please select an option:"
+Write-Host "1. Run AGiXT (Stable - Recommended!)"
+Write-Host "2. Run AGiXT (Development)"
+Write-Host "3. Run Backend Only (Development)"
+Write-Host "9. Exit"
+$choice = Read-Host "Enter your choice"
 
-if( Test-Path "$(Get-Location)\.env" ) {
-    Write-Host "Loading environment variables..."
-    $env | Out-File -FilePath "$(Get-Location)\.env"
-} else {
-    Write-Host "Setting up environment variables..."
-    SetupEnvironment
+switch($choice) {
+    "1" {
+        $file = "docker-compose.yml"
+    }
+    "2" {
+        $file = "docker-compose-dev.yml"
+    }
+    "3" {
+        $file = "backend.yml"
+    }
+    default {
+        exit
+    }
 }
-do {
-    Clear-Host
-    Write-Host "    ___   _______ _  ________"
-    Write-Host "   /   | / ____(_) |/ /_  __/"
-    Write-Host "  / /| |/ / __/ /|   / / /   "
-    Write-Host " / ___ / /_/ / //   | / /    "
-    Write-Host "/_/  |_\____/_//_/|_|/_/     "
-    Write-Host "                              "
-    Write-Host "-------------------------------"
-    Write-Host "AGiXT PowerShell Script"
-    Write-Host "1. Run AGiXT (Stable - Recommended!)"
-    Write-Host "2. Run AGiXT (Development)"
-    Write-Host "3. Run Backend Only (Development)"
-    Write-Host "9. Exit"
-    $choice = Read-Host "Enter your choice"
-    if([string]::IsNullOrEmpty($choice)) { $choice = "9" }
-    if ($choice -eq "9") { break }
-    RunAGiXT $choice
-} while ($choice -ne "9")
+docker-compose -f $file down
+if ($env:AGIXT_AUTO_UPDATE -eq "true" -or $null -eq $env:AGIXT_AUTO_UPDATE) {
+    Write-Host "Updating AGiXT..."
+    docker-compose -f $file pull
+}
+Write-Host "Starting AGiXT..."
+docker-compose -f $file up
