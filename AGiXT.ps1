@@ -1,8 +1,7 @@
 if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
-    Write-Host "Docker is not installed, please install Docker and try again."
+    Write-Host "Docker is not installed, please install Docker and try again. https://docs.docker.com/desktop/"
     exit
 }
-
 Write-Host "    ___   _______ _  ________"
 Write-Host "   /   | / ____(_) |/ /_  __/"
 Write-Host "  / /| |/ / __/ /|   / / /   "
@@ -14,18 +13,11 @@ Write-Host "Visit our documentation at https://AGiXT.com"
 
 if( !(Test-Path "$(Get-Location)\.env") ) {
     Write-Host "Welcome to the AGiXT Environment Setup!"
-    $env:AGIXT_AUTO_UPDATE = Read-Host "Would you like AGiXT to auto update? (Y/N - default: Y)"
+    $env:AGIXT_AUTO_UPDATE = Read-Host "Would you like AGiXT to auto update? (y/n - default: y)"
     $env:AGIXT_API_KEY = Read-Host "Would you like to set an API Key for AGiXT? Enter it if so, otherwise press enter to proceed. (default is blank)"
     $env:UVICORN_WORKERS = Read-Host "Enter the number of AGiXT workers to run (default: 10)"
-    if($null -eq $env:WORKING_DIRECTORY) {
-        $env:WORKING_DIRECTORY = "$(Get-Location)\agixt\WORKSPACE"
-    }
-    if ($env:AGIXT_AUTO_UPDATE -eq "Y" -or $env:AGIXT_AUTO_UPDATE -eq "y" -or $null -eq $env:AGIXT_AUTO_UPDATE) {
-        $env:AGIXT_AUTO_UPDATE = "true" 
-    } else { 
-        $env:AGIXT_AUTO_UPDATE = "false" 
-    }
-    if ([string]::IsNullOrEmpty($env:AGIXT_AUTO_UPDATE)) { $env:AGIXT_AUTO_UPDATE = "true" }    
+    $env:AGIXT_AUTO_UPDATE = $env:AGIXT_AUTO_UPDATE.ToLower()
+    if ([string]::IsNullOrEmpty($env:AGIXT_AUTO_UPDATE) -or $env:AGIXT_AUTO_UPDATE -eq "y" -or $env:AGIXT_AUTO_UPDATE -eq "yes") { $env:AGIXT_AUTO_UPDATE = "true" } else { $env:AGIXT_AUTO_UPDATE = "false" }  
     if ([string]::IsNullOrEmpty($env:AGIXT_URI)) { $env:AGIXT_URI = "http://localhost:7437" }
     if ([string]::IsNullOrEmpty($env:UVICORN_WORKERS)) { $env:UVICORN_WORKERS = "10" }
     if ([string]::IsNullOrEmpty($env:WORKING_DIRECTORY)) { $env:WORKING_DIRECTORY = "$(Get-Location)\agixt\WORKSPACE" }
