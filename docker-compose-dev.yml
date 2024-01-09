@@ -20,6 +20,14 @@ services:
       - ./agixt/memories:/agixt/memories
       - ./agixt/conversations:/agixt/conversations
       - /var/run/docker.sock:/var/run/docker.sock
+  agixtchat:
+    image: joshxt/agixtchat:main
+    depends_on:
+      - agixt
+    environment:
+      - TZ=${TZ-America/New_York}
+    ports:
+      - "3437:3437"
   nextjs:
     image: joshxt/agixt-nextjs:latest
     depends_on:
@@ -29,7 +37,7 @@ services:
     ports:
       - "24498:24498"
   streamlit:
-    image: joshxt/streamlit:latest
+    image: joshxt/streamlit:main
     depends_on:
       - agixt
     environment:
