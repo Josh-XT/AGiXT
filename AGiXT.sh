@@ -289,12 +289,8 @@ local_install() {
     echo "${BOLD}${YELLOW}Upgrading pip...${RESET}"
     pip install --upgrade pip
     sleep 1
-
-
     echo "${BOLD}${YELLOW}Checking for updates...${RESET}"
     git pull
-
-
     echo "${BOLD}${YELLOW}Installing requirements...${RESET}"
     pip install -r static-requirements.txt --upgrade
     pip install -r requirements.txt --upgrade
