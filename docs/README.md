@@ -28,10 +28,9 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [Key Features 🗝️](#key-features-️)
     - [Getting Started with Local Models and AGiXT Video](#getting-started-with-local-models-and-agixt-video)
   - [Quick Start Guide](#quick-start-guide)
-    - [Prerequisites](#prerequisites)
+    - [Windows and Mac Prerequisites](#windows-and-mac-prerequisites)
+    - [Linux Prerequisites](#linux-prerequisites)
     - [Download and Install](#download-and-install)
-    - [Environment Setup](#environment-setup)
-    - [Install Options](#install-options)
     - [Running and Updating AGiXT](#running-and-updating-agixt)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
@@ -57,7 +56,7 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 - **Task Execution & Smart Task Management**: Efficient management and execution of complex tasks broken down into sub-tasks. The Smart Task feature employs AI-driven agents to dynamically handle tasks, optimizing efficiency and avoiding redundancy.
 - **Chain Management**: Sophisticated handling of chains or a series of linked commands, enabling the automation of complex workflows and processes.
 - **Web Browsing & Command Execution**: Advanced capabilities to browse the web and execute commands for a more interactive AI experience, opening a wide range of possibilities for AI assistance.
-- **Multi-Provider Compatibility**: Seamless integration with leading AI providers such as OpenAI GPT series, Hugging Face Huggingchat, GPT4All, GPT4Free, Oobabooga Text Generation Web UI, Kobold, llama.cpp, FastChat, Google Bard, Bing, and more. 
+- **Multi-Provider Compatibility**: Seamless integration with leading AI providers such as OpenAI GPT series, Hugging Face Huggingchat, GPT4All, GPT4Free, Oobabooga Text Generation Web UI, Kobold, llama.cpp, FastChat, Google Bard, Bing, and more.
 - **Versatile Plugin System & Code Evaluation**: Extensible command support for various AI models along with robust support for code evaluation, providing assistance in programming tasks.
 - **Docker Deployment**: Simplified setup and maintenance through Docker deployment.
 - **Audio-to-Text & Text-to-Speech Options**: Integration with Hugging Face for seamless audio-to-text transcription, and multiple TTS choices, featuring Brian TTS, Mac OS TTS, and ElevenLabs.
@@ -68,58 +67,77 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 
 ### Getting Started with Local Models and AGiXT Video
 
-This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works. 
+This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works.
 
 [![Getting Started with Local Models and AGiXT](https://img.youtube.com/vi/XbjjPdYRM_k/0.jpg)](https://www.youtube.com/watch?v=XbjjPdYRM_k)
 
 ## Quick Start Guide
 
-### Prerequisites
+### Windows and Mac Prerequisites
+
+- [Git](https://git-scm.com/downloads)
+- [Docker Desktop](https://docs.docker.com/docker-for-windows/install/)
+- [PowerShell 7.X](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell?view=powershell-7.4)
+
+### Linux Prerequisites
 
 - [Git](https://git-scm.com/downloads)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
-- [Python 3.10](https://www.python.org/downloads/)
+- [PowerShell 7.X](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell?view=powershell-7.4) (Optional if you want to use the launcher script, but not required)
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (if using local models on GPU)
-
-If using Windows and trying to run locally, it is unsupported, but you will need [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install-win10) and [Docker Desktop](https://docs.docker.com/docker-for-windows/install/) at a minimum in addition to the above.
 
 ### Download and Install
 
-Open a terminal and run the following to download and install AGiXT:
+Open a PowerShell terminal and run the following to download and install AGiXT:
 
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-./AGiXT.sh
+./AGiXT.ps1
 ```
 
-### Environment Setup
+When you run the `AGiXT.ps1` script for the first time, it will create a `.env` file automatically. There are a few questions asked on first run to help you get started. The default options are recommended for most users.
 
-You can choose to skip the environment setup and accept default values by entering `Y` on the first question `Quick Setup without advanced configuration? (Y for yes, N for No)`.
+For advanced environment variable setup, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/1-Environment%20Variables.html) documentation for guidance on setup.
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/7539d4cf-8081-4bca-97b9-a2affb427d59)
+```bash
+    ___   _______ _  ________
+   /   | / ____(_) |/ /_  __/
+  / /| |/ / __/ /|   / / /
+ / ___ / /_/ / //   | / /
+/_/  |_\____/_//_/|_|/_/
 
-If you chose `N`, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/1-Environment%20Variables.html) documentation for guidance on setup.
+-------------------------------
+Visit our documentation at https://AGiXT.com
+Welcome to the AGiXT Environment Setup!
+Would you like AGiXT to auto update? (y/n - default: y):
+Would you like to set an API Key for AGiXT? Enter it if so, otherwise press enter to proceed. (default is blank):
+Enter the number of AGiXT workers to run (default: 10):
+```
 
-### Install Options
+After the environment setup is complete, you will have the following options:
 
-You will be prompted to choose an install option. Choose Option 1 to get started quickly.
+```bash
+1. Run AGiXT (Stable - Recommended!)
+2. Run AGiXT (Development)
+3. Run Backend Only (Development)
+4. Exit
+Enter your choice: 
+```
 
-![image](https://github.com/Josh-XT/AGiXT/assets/102809327/944c9600-d67f-45da-ac1e-715e4c9d3912)
+Choose Option 1 to run AGiXT with the latest stable release. This is the recommended option for most users. If you're not actively developing AGiXT, this is the option you should choose.
 
 ### Running and Updating AGiXT
 
 Any time you want to run or update AGiXT, run the following commands from your `AGiXT` directory:
 
 ```bash
-./AGiXT.sh
+./AGiXT.ps1
 ```
 
-- Access the web interface at http://localhost:8501
-- Access the AGiXT API documentation at http://localhost:7437
-
-If you're running with the option `Run AGiXT and Text Generation Web UI with Docker (NVIDIA Only)`, you can access the Text Generation Web UI at http://localhost:7860/?__theme=dark to download and and configure your models. The `AI_PROVIDER_URI` will be `http://text-generation-webui:5000` for your AGiXT agents.
+- Access the web interface at <http://localhost:8501>
+- Access the AGiXT API documentation at <http://localhost:7437>
 
 ## Configuration
 
@@ -131,11 +149,11 @@ Need more information? Check out the [documentation](https://josh-xt.github.io/A
 
 ## Other Repositories
 
-Check out the other AGiXT repositories at https://github.com/orgs/AGiXT/repositories - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
+Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/repositories> - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
 
 ## Contributing
 
-[![Contribute](https://img.shields.io/github/issues/Josh-XT/AGiXT/help%20wanted?color=purple&label=Quick%20Contribute&logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT/labels/help%20wanted) 
+[![Contribute](https://img.shields.io/github/issues/Josh-XT/AGiXT/help%20wanted?color=purple&label=Quick%20Contribute&logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT/labels/help%20wanted)
 
 We welcome contributions to AGiXT! If you're interested in contributing, please check out our [contributions guide](https://github.com/Josh-XT/AGiXT/tree/main/.github/CONTRIBUTING.md) the [open issues on the backend](https://github.com/Josh-XT/AGiXT/issues), [open issues on the frontend](https://github.com/JamesonRGrieve/Agent-LLM-Frontend/issues) and [pull requests](https://github.com/Josh-XT/AGiXT/pulls), submit a [pull request](https://github.com/Josh-XT/AGiXT/pulls/new), or [suggest new features](https://github.com/Josh-XT/AGiXT/issues/new). To stay updated on the project's progress, [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT) and [![Twitter](https://img.shields.io/badge/Twitter-Follow_@JamesonRGrieve-blue?logo=twitter&style=plastic)](https://twitter.com/JamesonRGrieve). Also feel free to join our [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD).
 
