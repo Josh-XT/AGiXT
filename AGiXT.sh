@@ -88,7 +88,7 @@ display_menu() {
   echo "  ${BOLD}${YELLOW}3.${RESET} ${YELLOW}Run AGiXT with Text Generation Web UI and Stable Diffusion (NVIDIA Only)${RESET}"
   echo "${BOLD}${GREEN}Developer Only Options (Not recommended or supported):${RESET}"
   echo "  ${BOLD}${YELLOW}4.${RESET} ${YELLOW}Run AGiXT from Main Branch${RESET}"
-  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Run AGiXT from Main Branch + Addons (NVIDIA Only)${RESET}"
+  echo "  ${BOLD}${YELLOW}5.${RESET} ${YELLOW}Run AGiXT Backend Only${RESET}"
   echo "  ${BOLD}${YELLOW}6.${RESET} ${YELLOW}Run AGiXT without Docker${RESET}"
   echo "${BOLD}${GREEN}Manage:${RESET}"
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
@@ -172,52 +172,19 @@ docker_install_dev() {
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
   docker-compose -f docker-compose-dev.yml up
 }
-docker_install_dev_nvidia() {
+backend_only() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
-  sed -i '/^TEXTGEN_URI=/d' .env
-  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
-  # Check if TORCH_CUDA_ARCH_LIST is defined from the env, ask user to enter it if not.
-  if [[ -z "${TORCH_CUDA_ARCH_LIST}" ]]; then
-    read -p "Enter your GPU Compute Capability, you can find it here: https://developer.nvidia.com/cuda-gpus (Example: RTX2000 series are 7.5): " cuda_version
-    if [[ "$cuda_version" != "" ]]; then
-        if [[ $cuda_version =~ ^[0-9]+\.[0-9]+$ ]]; then
-            echo "TORCH_CUDA_ARCH_LIST=${cuda_version:-7.5}" >> .env
-        fi
-    fi
-    cli_args_default='--listen --listen-host 0.0.0.0 --api'
-    read -p "Default Text generation web UI startup parameters: ${cli_args_default} (prese Enter for defaults or overwrite with yours): " local_textgen_startup_params
-    echo "CLI_ARGS='${local_textgen_startup_params:-${cli_args_default}}'" >> .env
-  fi
-
-  # Check if nvidia-container-toolkit is installed
-  if dpkg -l | grep -iq "nvidia-container-toolkit"; then
-      echo "Confirmed NVIDIA Container Toolkit is installed."
-  else
-      echo "NVIDIA Container Toolkit is not installed. Installing now..."
-      # Install a new GPU Docker container
-      distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-      curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-      curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-      sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-      sudo systemctl restart docker
-      echo "NVIDIA Container Toolkit has been installed."
-  fi
-
-  if [ ! -d "text-generation-webui" ]; then
-      echo "${BOLD}${YELLOW}Cloning Oobabooga Text generation web UI Repository...${RESET}"
-      git clone https://github.com/oobabooga/text-generation-webui
-  fi
 
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
     echo "${BOLD}${YELLOW}Updating Containers...${RESET}"
-    docker-compose -f docker-compose-dev-nvidia.yml pull
+    docker-compose -f backend.yml pull
   fi
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  docker-compose -f docker-compose-dev-nvidia.yml up
+  docker-compose -f backend.yml up
 }
 # Function to perform the Docker install
 docker_install_local_nvidia() {
@@ -420,7 +387,7 @@ while true; do
       break
       ;;
     5)
-      docker_install_dev_nvidia
+      backend_only
       break
       ;;    
     6)
