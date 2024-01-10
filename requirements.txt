@@ -10,4 +10,4 @@ hugchat==0.3.9
 bardapi==0.1.38
 whisper-cpp-pybind==0.1.2
 openai==0.28.1
-g4f==0.2.0.0
+g4f==0.1.9.8
