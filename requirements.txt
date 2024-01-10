@@ -1,6 +1,6 @@
 agixtsdk==0.0.29
 safeexecute==0.0.9
-local-llm==0.0.40
+local-llm==0.0.41
 google-generativeai==0.3.2
 discord==2.3.2
 anthropic==0.8.1
