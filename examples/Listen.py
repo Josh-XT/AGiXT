@@ -213,7 +213,7 @@ class AGiXTListen:
 # AGiXTListen is a class that listens for a wake word and then executes an AGiXT function.
 # The default wake function is to use the AGiXT instruct function which will prompt the agent to use available commands before responding.
 # Example usage:
-# python Listen.py --server http://localhost:7437 --agent_name gpt4free --wake_word agent --api_key 1234
+# python Listen.py --server http://localhost:7437 --agent_name gpt4free --api_key 1234
 if __name__ == "__main__":
     import argparse
 
@@ -224,8 +224,6 @@ if __name__ == "__main__":
     parser.add_argument("--api_key", default="")
     # The name of the agent that will be listening
     parser.add_argument("--agent_name", default="gpt4free")
-    # The wake word to listen for
-    parser.add_argument("--wake_word", default="chat")
     # Setting a model will force transcription to happen locally instead of over API.
     # Low resource devices like Raspberry Pi Zero W cannot run Whisper and will need to use API.
     # Models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v1
@@ -236,8 +234,6 @@ if __name__ == "__main__":
         api_key=args.api_key,
         agent_name=args.agent_name,
         whisper_model=args.whisper_model,
-        wake_functions={
-            args.wake_word: None  # Wake word function takes one input only, the transcribed text.
-        },  # wake word: wake function. Set to None to use default wake function, which is to instruct the agent.
+        wake_functions={},
     )
     listener.listen()
