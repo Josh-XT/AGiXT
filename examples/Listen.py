@@ -188,8 +188,7 @@ class AGiXTListen:
             else:
                 silence_frames = 0
 
-    # Helper function to instruct the agent to do something.
-    # Wake word function takes one input only, the transcribed text.
+    # Wake function take one input only, the transcribed text.
     def voice_chat(self, text):
         print(f"Sending text to agent: {text}")
         text_response = self.sdk.chat(
