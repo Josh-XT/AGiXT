@@ -6,6 +6,7 @@ import wave
 import os
 import uuid
 from io import BytesIO
+from datetime import datetime
 
 try:
     import requests
@@ -52,9 +53,11 @@ class AGiXTListen:
             wake_functions
             if wake_functions != {}
             else {
-                "agent": self.instruct_agent,
+                "chat": self.voice_chat,
+                "instruct": self.voice_instruct,
             }
         )
+        self.conversation_name = datetime.now().strftime("%Y-%m-%d")
         self.w = None
         if whisper_model != "":
             try:
@@ -136,9 +139,29 @@ class AGiXTListen:
             if wake_word.lower() in transcribed_text.lower():
                 print("Wake word detected! Executing wake function...")
                 if wake_function:
-                    wake_function(transcribed_text)
+                    response = wake_function(transcribed_text)
                 else:
-                    self.instruct_agent(text=transcribed_text)
+                    response = self.voice_chat(text=transcribed_text)
+                if response:
+                    tts_response = self.sdk.execute_command(
+                        agent_name=self.agent_name,
+                        command_name="Translate Text to Speech",
+                        command_args={
+                            "text": response,
+                        },
+                        conversation_name=datetime.now().strftime("%Y-%m-%d"),
+                    )
+                    tts_response = tts_response.replace("#GENERATED_AUDIO:", "")
+                    generated_audio = base64.b64decode(tts_response)
+                    stream = audio.open(
+                        format=pyaudio.paInt16,
+                        channels=1,
+                        rate=16000,
+                        output=True,
+                    )
+                    stream.write(generated_audio)
+                    stream.stop_stream()
+                    stream.close()
 
     def listen(self):
         print("Listening for wake word...")
@@ -167,14 +190,24 @@ class AGiXTListen:
 
     # Helper function to instruct the agent to do something.
     # Wake word function takes one input only, the transcribed text.
-    def instruct_agent(self, text):
+    def voice_chat(self, text):
         print(f"Sending text to agent: {text}")
-        response = self.sdk.instruct(
+        text_response = self.sdk.chat(
             agent_name=self.agent_name,
             user_input=text,
-            conversation="AGiXT Terminal",
+            conversation=self.conversation_name,
+            context_results=6,
         )
-        print(response)
+        return text_response
+
+    def voice_instruct(self, text):
+        print(f"Sending text to agent: {text}")
+        text_response = self.sdk.instruct(
+            agent_name=self.agent_name,
+            user_input=text,
+            conversation=self.conversation_name,
+        )
+        return text_response
 
 
 # AGiXTListen is a class that listens for a wake word and then executes an AGiXT function.
@@ -192,7 +225,7 @@ if __name__ == "__main__":
     # The name of the agent that will be listening
     parser.add_argument("--agent_name", default="gpt4free")
     # The wake word to listen for
-    parser.add_argument("--wake_word", default="agent")
+    parser.add_argument("--wake_word", default="chat")
     # Setting a model will force transcription to happen locally instead of over API.
     # Low resource devices like Raspberry Pi Zero W cannot run Whisper and will need to use API.
     # Models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v1
