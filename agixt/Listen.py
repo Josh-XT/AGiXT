@@ -166,6 +166,7 @@ class AGiXTListen:
                 silence_frames = 0
 
     # Helper function to instruct the agent to do something.
+    # Wake word function takes one input only, the transcribed text.
     def instruct_agent(self, text):
         print(f"Sending text to agent: {text}")
         response = self.sdk.instruct(
@@ -179,7 +180,7 @@ class AGiXTListen:
 # AGiXTListen is a class that listens for a wake word and then executes an AGiXT function.
 # The default wake function is to use the AGiXT instruct function which will prompt the agent to use available commands before responding.
 # Example usage:
-# python Listen.py --server http://localhost:7437 --api_key 1234 --wake_word agent
+# python Listen.py --server http://localhost:7437 --agent_name gpt4free --wake_word agent --api_key 1234
 if __name__ == "__main__":
     import argparse
 

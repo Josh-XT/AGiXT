@@ -44,21 +44,19 @@ def verify_api_key(authorization: str = Header(None)):
             raise HTTPException(
                 status_code=401, detail="Authorization header is missing"
             )
-        if USING_JWT:
+        if "bearer" in authorization.lower():
             scheme, _, api_key = authorization.partition(" ")
-            if scheme.lower() != "bearer":
-                raise HTTPException(
-                    status_code=401, detail="Invalid authentication scheme"
-                )
+            authorization = api_key
+        if USING_JWT:
             try:
                 token = jwt.decode(
-                    jwt=api_key,
+                    jwt=authorization,
                     key=AGIXT_API_KEY,
                     algorithms=["HS256"],
                 )
                 return token["email"]
             except Exception as e:
-                if api_key != AGIXT_API_KEY:
+                if authorization != AGIXT_API_KEY:
                     raise HTTPException(status_code=401, detail="Invalid API Key")
                 return DEFAULT_USER
         if authorization != AGIXT_API_KEY:
