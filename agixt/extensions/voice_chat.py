@@ -85,6 +85,7 @@ class voice_chat(Extensions):
             "Chat with Voice": self.chat_with_voice,
             "Transcribe WAV Audio": self.transcribe_wav_audio,
             "Transcribe M4A Audio": self.transcribe_m4a_audio,
+            "Translate Text to Speech": self.text_to_speech,
         }
         self.conversation_name = f"Voice Chat with {self.agent_name}"
         if "conversation_name" in kwargs:
@@ -167,6 +168,15 @@ class voice_chat(Extensions):
         os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
         return user_input
 
+    async def text_to_speech(self, text: str):
+        # Get the audio response from the TTS engine and return it.
+        audio_response = self.ApiClient.execute_command(
+            agent_name=self.agent_name,
+            command_name=self.tts_command,
+            command_args={"text": text},
+        )
+        return f"{audio_response}"
+
     async def chat_with_voice(
         self,
         base64_audio,
@@ -203,13 +213,5 @@ class voice_chat(Extensions):
         )
         logging.info(f"[Whisper]: Text Response from LLM: {text_response}")
         if str(tts).lower() == "true":
-            # Get the audio response from the TTS engine and return it.
-            audio_response = self.ApiClient.execute_command(
-                agent_name=self.agent_name,
-                command_name=self.tts_command,
-                command_args={"text": text_response},
-            )
-            logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
-            os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
-            return f"{audio_response}"
+            return self.text_to_speech(text=text_response)
         return f"{text_response}"
