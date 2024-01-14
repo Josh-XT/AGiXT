@@ -1,3 +1,5 @@
+ {context}
+
 Recent conversation history for context: 
  {conversation_history} 
 
