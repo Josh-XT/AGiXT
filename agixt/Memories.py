@@ -31,6 +31,8 @@ def nlp(text):
 
 
 def snake(old_str: str = ""):
+    if old_str == "":
+        return ""
     if " " in old_str:
         old_str = old_str.replace(" ", "")
     if "@" in old_str:
@@ -150,6 +152,8 @@ class Memories:
     ):
         self.agent_name = agent_name
         if user != DEFAULT_USER:
+            if user == "":
+                user = "USER"
             self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
             self.collection_name = snake(agent_name)
