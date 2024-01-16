@@ -30,14 +30,21 @@ def nlp(text):
     return sp(text)
 
 
-def snake(_str: str = ""):
-    _str = _str.replace(" ", "").replace("@", "_").replace(".", "_")
+def snake(old_str: str = ""):
+    if " " in old_str:
+        old_str = old_str.replace(" ", "")
+    if "@" in old_str:
+        old_str = old_str.replace("@", "_")
+    if "." in old_str:
+        old_str = old_str.replace(".", "_")
+    if "-" in old_str:
+        old_str = old_str.replace("-", "_")
     snake_str = ""
-    for i, char in enumerate(_str):
+    for i, char in enumerate(old_str):
         if char.isupper():
-            if i != 0 and _str[i - 1].islower():
+            if i != 0 and old_str[i - 1].islower():
                 snake_str += "_"
-            if i != len(_str) - 1 and _str[i + 1].islower():
+            if i != len(old_str) - 1 and old_str[i + 1].islower():
                 snake_str += "_"
         snake_str += char.lower()
     snake_str = snake_str.strip("_")
