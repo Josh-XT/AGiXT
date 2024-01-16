@@ -39,6 +39,8 @@ else:
 
 
 def verify_api_key(authorization: str = Header(None)):
+    if DEFAULT_USER == "":
+        DEFAULT_USER = "USER"
     if AGIXT_API_KEY:
         if authorization is None:
             raise HTTPException(
