@@ -3,7 +3,6 @@ import jwt
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
 from fastapi import Header, HTTPException
-from Defaults import DEFAULT_USER
 
 load_dotenv()
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
@@ -11,6 +10,7 @@ USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 WORKERS = int(os.getenv("UVICORN_WORKERS", 10))
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
+DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 # Defining these here to be referenced externally.
 if DB_CONNECTED:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
