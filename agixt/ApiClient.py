@@ -40,6 +40,7 @@ else:
 
 
 def verify_api_key(authorization: str = Header(None)):
+    load_dotenv()
     USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
     DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
