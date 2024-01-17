@@ -5,10 +5,11 @@ from dotenv import load_dotenv
 from fastapi import Header, HTTPException
 
 load_dotenv()
-AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
+
 USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 WORKERS = int(os.getenv("UVICORN_WORKERS", 10))
+AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
 
 # Defining these here to be referenced externally.
@@ -39,6 +40,7 @@ else:
 
 
 def verify_api_key(authorization: str = Header(None)):
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
     DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
     if DEFAULT_USER == "":
         DEFAULT_USER = "USER"
