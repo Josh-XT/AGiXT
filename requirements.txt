@@ -1,13 +1,13 @@
 agixtsdk==0.0.29
 safeexecute==0.0.9
-local-llm==0.0.44
+local-llm==0.0.45
 google-generativeai==0.3.2
 discord==2.3.2
 anthropic==0.9.0
 arxiv==1.4.8
 PyGithub==2.1.1
 hugchat==0.3.9
-bardapi==0.1.38
+bardapi==0.1.39
 whisper-cpp-pybind==0.1.2
 openai==0.28.1
 g4f
