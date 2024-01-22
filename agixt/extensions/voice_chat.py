@@ -85,6 +85,7 @@ class voice_chat(Extensions):
             "Chat with Voice": self.chat_with_voice,
             "Transcribe WAV Audio": self.transcribe_wav_audio,
             "Transcribe M4A Audio": self.transcribe_m4a_audio,
+            "Transcribe WEBM Audio": self.transcribe_webm_audio,
             "Translate Text to Speech": self.text_to_speech,
         }
         self.conversation_name = f"Voice Chat with {self.agent_name}"
@@ -124,6 +125,19 @@ class voice_chat(Extensions):
         # Convert the base64 audio to a 16k WAV format
         audio_data = base64.b64decode(base64_audio)
         audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
+        audio_segment = audio_segment.set_frame_rate(16000)
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        audio_segment.export(file_path, format="wav")
+        with open(file_path, "rb") as f:
+            audio = f.read()
+        return f"{base64.b64encode(audio).decode('utf-8')}"
+
+    async def convert_webm_to_wav(
+        self, base64_audio: str, filename: str = "recording.wav"
+    ):
+        # Convert the base64 audio to a 16k WAV format
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="webm")
         audio_segment = audio_segment.set_frame_rate(16000)
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         audio_segment.export(file_path, format="wav")
@@ -176,6 +190,21 @@ class voice_chat(Extensions):
             command_args={"text": text},
         )
         return f"{audio_response}"
+
+    async def transcribe_webm_audio(
+        self,
+        base64_audio: str,
+    ):
+        # Convert from WEBM to WAV
+        filename = f"{uuid.uuid4().hex}.wav"
+        user_audio = await self.convert_webm_to_wav(
+            base64_audio=base64_audio, filename=filename
+        )
+        # Transcribe the audio to text.
+        user_input = await self.transcribe_audio_from_file(filename=filename)
+        user_input.replace("[BLANK_AUDIO]", "")
+        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+        return user_input
 
     async def chat_with_voice(
         self,
