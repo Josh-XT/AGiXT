@@ -5,27 +5,8 @@ from chromadb.utils.embedding_functions import (
     GoogleVertexEmbeddingFunction,
 )
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from local_llm import LLM
 from typing import Optional
 import openai
-
-
-class LocalLLMEmbedder(EmbeddingFunction):
-    def __init__(
-        self,
-        model_name: str = "Mistral-7B-OpenOrca",
-    ):
-        self.model_name = model_name
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        embeddings = LLM(
-            models_dir="./models",
-            model=self.model_name,
-        ).embedding(
-            texts
-        )["data"]
-        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])
-        return [result["embedding"] for result in sorted_embeddings]
 
 
 class OpenAIEmbeddingFunction(EmbeddingFunction):
@@ -119,14 +100,16 @@ class Embedding:
             "local": {
                 "chunk_size": 1000,
                 "params": [
-                    "LOCAL_API_KEY",
+                    "LOCAL_LLM_API_KEY",
                     "AI_MODEL",
                     "API_URI",
                 ],
-                "embed": LocalLLMEmbedder(
+                "embed": OpenAIEmbeddingFunction(
                     model_name=self.agent_settings["AI_MODEL"]
                     if "AI_MODEL" in self.agent_settings
-                    else "",
+                    else "zephyr-7b-beta",
+                    api_key=self.agent_settings["LOCAL_LLM_API_KEY"],
+                    api_base=self.agent_settings["API_URI"],
                 ),
             },
             "azure": {

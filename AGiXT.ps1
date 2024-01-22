@@ -28,7 +28,8 @@ Write-Host "Welcome to AGiXT!"
 Write-Host "Please select an option:"
 Write-Host "1. Run AGiXT (Stable - Recommended!)"
 Write-Host "2. Run AGiXT (Development)"
-Write-Host "3. Run Backend Only (Development)"
+Write-Host "3. Run AGiXT (Development w/CUDA)"
+Write-Host "4. Run Backend Only (Development)"
 Write-Host "9. Exit"
 $choice = Read-Host "Enter your choice"
 
@@ -40,6 +41,9 @@ switch($choice) {
         $file = "docker-compose-dev.yml"
     }
     "3" {
+        $file = "docker-compose-dev-cuda.yml"
+    }
+    "4" {
         $file = "backend.yml"
     }
     default {
