@@ -1,0 +1,61 @@
+version: "3.7"
+services:
+  agixt:
+    image: joshxt/agixt:main
+    init: true
+    environment:
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
+      - AGIXT_API_KEY=${AGIXT_API_KEY}
+      - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
+      - TOKENIZERS_PARALLELISM=False
+      - TZ=${TZ-America/New_York}
+    ports:
+      - "7437:7437"
+    volumes:
+      - ./models:/agixt/models
+      - ./agixt/WORKSPACE:/agixt/WORKSPACE
+      - ./agixt/agents:/agixt/agents
+      - ./agixt/prompts:/agixt/prompts
+      - ./agixt/chains:/agixt/chains
+      - ./agixt/memories:/agixt/memories
+      - ./agixt/conversations:/agixt/conversations
+      - /var/run/docker.sock:/var/run/docker.sock
+  agixtchat:
+    image: joshxt/agixtchat:main
+    depends_on:
+      - agixt
+    environment:
+      - TZ=${TZ-America/New_York}
+    ports:
+      - "3437:3437"
+  nextjs:
+    image: joshxt/agixt-nextjs:latest
+    depends_on:
+      - agixt
+    environment:
+      - TZ=${TZ-America/New_York}
+    ports:
+      - "24498:24498"
+  streamlit:
+    image: joshxt/streamlit:main
+    depends_on:
+      - agixt
+    environment:
+      - AGIXT_URI=http://agixt:7437
+      - AGIXT_API_KEY=${AGIXT_API_KEY}
+    volumes:
+      - ./agixt/WORKSPACE:/app/WORKSPACE
+    ports:
+      - "8501:8501"
+  local-llm:
+    image: joshxt/local-llm:cuda
+    environment:
+      - LOCAL_LLM_API_KEY=${AGIXT_API_KEY}
+      - GPU_LAYERS=${GPU_LAYERS-32}
+      - MAIN_GPU=${MAIN_GPU-1}
+      - DEFAULT_MODEL=zephyr-7b-beta
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    volumes:
+      - ./models:/app/models
