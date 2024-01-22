@@ -47,3 +47,13 @@ services:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
+  local-llm:
+    image: joshxt/local-llm:cpu
+    environment:
+      - LOCAL_LLM_API_KEY=${AGIXT_API_KEY}
+      - DEFAULT_MODEL=${DEFAULT_MODEL-zephyr-7b-beta}
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    volumes:
+      - ./models:/app/models
