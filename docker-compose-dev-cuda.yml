@@ -53,7 +53,7 @@ services:
       - LOCAL_LLM_API_KEY=${AGIXT_API_KEY}
       - GPU_LAYERS=${GPU_LAYERS-32}
       - MAIN_GPU=${MAIN_GPU-1}
-      - DEFAULT_MODEL=zephyr-7b-beta
+      - DEFAULT_MODEL=${DEFAULT_MODEL-zephyr-7b-beta}
     restart: unless-stopped
     ports:
       - "8091:8091"
