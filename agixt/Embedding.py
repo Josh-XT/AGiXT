@@ -108,8 +108,12 @@ class Embedding:
                     model_name=self.agent_settings["AI_MODEL"]
                     if "AI_MODEL" in self.agent_settings
                     else "zephyr-7b-beta",
-                    api_key=self.agent_settings["LOCAL_LLM_API_KEY"],
-                    api_base=self.agent_settings["API_URI"],
+                    api_key=self.agent_settings["LOCAL_LLM_API_KEY"]
+                    if "LOCAL_LLM_API_KEY" in self.agent_settings
+                    else None,
+                    api_base=self.agent_settings["API_URI"]
+                    if "API_URI" in self.agent_settings
+                    else "http://localhost:8091/v1",
                 ),
             },
             "azure": {
