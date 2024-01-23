@@ -4,7 +4,7 @@ import uuid
 from Extensions import Extensions
 
 
-class streamlabs_tts(Extensions):
+class alltalk_tts(Extensions):
     def __init__(
         self,
         voice: str = "default",
@@ -12,10 +12,10 @@ class streamlabs_tts(Extensions):
     ):
         self.voice = voice
         self.commands = {
-            "Speak with TTS with Alltalk Text to Speech": self.tts_generate
+            "Speak with TTS with Alltalk Text to Speech": self.speak_with_alltalk_tts
         }
 
-    async def tts_generate(
+    async def speak_with_alltalk_tts(
         self,
         text: str,
     ):
