@@ -209,7 +209,7 @@ async def learn_github_repo(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = (get_api_client(authorization=authorization),)
+    ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
