@@ -63,8 +63,8 @@ services:
     ports:
       - "7851:7851"
     volumes:
-      - ./outputs:/app/outputs/
+      - ./WORKSPACE/outputs:/app/outputs/
+      - ./WORKSPACE/audio-samples:/app/finetune/put-voice-samples-in-here/
       - ./models:/app/models/
       - ./voices:/app/voices/
-      - ./finetune/put-voice-samples-in-here:/app/finetune/put-voice-samples-in-here
       - ./alltalk.json:/app/confignew.json
