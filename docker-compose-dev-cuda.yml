@@ -59,3 +59,28 @@ services:
       - "8091:8091"
     volumes:
       - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+  alltalk-tts:
+    image: joshxt/alltalk_tts:cuda
+    restart: unless-stopped
+    ports:
+      - "7851:7851"
+    volumes:
+      - ./WORKSPACE/outputs:/app/outputs/
+      - ./WORKSPACE/audio-samples:/app/finetune/put-voice-samples-in-here/
+      - ./models:/app/models/
+      - ./voices:/app/voices/
+      - ./alltalk.json:/app/confignew.json
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]

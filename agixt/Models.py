@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
 
 
 class AgentName(BaseModel):
@@ -47,45 +47,43 @@ class PromptCategoryList(BaseModel):
 
 
 class Completions(BaseModel):
-    model: str = None  # Model is actually the agent_name
-    prompt: str = None
-    suffix: str = None
-    max_tokens: int = 100
-    temperature: float = 0.9
-    top_p: float = 1.0
-    n: int = 1
-    stream: bool = False
-    logprobs: int = None
-    echo: bool = False
-    stop: List[str] = None
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
-    best_of: int = 1
-    logit_bias: Dict[str, float] = None
-    user: str = None
+    model: str = "gpt-3.5-turbo"
+    prompt: str = ""
+    max_tokens: Optional[int] = 8192
+    temperature: Optional[float] = 0.9
+    top_p: Optional[float] = 1.0
+    n: Optional[int] = 1
+    stream: Optional[bool] = False
+    logit_bias: Optional[Dict[str, float]] = None
+    stop: Optional[List[str]] = None
+    echo: Optional[bool] = False
+    system_message: Optional[str] = ""
+    user: Optional[str] = None
+    format_prompt: Optional[bool] = True
 
 
 class ChatCompletions(BaseModel):
-    model: str = None  # Model is actually the agent_name
+    model: str = "gpt-3.5-turbo"
     messages: List[dict] = None
-    functions: List[dict] = None
-    function_call: str = None
-    temperature: float = 0.9
-    top_p: float = 1.0
-    n: int = 1
-    stream: bool = False
-    stop: List[str] = None
-    max_tokens: int = 8192
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
-    logit_bias: Dict[str, float] = None
-    user: str = None
+    temperature: Optional[float] = 0.9
+    top_p: Optional[float] = 1.0
+    functions: Optional[List[dict]] = None
+    function_call: Optional[str] = None
+    n: Optional[int] = 1
+    stream: Optional[bool] = False
+    stop: Optional[List[str]] = None
+    max_tokens: Optional[int] = 8192
+    presence_penalty: Optional[float] = 0.0
+    frequency_penalty: Optional[float] = 0.0
+    logit_bias: Optional[Dict[str, float]] = None
+    user: Optional[str] = None
+    system_message: Optional[str] = ""
 
 
 class EmbeddingModel(BaseModel):
-    input: str
+    input: Union[str, List[str]]
     model: str
-    user: str = None
+    user: Optional[str] = None
 
 
 class ChainNewName(BaseModel):
@@ -214,18 +212,18 @@ class ConversationHistoryMessageModel(BaseModel):
 
 class GitHubInput(BaseModel):
     github_repo: str
-    github_user: str = None
-    github_token: str = None
-    github_branch: str = "main"
-    use_agent_settings: bool = False
-    collection_number: int = 0
+    github_user: Optional[str] = None
+    github_token: Optional[str] = None
+    github_branch: Optional[str] = "main"
+    use_agent_settings: Optional[bool] = False
+    collection_number: Optional[int] = 0
 
 
 class ArxivInput(BaseModel):
-    query: str = None
-    article_ids: str = None
-    max_results: int = 5
-    collection_number: int = 0
+    query: Optional[str] = None
+    article_ids: Optional[str] = None
+    max_results: Optional[int] = 5
+    collection_number: Optional[int] = 0
 
 
 class CommandExecution(BaseModel):
