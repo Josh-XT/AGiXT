@@ -21,4 +21,4 @@ If the agent settings are not specified, the agent will use the default settings
 | `stream` | `False` | Whether or not to stream the response from the LLM provider. |
 | `WORKING_DIRECTORY` | `./WORKSPACE` | The working directory to use for the agent. |
 | `WORKING_DIRECTORY_RESTRICTED` | `True` | Whether or not to restrict the working directory to the agent's working directory. |
-| `AUTONOMOUS_EXECUTION` | `False` | Whether or not to allow the agent to execute commands autonomously. Enable with caution. |
+| `AUTONOMOUS_EXECUTION` | `True` | Whether or not to allow the agent to execute commands autonomously. Enabled by default. |
