@@ -22,6 +22,21 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
+    # Check if agent already exists
+    agent = (
+        session.query(AgentModel)
+        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
+        .first()
+    )
+    if agent:
+        return {"message": f"Agent {agent_name} already exists."}
+    agent = (
+        session.query(AgentModel)
+        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=DEFAULT_USER))
+        .first()
+    )
+    if agent:
+        return {"message": f"Agent {agent_name} already exists."}
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
 
