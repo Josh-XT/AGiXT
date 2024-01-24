@@ -81,6 +81,11 @@ class voice_chat(Extensions):
         if "ELEVENLABS_API_KEY" in kwargs:
             if kwargs["ELEVENLABS_API_KEY"] != "":
                 self.tts_command = "Speak with TTS Using Elevenlabs"
+        if "USE_ALLTALK_TTS" in kwargs:
+            if kwargs["USE_ALLTALK_TTS"].lower() == "true":
+                if kwargs["USE_ALLTALK_TTS"]:
+                    self.tts_command = "Speak with TTS with Alltalk Text to Speech"
+
         self.commands = {
             "Chat with Voice": self.chat_with_voice,
             "Transcribe WAV Audio": self.transcribe_wav_audio,
