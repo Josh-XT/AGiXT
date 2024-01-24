@@ -19,6 +19,7 @@ services:
       - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
       - ./agixt/conversations:/agixt/conversations
+      - ./voices:/agixt/voices
       - /var/run/docker.sock:/var/run/docker.sock
   agixtchat:
     image: joshxt/agixtchat:main
@@ -63,8 +64,8 @@ services:
     ports:
       - "7851:7851"
     volumes:
-      - ./WORKSPACE/outputs:/app/outputs/
-      - ./WORKSPACE/audio-samples:/app/finetune/put-voice-samples-in-here/
+      - ./agixt/WORKSPACE/outputs:/app/outputs/
+      - ./agixt/WORKSPACE/audio-samples:/app/finetune/put-voice-samples-in-here/
       - ./models:/app/models/
       - ./voices:/app/voices/
       - ./alltalk.json:/app/confignew.json
