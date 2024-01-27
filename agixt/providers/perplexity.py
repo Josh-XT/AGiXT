@@ -291,30 +291,27 @@ class Client:
 
 # Code above is copied from https://github.com/helallao/perplexity-ai/blob/main/perplexity.py
 
-DEFAULT_PERPLEXITY_COOKIE_PATH = "./perplexity-cookies.json"
-DEFAULT_EMAILNATOR_COOKIE_PATH = "./emailnator-cookies.json"
-
 
 class PerplexityProvider:
     def __init__(
         self,
         FOCUS: str = "internet",
-        PERPLEXITY_COOKIE_PATH: str = DEFAULT_PERPLEXITY_COOKIE_PATH,
-        EMAILNATOR_COOKIE_PATH: str = DEFAULT_EMAILNATOR_COOKIE_PATH,
+        PERPLEXITY_COOKIE: str = "{}",
+        EMAILNATOR_COOKIE: str = "{}",
         **kwargs,
     ):
         self.perplexity_cli = None
         self.requirements = ["requests", "bs4", "websocket-client", "requests-toolbelt"]
-        self.PERPLEXITY_COOKIE_PATH = (
-            PERPLEXITY_COOKIE_PATH
-            if PERPLEXITY_COOKIE_PATH
-            else DEFAULT_PERPLEXITY_COOKIE_PATH
-        )
-        self.EMAILNATOR_COOKIE_PATH = (
-            EMAILNATOR_COOKIE_PATH
-            if EMAILNATOR_COOKIE_PATH
-            else DEFAULT_EMAILNATOR_COOKIE_PATH
-        )
+        self.PERPLEXITY_COOKIE = PERPLEXITY_COOKIE
+        try:
+            self.PERPLEXITY_COOKIE = json.loads(PERPLEXITY_COOKIE)
+        except:
+            pass
+        self.EMAILNATOR_COOKIE = EMAILNATOR_COOKIE
+        try:
+            self.EMAILNATOR_COOKIE = json.loads(EMAILNATOR_COOKIE)
+        except:
+            pass
         self.FOCUS = FOCUS
         self.exec_nb = 5  # set to 5 as default to automatically renewed copilot
         self.AI_MODEL = "perplexity"
@@ -324,13 +321,8 @@ class PerplexityProvider:
         self,
     ):
         try:
-            with open(
-                self.PERPLEXITY_COOKIE_PATH,
-                "r",
-            ) as f:
-                curl = json.loads(f.read())
-            cookies = curl["cookies"]
-            headers = curl["headers"]
+            cookies = self.PERPLEXITY_COOKIE["cookies"]
+            headers = self.PERPLEXITY_COOKIE["headers"]
             self.perplexity_cli = Client(headers, cookies)
 
         except Exception as e:
@@ -339,19 +331,13 @@ class PerplexityProvider:
 
     def reload_account(self):
         if self.exec_nb > 5:
-            if path.isfile(self.EMAILNATOR_COOKIE_PATH):
-                with open(
-                    self.EMAILNATOR_COOKIE_PATH,
-                    "r",
-                ) as f:
-                    curl = json.loads(f.read())
-                cookies = curl["cookies"]
-                headers = curl["headers"]
-                if not self.perplexity_cli.create_account(headers, cookies):
-                    print("Error creating account")
-                else:
-                    print("Account successfully created")
-                self.exec_nb = 1
+            cookies = self.EMAILNATOR_COOKIE["cookies"]
+            headers = self.EMAILNATOR_COOKIE["headers"]
+            if not self.perplexity_cli.create_account(headers, cookies):
+                print("Error creating account")
+            else:
+                print("Account successfully created")
+            self.exec_nb = 1
 
     async def inference(self, prompt, tokens: int = 0):
         self.exec_nb += 1
