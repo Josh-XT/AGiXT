@@ -281,6 +281,52 @@ def delete_message(message, conversation_name=None, agent_name=None, user=DEFAUL
     )
 
 
-# Example usage:
-# delete_history("Agent1")
-# delete_message("Agent1", "Agent1 History", 1)
+def update_message(
+    message, new_message, conversation_name=None, agent_name=None, user=DEFAULT_USER
+):
+    session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+    user_id = user_data.id
+
+    conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.name == conversation_name,
+            Conversation.user_id == user_id,
+        )
+        .first()
+    )
+
+    if not conversation:
+        print(f"No conversation found for agent '{agent_name}'.")
+        return
+    message_id = (
+        session.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.content == message,
+        )
+        .first()
+    ).id
+
+    message = (
+        session.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.id == message_id,
+        )
+        .first()
+    )
+
+    if not message:
+        print(
+            f"No message found with ID '{message_id}' in conversation '{conversation_name}'."
+        )
+        return
+
+    message.content = new_message
+    session.commit()
+
+    print(
+        f"Updated message with ID '{message_id}' from conversation '{conversation_name}'."
+    )

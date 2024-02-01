@@ -24,6 +24,7 @@ if DB_CONNECTED:
         get_conversations,
         new_conversation,
         log_interaction,
+        update_message,
     )
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
@@ -36,6 +37,7 @@ else:
         get_conversations,
         new_conversation,
         log_interaction,
+        update_message,
     )
 
 
