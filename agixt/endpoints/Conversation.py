@@ -6,11 +6,13 @@ from ApiClient import (
     new_conversation,
     delete_history,
     delete_message,
+    update_message,
 )
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
     ConversationHistoryMessageModel,
+    UpdateConversationHistoryMessageModel,
     ResponseMessage,
 )
 
@@ -139,3 +141,21 @@ async def delete_history_message(
         user=user,
     )
     return ResponseMessage(message=f"Message deleted.")
+
+
+@app.put(
+    "/api/conversation/message",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_history_message(
+    history: UpdateConversationHistoryMessageModel, user=Depends(verify_api_key)
+) -> ResponseMessage:
+    update_message(
+        agent_name=history.agent_name,
+        message=history.message,
+        new_message=history.new_message,
+        conversation_name=history.conversation_name,
+        user=user,
+    )
+    return ResponseMessage(message=f"Message updated.")

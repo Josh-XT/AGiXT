@@ -58,14 +58,3 @@ services:
       - "8091:8091"
     volumes:
       - ./models:/app/models
-  alltalk-tts:
-    image: joshxt/alltalk_tts:cpu
-    restart: unless-stopped
-    ports:
-      - "7851:7851"
-    volumes:
-      - ./agixt/WORKSPACE/outputs:/app/outputs/
-      - ./agixt/WORKSPACE/audio-samples:/app/finetune/put-voice-samples-in-here/
-      - ./models:/app/models/
-      - ./voices:/app/voices/
-      - ./alltalk.json:/app/confignew.json

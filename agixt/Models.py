@@ -210,6 +210,13 @@ class ConversationHistoryMessageModel(BaseModel):
     message: str
 
 
+class UpdateConversationHistoryMessageModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+    message: str
+    new_message: str
+
+
 class GitHubInput(BaseModel):
     github_repo: str
     github_user: Optional[str] = None

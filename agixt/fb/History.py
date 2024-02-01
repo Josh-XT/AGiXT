@@ -88,3 +88,19 @@ def delete_message(message, conversation_name=None, agent_name=None, user="USER"
         history_file = os.path.join("conversations", f"{conversation_name}.yaml")
         with open(history_file, "w") as file:
             yaml.safe_dump(history, file)
+
+
+def update_message(
+    message, new_message, conversation_name=None, agent_name=None, user="USER"
+):
+    if conversation_name:
+        history = get_conversation(
+            agent_name=agent_name, conversation_name=conversation_name
+        )
+        for interaction in history["interactions"]:
+            if interaction["message"] == message:
+                interaction["message"] = new_message
+                break
+        history_file = os.path.join("conversations", f"{conversation_name}.yaml")
+        with open(history_file, "w") as file:
+            yaml.safe_dump(history, file)
