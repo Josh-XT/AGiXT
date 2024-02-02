@@ -75,7 +75,6 @@ class voice_chat(Extensions):
         if "conversation_name" in kwargs:
             self.conversation_name = kwargs["conversation_name"]
         # https://huggingface.co/ggerganov/whisper.cpp
-        # Models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v1
         if WHISPER_MODEL not in [
             "tiny",
             "tiny.en",
@@ -85,8 +84,9 @@ class voice_chat(Extensions):
             "small.en",
             "medium",
             "medium.en",
-            "large",
             "large-v1",
+            "large-v2",
+            "large-v3",
         ]:
             self.WHISPER_MODEL = "base.en"
         else:
