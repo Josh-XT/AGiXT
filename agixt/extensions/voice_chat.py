@@ -69,6 +69,7 @@ class voice_chat(Extensions):
             "Prompt with Voice": self.prompt_with_voice,
             "Command with Voice": self.command_with_voice,
             "Translate Text to Speech": self.text_to_speech,
+            "Transcribe M4A Audio": self.transcribe_m4a_audio,
         }
         self.conversation_name = f"Voice Chat with {self.agent_name}"
         if "conversation_name" in kwargs:
@@ -193,3 +194,18 @@ class voice_chat(Extensions):
         if str(tts).lower() == "true":
             return self.text_to_speech(text=text_response)
         return f"{text_response}"
+
+    async def transcribe_m4a_audio(
+        self,
+        base64_audio: str,
+    ):
+        # Convert from M4A to WAV
+        filename = f"{uuid.uuid4().hex}.wav"
+        user_audio = await self.convert_m4a_to_wav(
+            base64_audio=base64_audio, filename=filename
+        )
+        # Transcribe the audio to text.
+        user_input = await self.transcribe_audio_from_file(filename=filename)
+        user_input.replace("[BLANK_AUDIO]", "")
+        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+        return user_input
