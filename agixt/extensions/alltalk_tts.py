@@ -9,10 +9,12 @@ class alltalk_tts(Extensions):
     def __init__(
         self,
         USE_ALLTALK_TTS: bool = False,
+        ALLTALK_URI: str = "http://alltalk-tts:7851",
         ALLTALK_VOICE: str = "default",
         **kwargs,
     ):
-        self.voice = ALLTALK_VOICE
+        self.ALLTALK_URI = ALLTALK_URI
+        self.ALLTALK_VOICE = ALLTALK_VOICE
         self.USE_ALLTALK_TTS = USE_ALLTALK_TTS
         if USE_ALLTALK_TTS:
             self.commands = {
@@ -39,7 +41,7 @@ class alltalk_tts(Extensions):
         )
         data = {
             "text": text,
-            "voice": self.voice,
+            "voice": self.ALLTALK_VOICE,
             "language": "en",
             "temperature": 0.7,
             "repetition_penalty": 10.0,
@@ -47,7 +49,7 @@ class alltalk_tts(Extensions):
             "streaming": False,
         }
         response = requests.post(
-            "http://alltalk-tts:7851/api/generate",
+            f"{self.ALLTALK_URI}/api/generate",
             json=data,
         )
         if response.status_code != 200:
