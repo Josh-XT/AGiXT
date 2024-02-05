@@ -195,6 +195,19 @@ class voice_chat(Extensions):
             return self.text_to_speech(text=text_response)
         return f"{text_response}"
 
+    async def convert_m4a_to_wav(
+        self, base64_audio: str, filename: str = "recording.wav"
+    ):
+        # Convert the base64 audio to a 16k WAV format
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
+        audio_segment = audio_segment.set_frame_rate(16000)
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        audio_segment.export(file_path, format="wav")
+        with open(file_path, "rb") as f:
+            audio = f.read()
+        return f"{base64.b64encode(audio).decode('utf-8')}"
+
     async def transcribe_m4a_audio(
         self,
         base64_audio: str,
