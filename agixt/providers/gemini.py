@@ -6,37 +6,62 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "google.generativeai"])
     import google.generativeai as genai  # Import again after installation
 
-class GeminiProvider:
-    def __init__(self, 
-                 GOOGLE_API_KEY: str, 
-                 AI_MODEL: str = "gemini-pro",
-                 MAX_TOKENS: int = 4000,
-                 AI_TEMPERATURE: float = 0.7,
-                 **kwargs):
 
-        self.requirements = ["google.generativeai"]  
-        self.GOOGLE_API_KEY =  GOOGLE_API_KEY
+class GeminiProvider:
+    def __init__(self, GOOGLE_API_KEY: str, AI_MODEL: str = "gemini-pro", MAX_TOKENS: int = 4000, AI_TEMPERATURE: float = 0.7, **kwargs):
+        """
+        Initialize the GeminiProvider with required parameters.
+
+        Parameters:
+        - GOOGLE_API_KEY: str, API key for Google API.
+        - AI_MODEL: str, AI model to use (default is 'gemini-pro').
+        - MAX_TOKENS: int, maximum tokens to generate (default is 4000).
+        - AI_TEMPERATURE: float, temperature for AI model (default is 0.7).
+        """
+        self.requirements = ["google.generativeai"]
+        self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.AI_MODEL = AI_MODEL
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_TEMPERATURE = AI_TEMPERATURE
 
         # Configure and setup Gemini model
-        genai.configure(api_key=self.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(self.AI_MODEL)
-
-    async def inference(self, prompt, tokens: int = 0):
         try:
-            # *** ADJUST BASED ON GEMINI API ***
-            new_max_tokens = int(self.MAX_TOKENS) - tokens   
-            response = self.model.generate(  # Replace 'generate' if needed
-                prompt=prompt, 
-                temperature=float(self.AI_TEMPERATURE),
-                max_output_tokens=new_max_tokens
+            genai.configure(api_key=self.GOOGLE_API_KEY)
+            self.model = genai.GenerativeModel(self.AI_MODEL)
+        except Exception as e:
+            print(f"Error setting up Gemini model: {e}")
+
+    def inference(self, prompt, tokens: int = 0, generation_config: genai.types.GenerationConfig = None):
+        """
+        Perform inference using the Gemini model.
+
+        Parameters:
+        - prompt: str, input prompt for generating text.
+        - tokens: int, additional tokens to generate (default is 0).
+        - generation_config: genai.types.GenerationConfig, generation configuration.
+
+        Returns:
+        - str, generated text.
+        """
+        try:
+            # Adjust based on Gemini API
+            new_max_tokens = int(self.MAX_TOKENS) - tokens
+            if generation_config is None:
+                generation_config = genai.types.GenerationConfig(max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE))
+            else:
+                new_max_tokens = min(new_max_tokens, generation_config.max_output_tokens)
+
+            response = self.model.generate_content(
+                contents=prompt,
+                generation_config=generation_config
             )
 
-            # *** ADJUST BASED ON GEMINI RESPONSE STRUCTURE ***
-            return response.text
+            # Extract the generated text from the response
+            if response.parts:
+                generated_text = ''.join(part.text for part in response.parts)
+            else:
+                generated_text = ''.join(part.text for part in response.candidates[0].content.parts)
 
+            return generated_text
         except Exception as e:
             return f"Gemini Error: {e}"
-
