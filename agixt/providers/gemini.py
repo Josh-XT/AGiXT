@@ -1,3 +1,5 @@
+import asyncio
+
 try:
     import google.generativeai as genai  # Primary import attempt
 except ImportError:
@@ -33,9 +35,9 @@ class GeminiProvider:
         # Set default generation config
         self.generation_config = genai.types.GenerationConfig(max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE)
 
-    def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0):
         """
-        Perform inference using the Gemini model.
+        Perform inference using the Gemini model asynchronously.
 
         Parameters:
         - prompt: str, input prompt for generating text.
@@ -49,9 +51,9 @@ class GeminiProvider:
             new_max_tokens = int(self.MAX_TOKENS) - tokens
             generation_config = genai.types.GenerationConfig(max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE))
 
-            response = self.model.generate_content(
-                contents=prompt,
-            )
+            response = await asyncio.to_thread(self.model.generate_content,
+                                               contents=prompt,
+                                               generation_config=generation_config)
 
             # Extract the generated text from the response
             if response.parts:
