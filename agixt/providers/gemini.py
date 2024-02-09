@@ -51,7 +51,6 @@ class GeminiProvider:
 
             response = self.model.generate_content(
                 contents=prompt,
-                generation_config=generation_config
             )
 
             # Extract the generated text from the response
