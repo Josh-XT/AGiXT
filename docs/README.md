@@ -91,10 +91,20 @@ This is a video that walks through the process of setting up and using AGiXT to 
 
 Open a PowerShell terminal and run the following to download and install AGiXT:
 
+Windows and Mac:
+
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
 ./AGiXT.ps1
+```
+
+Linux:
+
+```bash
+git clone https://github.com/Josh-XT/AGiXT
+cd AGiXT
+sudo pwsh ./AGiXT.ps1
 ```
 
 When you run the `AGiXT.ps1` script for the first time, it will create a `.env` file automatically. There are a few questions asked on first run to help you get started. The default options are recommended for most users.
