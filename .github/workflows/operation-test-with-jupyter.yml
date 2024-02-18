@@ -30,7 +30,9 @@ on:
       append-logs:
         type: boolean
         default: false
-
+      clone-repo:
+        type: boolean
+        default: false
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -38,18 +40,14 @@ on:
 jobs:
   jupyter-test-job:
     runs-on: ubuntu-latest
-    #    container: python:3.10-slim-buster
-
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
       service-under-test:
-        image: ${{ inputs.image }}
+        image: |
+          echo "${{ inputs.image }}" | tr '[:upper:]' '[:lower:]'
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
-    #        options: ${{ inputs.image-options }}
-    #     volumes:
-    #       - /models:/models
 
     steps:
       - uses: actions/setup-python@v4
@@ -66,6 +64,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
+
+      - name: Clone repository and install package
+        if: inputs.clone-repo
+        run: |
+          git clone https://github.com/${{ github.repository }} /tmp/repo
+          cd /tmp/repo
+          pip3 install .
 
       - name: Install additional dependencies for notebooks
         if: inputs.additional-python-dependencies
