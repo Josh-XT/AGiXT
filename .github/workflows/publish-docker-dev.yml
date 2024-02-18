@@ -40,9 +40,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}-${{ env.BRANCH_NAME }}
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}-${{ env.BRANCH_NAME }}-${{ github.sha }}
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev-${{ env.BRANCH_NAME }}
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev-${{ env.BRANCH_NAME }}-${{ github.sha }}
 
   test-agixt:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
