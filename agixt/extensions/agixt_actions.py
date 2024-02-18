@@ -3,7 +3,8 @@ import json
 import requests
 import os
 import re
-from typing import List
+from typing import List, Type
+from pydantic import BaseModel
 from Extensions import Extensions
 from local_llm import LLM
 from ApiClient import Chain
@@ -165,6 +166,7 @@ class agixt_actions(Extensions):
             "Get CSV Preview": self.get_csv_preview,
             "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
+            "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
         }
 
         for chain in chains:
@@ -179,6 +181,7 @@ class agixt_actions(Extensions):
         self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
+        self.failures = 0
 
     async def models(self):
         return LLM().models()
@@ -352,9 +355,11 @@ class agixt_actions(Extensions):
                                 "in": param.get("in", ""),
                                 "description": param.get("description", ""),
                                 "required": param.get("required", False),
-                                "type": param.get("schema", {}).get("type", "")
-                                if "schema" in param
-                                else "",
+                                "type": (
+                                    param.get("schema", {}).get("type", "")
+                                    if "schema" in param
+                                    else ""
+                                ),
                             }
                             endpoint_info["parameters"].append(param_info)
                     if "requestBody" in method_info:
@@ -665,3 +670,36 @@ class agixt_actions(Extensions):
                 )
             )
             tasks.append(task)
+
+    async def convert_string_to_pydantic_model(
+        self, input_string: str, output_model: Type[BaseModel]
+    ):
+        fields = output_model.model_fields
+        field_descriptions = [f"{field}: {fields[field]}" for field in fields]
+        schema = "\n".join(field_descriptions)
+        response = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Convert to JSON",
+            prompt_args={
+                "user_input": input_string,
+                "schema": schema,
+                "conversation_name": "AGiXT Terminal",
+            },
+        )
+        response = str(response).split("```json")[1].split("```")[0].strip()
+        try:
+            response = json.loads(response)
+            return output_model(**response)
+        except:
+            self.failures += 1
+            logging.warning(f"Failed to convert response, the response was: {response}")
+            logging.info(f"[{self.failures}/3] Retrying conversion")
+            if self.failures < 3:
+                return await self.convert_string_to_pydantic_model(
+                    input_string=input_string, output_model=output_model
+                )
+            else:
+                logging.error(
+                    "Failed to convert response after 3 attempts, returning empty string."
+                )
+                return ""

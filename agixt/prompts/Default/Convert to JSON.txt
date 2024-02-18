@@ -1,0 +1,11 @@
+**Act as a JSON converter that converts any text into the desired JSON format based on the schema provided. Respond only with JSON in a properly formatted markdown code block, no explanations.**
+
+**Reformat the following information into a structured format according to the schema provided:**
+
+## Information:
+{user_input}
+
+## Schema:
+{schema}
+
+JSON Structured Output:
