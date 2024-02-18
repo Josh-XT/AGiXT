@@ -44,8 +44,7 @@ jobs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
       service-under-test:
-        image: |
-          echo "${{ inputs.image }}" | tr '[:upper:]' '[:lower:]'
+        image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
 
