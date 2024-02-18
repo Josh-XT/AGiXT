@@ -48,13 +48,21 @@ services:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
-  local-llm:
-    image: joshxt/local-llm:cpu
+  ezlocalai:
+    image: joshxt/ezlocalai:cpu
     environment:
-      - LOCAL_LLM_API_KEY=${AGIXT_API_KEY}
+      - EZLOCALAI_URL=${EZLOCALAI_URL-http://localhost:8091}
+      - EZLOCALAI_API_KEY=${AGIXT_API_KEY}
       - DEFAULT_MODEL=${DEFAULT_MODEL-zephyr-7b-beta}
+      - WHISPER_MODEL=${WHISPER_MODEL-base}
+      - ALLOW_MODEL_SWITCHING=${ALLOW_MODEL_SWITCHING-false}
+      - NGROK_TOKEN=${NGROK_TOKEN}
     restart: unless-stopped
     ports:
       - "8091:8091"
     volumes:
       - ./models:/app/models
+      - ./outputs:/app/outputs
+      - ./voices:/app/voices
+      - ./whispercpp:/app/whispercpp
+      - ./xttsv2_2.0.2:/app/xttsv2_2.0.2
