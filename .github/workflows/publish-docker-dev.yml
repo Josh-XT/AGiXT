@@ -27,7 +27,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ env.GITHUB_USER }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
@@ -40,15 +40,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev-${{ env.BRANCH_NAME }}
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:dev-${{ env.BRANCH_NAME }}-${{ github.sha }}
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ github.sha }}
 
   test-agixt:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
       notebook: tests/tests.ipynb
-      image: ghcr.io/${{ github.repository }}:dev
+      image: ghcr.io/${{ github.repository }}:${{ github.sha }}
       port: "7437"
       additional-python-dependencies: openai requests
     needs: build-agixt
