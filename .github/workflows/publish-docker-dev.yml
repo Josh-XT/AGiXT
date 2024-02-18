@@ -9,15 +9,18 @@ on:
 jobs:
   build-agixt:
     runs-on: ubuntu-latest
+    outputs:
+      github_user: ${{ steps.extract_info.outputs.github_user }}
+      repo_name: ${{ steps.extract_info.outputs.repo_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract GitHub info
+      - name: Extract GitHub info and ensure lowercase
+        id: extract_info
         run: |
-          echo "GITHUB_USER=$(echo ${{ github.actor }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f 2 | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-        id: extract_branch
+          echo "::set-output name=github_user::$(echo ${{ github.actor }} | tr '[:upper:]' '[:lower:]')"
+          echo "::set-output name=repo_name::$(echo ${{ github.repository }} | cut -d'/' -f 2 | tr '[:upper:]' '[:lower:]')"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -39,13 +42,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ github.sha }}
+            ghcr.io/${{ steps.extract_info.outputs.github_user }}/${{ steps.extract_info.outputs.repo_name }}:${{ github.sha }}
 
   test-agixt:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
       notebook: tests/tests.ipynb
-      image: ghcr.io/josh-xt/agixt:${{ github.sha }}
+      image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
       additional-python-dependencies: openai requests
     needs: build-agixt
