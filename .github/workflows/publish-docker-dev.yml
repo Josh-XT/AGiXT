@@ -1,0 +1,54 @@
+name: Dev - Build and Test
+
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-agixt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract GitHub info
+        run: |
+          echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | sed 's/[^a-zA-Z0-9._-]/-/g')" >> $GITHUB_ENV 
+          echo "GITHUB_USER=$(echo ${{ github.actor }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f 2 | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        id: extract_branch
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.GITHUB_USER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}-${{ env.BRANCH_NAME }}
+            ghcr.io/${{ env.GITHUB_USER }}/${{ env.REPO_NAME }}:${{ matrix.tag_name }}-${{ env.BRANCH_NAME }}-${{ github.sha }}
+
+  test-agixt:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/tests.ipynb
+      image: ghcr.io/${{ github.repository }}:dev
+      port: "7437"
+      additional-python-dependencies: openai requests
+    needs: build-agixt
