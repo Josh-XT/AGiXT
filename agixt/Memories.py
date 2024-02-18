@@ -119,9 +119,11 @@ def get_chroma_client():
             return chromadb.HttpClient(
                 host=chroma_host,
                 port=os.environ.get("CHROMA_PORT", "8000"),
-                ssl=False
-                if os.environ.get("CHROMA_SSL", "false").lower() != "true"
-                else True,
+                ssl=(
+                    False
+                    if os.environ.get("CHROMA_SSL", "false").lower() != "true"
+                    else True
+                ),
                 headers=chroma_headers,
                 settings=chroma_settings,
             )

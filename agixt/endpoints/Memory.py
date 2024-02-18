@@ -297,9 +297,9 @@ async def agent_reader(
             agent_name=agent_name,
             agent_config=agent_config,
             collection_number=collection_number,
-            use_agent_settings=data["use_agent_settings"]
-            if "use_agent_settings" in data
-            else False,
+            use_agent_settings=(
+                data["use_agent_settings"] if "use_agent_settings" in data else False
+            ),
             ApiClient=ApiClient,
             user=user,
         ).write_github_repository_to_memory(

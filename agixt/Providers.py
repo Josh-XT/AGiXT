@@ -41,9 +41,11 @@ def get_provider_options(provider_name):
             provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
             signature = inspect.signature(provider_class.__init__)
             options = {
-                name: param.default
-                if param.default is not inspect.Parameter.empty
-                else None
+                name: (
+                    param.default
+                    if param.default is not inspect.Parameter.empty
+                    else None
+                )
                 for name, param in signature.parameters.items()
                 if name != "self" and name != "kwargs"
             }
