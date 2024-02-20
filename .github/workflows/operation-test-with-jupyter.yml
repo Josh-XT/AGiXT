@@ -45,6 +45,7 @@ jobs:
     services:
       service-under-test:
         image: ${{ inputs.image }}
+        options: ${{ inputs.image-options }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
 
