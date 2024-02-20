@@ -1,4 +1,4 @@
-name: Test junyper notebook
+name: Run Tests
 on:
   workflow_call:
     inputs:
@@ -33,27 +33,32 @@ on:
       clone-repo:
         type: boolean
         default: false
+      environment-variables:
+        type: string
+        description: environment variables to set in the container
+        default: ""
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
 
 jobs:
-  jupyter-test-job:
+  run-tests:
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
       service-under-test:
         image: ${{ inputs.image }}
+        env: ${{ inputs.environment-variables }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
 
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4.1.1
         with:
           fetch-depth: 1
 
@@ -112,7 +117,7 @@ jobs:
         run: |
           echo "artifact-file=${{ env.artifact-file }}\n/test-output.log" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: ${{ env.artifact-file }}
