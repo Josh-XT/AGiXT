@@ -9,12 +9,6 @@ on:
       image:
         type: string
         required: true
-      image-env:
-        type: string
-        required: false
-        description: environment variables to pass to the image
-        default: |
-          TEST_API_KEY: "1234"
       port:
         type: string
       port-mapping:
@@ -48,7 +42,6 @@ jobs:
     services:
       service-under-test:
         image: ${{ inputs.image }}
-        env: ${{ inputs.image-env }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
 
