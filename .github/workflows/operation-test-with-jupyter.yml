@@ -9,13 +9,16 @@ on:
       image:
         type: string
         required: true
+      image-env:
+        type: string
+        required: false
+        description: environment variables to pass to the image
+        default: |
+          TEST_API_KEY: "1234"
       port:
         type: string
       port-mapping:
         type: string
-      image-options:
-        type: string
-        description: like --entrypoint, --command
       additional-python-dependencies:
         type: string
         description: add whatever pip you need here
@@ -45,7 +48,7 @@ jobs:
     services:
       service-under-test:
         image: ${{ inputs.image }}
-        options: ${{ inputs.image-options }}
+        env: ${{ inputs.image-env }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
 
