@@ -36,7 +36,7 @@ on:
       environment-variables:
         type: string
         description: environment variables to set in the container
-        default: ""
+        default: "TEST_API_KEY=123"
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
