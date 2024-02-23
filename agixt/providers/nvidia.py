@@ -41,10 +41,15 @@ class NvidiaProvider:
             "stream": False,
         }
 
-        response = await asyncio.to_thread(requests.post, self.API_URI, headers={
-            "Authorization": f"Bearer {self.API_KEY}",
-            "content-type": "application/json",
-        }, json=payload)
+        response = await asyncio.to_thread(
+            requests.post,
+            self.API_URI,
+            headers={
+                "Authorization": f"Bearer {self.API_KEY}",
+                "content-type": "application/json",
+            },
+            json=payload,
+        )
 
         full_response = ""
         for line in response.iter_lines():
