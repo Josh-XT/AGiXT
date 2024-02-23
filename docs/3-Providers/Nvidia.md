@@ -11,6 +11,6 @@ To begin using this provider, follow these steps:
 
 3. Once you've selected the model, navigate to the API section. Under the "Shell" language tab, switch to the "Python" language tab. You will find an attribute labeled `invoke_url`. This is the `API_URI` you will need to place this in your `AGENT` settings.
 
-4. To proceed, you must log in to the Nvidia developer portal and retrieve your API Key from the model page. Place this API Key in the `AGENT` settings.
+4. To proceed, you must log in to the Nvidia developer account and retrieve your API Key from the model page by hitting generate api key in that api tab. Place this API Key in the `AGENT` settings.
 
 Now you are ready to utilize the selected model.
