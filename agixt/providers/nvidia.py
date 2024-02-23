@@ -59,4 +59,4 @@ class NvidiaProvider:
         # Extracting the content from the response
         content = response.json()["choices"][0]["message"]["content"]
 
-        return content
+        return str(content)
