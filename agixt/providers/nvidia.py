@@ -56,4 +56,7 @@ class NvidiaProvider:
             if line:
                 full_response += line.decode("utf-8") + "\n"
 
-        return full_response
+        # Extracting the content from the response
+        content = response.json()["choices"][0]["message"]["content"]
+
+        return content
