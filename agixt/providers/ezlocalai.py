@@ -57,17 +57,16 @@ class EzlocalaiProvider:
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         try:
-            response = openai.chat.completions.create(
+            response = openai.completions.create(
                 model=self.AI_MODEL,
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_MESSAGE},
-                    {"role": "user", "content": prompt},
-                ],
+                prompt=f"{prompt}</s>",
                 max_tokens=int(max_tokens),
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
+                n=1,
                 stream=False,
                 extra_body={
+                    "system_message": self.SYSTEM_MESSAGE,
                     "voice": self.VOICE,
                 },
             )
