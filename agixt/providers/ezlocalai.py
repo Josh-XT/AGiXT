@@ -1,8 +1,6 @@
 import logging
 import random
 import re
-import requests
-import base64
 
 try:
     import openai
@@ -82,20 +80,7 @@ class EzlocalaiProvider:
                 urls = urls[0].split("\n\n")
                 for url in urls:
                     file_type = url.split(".")[-1]
-                    if file_type == "wav":
-                        downloaded_wav = requests.get(url)
-                        response = response.replace(
-                            url,
-                            f"\n#GENERATED_AUDIO:{base64.b64encode(downloaded_wav.content).decode('utf-8')}\n",
-                        )
-                    elif file_type == "png":
-                        downloaded_png = requests.get(url)
-                        response = response.replace(
-                            url,
-                            f"#GENERATED_IMAGE:{base64.b64encode(downloaded_png.content).decode('utf-8')}",
-                        )
-                    else:
-                        response = response.replace(url, f"![{file_type}]({url})")
+                    response = response.replace(url, f"![{file_type}]({url})")
             return response
         except Exception as e:
             self.failure_count += 1
