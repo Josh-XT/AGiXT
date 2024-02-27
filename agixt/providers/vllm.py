@@ -51,7 +51,7 @@ class VllmProvider:
         for uri in uri_list:
             if uri not in self.FAILURES:
                 self.API_URI = uri
-                openai.api_base = self.API_URI
+                openai.base_url = self.API_URI
                 break
 
     async def inference(self, prompt, tokens: int = 0):

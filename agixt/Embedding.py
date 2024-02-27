@@ -20,7 +20,7 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
     ):
         openai.api_key = api_key
         if api_base is not None:
-            openai.api_base = api_base
+            openai.base_url = api_base
         if api_type is not None:
             openai.api_type = api_type
         if organization_id is not None:
