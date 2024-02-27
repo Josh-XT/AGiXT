@@ -59,7 +59,7 @@ class EzlocalaiProvider:
         try:
             response = openai.completions.create(
                 model=self.AI_MODEL,
-                prompt=f"{prompt}</s>",
+                prompt=f"{prompt} </s>",
                 max_tokens=int(max_tokens),
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
