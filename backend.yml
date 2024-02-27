@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   agixt:
-    image: joshxt/agixt:dev
+    image: ghcr.io/josh-xt/agixt:dev
     init: true
     environment:
       - DB_CONNECTED=${DB_CONNECTED:-false}

@@ -1,9 +1,13 @@
 #!/bin/sh
 echo "Starting AGiXT..."
 sed -i 's/GptGo,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
+sed -i 's/GptGo//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 sed -i 's/GptForLove,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
+sed -i 's/GptForLove//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 sed -i 's/Chatgpt4Online,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
+sed -i 's/Chatgpt4Online//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 sed -i 's/ChatBase,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
+sed -i 's/ChatBase//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 
 if [ "$DB_CONNECTED" = "true" ]; then
     sleep 5
