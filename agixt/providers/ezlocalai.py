@@ -80,7 +80,13 @@ class EzlocalaiProvider:
                 urls = urls[0].split("\n\n")
                 for url in urls:
                     file_type = url.split(".")[-1]
-                    response = response.replace(url, f"![{file_type}]({url})")
+                    if file_type == "wav":
+                        response = response.replace(
+                            url,
+                            f'<audio controls><source src="{url}" type="audio/wav"></audio>',
+                        )
+                    else:
+                        response = response.replace(url, f"![{file_type}]({url})")
             return response
         except Exception as e:
             self.failure_count += 1
