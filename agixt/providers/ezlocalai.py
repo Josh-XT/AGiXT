@@ -65,8 +65,6 @@ class EzlocalaiProvider:
         return content
 
     async def inference(self, prompt, tokens: int = 0):
-        if int(self.WAIT_BETWEEN_REQUESTS) > 0:
-            time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
             response = openai.completions.create(
                 model=self.AI_MODEL,
