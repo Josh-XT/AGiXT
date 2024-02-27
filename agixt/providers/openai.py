@@ -36,7 +36,7 @@ class OpenaiProvider:
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
         self.OPENAI_API_KEY = OPENAI_API_KEY
-        openai.api_base = self.API_URI
+        openai.base_url = self.API_URI
         openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
 
@@ -62,7 +62,7 @@ class OpenaiProvider:
         try:
             # Use chat completion API
             messages = [{"role": "system", "content": prompt}]
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=messages,
                 temperature=float(self.AI_TEMPERATURE),
