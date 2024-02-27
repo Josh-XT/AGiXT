@@ -8,6 +8,7 @@ sed -i 's/Chatgpt4Online,//g' /usr/local/lib/python3.10/site-packages/g4f/models
 sed -i 's/Chatgpt4Online//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 sed -i 's/ChatBase,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 sed -i 's/ChatBase//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
+sed -i 's/You,//g' /usr/local/lib/python3.10/site-packages/g4f/models.py
 
 if [ "$DB_CONNECTED" = "true" ]; then
     sleep 5
