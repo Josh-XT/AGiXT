@@ -17,7 +17,7 @@ class EzlocalaiProvider:
         self,
         OPENAI_API_KEY: str = "None",
         AI_MODEL: str = "zephyr-7b-beta",
-        API_URI: str = "http://localhost:8091/v1",
+        API_URI: str = "http://localhost:8091/v1/",
         MAX_TOKENS: int = 8192,
         AI_TEMPERATURE: float = 1.33,
         AI_TOP_P: float = 0.95,
@@ -62,6 +62,7 @@ class EzlocalaiProvider:
                 top_p=float(self.AI_TOP_P),
                 n=1,
                 stream=False,
+                stop=["USER:", "User:"],
                 extra_body={
                     "system_message": self.SYSTEM_MESSAGE,
                     "voice": self.VOICE,
