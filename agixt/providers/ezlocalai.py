@@ -28,16 +28,15 @@ class EzlocalaiProvider:
         self.requirements = ["openai"]
         self.AI_MODEL = AI_MODEL if AI_MODEL else "zephyr-7b-beta"
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 8192
-        if API_URI.endswith("/"):
-            API_URI = API_URI[:-1]
-        self.API_URI = API_URI if API_URI else "http://localhost:8091/v1"
+        if not API_URI.endswith("/"):
+            API_URI += "/"
+        self.API_URI = API_URI if API_URI else "http://localhost:8091/v1/"
         self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
         self.VOICE = VOICE if VOICE else "DukeNukem"
-        self.OUTPUT_URL = self.API_URI.replace("/v1", "") + "/outputs"
+        self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
-        openai.base_url = self.API_URI + "/"
-        openai.api_key = OPENAI_API_KEY if OPENAI_API_KEY else "None"
+        self.OPENAI_API_KEY = OPENAI_API_KEY if OPENAI_API_KEY else "None"
         self.FAILURES = []
         self.failure_count = 0
 
@@ -52,6 +51,8 @@ class EzlocalaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        openai.base_url = self.API_URI
+        openai.api_key = self.OPENAI_API_KEY
         try:
             response = openai.completions.create(
                 model=self.AI_MODEL,

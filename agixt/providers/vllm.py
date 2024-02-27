@@ -39,8 +39,6 @@ class VllmProvider:
         self.PROMPT_SUFFIX = PROMPT_SUFFIX
         self.STOP_STRING = STOP_STRING if STOP_STRING else "</s>"
         self.OPENAI_API_KEY = OPENAI_API_KEY
-        openai.base_url = self.API_URI
-        openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
         self.failure_count = 0
 
@@ -55,6 +53,8 @@ class VllmProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        openai.base_url = self.API_URI
+        openai.api_key = self.OPENAI_API_KEY
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         model_max_tokens = int(self.MAX_TOKENS) - tokens - 100
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:

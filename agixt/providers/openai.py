@@ -36,8 +36,6 @@ class OpenaiProvider:
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
         self.OPENAI_API_KEY = OPENAI_API_KEY
-        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1"
-        openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
 
     def rotate_uri(self):
@@ -51,8 +49,10 @@ class OpenaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
+        openai.api_key = self.OPENAI_API_KEY
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
-            if self.API_URI == "https://api.openai.com/v1":
+            if self.API_URI == "https://api.openai.com/v1/":
                 return (
                     "Please go to the Agent Management page to set your OpenAI API key."
                 )
