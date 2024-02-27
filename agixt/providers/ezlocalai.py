@@ -1,6 +1,8 @@
 import logging
 import random
 import re
+import requests
+import base64
 
 try:
     import openai
@@ -33,7 +35,7 @@ class EzlocalaiProvider:
         self.API_URI = API_URI if API_URI else "http://localhost:8091/v1/"
         self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
         self.VOICE = VOICE if VOICE else "DukeNukem"
-        self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs"
+        self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
         self.OPENAI_API_KEY = OPENAI_API_KEY if OPENAI_API_KEY else "None"
@@ -80,7 +82,20 @@ class EzlocalaiProvider:
                 urls = urls[0].split("\n\n")
                 for url in urls:
                     file_type = url.split(".")[-1]
-                    response = response.replace(url, f"![{file_type}]({url})")
+                    if file_type == "wav":
+                        downloaded_wav = requests.get(url)
+                        response = response.replace(
+                            url,
+                            f"\n#GENERATED_AUDIO:{base64.b64encode(downloaded_wav.content).decode('utf-8')}\n",
+                        )
+                    elif file_type == "png":
+                        downloaded_png = requests.get(url)
+                        response = response.replace(
+                            url,
+                            f"#GENERATED_IMAGE:{base64.b64encode(downloaded_png.content).decode('utf-8')}",
+                        )
+                    else:
+                        response = response.replace(url, f"![{file_type}]({url})")
             return response
         except Exception as e:
             self.failure_count += 1
