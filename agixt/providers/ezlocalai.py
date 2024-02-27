@@ -1,7 +1,6 @@
 import logging
 import random
 import re
-from providers.gpt4free import Gpt4freeProvider
 
 try:
     import openai
@@ -37,7 +36,7 @@ class EzlocalaiProvider:
         self.OUTPUT_URL = self.API_URI.replace("/v1", "") + "/outputs"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
-        openai.base_url = self.API_URI
+        openai.base_url = self.API_URI + "/"
         openai.api_key = OPENAI_API_KEY if OPENAI_API_KEY else "None"
         self.FAILURES = []
         self.failure_count = 0
@@ -87,9 +86,7 @@ class EzlocalaiProvider:
             logging.info(f"ezLocalai API Error: {e}")
             if "," in self.API_URI:
                 self.rotate_uri()
-            if self.failure_count >= 2:
-                logging.info(
-                    "ezLocalai failed 2 times, switching to gpt4free for inference"
-                )
-                return await Gpt4freeProvider().inference(prompt=prompt, tokens=tokens)
+            if self.failure_count >= 3:
+                logging.info("ezLocalai failed 3 times, unable to proceed.")
+                return "ezLocalai failed 3 times, unable to proceed."
             return await self.inference(prompt=prompt, tokens=tokens)

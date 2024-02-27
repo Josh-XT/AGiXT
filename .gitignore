@@ -50,3 +50,4 @@ text-generation-webui/
 **/.ipynb_checkpoints/
 test.ipynb
 responses.json
+josh.yml
