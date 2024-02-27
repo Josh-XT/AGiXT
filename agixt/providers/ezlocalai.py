@@ -51,19 +51,23 @@ class EzlocalaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        max_tokens = (
+            int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
+        )
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         try:
-            response = openai.completions.create(
+            response = openai.chat.completions.create(
                 model=self.AI_MODEL,
-                prompt=prompt,
-                max_tokens=int(self.MAX_TOKENS),
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_MESSAGE},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=int(max_tokens),
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
-                n=1,
                 stream=False,
                 extra_body={
-                    "system_message": self.SYSTEM_MESSAGE,
                     "voice": self.VOICE,
                 },
             )
