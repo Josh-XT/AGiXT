@@ -63,9 +63,7 @@ class Embedding:
         ):
             self.agent_settings["embedder"] = "default"
             if "provider" in self.agent_settings:
-                if "provider" == "local":
-                    self.agent_settings["embedder"] = "local"
-                elif "provider" == "azure":
+                if "provider" == "azure":
                     self.agent_settings["embedder"] = "azure"
                 elif "provider" == "openai":
                     self.agent_settings["embedder"] = "openai"
@@ -96,31 +94,6 @@ class Embedding:
             "default": {
                 "chunk_size": 256,
                 "embed": self.default_embedder,
-            },
-            "local": {
-                "chunk_size": 1000,
-                "params": [
-                    "LOCAL_LLM_API_KEY",
-                    "AI_MODEL",
-                    "API_URI",
-                ],
-                "embed": OpenAIEmbeddingFunction(
-                    model_name=(
-                        self.agent_settings["AI_MODEL"]
-                        if "AI_MODEL" in self.agent_settings
-                        else "zephyr-7b-beta"
-                    ),
-                    api_key=(
-                        self.agent_settings["LOCAL_LLM_API_KEY"]
-                        if "LOCAL_LLM_API_KEY" in self.agent_settings
-                        else None
-                    ),
-                    api_base=(
-                        self.agent_settings["API_URI"]
-                        if "API_URI" in self.agent_settings
-                        else "http://localhost:8091/v1"
-                    ),
-                ),
             },
             "azure": {
                 "chunk_size": 1000,
@@ -180,7 +153,7 @@ class Embedding:
         return embedder_settings
 
     def embed_text(self, text) -> np.ndarray:
-        embedding = self.embedder.__call__(texts=[text])[0]
+        embedding = self.embedder.__call__(input=[text])[0]
         return embedding
 
 
