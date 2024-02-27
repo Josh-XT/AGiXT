@@ -62,7 +62,6 @@ class EzlocalaiProvider:
                 top_p=float(self.AI_TOP_P),
                 n=1,
                 stream=False,
-                stop=["USER:", "User:"],
                 extra_body={
                     "system_message": self.SYSTEM_MESSAGE,
                     "voice": self.VOICE,
