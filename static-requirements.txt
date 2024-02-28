@@ -1,4 +1,4 @@
-chromadb==0.4.23
+chromadb==0.4.24
 beautifulsoup4==4.12.3
 docker==7.0.0
 docx2txt==0.8
