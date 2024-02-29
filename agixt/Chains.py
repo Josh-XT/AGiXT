@@ -67,13 +67,15 @@ class Chains:
                         chain_name=args["chain"],
                         user_input=args["input"],
                         agent_name=agent_name,
-                        all_responses=args["all_responses"]
-                        if "all_responses" in args
-                        else False,
+                        all_responses=(
+                            args["all_responses"] if "all_responses" in args else False
+                        ),
                         from_step=args["from_step"] if "from_step" in args else 1,
-                        chain_args=args["chain_args"]
-                        if "chain_args" in args
-                        else {"conversation_name": args["conversation_name"]},
+                        chain_args=(
+                            args["chain_args"]
+                            if "chain_args" in args
+                            else {"conversation_name": args["conversation_name"]}
+                        ),
                     )
         if result:
             if isinstance(result, dict) and "response" in result:
@@ -102,9 +104,11 @@ class Chains:
             role="USER",
             message=user_input,
             agent_name=agent_override if agent_override != "" else "AGiXT",
-            conversation_name=f"Chain Execution History: {chain_name}"
-            if "conversation_name" not in chain_args
-            else chain_args["conversation_name"],
+            conversation_name=(
+                f"Chain Execution History: {chain_name}"
+                if "conversation_name" not in chain_args
+                else chain_args["conversation_name"]
+            ),
             user=self.user,
         )
         logging.info(f"Running chain '{chain_name}'")
@@ -155,9 +159,11 @@ class Chains:
                 role=agent_override if agent_override != "" else "AGiXT",
                 message=last_response,
                 agent_name=agent_override if agent_override != "" else "AGiXT",
-                conversation_name=f"Chain Execution History: {chain_name}"
-                if "conversation_name" not in chain_args
-                else chain_args["conversation_name"],
+                conversation_name=(
+                    f"Chain Execution History: {chain_name}"
+                    if "conversation_name" not in chain_args
+                    else chain_args["conversation_name"]
+                ),
                 user=self.user,
             )
             return last_response

@@ -42,11 +42,11 @@ class Interactions:
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 ApiClient=ApiClient,
-                searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
-                    "SEARXNG_INSTANCE_URL"
-                ]
-                if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
-                else "",
+                searxng_instance_url=(
+                    self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
+                    if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
+                    else ""
+                ),
             )
         else:
             self.agent_name = ""
@@ -403,9 +403,9 @@ class Interactions:
                 user=self.user,
             )
             command_output = await ext.execute_command(
-                command_name="Transcribe M4A Audio"
-                if is_m4a_audio
-                else "Transcribe WAV Audio",
+                command_name=(
+                    "Transcribe M4A Audio" if is_m4a_audio else "Transcribe WAV Audio"
+                ),
                 command_args={"base64_audio": user_input},
             )
             user_input = command_output

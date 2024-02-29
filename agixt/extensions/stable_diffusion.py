@@ -84,9 +84,11 @@ class stable_diffusion(Extensions):
             )
             generation_settings = {
                 "prompt": prompt,
-                "negative_prompt": negative_prompt
-                if negative_prompt
-                else "out of frame,lowres,text,error,cropped,worst quality,low quality,jpeg artifacts,ugly,duplicate,morbid,mutilated,out of frame,extra fingers,mutated hands,poorly drawn hands,poorly drawn face,mutation,deformed,blurry,dehydrated,bad anatomy,bad proportions,extra limbs,cloned face,disfigured,gross proportions,malformed limbs,missing arms,missing legs,extra arms,extra legs,fused fingers,too many fingers,long neck,username,watermark,signature",
+                "negative_prompt": (
+                    negative_prompt
+                    if negative_prompt
+                    else "out of frame,lowres,text,error,cropped,worst quality,low quality,jpeg artifacts,ugly,duplicate,morbid,mutilated,out of frame,extra fingers,mutated hands,poorly drawn hands,poorly drawn face,mutation,deformed,blurry,dehydrated,bad anatomy,bad proportions,extra limbs,cloned face,disfigured,gross proportions,malformed limbs,missing arms,missing legs,extra arms,extra legs,fused fingers,too many fingers,long neck,username,watermark,signature"
+                ),
                 "batch_size": batch_size if batch_size else 1,
                 "cfg_scale": cfg_scale if cfg_scale else 7,
                 "denoising_strength": denoising_strength if denoising_strength else 0,

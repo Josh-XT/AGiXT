@@ -12,7 +12,7 @@ requests==2.31.0
 uvicorn==0.24.0.post1
 python-dotenv==1.0.0
 ffmpeg==1.4
-cryptography==42.0.2
+cryptography==42.0.4
 pillow==10.2.0
 SQLAlchemy==2.0.23
 psycopg2-binary==2.9.9

@@ -1,4 +1,4 @@
-name: Test junyper notebook
+name: Run Tests
 on:
   workflow_call:
     inputs:
@@ -13,9 +13,6 @@ on:
         type: string
       port-mapping:
         type: string
-      image-options:
-        type: string
-        description: like --entrypoint, --command
       additional-python-dependencies:
         type: string
         description: add whatever pip you need here
@@ -30,16 +27,16 @@ on:
       append-logs:
         type: boolean
         default: false
-
+      clone-repo:
+        type: boolean
+        default: false
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
 
 jobs:
-  jupyter-test-job:
+  run-tests:
     runs-on: ubuntu-latest
-    #    container: python:3.10-slim-buster
-
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
@@ -47,16 +44,13 @@ jobs:
         image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
-    #        options: ${{ inputs.image-options }}
-    #     volumes:
-    #       - /models:/models
 
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4.1.1
         with:
           fetch-depth: 1
 
@@ -66,6 +60,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
+
+      - name: Clone repository and install package
+        if: inputs.clone-repo
+        run: |
+          git clone https://github.com/${{ github.repository }} /tmp/repo
+          cd /tmp/repo
+          pip3 install .
 
       - name: Install additional dependencies for notebooks
         if: inputs.additional-python-dependencies
@@ -108,7 +109,7 @@ jobs:
         run: |
           echo "artifact-file=${{ env.artifact-file }}\n/test-output.log" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: ${{ env.artifact-file }}

@@ -105,15 +105,21 @@ class Embedding:
                     "API_URI",
                 ],
                 "embed": OpenAIEmbeddingFunction(
-                    model_name=self.agent_settings["AI_MODEL"]
-                    if "AI_MODEL" in self.agent_settings
-                    else "zephyr-7b-beta",
-                    api_key=self.agent_settings["LOCAL_LLM_API_KEY"]
-                    if "LOCAL_LLM_API_KEY" in self.agent_settings
-                    else None,
-                    api_base=self.agent_settings["API_URI"]
-                    if "API_URI" in self.agent_settings
-                    else "http://localhost:8091/v1",
+                    model_name=(
+                        self.agent_settings["AI_MODEL"]
+                        if "AI_MODEL" in self.agent_settings
+                        else "zephyr-7b-beta"
+                    ),
+                    api_key=(
+                        self.agent_settings["LOCAL_LLM_API_KEY"]
+                        if "LOCAL_LLM_API_KEY" in self.agent_settings
+                        else None
+                    ),
+                    api_base=(
+                        self.agent_settings["API_URI"]
+                        if "API_URI" in self.agent_settings
+                        else "http://localhost:8091/v1"
+                    ),
                 ),
             },
             "azure": {
@@ -123,42 +129,52 @@ class Embedding:
                     "AZURE_DEPLOYMENT_NAME",
                     "AZURE_OPENAI_ENDPOINT",
                 ],
-                "embed": OpenAIEmbeddingFunction(
-                    api_key=self.agent_settings["AZURE_API_KEY"],
-                    organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
-                    api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
-                    api_type="azure",
-                )
-                if "AZURE_API_KEY" in self.agent_settings
-                and "AZURE_DEPLOYMENT_NAME" in self.agent_settings
-                and "AZURE_OPENAI_ENDPOINT" in self.agent_settings
-                else self.default_embedder,
+                "embed": (
+                    OpenAIEmbeddingFunction(
+                        api_key=self.agent_settings["AZURE_API_KEY"],
+                        organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
+                        api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
+                        api_type="azure",
+                    )
+                    if "AZURE_API_KEY" in self.agent_settings
+                    and "AZURE_DEPLOYMENT_NAME" in self.agent_settings
+                    and "AZURE_OPENAI_ENDPOINT" in self.agent_settings
+                    else self.default_embedder
+                ),
             },
             "openai": {
                 "chunk_size": 1000,
                 "params": ["OPENAI_API_KEY", "API_URI"],
-                "embed": OpenAIEmbeddingFunction(
-                    api_key=self.agent_settings["OPENAI_API_KEY"],
-                    model_name="text-embedding-ada-002"
-                    if api_base == "https://api.openai.com/v1"
-                    else self.agent_settings["AI_MODEL"]
-                    if "AI_MODEL" in self.agent_settings
-                    else "Mistral-7B-OpenOrca",
-                    api_base=api_base,
-                )
-                if "OPENAI_API_KEY" in self.agent_settings
-                else self.default_embedder,
+                "embed": (
+                    OpenAIEmbeddingFunction(
+                        api_key=self.agent_settings["OPENAI_API_KEY"],
+                        model_name=(
+                            "text-embedding-ada-002"
+                            if api_base == "https://api.openai.com/v1"
+                            else (
+                                self.agent_settings["AI_MODEL"]
+                                if "AI_MODEL" in self.agent_settings
+                                else "Mistral-7B-OpenOrca"
+                            )
+                        ),
+                        api_base=api_base,
+                    )
+                    if "OPENAI_API_KEY" in self.agent_settings
+                    else self.default_embedder
+                ),
             },
             "google_vertex": {
                 "chunk_size": 1000,
                 "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
-                "embed": GoogleVertexEmbeddingFunction(
-                    api_key=self.agent_settings["GOOGLE_API_KEY"],
-                    project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
-                )
-                if "GOOGLE_PROJECT_ID" in self.agent_settings
-                and "GOOGLE_API_KEY" in self.agent_settings
-                else self.default_embedder,
+                "embed": (
+                    GoogleVertexEmbeddingFunction(
+                        api_key=self.agent_settings["GOOGLE_API_KEY"],
+                        project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
+                    )
+                    if "GOOGLE_PROJECT_ID" in self.agent_settings
+                    and "GOOGLE_API_KEY" in self.agent_settings
+                    else self.default_embedder
+                ),
             },
         }
         return embedder_settings

@@ -160,7 +160,7 @@ jobs:
           ref: ${{ inputs.context-repository-ref }}
           path: repository-context
           fetch-depth: 1
-          submodules: true
+          submodules: false
 
       - name: Set docker-context for repository
         if: inputs.context-repository

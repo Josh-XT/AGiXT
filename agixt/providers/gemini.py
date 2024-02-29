@@ -5,11 +5,22 @@ try:
 except ImportError:
     import sys
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google.generativeai"])
+
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "google.generativeai"]
+    )
     import google.generativeai as genai  # Import again after installation
 
+
 class GeminiProvider:
-    def __init__(self, GOOGLE_API_KEY: str, AI_MODEL: str = "gemini-pro", MAX_TOKENS: int = 4000, AI_TEMPERATURE: float = 0.7, **kwargs):
+    def __init__(
+        self,
+        GOOGLE_API_KEY: str,
+        AI_MODEL: str = "gemini-pro",
+        MAX_TOKENS: int = 4000,
+        AI_TEMPERATURE: float = 0.7,
+        **kwargs,
+    ):
         """
         Initialize the GeminiProvider with required parameters.
 
@@ -33,7 +44,9 @@ class GeminiProvider:
             print(f"Error setting up Gemini model: {e}")
 
         # Set default generation config
-        self.generation_config = genai.types.GenerationConfig(max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE)
+        self.generation_config = genai.types.GenerationConfig(
+            max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE
+        )
 
     async def inference(self, prompt, tokens: int = 0):
         """
@@ -49,17 +62,23 @@ class GeminiProvider:
         try:
             # Adjust based on Gemini API
             new_max_tokens = int(self.MAX_TOKENS) - tokens
-            generation_config = genai.types.GenerationConfig(max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE))
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE)
+            )
 
-            response = await asyncio.to_thread(self.model.generate_content,
-                                               contents=prompt,
-                                               generation_config=generation_config)
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                contents=prompt,
+                generation_config=generation_config,
+            )
 
             # Extract the generated text from the response
             if response.parts:
-                generated_text = ''.join(part.text for part in response.parts)
+                generated_text = "".join(part.text for part in response.parts)
             else:
-                generated_text = ''.join(part.text for part in response.candidates[0].content.parts)
+                generated_text = "".join(
+                    part.text for part in response.candidates[0].content.parts
+                )
 
             return generated_text
         except Exception as e:
