@@ -42,6 +42,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
+            ghcr.io/${{ steps.extract_info.outputs.github_user }}/${{ steps.extract_info.outputs.repo_name }}:dev
             ghcr.io/${{ steps.extract_info.outputs.github_user }}/${{ steps.extract_info.outputs.repo_name }}:${{ github.sha }}
 
   test-agixt:

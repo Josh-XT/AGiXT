@@ -36,8 +36,6 @@ class OpenaiProvider:
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
         self.OPENAI_API_KEY = OPENAI_API_KEY
-        openai.api_base = self.API_URI
-        openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
 
     def rotate_uri(self):
@@ -47,22 +45,23 @@ class OpenaiProvider:
         for uri in uri_list:
             if uri not in self.FAILURES:
                 self.API_URI = uri
-                openai.api_base = self.API_URI
+                openai.base_url = self.API_URI
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
+        openai.api_key = self.OPENAI_API_KEY
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
-            if self.API_URI == "https://api.openai.com/v1":
+            if self.API_URI == "https://api.openai.com/v1/":
                 return (
                     "Please go to the Agent Management page to set your OpenAI API key."
                 )
-        max_new_tokens = int(self.MAX_TOKENS) - tokens - 100
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
             # Use chat completion API
             messages = [{"role": "system", "content": prompt}]
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=messages,
                 temperature=float(self.AI_TEMPERATURE),
