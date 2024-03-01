@@ -54,13 +54,13 @@ RUN pip install -r requirements.txt
 RUN pip install spacy && \
     python -m spacy download en_core_web_sm
 
-# Update g4f
-RUN pip install g4f --upgrade
-
 # Install Playwright
 RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
+
+# Update g4f
+RUN pip install g4f --upgrade
 
 COPY . .
 

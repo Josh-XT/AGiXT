@@ -2,7 +2,6 @@ import time
 import logging
 import random
 from providers.gpt4free import Gpt4freeProvider
-from providers.local import LocalProvider
 
 try:
     import openai
@@ -40,8 +39,6 @@ class VllmProvider:
         self.PROMPT_SUFFIX = PROMPT_SUFFIX
         self.STOP_STRING = STOP_STRING if STOP_STRING else "</s>"
         self.OPENAI_API_KEY = OPENAI_API_KEY
-        openai.api_base = self.API_URI
-        openai.api_key = OPENAI_API_KEY
         self.FAILURES = []
         self.failure_count = 0
 
@@ -52,16 +49,18 @@ class VllmProvider:
         for uri in uri_list:
             if uri not in self.FAILURES:
                 self.API_URI = uri
-                openai.api_base = self.API_URI
+                openai.base_url = self.API_URI
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        openai.base_url = self.API_URI
+        openai.api_key = self.OPENAI_API_KEY
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         model_max_tokens = int(self.MAX_TOKENS) - tokens - 100
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
-            response = openai.Completion.create(
+            response = openai.completions.create(
                 model=self.AI_MODEL,
                 prompt=prompt,
                 max_tokens=model_max_tokens,
@@ -78,20 +77,8 @@ class VllmProvider:
             if "," in self.API_URI:
                 self.rotate_uri()
             if self.failure_count >= 2:
-                logging.info(
-                    "vLLM failed 2 times, switching to Local-LLM for CPU inference"
-                )
-                try:
-                    model = self.AI_MODEL.split("/")[1]
-                    return await LocalProvider(AI_MODEL=model).inference(
-                        prompt=prompt, tokens=tokens
-                    )
-                except Exception as e:
-                    logging.info(f"Local-LLM API Error: {e}")
-                    logging.info("Local-LLM failed, switching to GPT4Free.")
-                    return await Gpt4freeProvider().inference(
-                        prompt=prompt, tokens=tokens
-                    )
+                logging.info("vLLM failed 2 times, switching to gpt4free for inference")
+                return await Gpt4freeProvider().inference(prompt=prompt, tokens=tokens)
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens)

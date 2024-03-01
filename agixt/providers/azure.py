@@ -26,7 +26,7 @@ class AzureProvider:
         **kwargs,
     ):
         openai.api_type = "azure"
-        openai.api_base = AZURE_OPENAI_ENDPOINT
+        openai.base_url = AZURE_OPENAI_ENDPOINT
         openai.api_version = "2023-05-15"
         openai.api_key = AZURE_API_KEY
         self.requirements = ["openai"]
