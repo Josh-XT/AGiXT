@@ -24,6 +24,7 @@ def get_providers():
 
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
+    options = {}
     if provider_name == "llamacppapi":
         provider_name = "llamacpp"
     if provider_name in DISABLED_PROVIDERS:
@@ -51,7 +52,7 @@ def get_provider_options(provider_name):
             }
         except:
             pass
-    if "prodiver" not in options:
+    if "provider" not in options:
         options["provider"] = provider_name
     return options
 
