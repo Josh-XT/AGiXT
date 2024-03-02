@@ -15,30 +15,9 @@ body:
     id: description
     attributes:
       label: 'Description'
-      description: 'Please provide a clear and concise description of what is happening.'
+      description: 'Please provide a clear and concise description of what is happening and how to reproduce the issue if possible.'
       placeholder: |
         When I click the '...' button, the page refreshes instead of showing a confirmation message.
-    validations:
-      required: true
-  - type: textarea
-    id: reproduction
-    attributes:
-      label: 'Steps to Reproduce the Bug'
-      description: 'Provide the steps to reproduce the bug, be specific.'
-      placeholder: |
-        1. Go to the '...' page.
-        2. Click on the '...' button.
-        3. Scroll down to '...'.
-        4. Observe the error.
-    validations:
-      required: true
-  - type: textarea
-    id: expected
-    attributes:
-      label: 'Expected Behavior'
-      description: 'Please describe the expected behavior when the steps above are followed.'
-      placeholder: |
-        After clicking the '...' button, a confirmation message should appear.
     validations:
       required: true
   - type: checkboxes
@@ -48,54 +27,25 @@ body:
       description: 'Select the operating system(s) on which you experienced this bug.'
       options:
         - label: 'Linux'
-        - label: 'Microsoft Windows'
-        - label: 'Apple MacOS'
-        - label: 'Android'
-        - label: 'iOS'
-        - label: 'Other'
-    validations:
-      required: true
-  - type: checkboxes
-    id: python-version
-    attributes:
-      label: 'Python Version'
-      description: 'Select the Python version(s) affected by this bug.'
-      options:
-        - label: 'Python <= 3.9'
-        - label: 'Python 3.10'
-        - label: 'Python 3.11'
-    validations:
-      required: true
-  - type: checkboxes
-    id: environment
-    attributes:
-      label: 'Environment Type - Connection'
-      description: 'Select the environment(s) on which you experienced this bug (if you run frontend and backend on the same machine, select local).'
-      options:
-        - label: 'Local - You run AGiXT in your home network'
-        - label: 'Remote - You access AGiXT through the internet'
-    validations:
-      required: true
-  - type: checkboxes
-    id: containerized
-    attributes:
-      label: 'Runtime environment'
-      description: 'Select the container setup on which you experienced this bug.'
-      options:
-        - label: 'Using docker compose'
-        - label: 'Using local'
-        - label: 'Custom setup (please describe above!)'
-    validations:
-      required: true
+        - label: 'Windows'
+        - label: 'MacOS'
   - type: checkboxes
     id: acknowledgements
     attributes:
       label: 'Acknowledgements'
-      description: 'Please confirm the following:'
+      description: 'Please confirm the following before submitting an issue:'
       options:
-        - label: 'I have searched the existing issues to make sure this bug has not been reported yet.'
+        - label: 'I am NOT trying to use localhost for providers running outside of the docker container.'
+          required: true
+        - label: 'I am NOT trying to run AGiXT outside of docker, the only supported method to run it.'
+          required: true
+        - label: 'PowerShell 7.X is installed and the version in use on the host machine.'
+          required: true
+        - label: 'Docker is installed and running on the host machine.'
           required: true
         - label: 'I am using the latest version of AGiXT.'
           required: true
         - label: 'I have provided enough information for the maintainers to reproduce and diagnose the issue.'
+          required: true
+        - label: 'I have searched the existing issues to make sure this bug has not been reported yet.'
           required: true
