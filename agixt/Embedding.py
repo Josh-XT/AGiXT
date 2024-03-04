@@ -3,41 +3,11 @@ import numpy as np
 from chromadb.utils.embedding_functions import (
     ONNXMiniLM_L6_V2,
     GoogleVertexEmbeddingFunction,
+    OpenAIEmbeddingFunction,
 )
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from typing import Optional
 import openai
-
-
-class OpenAIEmbeddingFunction(EmbeddingFunction):
-    def __init__(
-        self,
-        api_key: Optional[str] = "",
-        model_name: str = "text-embedding-ada-002",
-        organization_id: Optional[str] = None,
-        api_base: Optional[str] = None,
-        api_type: Optional[str] = None,
-    ):
-        openai.api_key = api_key
-        if api_base is not None:
-            openai.base_url = api_base
-        if api_type is not None:
-            openai.api_type = api_type
-        if organization_id is not None:
-            openai.organization = organization_id
-        self._client = openai.Embedding
-        self.model_name = model_name
-
-    def __call__(self, texts: Documents) -> Embeddings:
-        texts = [t.replace("\n", " ") for t in texts]
-        try:
-            embeddings = self._client.create(input=texts, model=self.model_name)["data"]
-        except:
-            embeddings = self._client.create(input=texts, engine=self.model_name)[
-                "data"
-            ]
-        sorted_embeddings = sorted(embeddings, key=lambda e: e["index"])  # type: ignore
-        return [result["embedding"] for result in sorted_embeddings]
 
 
 class Embedding:
