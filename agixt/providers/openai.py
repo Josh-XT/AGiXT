@@ -49,6 +49,8 @@ class OpenaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0):
+        if not self.API_URI.endswith("/"):
+            self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
         if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
