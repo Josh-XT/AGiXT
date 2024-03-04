@@ -5,9 +5,6 @@ from chromadb.utils.embedding_functions import (
     GoogleVertexEmbeddingFunction,
     OpenAIEmbeddingFunction,
 )
-from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from typing import Optional
-import openai
 
 
 class Embedding:
