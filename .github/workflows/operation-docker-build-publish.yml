@@ -76,7 +76,7 @@ on:
         required: false
 
 jobs:
-  build-container:
+  build_publish_docker:
     runs-on: ${{ inputs.runs-on }}
 
     permissions:
