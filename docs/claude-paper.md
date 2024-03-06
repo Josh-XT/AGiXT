@@ -111,22 +111,20 @@ AGiXT is implemented using Python, leveraging its rich ecosystem and extensive l
 
 - SQLAlchemy: AGiXT utilizes SQLAlchemy, a powerful SQL toolkit and Object-Relational Mapping (ORM) library, for database integration and memory persistence. SQLAlchemy provides a flexible and efficient way to interact with various database backends.
 
-- Hugging Face Transformers: The Hugging Face Transformers library is employed to integrate state-of-the-art language models and enable advanced natural language processing capabilities within the Agent.
-
-- Chroma: AGiXT uses Chroma as a vector database for efficient storage and retrieval of embeddings. Chroma enables similarity search and supports the storage of unstructured data, making it suitable for various memory persistence scenarios.
+- ChromaDB: AGiXT uses ChromaDB as a vector database for efficient storage and retrieval of embeddings. ChromaDB enables similarity search and supports the storage of unstructured data, making it suitable for various memory persistence scenarios.
 
 4.2 Key classes and modules
 AGiXT's codebase is organized into several key classes and modules that encapsulate the core functionality of the framework:
 
 - `Agent`: The `Agent` class represents the central entity of the framework. It handles user interactions, manages conversation flow, and coordinates the execution of tasks. The `Agent` class interacts with other components, such as `Providers`, `Extensions`, and `Memories`, to achieve the desired functionality.
 
-- `Provider`: The `Provider` class serves as an abstract base class for integrating different AI models and services. It defines the interface that concrete provider implementations must adhere to. AGiXT includes several built-in providers, such as `OpenAIProvider`, `AnthropicProvider`, and `HuggingFaceProvider`, which encapsulate the logic for interacting with their respective AI backends.
+- `Providers`: The `Providers` module contains various provider classes that integrate different AI models and services into the AGiXT framework. Each provider class, such as `OpenaiProvider`, `AnthropicProvider`, and `HuggingfaceProvider`, encapsulates the logic for interacting with their respective AI backends.
 
-- `Extension`: The `Extension` class represents a modular component that extends the capabilities of the Agent. It defines the interface for creating custom extensions and provides a mechanism for registering and executing extension-specific functionality. AGiXT includes various built-in extensions, such as `WebScraperExtension`, `DatabaseExtension`, and `APIExtension`, which can be readily used or serve as templates for creating custom extensions.
+- `Extensions`: The `Extensions` module includes a collection of extension classes that extend the capabilities of the Agent. These extensions, such as `agixt_actions`, `alltalk_tts`, `dalle`, `discord`, and others, provide additional functionality and integration with external services.
 
-- `Memory`: The `Memory` class is responsible for managing the storage and retrieval of memories. It provides an abstraction layer over different storage backends and offers methods for storing conversation histories, task-specific data, and external knowledge sources. The `Memory` class interacts with the configured storage backend, such as file-based storage or a database, to persist and retrieve memories efficiently.
+- `Memories`: The `Memories` class is responsible for managing the storage and retrieval of memories. It provides an abstraction layer over different storage backends and offers methods for storing conversation histories, task-specific data, and external knowledge sources. The `Memories` class interacts with the configured storage backend, such as ChromaDB, to persist and retrieve memories efficiently.
 
-- `Chain`: The `Chain` class represents a sequence of steps or actions that the Agent can execute to accomplish a specific task. It defines the flow of information and the order in which different components, such as `Providers`, `Extensions`, and `Memories`, are invoked. The `Chain` class provides a flexible way to orchestrate complex workflows and decision-making processes.
+- `Chains`: The `Chain` class represents a sequence of steps or actions that the Agent can execute to accomplish a specific task. It defines the flow of information and the order in which different components, such as `Providers`, `Extensions`, and `Memories`, are invoked. The `Chain` class provides a flexible way to orchestrate complex workflows and decision-making processes.
 
 4.3 Agent lifecycle and execution flow
 The lifecycle of an AGiXT agent involves several key stages:
@@ -139,37 +137,35 @@ The lifecycle of an AGiXT agent involves several key stages:
 
 4. Extension Execution: If the user input triggers the execution of a specific extension, the Agent invokes the corresponding extension module. The extension performs its designated task, such as web scraping, database querying, or API communication, and returns the result to the Agent.
 
-5. Memory Persistence: Throughout the execution flow, the Agent interacts with the memory component to store and retrieve relevant information. This includes saving conversation histories, task-specific data, or external knowledge sources. The memory component abstracts the underlying storage mechanism and provides a consistent interface for persisting and accessing memories.
+5. Memory Persistence: Throughout the execution flow, the Agent interacts with the memory component to store and retrieve relevant information. This includes saving conversation histories, task-specific data, or external knowledge sources. The memory component abstracts the underlying storage mechanism, such as ChromaDB, and provides a consistent interface for persisting and accessing memories.
 
 6. Response Generation: Based on the results obtained from the provider, extensions, and memories, the Agent generates an appropriate response to the user. The response may include the generated text, retrieved information, or task-specific outputs.
 
 7. API Response: The Agent sends the generated response back to the user through the API endpoint. The response is serialized and formatted according to the defined API contract, ensuring compatibility with the client application.
 
 4.4 Memory management and persistence
-AGiXT provides a flexible memory management system that allows developers to define and persist various types of memories. The framework supports different storage backends, such as file-based storage and database integration, to cater to different scalability and persistence requirements.
+AGiXT provides a flexible memory management system that allows developers to define and persist various types of memories. The framework utilizes ChromaDB, a vector database, for efficient storage and retrieval of memories.
 
-The memory component in AGiXT follows a modular design, allowing developers to easily switch between storage backends based on their needs. The `Memory` class serves as an abstraction layer, providing a consistent interface for storing and retrieving memories regardless of the underlying storage mechanism.
+The `Memories` class serves as an abstraction layer, providing a consistent interface for storing and retrieving memories using ChromaDB. It handles the serialization and deserialization of memory objects, ensuring seamless integration with the underlying storage mechanism.
 
-When using file-based storage, memories are persisted as JSON files or other suitable formats on the file system. This approach is suitable for small-scale applications or scenarios where data persistence is not a critical requirement.
+ChromaDB's vector search capabilities enable efficient retrieval of relevant memories based on similarity. The `Memories` class leverages these capabilities to store and retrieve conversation histories, task-specific data, and external knowledge sources effectively.
 
-For more advanced use cases or larger-scale applications, AGiXT supports integration with databases using SQLAlchemy. SQLAlchemy provides a powerful ORM (Object-Relational Mapping) layer that allows developers to define memory models as Python classes and map them to database tables. This enables efficient storage, retrieval, and querying of memories using SQL databases such as PostgreSQL, MySQL, or SQLite.
-
-The memory management system in AGiXT also incorporates caching mechanisms to improve performance. Frequently accessed memories can be cached in memory to reduce the overhead of disk I/O or database queries. The caching layer intelligently manages the lifecycle of cached memories, ensuring that the most relevant and recently used data is readily available.
+The memory management system in AGiXT also incorporates caching mechanisms to improve performance. Frequently accessed memories can be cached in memory to reduce the overhead of database queries. The caching layer intelligently manages the lifecycle of cached memories, ensuring that the most relevant and recently used data is readily available.
 
 4.5 Extension development and integration
 AGiXT's extension mechanism empowers developers to create custom extensions that enhance the capabilities of the Agent. Extensions are modular components that can be seamlessly integrated into the Agent's workflow to perform specific tasks or add new functionalities.
 
 To create a custom extension, developers need to follow these steps:
 
-1. Define the Extension Class: Developers create a new Python class that inherits from the base `Extension` class provided by AGiXT. This class serves as the entry point for the extension and contains the necessary methods and attributes.
+1. Define the Extension Class: Developers create a new Python class that inherits from the base `Extensions` class provided by AGiXT. This class serves as the entry point for the extension and contains the necessary methods and attributes.
 
-2. Implement Extension Methods: The extension class should implement the required methods defined in the `Extension` interface. These methods typically include `execute()`, which is called when the extension is triggered, and any additional helper methods specific to the extension's functionality.
+2. Implement Extension Methods: The extension class should implement the required methods defined in the `Extensions` class. These methods typically include `__init__()` for initialization and any additional methods specific to the extension's functionality.
 
-3. Register the Extension: To make the extension available to the Agent, developers need to register it with the AGiXT framework. This is typically done by adding the extension class to a designated extensions directory or by updating the configuration file to include the extension.
+3. Register Commands: Extensions can define a `commands` dictionary that maps command names to their corresponding methods. These commands can be invoked by the Agent during execution.
 
-4. Configure Extension Settings: If the extension requires any specific configuration settings, such as API keys, database connections, or custom parameters, developers can define these settings in the extension class or provide them through the Agent's configuration file.
+4. Implement Command Methods: For each command defined in the `commands` dictionary, the extension class should implement the corresponding method. These methods contain the logic for executing the specific command and returning the appropriate response.
 
-5. Integrate Extension into Chains: Extensions can be integrated into the Agent's workflow by including them in the defined chains. Chains specify the sequence of steps or actions that the Agent should execute, and extensions can be added as individual steps within the chain.
+5. Configure Extension Settings: If the extension requires any specific configuration settings, such as API keys, database connections, or custom parameters, developers can define these settings in the extension class or provide them through the Agent's configuration file.
 
 6. Test and Debug: Developers should thoroughly test and debug their custom extensions to ensure they function as expected. AGiXT provides logging and error handling mechanisms to aid in the debugging process.
 
