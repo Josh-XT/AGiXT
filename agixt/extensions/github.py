@@ -80,6 +80,8 @@ class github(Extensions):
         await self.clone_repo(repo_url)
         python_files = []
         powershell_files = []
+        js_files = []
+        ts_files = []
         other_files = []
         for root, dirs, files in os.walk(
             os.path.join(os.getcwd(), "WORKSPACE", repo_name)
@@ -96,6 +98,10 @@ class github(Extensions):
                     or file == "static-requirements.txt"
                 ):
                     other_files.append(os.path.join(root, file))
+                if file.endswith(".js") or file.endswith(".jsx"):
+                    js_files.append(os.path.join(root, file))
+                if file.endswith(".ts") or file.endswith(".tsx"):
+                    ts_files.append(os.path.join(root, file))
         if os.path.exists(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")):
             os.remove(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"))
         with open(
@@ -116,6 +122,16 @@ class github(Extensions):
                 with open(file_path, "r") as python_file:
                     content = python_file.read()
                     markdown_file.write(f"```python\n{content}\n```\n\n")
+            for file_path in js_files:
+                markdown_file.write(f"**{file_path}**\n")
+                with open(file_path, "r") as js_file:
+                    content = js_file.read()
+                    markdown_file.write(f"```javascript\n{content}\n```\n\n")
+            for file_path in ts_files:
+                markdown_file.write(f"**{file_path}**\n")
+                with open(file_path, "r") as ts_file:
+                    content = ts_file.read()
+                    markdown_file.write(f"```typescript\n{content}\n```\n\n")
 
         with open(
             os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"), "r"
