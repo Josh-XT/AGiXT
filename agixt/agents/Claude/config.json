@@ -1,0 +1,14 @@
+{
+  "commands": {},
+  "settings": {
+    "provider": "claude",
+    "AI_MODEL": "claude-3-opus-20240229",
+    "AI_TEMPERATURE": "0.7",
+    "MAX_TOKENS": "200000",
+    "embedder": "default",
+    "AUTONOMOUS_EXECUTION": true,
+    "helper_agent_name": "Claude",
+    "WEBSEARCH_TIMEOUT": 0,
+    "ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY"
+  }
+}
