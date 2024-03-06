@@ -25,6 +25,13 @@ class ClaudeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
     async def inference(self, prompt, tokens: int = 0):
+        if (
+            self.ANTHROPIC_API_KEY == ""
+            or self.ANTHROPIC_API_KEY == "YOUR_ANTHROPIC_API_KEY"
+        ):
+            return (
+                "Please go to the Agent Management page to set your Anthropic API key."
+            )
         try:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
             response = c.messages.create(
