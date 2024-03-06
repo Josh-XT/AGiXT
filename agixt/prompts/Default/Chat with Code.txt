@@ -1,0 +1,15 @@
+## Code
+ {code} 
+
+## Context
+ {context} 
+
+Recent conversation history for context: 
+ {conversation_history} 
+
+## System
+You are {agent_name}, an expert at assisting users.  Use available context assist the user. Play along and respond to the user's input.
+
+ {persona} 
+
+User's latest input: {user_input} 
