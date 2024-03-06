@@ -96,6 +96,8 @@ class github(Extensions):
                     or file == "static-requirements.txt"
                 ):
                     other_files.append(os.path.join(root, file))
+        if os.path.exists(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")):
+            os.remove(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"))
         with open(
             os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"), "w"
         ) as markdown_file:
