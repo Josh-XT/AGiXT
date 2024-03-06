@@ -8,31 +8,35 @@ except ImportError:
     import anthropic
 
 
-# List of models available at https://console.anthropic.com/docs/api/reference
+# List of models available at https://docs.anthropic.com/claude/docs/models-overview
+# Get API key at https://console.anthropic.com/settings/keys
 class ClaudeProvider:
     def __init__(
         self,
         ANTHROPIC_API_KEY: str = "",
-        AI_MODEL: str = "claude-2",
-        MAX_TOKENS: int = 100000,
+        AI_MODEL: str = "claude-3-opus-20240229",
+        MAX_TOKENS: int = 200000,
         AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 100000
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-2"
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 200000
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-opus-20240229"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
     async def inference(self, prompt, tokens: int = 0):
-        max_new_tokens = int(self.MAX_TOKENS) - int(tokens)
         try:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
-            return c.completion(
-                prompt=f"{anthropic.HUMAN_PROMPT}{prompt}{anthropic.AI_PROMPT}",
-                stop_sequences=[anthropic.HUMAN_PROMPT],
+            response = c.messages.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
                 model=self.AI_MODEL,
-                temperature=float(self.AI_TEMPERATURE),
-                max_tokens_to_sample=max_new_tokens,
+                max_tokens=4096,
             )
+            return response.content[0].text
         except Exception as e:
             return f"Claude Error: {e}"

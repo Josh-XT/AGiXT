@@ -2,7 +2,7 @@ agixtsdk==0.0.31
 safeexecute==0.0.9
 google-generativeai==0.3.2
 discord==2.3.2
-anthropic==0.16.0
+anthropic==0.18.1
 arxiv==1.4.8
 PyGithub==2.2.0
 hugchat==0.4.0
