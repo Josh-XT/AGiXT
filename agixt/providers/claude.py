@@ -8,7 +8,7 @@ except ImportError:
     import anthropic
 
 
-# List of models available at https://console.anthropic.com/docs/api/reference
+# List of models available at https://docs.anthropic.com/claude/docs/models-overview
 # Get API key at https://console.anthropic.com/settings/keys
 class ClaudeProvider:
     def __init__(
