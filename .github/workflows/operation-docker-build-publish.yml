@@ -76,7 +76,7 @@ on:
         required: false
 
 jobs:
-  build_publish_docker:
+  build-container:
     runs-on: ${{ inputs.runs-on }}
 
     permissions:
@@ -207,7 +207,7 @@ jobs:
           cache-to: ${{ inputs.cache-to }}
 
       # publish README on docker hub
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4.1.1
         with:
           fetch-depth: 1
 
