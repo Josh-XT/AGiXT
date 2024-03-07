@@ -49,7 +49,12 @@ class github(Extensions):
                 "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
                 "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
             }
-            self.gh = Github(self.GITHUB_API_KEY)
+            try:
+                self.gh = Github(self.GITHUB_API_KEY)
+            except Exception as e:
+                self.gh = None
+                self.commands = {}
+                print(f"GitHub Error: {str(e)}")
         else:
             self.commands = {}
             self.gh = None
