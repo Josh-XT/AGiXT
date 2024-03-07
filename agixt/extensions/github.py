@@ -31,25 +31,28 @@ class github(Extensions):
     ):
         self.GITHUB_USERNAME = GITHUB_USERNAME
         self.GITHUB_API_KEY = GITHUB_API_KEY
-        self.commands = {
-            "Clone Github Repository": self.clone_repo,
-            "Get Github Repository Code Contents": self.get_repo_code_contents,
-            "Get Github Repository Issues": self.get_repo_issues,
-            "Get Github Repository Issue": self.get_repo_issue,
-            "Create Github Repository Issue": self.create_repo_issue,
-            "Update Github Repository Issue": self.update_repo_issue,
-            "Get Github Repository Pull Requests": self.get_repo_pull_requests,
-            "Get Github Repository Pull Request": self.get_repo_pull_request,
-            "Create Github Repository Pull Request": self.create_repo_pull_request,
-            "Update Github Repository Pull Request": self.update_repo_pull_request,
-            "Get Github Repository Commits": self.get_repo_commits,
-            "Get Github Repository Commit": self.get_repo_commit,
-            "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
-            "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
-        }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
-            self.commands["Create Github Repository"] = self.create_repo
-        self.gh = Github(self.GITHUB_API_KEY)
+            self.commands = {
+                "Clone Github Repository": self.clone_repo,
+                "Get Github Repository Code Contents": self.get_repo_code_contents,
+                "Get Github Repository Issues": self.get_repo_issues,
+                "Get Github Repository Issue": self.get_repo_issue,
+                "Create Github Repository": self.create_repo,
+                "Create Github Repository Issue": self.create_repo_issue,
+                "Update Github Repository Issue": self.update_repo_issue,
+                "Get Github Repository Pull Requests": self.get_repo_pull_requests,
+                "Get Github Repository Pull Request": self.get_repo_pull_request,
+                "Create Github Repository Pull Request": self.create_repo_pull_request,
+                "Update Github Repository Pull Request": self.update_repo_pull_request,
+                "Get Github Repository Commits": self.get_repo_commits,
+                "Get Github Repository Commit": self.get_repo_commit,
+                "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
+                "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
+            }
+            self.gh = Github(self.GITHUB_API_KEY)
+        else:
+            self.commands = {}
+            self.gh = None
         self.failures = 0
 
     async def clone_repo(self, repo_url: str) -> str:
