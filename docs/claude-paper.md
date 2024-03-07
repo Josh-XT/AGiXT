@@ -295,3 +295,98 @@ We encourage the AI community to leverage AGiXT as a platform for conducting res
 Collaboration among researchers, developers, and domain experts is crucial for realizing the full potential of AGiXT. We invite individuals and organizations to contribute to the framework's development, share their experiences, and provide feedback to drive its continuous improvement. By fostering an active and engaged community around AGiXT, we can collectively advance the state of the art in AI agent development and unlock new possibilities for intelligent systems.
 
 In conclusion, AGiXT represents a significant milestone in the field of AI agent development. Its extensible architecture, integration with large language models, and developer-friendly design make it a powerful tool for building intelligent and autonomous agents. As we continue to explore the capabilities and applications of AGiXT, we invite the AI community to join us in this exciting journey. Together, we can shape the future of intelligent agent systems and harness the potential of artificial intelligence to tackle complex challenges and create transformative solutions.
+
+```mermaid
+graph LR
+    A[User] --> B[API Endpoints]
+    B --> C[Agent]
+    C --> D[Providers]
+    C --> E[Extensions]
+    C --> F[Memories]
+    C --> G[Chains]
+    C --> H[Prompts]
+    D --> I[OpenAI]
+    D --> J[Anthropic]
+    D --> K[Hugging Face]
+    D --> L[ezLocalai]
+    D --> M[GPT4Free]
+    D --> N[Bard]
+    D --> O[Custom Providers]
+    E --> P[Web Scraper]
+    E --> Q[Database]
+    E --> R[API Integration]
+    E --> S[Custom Extensions]
+    F --> T[Vector DB]
+    T --> U[GitHub Reader]
+    T --> V[Arxiv Reader]
+    T --> W[Web Scraper Reader]
+    T --> X[File Reader]
+    G --> Y[Chain: Chat with Code]
+    Y --> Z[Step 1: Command - Get Github Repository Code Contents]
+    Z --> AA{Output}
+    AA --> AB{STEP1}
+    AB --> AC[Step 2: Prompt - Chat with Code]
+    G --> AD[Chain: Generate Image]
+    AD --> AE[Step 1: Prompt - AGiXT SD Generator_V3]
+    AE --> AF{Output}
+    AF --> AG{STEP1}
+    AG --> AH[Step 2: Command - Generate Image with Stable Diffusion]
+    G --> AI[Chain: Postgres Chat]
+    AI --> AJ[Step 1: Command - Get Database Schema from Postgres Database]
+    AJ --> AK{Output}
+    AK --> AL{STEP1}
+    AL --> AM[Step 2: Prompt - PostgreSQLQuery]
+    AM --> AN{Output}
+    AN --> AO{STEP2}
+    AO --> AP[Step 3: Command - Custom SQL Query in Postgres Database]
+    AP --> AQ{Output}
+    AQ --> AR{STEP3}
+    AR --> AS[Step 4: Command - Make CSV Code Block]
+    G --> AT[Chain: Smart Chat]
+    AT --> AU[Step 1: Prompt - SmartChat-StepByStep]
+    AU --> AV{Output}
+    AV --> AW{STEP1}
+    AW --> AX[Step 2: Prompt - SmartChat-Researcher]
+    AX --> AY{Output}
+    AY --> AZ{STEP2}
+    AZ --> BA[Step 3: Prompt - SmartChat-Resolver]
+    G --> BB[Chain: Smart Instruct]
+    BB --> BC[Step 1: Prompt - SmartInstruct-StepByStep]
+    BC --> BD{Output}
+    BD --> BE{STEP1}
+    BE --> BF[Step 2: Prompt - SmartInstruct-Researcher]
+    BF --> BG{Output}
+    BG --> BH{STEP2}
+    BH --> BI[Step 3: Prompt - SmartInstruct-Resolver]
+    G --> BJ[Chain: Solve Math Problem]
+    BJ --> BK[Step 1: Prompt - Translate Math to Python]
+    BK --> BL{Output}
+    BL --> BM{STEP1}
+    BM --> BN[Step 2: Command - Execute Python Code]
+    G --> BO[Custom Chains]
+    BO --> BP[Unlimited Steps]
+    H --> BQ[Default Prompts]
+    H --> BR[Custom Prompts]
+    C --> BS[Interaction/Prompt]
+    BS --> BT[Conversation History Injection]
+    BS --> BU[LLM Inference]
+    BU --> BV[Command Injection]
+    BU --> BW[Provider Processing]
+    BV --> BX[Extension Execution]
+    BW --> BY[Output to User]
+    AC --> BU
+    AH --> BU
+    AM --> BU
+    AP --> BU
+    AS --> BU
+    AU --> BU
+    AX --> BU
+    BA --> BU
+    BC --> BU
+    BF --> BU
+    BI --> BU
+    BK --> BU
+    BN --> BU
+    E --> BZ[Commands]
+    BZ --> BV
+```
