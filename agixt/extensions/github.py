@@ -1,5 +1,6 @@
 import os
 import time
+import datetime
 
 try:
     import git
@@ -75,6 +76,7 @@ class github(Extensions):
                 # Pull the latest changes
                 repo = git.Repo(repo_dir)
                 repo.remotes.origin.pull()
+                self.failures = 0
                 return f"Pulled latest changes for {repo_url} to {repo_dir}"
             git.Repo.clone_from(
                 url=auth_repo_url,
@@ -321,22 +323,27 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def get_repo_commits(self, repo_url: str) -> str:
+    async def get_repo_commits(self, repo_url: str, days: int = 7) -> str:
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            commits = repo.get_commits()
+            if days == 0:
+                commits = repo.get_commits()
+            else:
+                since = datetime.datetime.now() - datetime.timedelta(days=days)
+                commits = repo.get_commits(since=since)
             commit_list = []
             for commit in commits:
                 commit_list.append(f"{commit.sha}: {commit.commit.message}")
             self.failures = 0
-            return f"Commits for GitHub Repository at {repo_url}:\n\n" + "\n".join(
-                commit_list
+            return (
+                f"Commits for GitHub Repository at {repo_url} (last {days} days):\n\n"
+                + "\n".join(commit_list)
             )
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
-                return await self.get_repo_commits(repo_url)
+                return await self.get_repo_commits(repo_url, days)
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
