@@ -6,7 +6,7 @@ except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "GitPython==3.1.31"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "GitPython==3.1.42"])
     import git
 
 try:
@@ -15,7 +15,7 @@ except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub==1.58.2"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub==2.2.0"])
     from github import Github
 from Extensions import Extensions
 
@@ -32,9 +32,16 @@ class github(Extensions):
         self.commands = {
             "Clone Github Repository": self.clone_repo,
             "Get Github Repository Code Contents": self.get_repo_code_contents,
+            "Get Github Repository Issues": self.get_repo_issues,
+            "Get Github Repository Issue": self.get_repo_issue,
+            "Get Github Repository Pull Requests": self.get_repo_pull_requests,
+            "Get Github Repository Pull Request": self.get_repo_pull_request,
+            "Get Github Repository Commits": self.get_repo_commits,
+            "Get Github Repository Commit": self.get_repo_commit,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             self.commands["Create Github Repository"] = self.create_repo
+        self.gh = Github(self.GITHUB_API_KEY)
 
     async def clone_repo(self, repo_url: str) -> str:
         split_url = repo_url.split("//")
@@ -61,8 +68,7 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def create_repo(self, repo_name: str, content_of_readme: str) -> str:
-        g = Github(self.GITHUB_API_KEY)
-        user = g.get_user(self.GITHUB_USERNAME)
+        user = self.gh.get_user(self.GITHUB_USERNAME)
         repo = user.create_repo(repo_name, private=True)
         repo_url = repo.clone_url
         repo_dir = f"./{repo_name}"
@@ -138,3 +144,51 @@ class github(Extensions):
         ) as markdown_file:
             content = markdown_file.read()
         return content
+
+    async def get_repo_issues(self, repo_url: str) -> str:
+        repo = self.gh.g.get_repo(repo_url.split("github.com/")[-1])
+        issues = repo.get_issues(state="open")
+        issue_list = []
+        for issue in issues:
+            issue_list.append(f"#{issue.number}: {issue.title}")
+        return f"Open Issues for GitHub Repository at {repo_url}:\n\n" + "\n".join(
+            issue_list
+        )
+
+    async def get_repo_issue(self, repo_url: str, issue_number: int) -> str:
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        issue = repo.get_issue(issue_number)
+        return f"Issue Details for GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
+
+    async def get_repo_pull_requests(self, repo_url: str) -> str:
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        pull_requests = repo.get_pulls(state="open")
+        pr_list = []
+        for pr in pull_requests:
+            pr_list.append(f"#{pr.number}: {pr.title}")
+        return (
+            f"Open Pull Requests for GitHub Repository at {repo_url}:\n\n"
+            + "\n".join(pr_list)
+        )
+
+    async def get_repo_pull_request(
+        self, repo_url: str, pull_request_number: int
+    ) -> str:
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        pull_request = repo.get_pull(pull_request_number)
+        return f"Pull Request Details for GitHub Repository at {repo_url}\n\n#{pull_request.number}: {pull_request.title}\n\n{pull_request.body}"
+
+    async def get_repo_commits(self, repo_url: str) -> str:
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        commits = repo.get_commits()
+        commit_list = []
+        for commit in commits:
+            commit_list.append(f"{commit.sha}: {commit.commit.message}")
+        return f"Commits for GitHub Repository at {repo_url}:\n\n" + "\n".join(
+            commit_list
+        )
+
+    async def get_repo_commit(self, repo_url: str, commit_sha: str) -> str:
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        commit = repo.get_commit(commit_sha)
+        return f"Commit Details for GitHub Repository at {repo_url}\n\n{commit.sha}: {commit.commit.message}\n\n{commit.commit.author.name} ({commit.commit.author.email})\n\n{commit.files}"
