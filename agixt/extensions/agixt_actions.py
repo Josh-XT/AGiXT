@@ -398,9 +398,7 @@ class agixt_actions(Extensions):
                         return scheme_details["scheme"]
         return "basic"
 
-    async def generate_openapi_chain(
-        self, agent: str, extension_name: str, openapi_json_url: str
-    ):
+    async def generate_openapi_chain(self, extension_name: str, openapi_json_url: str):
         # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
