@@ -2,7 +2,7 @@ chromadb==0.4.24
 beautifulsoup4==4.12.3
 docker==7.0.0
 docx2txt==0.8
-GitPython==3.1.41
+GitPython==3.1.42
 pdfplumber==0.10.3
 playwright==1.40.0
 pandas==2.1.4
