@@ -40,6 +40,10 @@ on:
       clone-repo:
         type: boolean
         default: false
+      database-type:
+        type: string
+        default: "postgres"
+        description: "Database type to use"
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -63,7 +67,7 @@ jobs:
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
         env:
-          DATABASE_TYPE: postgres
+          DATABASE_TYPE: ${{ inputs.database-type }}
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres
           DATABASE_NAME: postgres
