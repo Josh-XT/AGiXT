@@ -73,7 +73,7 @@ jobs:
         env:
           DB_CONNECTED: ${{ inputs.db-connected }}
           DATABASE_TYPE: ${{ inputs.database-type }}
-          DATABASE_HOST: localhost
+          DATABASE_HOST: secondary-service
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres
           DATABASE_PORT: ${{ inputs.secondary-image-port }}

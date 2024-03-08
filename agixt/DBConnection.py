@@ -19,9 +19,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-DATABASE_TYPE = os.getenv("DATABASE_TYPE", "")
 DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
-if DB_CONNECTED or DATABASE_TYPE.startswith("postgres"):
+if DB_CONNECTED:
     DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
     DATABASE_PASSWORD = os.getenv(
         "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -270,10 +269,7 @@ class Prompt(Base):
 
 
 if __name__ == "__main__":
-    if DB_CONNECTED or DATABASE_TYPE.startswith("postgres"):
-        print(
-            f"Connecting to database: {DATABASE_TYPE if DATABASE_TYPE else 'Please wait'}..."
-        )
+    if DB_CONNECTED:
         logging.info("Connecting to database...")
         time.sleep(10)
         Base.metadata.create_all(engine)
