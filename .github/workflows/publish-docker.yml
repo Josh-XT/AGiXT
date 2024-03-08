@@ -31,5 +31,17 @@ jobs:
       notebook: tests/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
+      db-connected: false
       additional-python-dependencies: agixtsdk
     needs: build-agixt
+  test-agixt-db:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/tests.ipynb
+      image: ${{ needs.build-agixt.outputs.primary-image }}
+      port: "7437"
+      db-connected: true
+      database-type: "postgresql"
+      additional-python-dependencies: agixtsdk
+    needs: build-agixt
+  

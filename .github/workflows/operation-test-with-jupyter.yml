@@ -42,8 +42,12 @@ on:
         default: false
       database-type:
         type: string
-        default: "postgres"
+        default: "postgresql"
         description: "Database type to use"
+      db-connected:
+        type: boolean
+        default: true
+        description: "If the database is connected"
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -67,9 +71,12 @@ jobs:
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
         env:
+          DB_CONNECTED: ${{ inputs.db-connected }}
           DATABASE_TYPE: ${{ inputs.database-type }}
+          DATABASE_HOST: localhost
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres
+          DATABASE_PORT: ${{ inputs.secondary-image-port }}
           DATABASE_NAME: postgres
     steps:
       - uses: actions/setup-python@v5
@@ -137,5 +144,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: test-reports-${{ github.run_id }}
           path: ${{ env.artifact-file }}
