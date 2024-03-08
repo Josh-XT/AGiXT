@@ -52,6 +52,10 @@ on:
         type: string
         default: "test-reports"
         description: "Name of the report"
+      auth-schema:
+        type: string
+        description: schema to use for authentication
+        default: company
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -82,6 +86,8 @@ jobs:
           DATABASE_PASSWORD: postgres
           DATABASE_PORT: ${{ inputs.secondary-image-port }}
           DATABASE_NAME: postgres
+          SCHEMA: ${{ inputs.auth-schema }}
+          LOG_LEVEL: DEBUG
     steps:
       - uses: actions/setup-python@v5
         with:
