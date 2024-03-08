@@ -58,20 +58,24 @@ class Gpt4freeProvider:
                 await asyncio.sleep(int(self.WAIT_AFTER_FAILURE))
             raise e
         finally:
-            if provider and isinstance(provider, RetryProvider):
-                if hasattr(provider, "exceptions"):
-                    for provider_name in provider.exceptions:
-                        error = provider.exceptions[provider_name]
-                        logging.error(f"[Gpt4Free] {provider_name}: {error}")
+            try:
+                if provider and isinstance(provider, RetryProvider.providers):
+                    if hasattr(provider, "exceptions"):
+                        for provider_name in provider.exceptions:
+                            error = provider.exceptions[provider_name]
+                            logging.error(f"[Gpt4Free] {provider_name}: {error}")
+            except Exception:
+                logging.error(f"[Gpt4Free] Error in exception handling")
+                return "Error retrieving response from Gpt4Free provider. Please try a different provider."
 
 
 if __name__ == "__main__":
     import asyncio, time
 
     async def run_test():
-        petal = Gpt4freeProvider()
+        test = Gpt4freeProvider()
         start = time.time()
-        response = await petal.inference("What is the meaning of life?")
+        response = await test.inference("What is the meaning of life?")
         print(response)
         print(f"{round(time.time()-start, 2)} secs")
 
