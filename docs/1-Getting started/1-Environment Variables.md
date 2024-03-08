@@ -16,6 +16,7 @@ If you choose `N` on skipping environment setup, you will be prompted to enter s
 - `UVICORN_WORKERS` is the number of workers to run the web server with, this is `6` by default, adjust this to your system's capabilities.
 
 **Database configuration only applicable if using database**
+
 - `DB_CONNECTED` is whether or not you want to use a database, this should be `false` by default, change this to `true` if you want to use a database. If you choose to, you will need to edit the database configuration options below, otherwise they can be left alone.
 - `POSTGRES_SERVER` is the name of the database server, this should be `db` by default.
 - `POSTGRES_DB` is the name of the database, this should be `postgres` by default.
@@ -24,13 +25,15 @@ If you choose `N` on skipping environment setup, you will be prompted to enter s
 - `POSTGRES_PASSWORD` **is the password to connect to the database with, this should be changed from the example file if using database.**
 
 **Oobabooga Text Generation Web UI Configuration**
+
 - `TORCH_CUDA_ARCH_LIST` is the CUDA architecture list to use for the Oobabooga text generation web UI. Example: RTX3000-5000 series are version `7.5`. Find yours at https://developer.nvidia.com/cuda-gpus .
 - `CLI_ARGS` is the CLI arguments to pass to the Oobabooga text generation web UI. By default, this is set to `--listen --api --chat` and is not configurable in the AGiXT installer, it will need changed manually in the `.env` file if you want to change it to add additional arguments.
 
 ### Additional Environment Variables
+
 There are additional environment variables that can be set in the `.env` file, but are not required or defined in the installer script.  These are listed below:
 
-- `DISABLED_PROVIDERS` - A comma-separated list of providers to disable.  This is empty by default. The example below would disable the Petal, Palm, and Pipeline providers. 
+- `DISABLED_PROVIDERS` - A comma-separated list of providers to disable.  This is empty by default. The example below would disable the Petal, Palm, and Pipeline providers.
     ```
     DISABLED_PROVIDERS=petal,palm,pipeline
     ```
@@ -39,5 +42,7 @@ There are additional environment variables that can be set in the `.env` file, b
     ```
     DISABLED_EXTENSIONS=file_system,twitter,searxng
     ```
+
+- `NGROK_TOKEN` is the ngrok token to use for the ngrok tunnel, this is empty by default, if you would like to use ngrok, change this to your ngrok token.
 
 [Next Page: Install Options](https://josh-xt.github.io/AGiXT/1-Getting%20started/2-Install%20Options.html)
