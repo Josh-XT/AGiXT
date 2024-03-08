@@ -54,11 +54,19 @@ jobs:
         image: ${{ inputs.secondary-image }}
         ports:
           - ${{ inputs.secondary-image-port }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
       service-under-test:
         image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
-
+        env:
+          DATABASE_TYPE: postgres
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres
+          DATABASE_NAME: postgres
     steps:
       - uses: actions/setup-python@v5
         with:
