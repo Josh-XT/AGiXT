@@ -2,13 +2,13 @@ agixtsdk==0.0.31
 safeexecute==0.0.9
 google-generativeai==0.3.2
 discord==2.3.2
-anthropic==0.18.1
+anthropic==0.19.1
 arxiv==1.4.8
 PyGithub==2.2.0
-hugchat==0.4.0
-bardapi==0.1.41
+hugchat==0.4.1
 whisper-cpp-pybind==0.1.3
 openai==1.12.0
 fastapi==0.110.0
 uvicorn==0.27.1
+ngrok==1.1.0
 g4f
