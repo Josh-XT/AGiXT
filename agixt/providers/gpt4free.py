@@ -23,7 +23,7 @@ class Gpt4freeProvider:
         max_new_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
-        model = ModelUtils.convert[self.AI_MODEL]
+        model = ModelUtils.convert["mixtral-8x7b"]
         provider = model.best_provider
         if provider:
             append_model = f" and model: {model.name}" if model.name else ""
