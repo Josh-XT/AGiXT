@@ -52,6 +52,7 @@ jobs:
       image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
       db-connected: false
+      report-name: "agixt-tests"
       additional-python-dependencies: agixtsdk
     needs: build-agixt
   test-agixt-db:
@@ -62,6 +63,7 @@ jobs:
       port: "7437"
       db-connected: true
       database-type: "postgresql"
+      report-name: "agixt-db-tests"
       additional-python-dependencies: agixtsdk
     needs: build-agixt
   

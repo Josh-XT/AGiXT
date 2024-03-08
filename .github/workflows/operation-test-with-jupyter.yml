@@ -48,6 +48,10 @@ on:
         type: boolean
         default: true
         description: "If the database is connected"
+      report-name:
+        type: string
+        default: "test-reports"
+        description: "Name of the report"
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -144,5 +148,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ github.run_id }}
+          name: ${{ inputs.report-name }}
           path: ${{ env.artifact-file }}
