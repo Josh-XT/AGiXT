@@ -11,6 +11,16 @@ on:
         required: true
       port:
         type: string
+      secondary-image:
+        type: string
+        required: false
+        description: "Secondary image to run"
+        default: "postgres:latest"
+      secondary-image-port:
+        type: string
+        required: false
+        description: "Port for the secondary image"
+        default: "5432"
       port-mapping:
         type: string
       additional-python-dependencies:
@@ -40,6 +50,10 @@ jobs:
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
+      secondary-service:
+        image: ${{ inputs.secondary-image }}
+        ports:
+          - ${{ inputs.secondary-image-port }}
       service-under-test:
         image: ${{ inputs.image }}
         ports:
