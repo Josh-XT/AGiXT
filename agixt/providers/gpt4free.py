@@ -2,13 +2,13 @@ import logging
 import asyncio
 
 from g4f.Provider import RetryProvider
-from g4f.models import ModelUtils, gpt_35_turbo, default
+from g4f.models import ModelUtils, mixtral_8x7b, default
 
 
 class Gpt4freeProvider:
     def __init__(
         self,
-        AI_MODEL: str = gpt_35_turbo.name,
+        AI_MODEL: str = mixtral_8x7b.name,
         MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
@@ -22,7 +22,7 @@ class Gpt4freeProvider:
         elif AI_MODEL in ModelUtils.convert:
             self.AI_MODEL = ModelUtils.convert[AI_MODEL]
         else:
-            self.AI_MODEL = ModelUtils.convert["gpt-3.5-turbo"]
+            self.AI_MODEL = ModelUtils.convert["mixtral-8x7b"]
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
