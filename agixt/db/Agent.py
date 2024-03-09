@@ -245,7 +245,7 @@ class Agent:
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
-        return answer
+        return answer.replace("\_", "_")
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
