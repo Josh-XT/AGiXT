@@ -1,0 +1,3 @@
+{COMMANDS}
+
+If you wanted to execute a command like {command_name} with args like {command_args}, which command and args would you choose? Return the proper command execution format filled in following examples.

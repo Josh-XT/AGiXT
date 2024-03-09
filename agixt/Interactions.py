@@ -614,52 +614,69 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
-                        for available_command in self.agent.available_commands:
-                            if command_name == available_command["friendly_name"]:
-                                # Check if the command is a valid command in the self.agent.available_commands list
-                                try:
-                                    if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
-                                        ext = Extensions(
-                                            agent_name=self.agent_name,
-                                            agent_config=self.agent.AGENT_CONFIG,
-                                            conversation_name=conversation_name,
-                                            ApiClient=self.ApiClient,
-                                            user=self.user,
-                                        )
-                                        command_output = await ext.execute_command(
-                                            command_name=command_name,
-                                            command_args=command_args,
-                                        )
-                                        formatted_output = (
-                                            f"```\n{command_output}\n```"
-                                            if "#GENERATED_IMAGE" not in command_output
-                                            and "#GENERATED_AUDIO" not in command_output
-                                            else command_output
-                                        )
-                                        message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                        log_interaction(
-                                            agent_name=self.agent_name,
-                                            conversation_name=f"{self.agent_name} Command Execution Log",
-                                            role=self.agent_name,
-                                            message=message,
-                                            user=self.user,
-                                        )
-                                    else:
-                                        command_output = (
-                                            self.create_command_suggestion_chain(
+                        if command_name not in self.agent.available_commands:
+                            # Ask the agent for clarification on which command should be executed.
+                            response = self.ApiClient.prompt_agent(
+                                agent_name=self.agent_name,
+                                prompt_name="Command Clarification",
+                                prompt_args={
+                                    "command_name": command_name,
+                                    "command_args": json.dumps(command_args),
+                                    "conversation_name": "AGiXT Terminal",
+                                },
+                            )
+                        else:
+                            for available_command in self.agent.available_commands:
+                                if command_name == available_command["friendly_name"]:
+                                    # Check if the command is a valid command in the self.agent.available_commands list
+                                    try:
+                                        if (
+                                            bool(self.agent.AUTONOMOUS_EXECUTION)
+                                            == True
+                                        ):
+                                            ext = Extensions(
                                                 agent_name=self.agent_name,
+                                                agent_config=self.agent.AGENT_CONFIG,
+                                                conversation_name=conversation_name,
+                                                ApiClient=self.ApiClient,
+                                                user=self.user,
+                                            )
+                                            command_output = await ext.execute_command(
                                                 command_name=command_name,
                                                 command_args=command_args,
                                             )
+                                            formatted_output = (
+                                                f"```\n{command_output}\n```"
+                                                if "#GENERATED_IMAGE"
+                                                not in command_output
+                                                and "#GENERATED_AUDIO"
+                                                not in command_output
+                                                else command_output
+                                            )
+                                            message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                                            log_interaction(
+                                                agent_name=self.agent_name,
+                                                conversation_name=f"{self.agent_name} Command Execution Log",
+                                                role=self.agent_name,
+                                                message=message,
+                                                user=self.user,
+                                            )
+                                        else:
+                                            command_output = (
+                                                self.create_command_suggestion_chain(
+                                                    agent_name=self.agent_name,
+                                                    command_name=command_name,
+                                                    command_args=command_args,
+                                                )
+                                            )
+                                    except Exception as e:
+                                        logging.error(
+                                            f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                                         )
-                                except Exception as e:
-                                    logging.error(
-                                        f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                                        command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
+                                    reformatted_response = reformatted_response.replace(
+                                        f"#execute_command({command_name}, {command_args})",
+                                        command_output,
                                     )
-                                    command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-                                reformatted_response = reformatted_response.replace(
-                                    f"#execute_command({command_name}, {command_args})",
-                                    command_output,
-                                )
                 if reformatted_response != self.response:
                     self.response = reformatted_response
