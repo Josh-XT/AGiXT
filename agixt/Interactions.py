@@ -338,6 +338,11 @@ class Interactions:
                 )
                 if fragmented_content != "":
                     file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
+        command_list = [
+            available_command["friendly_name"]
+            for available_command in self.agent.available_commands
+            if available_command["enabled"] == True
+        ]
         skip_args = [
             "user_input",
             "agent_name",
@@ -359,9 +364,9 @@ class Interactions:
             string=prompt,
             user_input=user_input,
             agent_name=self.agent_name,
-            COMMANDS=self.agent_commands,
+            COMMANDS=self.agent_commands if len(command_list) > 0 else "",
             context=context,
-            command_list=self.agent_commands,
+            command_list=self.agent_commands if len(command_list) > 0 else "",
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
@@ -598,13 +603,15 @@ class Interactions:
         return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
     async def execution_agent(self, conversation_name):
-        commands_to_execute = re.findall(r"#execute_command\((.*?)\)", self.response)
         command_list = [
             available_command["friendly_name"]
             for available_command in self.agent.available_commands
             if available_command["enabled"] == True
         ]
-        if commands_to_execute:
+        if len(command_list) > 0:
+            commands_to_execute = re.findall(
+                r"#execute_command\((.*?)\)", self.response
+            )
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
