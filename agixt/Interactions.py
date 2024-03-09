@@ -338,6 +338,11 @@ class Interactions:
                 )
                 if fragmented_content != "":
                     file_contents = f"Here is some potentially relevant information from {the_files}\n{fragmented_content}\n\n"
+        command_list = [
+            available_command["friendly_name"]
+            for available_command in self.agent.available_commands
+            if available_command["enabled"] == True
+        ]
         skip_args = [
             "user_input",
             "agent_name",
@@ -359,9 +364,9 @@ class Interactions:
             string=prompt,
             user_input=user_input,
             agent_name=self.agent_name,
-            COMMANDS=self.agent_commands,
+            COMMANDS=self.agent_commands if len(command_list) > 0 else "",
             context=context,
-            command_list=self.agent_commands,
+            command_list=self.agent_commands if len(command_list) > 0 else "",
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
@@ -598,8 +603,15 @@ class Interactions:
         return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
     async def execution_agent(self, conversation_name):
-        commands_to_execute = re.findall(r"#execute_command\((.*?)\)", self.response)
-        if commands_to_execute:
+        command_list = [
+            available_command["friendly_name"]
+            for available_command in self.agent.available_commands
+            if available_command["enabled"] == True
+        ]
+        if len(command_list) > 0:
+            commands_to_execute = re.findall(
+                r"#execute_command\((.*?)\)", self.response
+            )
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
@@ -614,7 +626,7 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
-                        if command_name not in self.agent.available_commands:
+                        if command_name not in command_list:
                             # Ask the agent for clarification on which command should be executed.
                             response = self.ApiClient.prompt_agent(
                                 agent_name=self.agent_name,
@@ -626,57 +638,50 @@ class Interactions:
                                 },
                             )
                         else:
-                            for available_command in self.agent.available_commands:
-                                if command_name == available_command["friendly_name"]:
-                                    # Check if the command is a valid command in the self.agent.available_commands list
-                                    try:
-                                        if (
-                                            bool(self.agent.AUTONOMOUS_EXECUTION)
-                                            == True
-                                        ):
-                                            ext = Extensions(
-                                                agent_name=self.agent_name,
-                                                agent_config=self.agent.AGENT_CONFIG,
-                                                conversation_name=conversation_name,
-                                                ApiClient=self.ApiClient,
-                                                user=self.user,
-                                            )
-                                            command_output = await ext.execute_command(
-                                                command_name=command_name,
-                                                command_args=command_args,
-                                            )
-                                            formatted_output = (
-                                                f"```\n{command_output}\n```"
-                                                if "#GENERATED_IMAGE"
-                                                not in command_output
-                                                and "#GENERATED_AUDIO"
-                                                not in command_output
-                                                else command_output
-                                            )
-                                            message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                            log_interaction(
-                                                agent_name=self.agent_name,
-                                                conversation_name=f"{self.agent_name} Command Execution Log",
-                                                role=self.agent_name,
-                                                message=message,
-                                                user=self.user,
-                                            )
-                                        else:
-                                            command_output = (
-                                                self.create_command_suggestion_chain(
-                                                    agent_name=self.agent_name,
-                                                    command_name=command_name,
-                                                    command_args=command_args,
-                                                )
-                                            )
-                                    except Exception as e:
-                                        logging.error(
-                                            f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
-                                        )
-                                        command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-                                    reformatted_response = reformatted_response.replace(
-                                        f"#execute_command({command_name}, {command_args})",
-                                        command_output,
+                            # Check if the command is a valid command in the self.agent.available_commands list
+                            try:
+                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                    ext = Extensions(
+                                        agent_name=self.agent_name,
+                                        agent_config=self.agent.AGENT_CONFIG,
+                                        conversation_name=conversation_name,
+                                        ApiClient=self.ApiClient,
+                                        user=self.user,
                                     )
-                if reformatted_response != self.response:
-                    self.response = reformatted_response
+                                    command_output = await ext.execute_command(
+                                        command_name=command_name,
+                                        command_args=command_args,
+                                    )
+                                    formatted_output = (
+                                        f"```\n{command_output}\n```"
+                                        if "#GENERATED_IMAGE" not in command_output
+                                        and "#GENERATED_AUDIO" not in command_output
+                                        else command_output
+                                    )
+                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                                    log_interaction(
+                                        agent_name=self.agent_name,
+                                        conversation_name=f"{self.agent_name} Command Execution Log",
+                                        role=self.agent_name,
+                                        message=message,
+                                        user=self.user,
+                                    )
+                                else:
+                                    command_output = (
+                                        self.create_command_suggestion_chain(
+                                            agent_name=self.agent_name,
+                                            command_name=command_name,
+                                            command_args=command_args,
+                                        )
+                                    )
+                            except Exception as e:
+                                logging.error(
+                                    f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                                )
+                                command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
+                            reformatted_response = reformatted_response.replace(
+                                f"#execute_command({command_name}, {command_args})",
+                                command_output,
+                            )
+                            if reformatted_response != self.response:
+                                self.response = reformatted_response
