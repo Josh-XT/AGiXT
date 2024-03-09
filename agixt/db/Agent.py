@@ -349,7 +349,11 @@ class Agent:
             self._update_agent_setting(agent, config_key, new_config)
 
     def _update_provider_settings(self, agent_provider, new_config):
-        provider = agent_provider.provider
+        provider = (
+            self.session.query(ProviderModel)
+            .filter_by(id=agent_provider.provider_id)
+            .first()
+        )
         for setting_name, setting_value in new_config.items():
             setting = (
                 self.session.query(ProviderSetting)
