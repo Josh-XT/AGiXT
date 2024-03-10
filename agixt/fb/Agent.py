@@ -171,7 +171,7 @@ class Agent:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
-        verbose_commands = "**The assistant has commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
+        verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         if len(self.available_commands) == 0:
             return ""
         enabled_commands = filter(
