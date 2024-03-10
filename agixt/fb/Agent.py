@@ -171,7 +171,7 @@ class Agent:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
-        verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
+        verbose_commands = "**The assistant has commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         if len(self.available_commands) == 0:
             return ""
         enabled_commands = filter(
@@ -180,14 +180,14 @@ class Agent:
         if not enabled_commands:
             return ""
         friendly_names = map(
-            lambda command: f"`#execute_command('{command['friendly_name']}', {command['args']})",
+            lambda command: f"`#execute('{command['friendly_name']}', {command['args']})",
             enabled_commands,
         )
         if not friendly_names:
             return ""
         verbose_commands += "\n".join(friendly_names)
         verbose_commands += "}\n```"
-        verbose_commands = '**To execute a command, use the example below, it will be replaced with the commands output for the user. You can execute a command anywhere in your response and the commands will be executed in the order you use them.**\n#execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**DO NOT ATTEMPT TO EXECUTE A COMMAND THAT IS NOT ON THE LIST!**\n\n'
+        verbose_commands = '**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n#execute("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n'
         return verbose_commands
 
     def get_provider(self):
