@@ -609,9 +609,7 @@ class Interactions:
             if available_command["enabled"] == True
         ]
         if len(command_list) > 0:
-            commands_to_execute = re.findall(
-                r"#execute_command\((.*?)\)", self.response
-            )
+            commands_to_execute = re.findall(r"#execute\((.*?)\)", self.response)
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
@@ -680,7 +678,7 @@ class Interactions:
                                 )
                                 command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
                             reformatted_response = reformatted_response.replace(
-                                f"#execute_command({command_name}, {command_args})",
+                                f"#execute({command_name}, {command_args})",
                                 command_output,
                             )
                             if reformatted_response != self.response:
