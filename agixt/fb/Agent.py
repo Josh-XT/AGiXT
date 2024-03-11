@@ -181,7 +181,7 @@ class Agent:
         )
         verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n"
         verbose_commands = f"If a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
-        verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n\n"
+        verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
         for command in self.available_commands:
             command_args = json.dumps(command["args"])
             command_args = command_args.replace(
