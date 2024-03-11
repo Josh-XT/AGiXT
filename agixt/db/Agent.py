@@ -249,15 +249,12 @@ class Agent:
         return answer.replace("\_", "_")
 
     def get_commands_string(self):
-        logging.info(f"Available commands: {self.available_commands}")
         if len(self.available_commands) == 0:
             return ""
         verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n\n"
         for command in self.available_commands:
-            verbose_commands += (
-                f"\n- `#execute('{command['friendly_name']}', {command['args']})`"
-            )
-        verbose_commands = '**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n#execute("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n'
+            verbose_commands += f"\n- #execute('{command['friendly_name']}', {json.dumps(command['args'])})"
+        verbose_commands += '**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n#execute("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n'
         return verbose_commands
 
     def update_agent_config(self, new_config, config_key):
