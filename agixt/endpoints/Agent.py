@@ -187,16 +187,3 @@ async def toggle_command(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
         )
-
-
-@app.get(
-    "/api/agent/{agent_name}/command/prompt",
-    tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_command_prompt(
-    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
-):
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    return {"prompt": agent.get_commands_string()}
