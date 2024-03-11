@@ -54,6 +54,7 @@ async def run_command(
         agent_config=agent_config,
         conversation_name=command.conversation_name,
         ApiClient=ApiClient,
+        api_key=authorization,
         user=user,
     ).execute_command(
         command_name=command.command_name, command_args=command.command_args
