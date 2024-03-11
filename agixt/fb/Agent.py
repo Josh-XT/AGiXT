@@ -3,6 +3,7 @@ import json
 import glob
 import shutil
 import importlib
+import logging
 from inspect import signature, Parameter
 from Providers import Providers
 from Extensions import Extensions
@@ -171,12 +172,15 @@ class Agent:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
+        logging.info(f"Available commands: {self.available_commands}")
         if len(self.available_commands) == 0:
             return ""
-        friendly_names = map(
-            lambda command: f"`#execute('{command['friendly_name']}', {command['args']})",
-            self.available_commands,
-        )
+        friendly_names = []
+        for command in self.available_commands:
+            friendly_names.append(
+                f"`#execute('{command['friendly_name']}', {command['args']})`"
+            )
+        logging.info(f"Friendly names: {friendly_names}")
         if not friendly_names:
             return ""
         verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
