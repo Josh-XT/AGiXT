@@ -89,7 +89,7 @@ class Embedding:
                     OpenAIEmbeddingFunction(
                         api_key=self.agent_settings["OPENAI_API_KEY"],
                         model_name=(
-                            "text-embedding-ada-002"
+                            "text-embedding-3-small"
                             if api_base == "https://api.openai.com/v1"
                             else (
                                 self.agent_settings["AI_MODEL"]
