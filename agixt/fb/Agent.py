@@ -174,10 +174,24 @@ class Agent:
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return ""
-        verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n\n"
+        working_dir = (
+            self.AGENT_CONFIG["WORKING_DIRECTORY"]
+            if "WORKING_DIRECTORY" in self.AGENT_CONFIG
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
+        verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n"
+        verbose_commands = f"If a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
+        verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n\n"
         for command in self.available_commands:
-            verbose_commands += f"\n- #execute('{command['friendly_name']}', {json.dumps(command['args'])})"
-        verbose_commands += '**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n#execute("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n'
+            command_args = json.dumps(command["args"])
+            command_args = command_args.replace(
+                '""',
+                '"The assistant will fill in the value based on relevance to the conversation."',
+            )
+            verbose_commands += (
+                f"\n- #execute('{command['friendly_name']}', {command_args})"
+            )
+        verbose_commands += "\n\n**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n"
         return verbose_commands
 
     def get_provider(self):
