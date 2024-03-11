@@ -1,4 +1,5 @@
 import os
+import logging
 import jwt
 from agixtsdk import AGiXTSDK
 from dotenv import load_dotenv
@@ -77,6 +78,7 @@ def verify_api_key(authorization: str = Header(None)):
 def get_api_client(authorization: str = Header(None)):
     try:
         scheme, _, api_key = authorization.partition(" ")
-    except:
-        api_key = authorization
-    return AGiXTSDK(base_uri="http://localhost:7437", api_key=api_key)
+        authorization = api_key
+    except Exception as e:
+        logging.info(f"Error getting api client: {e}")
+    return AGiXTSDK(base_uri="http://localhost:7437", api_key=authorization)
