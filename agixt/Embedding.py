@@ -1,10 +1,6 @@
 import os
 import numpy as np
-from chromadb.utils.embedding_functions import (
-    ONNXMiniLM_L6_V2,
-    GoogleVertexEmbeddingFunction,
-    OpenAIEmbeddingFunction,
-)
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 
 class Embedding:
@@ -29,15 +25,6 @@ class Embedding:
             or self.agent_settings["embedder"] == "default"
         ):
             self.agent_settings["embedder"] = "default"
-            if "provider" in self.agent_settings:
-                if "provider" == "azure":
-                    self.agent_settings["embedder"] = "azure"
-                elif "provider" == "openai":
-                    self.agent_settings["embedder"] = "openai"
-                elif "provider" == "palm":
-                    self.agent_settings["embedder"] = "google_vertex"
-                else:
-                    self.agent_settings["embedder"] = "default"
         try:
             self.embedder = self.embedder_settings[self.agent_settings["embedder"]][
                 "embed"
@@ -50,72 +37,11 @@ class Embedding:
             self.chunk_size = 256
 
     def get_embedder_settings(self):
-        if "API_URI" in self.agent_settings:
-            if self.agent_settings["API_URI"] != "":
-                api_base = self.agent_settings["API_URI"]
-            else:
-                api_base = None
-        else:
-            api_base = None
         embedder_settings = {
             "default": {
                 "chunk_size": 256,
                 "embed": self.default_embedder,
-            },
-            "azure": {
-                "chunk_size": 1000,
-                "params": [
-                    "AZURE_API_KEY",
-                    "AZURE_DEPLOYMENT_NAME",
-                    "AZURE_OPENAI_ENDPOINT",
-                ],
-                "embed": (
-                    OpenAIEmbeddingFunction(
-                        api_key=self.agent_settings["AZURE_API_KEY"],
-                        organization_id=self.agent_settings["AZURE_DEPLOYMENT_NAME"],
-                        api_base=self.agent_settings["AZURE_OPENAI_ENDPOINT"],
-                        api_type="azure",
-                    )
-                    if "AZURE_API_KEY" in self.agent_settings
-                    and "AZURE_DEPLOYMENT_NAME" in self.agent_settings
-                    and "AZURE_OPENAI_ENDPOINT" in self.agent_settings
-                    else self.default_embedder
-                ),
-            },
-            "openai": {
-                "chunk_size": 1000,
-                "params": ["OPENAI_API_KEY", "API_URI"],
-                "embed": (
-                    OpenAIEmbeddingFunction(
-                        api_key=self.agent_settings["OPENAI_API_KEY"],
-                        model_name=(
-                            "text-embedding-3-small"
-                            if api_base == "https://api.openai.com/v1"
-                            else (
-                                self.agent_settings["AI_MODEL"]
-                                if "AI_MODEL" in self.agent_settings
-                                else "Mistral-7B-OpenOrca"
-                            )
-                        ),
-                        api_base=api_base,
-                    )
-                    if "OPENAI_API_KEY" in self.agent_settings
-                    else self.default_embedder
-                ),
-            },
-            "google_vertex": {
-                "chunk_size": 1000,
-                "params": ["GOOGLE_API_KEY", "GOOGLE_PROJECT_ID"],
-                "embed": (
-                    GoogleVertexEmbeddingFunction(
-                        api_key=self.agent_settings["GOOGLE_API_KEY"],
-                        project_id=self.agent_settings["GOOGLE_PROJECT_ID"],
-                    )
-                    if "GOOGLE_PROJECT_ID" in self.agent_settings
-                    and "GOOGLE_API_KEY" in self.agent_settings
-                    else self.default_embedder
-                ),
-            },
+            }
         }
         return embedder_settings
 
