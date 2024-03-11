@@ -49,11 +49,7 @@ class Extensions:
                 "commands" in self.agent_config
                 and friendly_name in self.agent_config["commands"]
             ):
-                if (
-                    self.agent_config["commands"][friendly_name] == "true"
-                    or self.agent_config["commands"][friendly_name] == True
-                ):
-                    # Add command to list of commands to return
+                if str(self.agent_config["commands"][friendly_name]).lower() == "true":
                     available_commands.append(
                         {
                             "friendly_name": friendly_name,

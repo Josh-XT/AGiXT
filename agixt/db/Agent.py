@@ -250,22 +250,18 @@ class Agent:
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
-            return None
-
-        enabled_commands = filter(
-            lambda command: command.get("enabled", True), self.available_commands
-        )
-        if not enabled_commands:
-            return None
-
+            return ""
         friendly_names = map(
-            lambda command: f"`{command['friendly_name']}` - Arguments: {command['args']}",
-            enabled_commands,
+            lambda command: f"`#execute('{command['friendly_name']}', {command['args']})",
+            self.available_commands,
         )
         if not friendly_names:
             return ""
-        command_list = "\n".join(friendly_names)
-        return f"Commands Available To Complete Task:\n{command_list}\n\n"
+        verbose_commands = "### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
+        verbose_commands += "\n".join(friendly_names)
+        verbose_commands += "}\n```"
+        verbose_commands = '**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n#execute("Name of Command", {"arg1": "val1", "arg2": "val2"})\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n'
+        return verbose_commands
 
     def update_agent_config(self, new_config, config_key):
         agent = (
