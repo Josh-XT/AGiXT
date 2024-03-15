@@ -58,11 +58,11 @@ on:
         default: company
       sendgrid-api-key:
         type: string
-        default: ${{ secrets.SENDGRID_API_KEY }}
+        default: none
         description: Optional sendgrid api-key available as os.getenv('SENDGRID_API_KEY') in your notebook
       default-email:
         type: string
-        default: ${{ secrets.DEFAULT_EMAIL }}
+        default: none
         description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
     secrets:
       api-key:
