@@ -112,6 +112,7 @@ jobs:
           LOG_LEVEL: DEBUG
           SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
           DEFAULT_EMAIL: ${{ inputs.default-email }}
+          DEFAULT_SERVICE: sendgrid
 
     steps:
       - uses: actions/setup-python@v5
