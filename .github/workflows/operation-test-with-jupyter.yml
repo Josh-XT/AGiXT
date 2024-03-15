@@ -56,6 +56,14 @@ on:
         type: string
         description: schema to use for authentication
         default: company
+      sendgrid-api-key:
+        type: string
+        default: ${{ secrets.SENDGRID_API_KEY }}
+        description: Optional sendgrid api-key available as os.getenv('SENDGRID_API_KEY') in your notebook
+      default-email:
+        type: string
+        default: ${{ secrets.DEFAULT_EMAIL }}
+        description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -102,6 +110,8 @@ jobs:
           DATABASE_NAME: postgres
           SCHEMA: ${{ inputs.auth-schema }}
           LOG_LEVEL: DEBUG
+          SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
+          DEFAULT_EMAIL: ${{ inputs.default-email }}
 
     steps:
       - uses: actions/setup-python@v5
