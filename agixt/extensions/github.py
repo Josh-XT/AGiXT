@@ -117,80 +117,60 @@ class github(Extensions):
         repo_name = repo_url.split("/")[-1]
         await self.clone_repo(repo_url)
         python_files = []
+        other_files = []
         powershell_files = []
         js_files = []
         ts_files = []
         kt_files = []
         lua_files = []
-        other_files = []
+
         for root, dirs, files in os.walk(
             os.path.join(os.getcwd(), "WORKSPACE", repo_name)
         ):
             for file in files:
                 if file.endswith(".py"):
                     python_files.append(os.path.join(root, file))
-                if file.endswith(".ps1"):
+                elif file.endswith(".ps1"):
                     powershell_files.append(os.path.join(root, file))
-                if (
-                    file == "Dockerfile"
-                    or file.endswith(".yml")
-                    or file == "requirements.txt"
-                    or file == "static-requirements.txt"
-                ):
+                elif file in [
+                    "Dockerfile",
+                    "requirements.txt",
+                    "static-requirements.txt",
+                ] or file.endswith(".yml"):
                     other_files.append(os.path.join(root, file))
-                if file.endswith(".js") or file.endswith(".jsx"):
+                elif file.endswith(".js") or file.endswith(".jsx"):
                     js_files.append(os.path.join(root, file))
-                if file.endswith(".ts") or file.endswith(".tsx"):
+                elif file.endswith(".ts") or file.endswith(".tsx"):
                     ts_files.append(os.path.join(root, file))
-                if file.endswith(".kt") or file.endswith(".java"):
+                elif file.endswith(".kt") or file.endswith(".java"):
                     kt_files.append(os.path.join(root, file))
-                if file.endswith(".lua"):
+                elif file.endswith(".lua"):
                     lua_files.append(os.path.join(root, file))
-        if os.path.exists(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")):
-            os.remove(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"))
-        with open(
-            os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"), "w"
-        ) as markdown_file:
-            for file_path in other_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as other_file:
-                    content = other_file.read()
-                    markdown_file.write(f"```yaml\n{content}\n```\n\n")
-            for file_path in powershell_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as powershell_file:
-                    content = powershell_file.read()
-                    markdown_file.write(f"```powershell\n{content}\n```\n\n")
-            for file_path in python_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as python_file:
-                    content = python_file.read()
-                    markdown_file.write(f"```python\n{content}\n```\n\n")
-            for file_path in js_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as js_file:
-                    content = js_file.read()
-                    markdown_file.write(f"```javascript\n{content}\n```\n\n")
-            for file_path in ts_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as ts_file:
-                    content = ts_file.read()
-                    markdown_file.write(f"```typescript\n{content}\n```\n\n")
-            for file_path in kt_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as kt_file:
-                    content = kt_file.read()
-                    markdown_file.write(f"```kotlin\n{content}\n```\n\n")
-            for file_path in lua_files:
-                markdown_file.write(f"**{file_path}**\n")
-                with open(file_path, "r") as lua_file:
-                    content = lua_file.read()
-                    markdown_file.write(f"```lua\n{content}\n```\n\n")
 
-        with open(
-            os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"), "r"
-        ) as markdown_file:
+        output_file = os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")
+        if os.path.exists(output_file):
+            os.remove(output_file)
+
+        with open(output_file, "w", encoding="utf-8") as markdown_file:
+            for file_paths, file_type in [
+                (other_files, "yaml"),
+                (powershell_files, "powershell"),
+                (python_files, "python"),
+                (js_files, "javascript"),
+                (ts_files, "typescript"),
+                (kt_files, "kotlin"),
+                (lua_files, "lua"),
+            ]:
+                for file_path in file_paths:
+                    markdown_file.write(f"**{file_path}**\n")
+                    with open(file_path, "r", encoding="utf-8") as code_file:
+                        content = code_file.read()
+                        markdown_file.write(f"```{file_type}\n{content}\n```\n\n")
+
+        with open(output_file, "r", encoding="utf-8") as markdown_file:
             content = markdown_file.read()
+
+        content = content.replace("<|endoftext|>", "")
         return content
 
     async def get_repo_issues(self, repo_url: str) -> str:
