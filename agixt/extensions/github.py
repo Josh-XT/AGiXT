@@ -120,6 +120,8 @@ class github(Extensions):
         powershell_files = []
         js_files = []
         ts_files = []
+        kt_files = []
+        lua_files = []
         other_files = []
         for root, dirs, files in os.walk(
             os.path.join(os.getcwd(), "WORKSPACE", repo_name)
@@ -140,6 +142,10 @@ class github(Extensions):
                     js_files.append(os.path.join(root, file))
                 if file.endswith(".ts") or file.endswith(".tsx"):
                     ts_files.append(os.path.join(root, file))
+                if file.endswith(".kt") or file.endswith(".java"):
+                    kt_files.append(os.path.join(root, file))
+                if file.endswith(".lua"):
+                    lua_files.append(os.path.join(root, file))
         if os.path.exists(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")):
             os.remove(os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"))
         with open(
@@ -170,6 +176,17 @@ class github(Extensions):
                 with open(file_path, "r") as ts_file:
                     content = ts_file.read()
                     markdown_file.write(f"```typescript\n{content}\n```\n\n")
+            for file_path in kt_files:
+                markdown_file.write(f"**{file_path}**\n")
+                with open(file_path, "r") as kt_file:
+                    content = kt_file.read()
+                    markdown_file.write(f"```kotlin\n{content}\n```\n\n")
+            for file_path in lua_files:
+                markdown_file.write(f"**{file_path}**\n")
+                with open(file_path, "r") as lua_file:
+                    content = lua_file.read()
+                    markdown_file.write(f"```lua\n{content}\n```\n\n")
+
         with open(
             os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md"), "r"
         ) as markdown_file:
