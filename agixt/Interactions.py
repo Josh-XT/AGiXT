@@ -198,7 +198,10 @@ class Interactions:
                             chain_name=chain_name, step_number=step_number
                         )
                         # replace the {STEPx} with the response
-                        value = value.replace(f"{{STEP{step_number}}}", step_response)
+                        value = value.replace(
+                            f"{{STEP{step_number}}}",
+                            step_response if step_response else "",
+                        )
                         kwargs[arg] = value
             except:
                 logging.info("No args to replace.")
@@ -206,12 +209,16 @@ class Interactions:
                 step_response = self.chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
-                prompt = prompt.replace(f"{{STEP{step_number}}}", step_response)
+                prompt = prompt.replace(
+                    f"{{STEP{step_number}}}", step_response if step_response else ""
+                )
             if "{STEP" in user_input:
                 step_response = self.chain.get_step_response(
                     chain_name=chain_name, step_number=step_number
                 )
-                user_input = user_input.replace(f"{{STEP{step_number}}}", step_response)
+                user_input = user_input.replace(
+                    f"{{STEP{step_number}}}", step_response if step_response else ""
+                )
         try:
             working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
         except:
