@@ -1,12 +1,14 @@
 ## Quick Start Guide
 
-### Windows and Mac Prerequisites
+### Operating System Prerequisites
+Provide the following prerequisites based on the Operating System you use.
+#### Windows and Mac Prerequisites
 
 - [Git](https://git-scm.com/downloads)
 - [Docker Desktop](https://docs.docker.com/docker-for-windows/install/)
 - [PowerShell 7.X](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell?view=powershell-7.4)
 
-### Linux Prerequisites
+#### Linux Prerequisites
 
 - [Git](https://git-scm.com/downloads)
 - [Docker](https://docs.docker.com/get-docker/)
@@ -24,7 +26,9 @@ cd AGiXT
 ./AGiXT.ps1
 ```
 
-When you run the `AGiXT.ps1` script for the first time, it will create a `.env` file automatically. There are a few questions asked on first run to help you get started. The default options are recommended for most users.
+These commands will clone the project, go into the folder, and launch the installer.
+
+When you run the `AGiXT.ps1` script for the first time, it will create a `.env` file automatically. There are a few questions asked on the first run to help you get started and configure the project. The default options are recommended for most users.
 
 For advanced environment variable setup, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/1-Environment%20Variables.html) documentation for guidance on setup.
 
@@ -43,7 +47,7 @@ Would you like to set an API Key for AGiXT? Enter it if so, otherwise press ente
 Enter the number of AGiXT workers to run (default: 10):
 ```
 
-After the environment setup is complete, you will have the following options:
+After the environment setup is complete, the main screen is presented, and you will have the following options:
 
 ```bash
 1. Run AGiXT (Stable - Recommended!)
@@ -54,6 +58,8 @@ Enter your choice:
 ```
 
 Choose Option 1 to run AGiXT with the latest stable release. This is the recommended option for most users. If you're not actively developing AGiXT, this is the option you should choose.
+
+Options 2 and 3 will run the project on your local machine.
 
 ### Running and Updating AGiXT
 
