@@ -121,19 +121,16 @@ class voice_chat(Extensions):
 
     async def get_user_input(self, base64_audio, audio_format="m4a"):
         filename = f"{uuid.uuid4().hex}.wav"
-        if audio_format.lower() != "wav":
-            audio_data = base64.b64decode(base64_audio)
-            audio_segment = AudioSegment.from_file(
-                io.BytesIO(audio_data), format=audio_format.lower()
-            )
-            audio_segment = audio_segment.set_frame_rate(16000)
-            file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-            audio_segment.export(file_path, format="wav")
-            with open(file_path, "rb") as f:
-                audio = f.read()
-            return f"{base64.b64encode(audio).decode('utf-8')}"
-        else:
-            user_audio = base64_audio
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(
+            io.BytesIO(audio_data), format=audio_format.lower()
+        )
+        audio_segment = audio_segment.set_frame_rate(16000)
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        audio_segment.export(file_path, format="wav")
+        with open(file_path, "rb") as f:
+            audio = f.read()
+        user_audio = f"{base64.b64encode(audio).decode('utf-8')}"
         # Transcribe the audio to text.
         user_input = await self.transcribe_audio_from_file(filename=filename)
         user_message = f"{user_input}\n#GENERATED_AUDIO:{user_audio}"
