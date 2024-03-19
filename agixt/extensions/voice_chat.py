@@ -130,11 +130,8 @@ class voice_chat(Extensions):
             f.write(audio_data)
         filename = f"{uuid.uuid4().hex}.wav"
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        (
-            ffmpeg.input(input_file)
-            .output(file_path, ar=16000)
-            .run(overwrite_output=True)
-        )
+        # Convert the webm to wav
+        ffmpeg.input(input_file).output(file_path).run()
         return file_path, filename
 
     async def get_user_input(self, base64_audio, audio_format="m4a"):
