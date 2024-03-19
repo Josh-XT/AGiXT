@@ -7,6 +7,7 @@ import base64
 import io
 import requests
 import uuid
+import ffmpeg
 
 try:
     from whisper_cpp import Whisper
@@ -121,6 +122,16 @@ class voice_chat(Extensions):
         )
         return f"{audio_response}"
 
+    def convert_webm_to_wav(input_file):
+        filename = f"{uuid.uuid4().hex}.wav"
+        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        (
+            ffmpeg.input(input_file)
+            .output(file_path, ar=16000)
+            .run(overwrite_output=True)
+        )
+        return filename
+
     async def get_user_input(self, base64_audio, audio_format="m4a"):
         filename = f"{uuid.uuid4().hex}.wav"
         audio_data = base64.b64decode(base64_audio)
@@ -130,10 +141,11 @@ class voice_chat(Extensions):
         audio_segment = audio_segment.set_frame_rate(16000)
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         audio_segment.export(file_path, format="wav")
+        if audio_format.lower() == "webm":
+            filename = self.convert_webm_to_wav(file_path)
         with open(file_path, "rb") as f:
             audio = f.read()
         user_audio = f"{base64.b64encode(audio).decode('utf-8')}"
-        # Transcribe the audio to text.
         user_input = await self.transcribe_audio_from_file(filename=filename)
         user_message = f"{user_input}\n#GENERATED_AUDIO:{user_audio}"
         log_interaction(
