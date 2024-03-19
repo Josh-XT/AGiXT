@@ -108,7 +108,9 @@ class voice_chat(Extensions):
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
         w.transcribe(file_path)
-        return w.output()
+        trascription = w.output()
+        transcription = trascription.replace("[BLANK_AUDIO]", "")
+        return transcription
 
     async def text_to_speech(self, text: str):
         # Get the audio response from the TTS engine and return it.
