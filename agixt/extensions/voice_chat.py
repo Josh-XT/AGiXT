@@ -169,7 +169,7 @@ class voice_chat(Extensions):
             prompt_args=prompt_args,
         )
         if str(tts).lower() == "true":
-            return self.text_to_speech(text=text_response)
+            return await self.text_to_speech(text=text_response)
         return f"{text_response}"
 
     async def command_with_voice(
@@ -192,7 +192,7 @@ class voice_chat(Extensions):
             conversation_name="AGiXT Terminal",
         )
         if str(tts).lower() == "true":
-            return self.text_to_speech(text=text_response)
+            return await self.text_to_speech(text=text_response)
         return f"{text_response}"
 
     async def convert_m4a_to_wav(
