@@ -122,7 +122,12 @@ class voice_chat(Extensions):
         )
         return f"{audio_response}"
 
-    def convert_webm_to_wav(input_file):
+    async def convert_webm_to_wav(self, base64_audio):
+        audio_data = base64.b64decode(base64_audio)
+        input_filename = f"{uuid.uuid4().hex}.webm"
+        input_file = os.path.join(os.getcwd(), "WORKSPACE", input_filename)
+        with open(input_file, "wb") as f:
+            f.write(audio_data)
         filename = f"{uuid.uuid4().hex}.wav"
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         (
@@ -130,7 +135,7 @@ class voice_chat(Extensions):
             .output(file_path, ar=16000)
             .run(overwrite_output=True)
         )
-        return filename
+        return file_path, filename
 
     async def get_user_input(self, base64_audio, audio_format="m4a"):
         filename = f"{uuid.uuid4().hex}.wav"
@@ -142,7 +147,9 @@ class voice_chat(Extensions):
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         audio_segment.export(file_path, format="wav")
         if audio_format.lower() == "webm":
-            filename = self.convert_webm_to_wav(file_path)
+            file_path, filename = await self.convert_webm_to_wav(
+                base64_audio=base64_audio
+            )
         with open(file_path, "rb") as f:
             audio = f.read()
         user_audio = f"{base64.b64encode(audio).decode('utf-8')}"
