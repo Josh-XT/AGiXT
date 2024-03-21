@@ -100,7 +100,10 @@ async def chat_completion(
     # Use the system prompt to define the prompt template to use.
     # prompt_category/prompt_name
     system_prompt = "Default/Chat"
+    conversation_name = "Chat"
     for message in prompt.messages:
+        if "conversation_name" in message:
+            conversation_name = message["conversation_name"]
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "user":
@@ -185,13 +188,16 @@ async def chat_completion(
                         )
                         await website_reader.write_website_to_memory(url)
     prompt_category, prompt_name = system_prompt.split("/")
+    # Run function does not do anything with images yet.
+    # Plan is to pass these to a vision model to get a description to be injected.
     response = await agent.run(
         user_input=new_prompt,
         prompt=prompt_name,
         prompt_category=prompt_category,
         context_results=3,
         shots=prompt.n,
-        images=images,
+        conversation_name=conversation_name,
+        images=images,  ## This is not in the run function
     )
     characters = string.ascii_letters + string.digits
     prompt_tokens = get_tokens(prompt.prompt)
@@ -199,7 +205,7 @@ async def chat_completion(
     total_tokens = int(prompt_tokens) + int(completion_tokens)
     random_chars = "".join(random.choice(characters) for _ in range(15))
     res_model = {
-        "id": f"chatcmpl-{random_chars}",
+        "id": conversation_name,
         "object": "chat.completion",
         "created": int(time.time()),
         "model": model,

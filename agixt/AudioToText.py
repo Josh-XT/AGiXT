@@ -9,6 +9,8 @@ from faster_whisper import WhisperModel
 
 class AudioToText:
     def __init__(self, model="base"):
+        # Will need to add speech-to-text providers later, such as OpenAI's Whisper.
+        # For now, we will only use faster-whisper running locally on CPU.
         self.w = WhisperModel(model, download_root="models", device="cpu")
 
     async def transcribe_audio(

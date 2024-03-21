@@ -68,6 +68,8 @@ class ChatCompletions(BaseModel):
     top_p: Optional[float] = 1.0
     functions: Optional[List[dict]] = None
     function_call: Optional[str] = None
+    tools: Optional[List[dict]] = None
+    tools_choice: Optional[str] = "auto"
     n: Optional[int] = 1
     stream: Optional[bool] = False
     stop: Optional[List[str]] = None
