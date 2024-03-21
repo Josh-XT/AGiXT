@@ -154,7 +154,11 @@ async def chat_completion(
                         file=audio_url, prompt=new_prompt
                     )
                     new_prompt += transcribed_audio
-                if "file_url" in message:
+                if (
+                    "file_url" in message
+                    or "application_url" in message
+                    or "text_url" in message
+                ):
                     file_url = (
                         message["file_url"]["url"]
                         if "url" in message["file_url"]
