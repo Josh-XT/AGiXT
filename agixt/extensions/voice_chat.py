@@ -7,6 +7,7 @@ import base64
 import io
 import requests
 import uuid
+import ffmpeg
 
 try:
     from whisper_cpp import Whisper
@@ -102,13 +103,14 @@ class voice_chat(Extensions):
             )
             open(self.model_path, "wb").write(r.content)
 
-    async def transcribe_audio_from_file(self, filename: str = "recording.wav"):
+    async def transcribe_audio_from_file(
+        self, file_path: str = "./WORKSPACE/recording.wav"
+    ):
         w = Whisper(model_path=self.model_path)
-        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        if not os.path.exists(file_path):
-            raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
         w.transcribe(file_path)
-        return w.output()
+        trascription = w.output()
+        transcription = trascription.replace("[BLANK_AUDIO]", "")
+        return transcription
 
     async def text_to_speech(self, text: str):
         # Get the audio response from the TTS engine and return it.
@@ -119,23 +121,35 @@ class voice_chat(Extensions):
         )
         return f"{audio_response}"
 
+    async def convert_webm_to_wav(self, base64_audio):
+        audio_data = base64.b64decode(base64_audio)
+        input_filename = f"{uuid.uuid4().hex}.webm"
+        input_file = os.path.join("./WORKSPACE", input_filename)
+        with open(input_file, "wb") as f:
+            f.write(audio_data)
+        filename = f"{uuid.uuid4().hex}.wav"
+        file_path = os.path.join("./WORKSPACE", filename)
+        # Convert the webm to wav
+        ffmpeg.input(input_file).output(file_path, ar=16000).run(overwrite_output=True)
+        return file_path, filename
+
     async def get_user_input(self, base64_audio, audio_format="m4a"):
         filename = f"{uuid.uuid4().hex}.wav"
-        if audio_format.lower() != "wav":
-            audio_data = base64.b64decode(base64_audio)
-            audio_segment = AudioSegment.from_file(
-                io.BytesIO(audio_data), format=audio_format.lower()
+        audio_data = base64.b64decode(base64_audio)
+        audio_segment = AudioSegment.from_file(
+            io.BytesIO(audio_data), format=audio_format.lower()
+        )
+        audio_segment = audio_segment.set_frame_rate(16000)
+        file_path = os.path.join("./WORKSPACE", filename)
+        audio_segment.export(file_path, format="wav")
+        if audio_format.lower() == "webm":
+            file_path, filename = await self.convert_webm_to_wav(
+                base64_audio=base64_audio
             )
-            audio_segment = audio_segment.set_frame_rate(16000)
-            file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-            audio_segment.export(file_path, format="wav")
-            with open(file_path, "rb") as f:
-                audio = f.read()
-            return f"{base64.b64encode(audio).decode('utf-8')}"
-        else:
-            user_audio = base64_audio
-        # Transcribe the audio to text.
-        user_input = await self.transcribe_audio_from_file(filename=filename)
+        with open(file_path, "rb") as f:
+            audio = f.read()
+        user_audio = f"{base64.b64encode(audio).decode('utf-8')}"
+        user_input = await self.transcribe_audio_from_file(file_path=file_path)
         user_message = f"{user_input}\n#GENERATED_AUDIO:{user_audio}"
         log_interaction(
             agent_name=self.agent_name,
@@ -202,7 +216,7 @@ class voice_chat(Extensions):
         audio_data = base64.b64decode(base64_audio)
         audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="m4a")
         audio_segment = audio_segment.set_frame_rate(16000)
-        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        file_path = os.path.join("./WORKSPACE", filename)
         audio_segment.export(file_path, format="wav")
         with open(file_path, "rb") as f:
             audio = f.read()
@@ -220,5 +234,5 @@ class voice_chat(Extensions):
         # Transcribe the audio to text.
         user_input = await self.transcribe_audio_from_file(filename=filename)
         user_input.replace("[BLANK_AUDIO]", "")
-        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+        os.remove(os.path.join("./WORKSPACE", filename))
         return user_input
