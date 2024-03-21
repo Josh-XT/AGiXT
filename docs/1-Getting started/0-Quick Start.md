@@ -59,7 +59,7 @@ Enter your choice:
 
 Choose Option 1 to run AGiXT with the latest stable release. This is the recommended option for most users. If you're not actively developing AGiXT, this is the option you should choose.
 
-Options 2 and 3 will run the project on your local machine.
+Options 2 and 3 will run the project from the main branch of the GitHub repository and should only be used for development.
 
 ### Running and Updating AGiXT
 
