@@ -12,10 +12,14 @@ from ApiClient import Agent, verify_api_key, get_api_client
 from readers.file import FileReader
 from readers.website import WebsiteReader
 from AudioToText import AudioToText
+from Extensions import Extensions
+from fastapi import UploadFile, File, Form
+from typing import Optional, List
 from Models import (
     Completions,
     ChatCompletions,
     EmbeddingModel,
+    TextToSpeech,
 )
 
 app = APIRouter()
@@ -199,11 +203,9 @@ async def chat_completion(
         conversation_name=conversation_name,
         images=images,  ## This is not in the run function
     )
-    characters = string.ascii_letters + string.digits
     prompt_tokens = get_tokens(prompt.prompt)
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
-    random_chars = "".join(random.choice(characters) for _ in range(15))
     res_model = {
         "id": conversation_name,
         "object": "chat.completion",
@@ -257,3 +259,48 @@ async def embedding(
         "object": "list",
         "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
     }
+
+
+# Audio Transcription endpoint
+# https://platform.openai.com/docs/api-reference/audio/createTranscription
+@app.post(
+    "/v1/audio/transcriptions",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def speech_to_text(
+    file: UploadFile = File(...),
+    model: str = Form("base"),
+    language: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None),
+    response_format: Optional[str] = Form("json"),
+    temperature: Optional[float] = Form(0.0),
+    timestamp_granularities: Optional[List[str]] = Form(["segment"]),
+    user: str = Depends(verify_api_key),
+):
+    response = await AudioToText(model=model).transcribe_audio(
+        file=file.file,
+        language=language,
+        prompt=prompt,
+        temperature=temperature,
+    )
+    return {"text": response}
+
+
+@app.post(
+    "/v1/audio/speech",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def text_to_speech(
+    tts: TextToSpeech,
+    authorization: str = Header(None),
+    user: str = Depends(verify_api_key),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    audio_response = ApiClient.execute_command(
+        agent_name=tts.model,
+        command_name="Text to Speech",
+        command_args={"text": tts.input, "voice": tts.voice, "language": tts.language},
+    )
+    return f"{audio_response}"

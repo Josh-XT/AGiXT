@@ -80,6 +80,14 @@ class ChatCompletions(BaseModel):
     user: Optional[str] = None
 
 
+class TextToSpeech(BaseModel):
+    input: str
+    model: Optional[str] = "gpt4free"
+    voice: Optional[str] = "default"
+    language: Optional[str] = "en"
+    user: Optional[str] = None
+
+
 class EmbeddingModel(BaseModel):
     input: Union[str, List[str]]
     model: str

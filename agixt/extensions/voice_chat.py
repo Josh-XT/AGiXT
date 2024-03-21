@@ -112,12 +112,12 @@ class voice_chat(Extensions):
         transcription = trascription.replace("[BLANK_AUDIO]", "")
         return transcription
 
-    async def text_to_speech(self, text: str):
+    async def text_to_speech(self, text: str, voice="default", language="en"):
         # Get the audio response from the TTS engine and return it.
         audio_response = self.ApiClient.execute_command(
             agent_name=self.agent_name,
             command_name=self.tts_command,
-            command_args={"text": text},
+            command_args={"text": text, "voice": voice, "language": language},
         )
         return f"{audio_response}"
 
