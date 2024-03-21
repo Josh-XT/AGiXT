@@ -7,16 +7,17 @@ from Embedding import Embedding
 from ApiClient import Agent, verify_api_key, get_api_client
 from Models import (
     Completions,
+    ChatCompletions,
     EmbeddingModel,
-    GenerateModel,
-    GenerateResponse,
 )
 
 app = APIRouter()
 
 
 @app.post(
-    "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+    "/api/v1/completions",
+    tags=["OpenAI Style Endpoints"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def completion(
     prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -67,11 +68,13 @@ async def completion(
 
 @app.post(
     "/api/v1/chat/completions",
-    tags=["Completions"],
+    tags=["OpenAI Style Endpoints"],
     dependencies=[Depends(verify_api_key)],
 )
 async def chat_completion(
-    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
+    prompt: ChatCompletions,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     # prompt.model is the agent name
     ApiClient = get_api_client(authorization=authorization)
@@ -123,7 +126,9 @@ async def chat_completion(
 
 # Use agent name in the model field to use embedding.
 @app.post(
-    "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+    "/api/v1/embedding",
+    tags=["OpenAI Style Endpoints"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def embedding(
     embedding: EmbeddingModel,
@@ -146,48 +151,3 @@ async def embedding(
         "object": "list",
         "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
     }
-
-
-@app.post(
-    "/api/v1/{agent_name}/generate",
-    tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def generate_text(
-    generate: GenerateModel,
-    agent_name: str,
-    user=Depends(verify_api_key),
-    authorization: str = Header(None),
-):
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    response = await agent.run(
-        user_input=generate.inputs, prompt="Custom Input", **generate.parameters
-    )
-    tokens = get_tokens(response)
-    details = {
-        "best_of_sequences": [
-            {
-                "finish_reason": "length",
-                "generated_text": response,
-                "generated_tokens": tokens,
-                "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
-                "seed": 42,
-                "tokens": [
-                    {"id": 0, "logprob": -0.34, "special": False, "text": response}
-                ],
-                "top_tokens": [
-                    [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
-                ],
-            }
-        ],
-        "finish_reason": "length",
-        "generated_tokens": tokens,
-        "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
-        "seed": 42,
-        "tokens": [{"id": 0, "logprob": -0.34, "special": False, "text": response}],
-        "top_tokens": [
-            [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
-        ],
-    }
-    return GenerateResponse(details=details, generated_text=response)

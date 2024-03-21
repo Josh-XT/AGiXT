@@ -49,7 +49,7 @@ class PromptCategoryList(BaseModel):
 class Completions(BaseModel):
     model: str = "gpt-3.5-turbo"
     prompt: str = ""
-    max_tokens: Optional[int] = 8192
+    max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
     n: Optional[int] = 1
@@ -57,7 +57,6 @@ class Completions(BaseModel):
     logit_bias: Optional[Dict[str, float]] = None
     stop: Optional[List[str]] = None
     echo: Optional[bool] = False
-    system_message: Optional[str] = ""
     user: Optional[str] = None
     format_prompt: Optional[bool] = True
 
@@ -72,12 +71,11 @@ class ChatCompletions(BaseModel):
     n: Optional[int] = 1
     stream: Optional[bool] = False
     stop: Optional[List[str]] = None
-    max_tokens: Optional[int] = 8192
+    max_tokens: Optional[int] = 4096
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
-    system_message: Optional[str] = ""
 
 
 class EmbeddingModel(BaseModel):
@@ -241,13 +239,3 @@ class CommandExecution(BaseModel):
 
 class User(BaseModel):
     email: str
-
-
-class GenerateModel(BaseModel):
-    inputs: str
-    parameters: dict
-
-
-class GenerateResponse(BaseModel):
-    details: dict
-    generated_text: str
