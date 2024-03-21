@@ -12,4 +12,5 @@ fastapi
 uvicorn
 ngrok==1.1.0
 faster-whisper==1.0.1
+python-multipart
 g4f
