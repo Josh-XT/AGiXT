@@ -97,13 +97,19 @@ async def chat_completion(
     images = []
     pil_images = []
     new_prompt = ""
+    # Use the system prompt to define the prompt template to use.
+    # prompt_category/prompt_name
+    system_prompt = "Default/Chat"
     for message in prompt.messages:
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "user":
                 new_prompt += f"{message['content']}\n\n"
             if role.lower() == "system":
-                new_prompt = f"System: {message['content']}\n\nUser: {new_prompt}"
+                if "/" in message["content"]:
+                    system_prompt = message["content"]
+                else:
+                    system_prompt = f"Default/{message['content']}"
         if isinstance(message["content"], list):
             for msg in message["content"]:
                 if "text" in msg:
@@ -178,9 +184,11 @@ async def chat_completion(
                             user=user,
                         )
                         await website_reader.write_website_to_memory(url)
+    prompt_category, prompt_name = system_prompt.split("/")
     response = await agent.run(
         user_input=new_prompt,
-        prompt="Custom Input",
+        prompt=prompt_name,
+        prompt_category=prompt_category,
         context_results=3,
         shots=prompt.n,
         images=images,
