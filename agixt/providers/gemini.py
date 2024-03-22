@@ -48,7 +48,7 @@ class GeminiProvider:
             max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE
         )
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         """
         Perform inference using the Gemini model asynchronously.
 

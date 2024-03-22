@@ -89,7 +89,7 @@ class KoboldProvider:
         self.FRMTTRIMINC = FRMTTRIMINC if FRMTTRIMINC else False
         self.SINGLELINE = SINGLELINE if SINGLELINE else False
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         # Determine which endpoints to use
         def is_koboldcpp() -> bool:
             response = requests.get(f"{self.AI_PROVIDER_URI}/api/extra/version").json()[

@@ -23,6 +23,7 @@ class OpenaiProvider:
         AI_TOP_P: float = 0.7,
         WAIT_BETWEEN_REQUESTS: int = 1,
         WAIT_AFTER_FAILURE: int = 3,
+        SYSTEM_MESSAGE: str = "",
         **kwargs,
     ):
         self.requirements = ["openai"]
@@ -36,6 +37,7 @@ class OpenaiProvider:
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
         self.OPENAI_API_KEY = OPENAI_API_KEY
+        self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
         self.FAILURES = []
 
     def rotate_uri(self):
@@ -48,7 +50,7 @@ class OpenaiProvider:
                 openai.base_url = self.API_URI
                 break
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         if not self.API_URI.endswith("/"):
             self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
@@ -58,11 +60,34 @@ class OpenaiProvider:
                 return (
                     "Please go to the Agent Management page to set your OpenAI API key."
                 )
+        messages = []
+        if len(images) > 0:
+            messages.append(
+                {"role": "user", "content": [{"type": "text", "text": prompt}]}
+            )
+            for image in images:
+                # Get base64 image like data:image/...
+                # image is a file path
+                file_type = image.split(".")[-1]
+                with open(image, "rb") as f:
+                    image_base64 = f.read()
+                messages[0]["content"].append(  # use data:image/type;base64,base64
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/{file_type};base64,{image_base64}"
+                        },
+                    }
+                )
+        else:
+            messages.append({"role": "user", "content": prompt})
+        if self.SYSTEM_MESSAGE:
+            messages.append({"role": "system", "content": self.SYSTEM_MESSAGE})
+
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
             # Use chat completion API
-            messages = [{"role": "system", "content": prompt}]
             response = openai.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=messages,

@@ -12,7 +12,7 @@ class AgixtProvider:
         self.MAX_TOKENS = int(MAX_TOKENS) if int(MAX_TOKENS) != 0 else 16000
         self.agents = self.ApiClient.get_agents() if agents == [] else agents
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         for agent in self.agents:
             try:
                 return self.ApiClient.prompt_agent(

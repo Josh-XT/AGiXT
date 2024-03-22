@@ -28,7 +28,7 @@ class NvidiaProvider:
         self.WAIT_BETWEEN_REQUESTS = WAIT_BETWEEN_REQUESTS
         self.FAILURES = []
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             await asyncio.sleep(int(self.WAIT_BETWEEN_REQUESTS))
 
