@@ -64,12 +64,10 @@ class EzlocalaiProvider:
                 {"role": "user", "content": [{"type": "text", "text": prompt}]}
             )
             for image in images:
-                # Get base64 image like data:image/...
-                # image is a file path
                 file_type = image.split(".")[-1]
                 with open(image, "rb") as f:
                     image_base64 = f.read()
-                messages[0]["content"].append(  # use data:image/type;base64,base64
+                messages[0]["content"].append(
                     {
                         "type": "image_url",
                         "image_url": {
