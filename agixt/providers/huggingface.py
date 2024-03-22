@@ -80,7 +80,7 @@ class HuggingfaceProvider:
         if content_type == "application/json":
             return response.json()
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         result = self.request(
             prompt,
             temperature=self.AI_TEMPERATURE,

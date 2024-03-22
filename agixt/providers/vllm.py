@@ -52,7 +52,7 @@ class VllmProvider:
                 openai.base_url = self.API_URI
                 break
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
@@ -81,5 +81,5 @@ class VllmProvider:
                 return await Gpt4freeProvider().inference(prompt=prompt, tokens=tokens)
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
-                return await self.inference(prompt=prompt, tokens=tokens)
+                return await self.inference(prompt=prompt, tokens=tokens, images=images)
             return str(response)

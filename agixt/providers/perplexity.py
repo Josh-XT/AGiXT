@@ -339,7 +339,7 @@ class PerplexityProvider:
                 print("Account successfully created")
             self.exec_nb = 1
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         self.exec_nb += 1
         if self.perplexity_cli is None:
             self.load_account()

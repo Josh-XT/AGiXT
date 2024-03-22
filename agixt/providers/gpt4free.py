@@ -19,7 +19,7 @@ class Gpt4freeProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         max_new_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )

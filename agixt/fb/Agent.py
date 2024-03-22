@@ -149,10 +149,12 @@ class Agent:
             ).get_available_commands()
             self.clean_agent_config_commands()
 
-    async def inference(self, prompt, tokens):
+    async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
+        answer = await self.PROVIDER.inference(
+            prompt=prompt, tokens=tokens, images=images
+        )
         return answer.replace("\_", "_")
 
     def _load_agent_config_keys(self, keys):

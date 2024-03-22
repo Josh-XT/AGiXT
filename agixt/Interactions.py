@@ -403,6 +403,7 @@ class Interactions:
         persist_context_in_history: bool = False,
         is_m4a_audio: bool = False,
         is_wav_audio: bool = False,
+        images: list = [],
         **kwargs,
     ):
         if is_m4a_audio or is_wav_audio:
@@ -502,7 +503,9 @@ class Interactions:
             user=self.user,
         )
         try:
-            self.response = await self.agent.inference(formatted_prompt, tokens=tokens)
+            self.response = await self.agent.inference(
+                prompt=formatted_prompt, tokens=tokens, imags=images
+            )
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""
