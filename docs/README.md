@@ -65,6 +65,8 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
+The features that AGiXT provides cover a wide range of services and are used for different tasks. Refer to [Processes and Frameworks](https://josh-xt.github.io/AGiXT/2-Concepts/1-Processes%20and%20Frameworks.html) for more details about the services and framework.
+
 ### Getting Started with Local Models and AGiXT Video
 
 This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works.
