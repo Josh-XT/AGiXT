@@ -102,6 +102,8 @@ async def chat_completion(
     pil_images = []
     new_prompt = ""
     conversation_name = "Chat"
+    websearch = False
+    websearch_depth = 0
     for message in prompt.messages:
         if "conversation_name" in message:
             conversation_name = message["conversation_name"]
@@ -117,6 +119,10 @@ async def chat_completion(
             prompt_name = message["prompt_name"]
         else:
             prompt_name = "Chat"
+        if "websearch" in message:
+            websearch = str(message["websearch"]).lower() == "true"
+        if "websearch_depth" in message:
+            websearch_depth = int(message["websearch_depth"])
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "system":
@@ -210,16 +216,16 @@ async def chat_completion(
                             user=user,
                         )
                         await website_reader.write_website_to_memory(url)
-    # Run function does not do anything with images yet.
-    # Plan is to pass these to a vision model to get a description to be injected.
     response = await agent.run(
         user_input=new_prompt,
         prompt=prompt_name,
         prompt_category=prompt_category,
         context_results=context_results,
         shots=prompt.n,
+        websearch=websearch,
+        websearch_depth=websearch_depth,
         conversation_name=conversation_name,
-        images=images,  ## This is not in the run function
+        images=images,
     )
     prompt_tokens = get_tokens(prompt.prompt)
     completion_tokens = get_tokens(response)
