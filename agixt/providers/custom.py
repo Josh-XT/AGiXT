@@ -40,7 +40,7 @@ class CustomProvider:
                 self.API_URI = uri
                 break
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         max_new_tokens = int(self.MAX_TOKENS) - tokens
@@ -86,5 +86,7 @@ class CustomProvider:
                     self.rotate_uri()
                 if int(self.WAIT_AFTER_FAILURE) > 0:
                     time.sleep(int(self.WAIT_AFTER_FAILURE))
-                    return await self.inference(prompt=prompt, tokens=tokens)
+                    return await self.inference(
+                        prompt=prompt, tokens=tokens, images=images
+                    )
             return str(data)

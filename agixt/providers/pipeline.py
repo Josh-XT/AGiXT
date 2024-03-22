@@ -40,7 +40,7 @@ class PipelineProvider:
         if HUGGINGFACE_API_KEY:
             self.pipeline_kwargs["use_auth_token"] = HUGGINGFACE_API_KEY
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         self.load_pipeline()
         return self.pipeline(
             prompt,

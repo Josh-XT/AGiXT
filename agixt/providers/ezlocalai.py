@@ -50,27 +50,49 @@ class EzlocalaiProvider:
                 openai.base_url = self.API_URI
                 break
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         max_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
+        messages = []
+        if len(images) > 0:
+            messages.append(
+                {"role": "user", "content": [{"type": "text", "text": prompt}]}
+            )
+            for image in images:
+                # Get base64 image like data:image/...
+                # image is a file path
+                file_type = image.split(".")[-1]
+                with open(image, "rb") as f:
+                    image_base64 = f.read()
+                messages[0]["content"].append(  # use data:image/type;base64,base64
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/{file_type};base64,{image_base64}"
+                        },
+                    }
+                )
+        else:
+            messages.append({"role": "user", "content": prompt})
+        if self.SYSTEM_MESSAGE:
+            messages.append({"role": "system", "content": self.SYSTEM_MESSAGE})
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         try:
-            response = openai.completions.create(
+            response = openai.chat.completions.create(
                 model=self.AI_MODEL,
-                prompt=f"{prompt} </s>",
+                messages=messages,
                 max_tokens=int(max_tokens),
                 temperature=float(self.AI_TEMPERATURE),
                 top_p=float(self.AI_TOP_P),
                 n=1,
                 stream=False,
                 extra_body={
-                    "system_message": self.SYSTEM_MESSAGE,
                     "voice": self.VOICE,
                 },
             )
-            response = response.choices[0].text
+            response = response.choices[0].message.content
             if "User:" in response:
                 response = response.split("User:")[0]
             response = response.lstrip()
@@ -99,4 +121,4 @@ class EzlocalaiProvider:
             if self.failure_count >= 3:
                 logging.info("ezLocalai failed 3 times, unable to proceed.")
                 return "ezLocalai failed 3 times, unable to proceed."
-            return await self.inference(prompt=prompt, tokens=tokens)
+            return await self.inference(prompt=prompt, tokens=tokens, images=images)

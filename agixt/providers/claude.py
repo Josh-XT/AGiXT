@@ -24,7 +24,7 @@ class ClaudeProvider:
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-opus-20240229"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         if (
             self.ANTHROPIC_API_KEY == ""
             or self.ANTHROPIC_API_KEY == "YOUR_ANTHROPIC_API_KEY"

@@ -73,7 +73,7 @@ class OobaboogaProvider:
         self.STOP_STRING = STOP_STRING if STOP_STRING else "</s>"
         self.requirements = []
 
-    async def inference(self, prompt, tokens: int = 0):
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
         new_tokens = int(self.MAX_TOKENS) - tokens
         prompt = f"{self.PROMPT_PREFIX}{prompt}{self.PROMPT_SUFFIX}"
         params = {

@@ -108,6 +108,8 @@ async def chat_completion(
     for message in prompt.messages:
         if "conversation_name" in message:
             conversation_name = message["conversation_name"]
+        if "context_results" in message:
+            context_results = int(message["context_results"])
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "user":
@@ -164,6 +166,10 @@ async def chat_completion(
                         if "url" in message["file_url"]
                         else message["file_url"]
                     )
+                    if "collection_number" in message:
+                        collection_number = int(message["collection_number"])
+                    else:
+                        collection_number = 0
                     if file_url.startswith("http"):
                         file_data = requests.get(file_url).content
                     else:
@@ -175,7 +181,7 @@ async def chat_completion(
                     file_reader = FileReader(
                         agent_name=prompt.model,
                         agent_config=agent_config,
-                        collection_number=0,
+                        collection_number=collection_number,
                         ApiClient=ApiClient,
                         user=user,
                     )
@@ -186,11 +192,15 @@ async def chat_completion(
                         if "url" in message["url"]
                         else message["url"]
                     )
+                    if "collection_number" in message:
+                        collection_number = int(message["collection_number"])
+                    else:
+                        collection_number = 0
                     if url.startswith("http"):
                         website_reader = WebsiteReader(
                             agent_name=prompt.model,
                             agent_config=agent_config,
-                            collection_number=0,
+                            collection_number=collection_number,
                             ApiClient=ApiClient,
                             user=user,
                         )
@@ -202,7 +212,7 @@ async def chat_completion(
         user_input=new_prompt,
         prompt=prompt_name,
         prompt_category=prompt_category,
-        context_results=3,
+        context_results=context_results,
         shots=prompt.n,
         conversation_name=conversation_name,
         images=images,  ## This is not in the run function
