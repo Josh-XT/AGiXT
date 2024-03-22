@@ -15,7 +15,7 @@ except ImportError:
 class EzlocalaiProvider:
     def __init__(
         self,
-        OPENAI_API_KEY: str = "None",
+        EZLOCALAI_API_KEY: str = "None",
         AI_MODEL: str = "zephyr-7b-beta",
         API_URI: str = "http://localhost:8091/v1/",
         MAX_TOKENS: int = 8192,
@@ -36,7 +36,7 @@ class EzlocalaiProvider:
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
-        self.OPENAI_API_KEY = OPENAI_API_KEY if OPENAI_API_KEY else "None"
+        self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY if EZLOCALAI_API_KEY else "None"
         self.FAILURES = []
         self.failure_count = 0
 
@@ -51,6 +51,10 @@ class EzlocalaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
+        if not self.API_URI.endswith("/"):
+            self.API_URI += "/"
+        openai.base_url = self.API_URI
+        openai.api_key = self.EZLOCALAI_API_KEY
         max_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
@@ -77,8 +81,6 @@ class EzlocalaiProvider:
             messages.append({"role": "user", "content": prompt})
         if self.SYSTEM_MESSAGE:
             messages.append({"role": "system", "content": self.SYSTEM_MESSAGE})
-        openai.base_url = self.API_URI
-        openai.api_key = self.OPENAI_API_KEY
         try:
             response = openai.chat.completions.create(
                 model=self.AI_MODEL,

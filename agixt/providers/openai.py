@@ -53,6 +53,13 @@ class OpenaiProvider:
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if not self.API_URI.endswith("/"):
             self.API_URI += "/"
+        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
+        openai.api_key = self.OPENAI_API_KEY
+        if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
+            if self.API_URI == "https://api.openai.com/v1/":
+                return (
+                    "Please go to the Agent Management page to set your OpenAI API key."
+                )
         messages = []
         if len(images) > 0:
             messages.append(
@@ -76,13 +83,7 @@ class OpenaiProvider:
             messages.append({"role": "user", "content": prompt})
         if self.SYSTEM_MESSAGE:
             messages.append({"role": "system", "content": self.SYSTEM_MESSAGE})
-        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
-        openai.api_key = self.OPENAI_API_KEY
-        if self.OPENAI_API_KEY == "" or self.OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
-            if self.API_URI == "https://api.openai.com/v1/":
-                return (
-                    "Please go to the Agent Management page to set your OpenAI API key."
-                )
+
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
