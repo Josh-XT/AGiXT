@@ -101,15 +101,22 @@ async def chat_completion(
     images = []
     pil_images = []
     new_prompt = ""
-    # Use the system prompt to define the prompt template to use.
-    # prompt_category/prompt_name
-    system_prompt = "Default/Chat"
     conversation_name = "Chat"
     for message in prompt.messages:
         if "conversation_name" in message:
             conversation_name = message["conversation_name"]
         if "context_results" in message:
             context_results = int(message["context_results"])
+        else:
+            context_results = 5
+        if "prompt_category" in message:
+            prompt_category = message["prompt_category"]
+        else:
+            prompt_category = "Default"
+        if "prompt_name" in message:
+            prompt_name = message["prompt_name"]
+        else:
+            prompt_name = "Chat"
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "user":
@@ -205,7 +212,6 @@ async def chat_completion(
                             user=user,
                         )
                         await website_reader.write_website_to_memory(url)
-    prompt_category, prompt_name = system_prompt.split("/")
     # Run function does not do anything with images yet.
     # Plan is to pass these to a vision model to get a description to be injected.
     response = await agent.run(
