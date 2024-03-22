@@ -119,13 +119,11 @@ async def chat_completion(
             prompt_name = "Chat"
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
-            if role.lower() == "user":
-                new_prompt += f"{message['content']}\n\n"
             if role.lower() == "system":
                 if "/" in message["content"]:
-                    system_prompt = message["content"]
-                else:
-                    system_prompt = f"Default/{message['content']}"
+                    new_prompt += f"{message['content']}\n\n"
+            if role.lower() == "user":
+                new_prompt += f"{message['content']}\n\n"
         if isinstance(message["content"], list):
             for msg in message["content"]:
                 if "text" in msg:
