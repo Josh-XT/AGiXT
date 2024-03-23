@@ -14,7 +14,6 @@ from readers.website import WebsiteReader
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
 from AudioToText import AudioToText
-from Extensions import Extensions
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
@@ -170,7 +169,7 @@ async def chat_completion(
                     )
                     new_prompt += transcribed_audio
                 if "video_url" in message:
-                    video_url = (
+                    video_url = str(
                         message["video_url"]["url"]
                         if "url" in message["video_url"]
                         else message["video_url"]
@@ -194,7 +193,7 @@ async def chat_completion(
                     or "text_url" in message
                     or "url" in message
                 ):
-                    file_url = (
+                    file_url = str(
                         message["file_url"]["url"]
                         if "url" in message["file_url"]
                         else message["file_url"]
