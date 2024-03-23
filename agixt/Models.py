@@ -241,6 +241,11 @@ class ArxivInput(BaseModel):
     collection_number: Optional[int] = 0
 
 
+class YoutubeInput(BaseModel):
+    video_id: str
+    collection_number: int = 0
+
+
 class CommandExecution(BaseModel):
     command_name: str
     command_args: dict

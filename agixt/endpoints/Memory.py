@@ -8,6 +8,7 @@ from readers.github import GithubReader
 from readers.file import FileReader
 from readers.website import WebsiteReader
 from readers.arxiv import ArxivReader
+from readers.youtube import YoutubeReader
 from Models import (
     AgentMemoryQuery,
     TextMemoryInput,
@@ -15,6 +16,7 @@ from Models import (
     UrlInput,
     GitHubInput,
     ArxivInput,
+    YoutubeInput,
     ResponseMessage,
     Dataset,
 )
@@ -260,6 +262,30 @@ async def learn_arxiv(
 
 
 @app.post(
+    "/api/agent/{agent_name}/learn/youtube",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_youtube(
+    agent_name: str,
+    youtube_input: YoutubeInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
+    await YoutubeReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=youtube_input.collection_number,
+        ApiClient=ApiClient,
+    ).write_youtube_captions_to_memory(video_id=youtube_input.video_id)
+    return ResponseMessage(message="Agent learned the content from the YouTube video.")
+
+
+@app.post(
     "/api/agent/{agent_name}/reader/{reader_name}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
@@ -320,6 +346,14 @@ async def agent_reader(
             article_ids=data["article_ids"],
             max_articles=data["max_articles"],
         )
+    elif reader_name == "youtube":
+        response = await YoutubeReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+            ApiClient=ApiClient,
+            user=user,
+        ).write_youtube_captions_to_memory(video_id=data["video_id"])
     else:
         raise HTTPException(status_code=400, detail="Invalid reader name.")
     if response == True:
