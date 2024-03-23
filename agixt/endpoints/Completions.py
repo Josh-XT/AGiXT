@@ -11,8 +11,9 @@ from Embedding import Embedding
 from ApiClient import Agent, verify_api_key, get_api_client
 from readers.file import FileReader
 from readers.website import WebsiteReader
+from readers.youtube import YoutubeReader
+from readers.github import GithubReader
 from AudioToText import AudioToText
-from Extensions import Extensions
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
@@ -167,12 +168,32 @@ async def chat_completion(
                         file=audio_url, prompt=new_prompt
                     )
                     new_prompt += transcribed_audio
+                if "video_url" in message:
+                    video_url = str(
+                        message["video_url"]["url"]
+                        if "url" in message["video_url"]
+                        else message["video_url"]
+                    )
+                    if "collection_number" in message:
+                        collection_number = int(message["collection_number"])
+                    else:
+                        collection_number = 0
+                    if video_url.startswith("https://www.youtube.com/watch?v="):
+                        youtube_reader = YoutubeReader(
+                            agent_name=prompt.model,
+                            agent_config=agent_config,
+                            collection_number=collection_number,
+                            ApiClient=ApiClient,
+                            user=user,
+                        )
+                        await youtube_reader.write_youtube_captions_to_memory(video_url)
                 if (
                     "file_url" in message
                     or "application_url" in message
                     or "text_url" in message
+                    or "url" in message
                 ):
-                    file_url = (
+                    file_url = str(
                         message["file_url"]["url"]
                         if "url" in message["file_url"]
                         else message["file_url"]
@@ -182,40 +203,66 @@ async def chat_completion(
                     else:
                         collection_number = 0
                     if file_url.startswith("http"):
-                        file_data = requests.get(file_url).content
+                        if file_url.startswith("https://www.youtube.com/watch?v="):
+                            youtube_reader = YoutubeReader(
+                                agent_name=prompt.model,
+                                agent_config=agent_config,
+                                collection_number=collection_number,
+                                ApiClient=ApiClient,
+                                user=user,
+                            )
+                            await youtube_reader.write_youtube_captions_to_memory(
+                                file_url
+                            )
+                        elif file_url.startswith("https://github.com"):
+                            github_reader = GithubReader(
+                                agent_name=prompt.model,
+                                agent_config=agent_config,
+                                collection_number=collection_number,
+                                ApiClient=ApiClient,
+                                user=user,
+                            )
+                            await github_reader.write_github_repository_to_memory(
+                                github_repo=file_url,
+                                github_user=(
+                                    agent_config["GITHUB_USER"]
+                                    if "GITHUB_USER" in agent_config
+                                    else None
+                                ),
+                                github_token=(
+                                    agent_config["GITHUB_TOKEN"]
+                                    if "GITHUB_TOKEN" in agent_config
+                                    else None
+                                ),
+                                github_branch=(
+                                    "main"
+                                    if "branch" not in message
+                                    else message["branch"]
+                                ),
+                            )
+                        else:
+                            website_reader = WebsiteReader(
+                                agent_name=prompt.model,
+                                agent_config=agent_config,
+                                collection_number=collection_number,
+                                ApiClient=ApiClient,
+                                user=user,
+                            )
+                            await website_reader.write_website_to_memory(url)
                     else:
                         file_type = file_url.split(",")[0].split("/")[1].split(";")[0]
                         file_data = base64.b64decode(file_url.split(",")[1])
-                    file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                    with open(file_path, "wb") as f:
-                        f.write(file_data)
-                    file_reader = FileReader(
-                        agent_name=prompt.model,
-                        agent_config=agent_config,
-                        collection_number=collection_number,
-                        ApiClient=ApiClient,
-                        user=user,
-                    )
-                    await file_reader.write_file_to_memory(file_path)
-                if "url" in message:
-                    url = (
-                        message["url"]["url"]
-                        if "url" in message["url"]
-                        else message["url"]
-                    )
-                    if "collection_number" in message:
-                        collection_number = int(message["collection_number"])
-                    else:
-                        collection_number = 0
-                    if url.startswith("http"):
-                        website_reader = WebsiteReader(
+                        file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                        with open(file_path, "wb") as f:
+                            f.write(file_data)
+                        file_reader = FileReader(
                             agent_name=prompt.model,
                             agent_config=agent_config,
                             collection_number=collection_number,
                             ApiClient=ApiClient,
                             user=user,
                         )
-                        await website_reader.write_website_to_memory(url)
+                        await file_reader.write_file_to_memory(file_path)
     response = await agent.run(
         user_input=new_prompt,
         prompt=prompt_name,
