@@ -1,5 +1,5 @@
 from Memories import Memories
-from youtube_transcript_api import YouTubeTranscriptApi
+from pytube.download_helper import download_captions
 
 
 class YoutubeReader(Memories):
@@ -23,16 +23,11 @@ class YoutubeReader(Memories):
     async def write_youtube_captions_to_memory(self, video_id: str = None):
         if "?v=" in video_id:
             video_id = video_id.split("?v=")[1]
-        srt = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
-        content = ""
-        for line in srt:
-            if line["text"] != "[Music]":
-                content += line["text"].replace("[Music]", "") + " "
+        content = download_captions(url=f"https://www.youtube.com/watch?v={video_id}")
         if content != "":
-            stored_content = f"From YouTube video: {video_id}\nContent: {content}"
             await self.write_text_to_memory(
                 user_input=video_id,
-                text=stored_content,
+                text=content,
                 external_source=f"From YouTube video: {video_id}",
             )
             return True
