@@ -105,7 +105,7 @@ async def chat_completion(
     conversation_name = "Chat"
     websearch = False
     websearch_depth = 0
-    browse_links = False
+    browse_links = True
     for message in prompt.messages:
         if "conversation_name" in message:
             conversation_name = message["conversation_name"]
