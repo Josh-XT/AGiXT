@@ -105,6 +105,7 @@ async def chat_completion(
     conversation_name = "Chat"
     websearch = False
     websearch_depth = 0
+    browse_links = False
     for message in prompt.messages:
         if "conversation_name" in message:
             conversation_name = message["conversation_name"]
@@ -124,6 +125,8 @@ async def chat_completion(
             websearch = str(message["websearch"]).lower() == "true"
         if "websearch_depth" in message:
             websearch_depth = int(message["websearch_depth"])
+        if "browse_links" in message:
+            browse_links = str(message["browse_links"]).lower() == "true"
         if isinstance(message["content"], str):
             role = message["role"] if "role" in message else "User"
             if role.lower() == "system":
@@ -272,6 +275,7 @@ async def chat_completion(
         websearch=websearch,
         websearch_depth=websearch_depth,
         conversation_name=conversation_name,
+        browse_links=browse_links,
         images=images,
     )
     prompt_tokens = get_tokens(prompt.prompt)
