@@ -8,6 +8,7 @@ import tiktoken
 from datetime import datetime
 from readers.website import WebsiteReader
 from readers.file import FileReader
+from readers.youtube import YoutubeReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -56,6 +57,13 @@ class Interactions:
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=int(collection_number),
+            ApiClient=ApiClient,
+            user=user,
+        )
+        self.yt = YoutubeReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=1,
             ApiClient=ApiClient,
             user=user,
         )
@@ -447,10 +455,19 @@ class Interactions:
                     if link not in self.websearch.browsed_links:
                         logging.info(f"Browsing link: {link}")
                         self.websearch.browsed_links.append(link)
-                        (
-                            text_content,
-                            link_list,
-                        ) = await self.agent_memory.write_website_to_memory(url=link)
+                        if str(link).startswith("https://www.youtube.com/watch?v="):
+                            video_id = link.split("watch?v=")[1]
+                            await self.yt.write_youtube_captions_to_memory(
+                                video_id=video_id
+                            )
+                            link_list = None
+                        else:
+                            (
+                                text_content,
+                                link_list,
+                            ) = await self.agent_memory.write_website_to_memory(
+                                url=link
+                            )
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
