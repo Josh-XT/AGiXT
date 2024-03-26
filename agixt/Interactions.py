@@ -521,7 +521,7 @@ class Interactions:
         )
         try:
             self.response = await self.agent.inference(
-                prompt=formatted_prompt, tokens=tokens, imags=images
+                prompt=formatted_prompt, tokens=tokens, images=images
             )
         except Exception as e:
             # Log the error with the full traceback for the provider
