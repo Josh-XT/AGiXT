@@ -232,7 +232,9 @@ class voice_chat(Extensions):
             base64_audio=base64_audio, filename=filename
         )
         # Transcribe the audio to text.
-        user_input = await self.transcribe_audio_from_file(file_path=filename)
+        user_input = await self.transcribe_audio_from_file(
+            file_path=os.path.join("./WORKSPACE", filename)
+        )
         user_input.replace("[BLANK_AUDIO]", "")
         os.remove(os.path.join("./WORKSPACE", filename))
         return user_input
