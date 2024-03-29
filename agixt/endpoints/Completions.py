@@ -98,13 +98,6 @@ async def chat_completion(
     agent_config = agent.agent.AGENT_CONFIG
     conversation_name = prompt.user
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
-    else:
-        model = "undefined"
     if "mode" in agent_config:
         mode = agent_config["mode"]
     else:
@@ -361,7 +354,7 @@ async def chat_completion(
         "id": conversation_name,
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": model,
+        "model": prompt.model,
         "choices": [
             {
                 "index": 0,
