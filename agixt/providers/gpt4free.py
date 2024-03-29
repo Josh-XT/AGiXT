@@ -14,7 +14,7 @@ class Gpt4freeProvider:
         MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
-        STREAMLABS_VOICE: str = "Brian",
+        VOICE: str = "Brian",
         **kwargs,
     ):
         self.requirements = ["g4f", "httpx"]
@@ -230,10 +230,10 @@ class Gpt4freeProvider:
             "Hoda",
             "Naayf",
         ]
-        if STREAMLABS_VOICE not in STREAMLABS_VOICES:
+        if VOICE not in STREAMLABS_VOICES:
             self.STREAMLABS_VOICE = random.choice(STREAMLABS_VOICES)
         else:
-            self.STREAMLABS_VOICE = STREAMLABS_VOICE
+            self.STREAMLABS_VOICE = VOICE
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         max_new_tokens = (

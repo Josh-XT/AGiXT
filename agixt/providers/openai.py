@@ -26,6 +26,7 @@ class OpenaiProvider:
         WAIT_AFTER_FAILURE: int = 3,
         SYSTEM_MESSAGE: str = "",
         VOICE: str = "alloy",
+        TRANSCRIPTION_MODEL: str = "whisper-1",
         **kwargs,
     ):
         self.requirements = ["openai"]
@@ -41,7 +42,11 @@ class OpenaiProvider:
         self.OPENAI_API_KEY = OPENAI_API_KEY
         self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
         self.VOICE = VOICE if VOICE else "alloy"
+        self.TRANSCRIPTION_MODEL = (
+            TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "whisper-1"
+        )
         self.FAILURES = []
+        self.chunk_size = 1024
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
@@ -112,7 +117,7 @@ class OpenaiProvider:
         openai.api_key = self.OPENAI_API_KEY
         with open(audio_path, "rb") as audio_file:
             transcription = openai.audio.transcriptions.create(
-                model="whisper-1", file=audio_file
+                model=self.TRANSCRIPTION_MODEL, file=audio_file
             )
         return transcription.text
 
@@ -121,7 +126,7 @@ class OpenaiProvider:
         openai.api_key = self.OPENAI_API_KEY
         with open(audio_path, "rb") as audio_file:
             translation = openai.audio.translations.create(
-                model="base", file=audio_file
+                model=self.TRANSCRIPTION_MODEL, file=audio_file
             )
         return translation.text
 
@@ -151,3 +156,12 @@ class OpenaiProvider:
             png.write(image_data)
         encoded_image_data = base64.b64encode(image_data).decode("utf-8")
         return f"data:image/png;base64,{encoded_image_data}"
+
+    async def embeddings(self, text: str):
+        openai.base_url = self.API_URI
+        openai.api_key = self.OPENAI_API_KEY
+        response = openai.embeddings.create(
+            input=text,
+            model="text-embedding-3-small",
+        )
+        return response.data[0].embedding
