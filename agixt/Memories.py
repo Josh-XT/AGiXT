@@ -175,7 +175,12 @@ class Memories:
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
         embedding_provider = Providers(
-            name=self.agent_settings["embeddings_provider"], ApiClient=ApiClient
+            name=(
+                self.agent_settings["embeddings_provider"]
+                if "embeddings_provider" in self.agent_settings
+                else "default"
+            ),
+            ApiClient=ApiClient,
         )
         self.chunk_size = (
             embedding_provider.chunk_size
