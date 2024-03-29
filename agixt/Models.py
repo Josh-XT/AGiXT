@@ -86,6 +86,13 @@ class TextToSpeech(BaseModel):
     user: Optional[str] = None
 
 
+class ImageCreation(BaseModel):
+    prompt: str
+    model: Optional[str] = "dall-e-3"
+    n: Optional[int] = 1
+    size: Optional[str] = "1024x1024"
+
+
 class EmbeddingModel(BaseModel):
     input: Union[str, List[str]]
     model: str
