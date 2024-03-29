@@ -201,7 +201,7 @@ class Agent:
         return answer.replace("\_", "_")
 
     async def embeddings(self, text: str):
-        return await self.EMBEDDINGS_PROVIDER.embeddings(text=text)
+        return self.EMBEDDINGS_PROVIDER.embeddings(text=text)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)

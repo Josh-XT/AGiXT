@@ -168,7 +168,7 @@ class OpenaiProvider:
         encoded_image_data = base64.b64encode(image_data).decode("utf-8")
         return f"data:image/png;base64,{encoded_image_data}"
 
-    async def embeddings(self, text: str):
+    def embeddings(self, text: str):
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         response = openai.embeddings.create(

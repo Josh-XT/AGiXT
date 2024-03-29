@@ -159,7 +159,7 @@ class EzlocalaiProvider:
         audio_content = base64.b64decode(tts_response.content)
         return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"
 
-    async def embeddings(self, text: str):
+    def embeddings(self, text: str):
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
         response = openai.embeddings.create(

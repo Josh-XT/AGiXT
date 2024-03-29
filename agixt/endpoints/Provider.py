@@ -6,7 +6,6 @@ from Providers import (
     get_providers_with_settings,
     get_providers_by_service,
 )
-from Embedding import get_embedding_providers, get_embedders
 from ApiClient import verify_api_key, DB_CONNECTED
 from typing import Any
 
@@ -56,7 +55,7 @@ async def get_providers_by_service_name(service: str, user=Depends(verify_api_ke
     dependencies=[Depends(verify_api_key)],
 )
 async def get_embed_providers(user=Depends(verify_api_key)):
-    providers = get_embedding_providers()
+    providers = get_providers_by_service(service="embeddings")
     return {"providers": providers}
 
 
@@ -67,7 +66,7 @@ async def get_embed_providers(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
-    return {"embedders": get_embedders()}
+    return {"embedders": get_providers_by_service(service="embeddings")}
 
 
 if DB_CONNECTED:

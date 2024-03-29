@@ -42,7 +42,7 @@ class DefaultProvider:
     async def text_to_speech(self, text: str):
         return await Gpt4freeProvider(VOICE=self.VOICE).text_to_speech(text=text)
 
-    async def embeddings(self, text: str):
+    def embeddings(self, text: str):
         embedder = ONNXMiniLM_L6_V2()
         embedder.DOWNLOAD_PATH = os.getcwd()
         return ONNXMiniLM_L6_V2().__call__(input=[text])[0]

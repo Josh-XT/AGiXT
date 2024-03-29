@@ -9,7 +9,7 @@ from chromadb.config import Settings
 from chromadb.api.types import QueryResult
 from numpy import array, linalg, ndarray
 from hashlib import sha256
-from Embedding import Embedding
+from Providers import Providers
 from datetime import datetime
 from collections import Counter
 from typing import List
@@ -174,9 +174,15 @@ class Memories:
         )
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
-        self.embed = Embedding(agent_settings=self.agent_settings)
-        self.chunk_size = self.embed.chunk_size
-        self.embedder = self.embed.embedder
+        embedding_provider = Providers(
+            name=self.agent_settings["embeddings_provider"], ApiClient=ApiClient
+        )
+        self.chunk_size = (
+            embedding_provider.chunk_size
+            if hasattr(embedding_provider, "chunk_size")
+            else 256
+        )
+        self.embedder = embedding_provider.embeddings
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):
@@ -331,7 +337,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embed.embed_text(text=user_input))
+        embedding = array(self.embedder(text=user_input))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
