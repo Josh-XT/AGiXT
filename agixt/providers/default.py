@@ -1,4 +1,5 @@
 from providers.gpt4free import Gpt4freeProvider
+from providers.huggingface import HuggingfaceProvider
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from AudioToText import AudioToText
 import os
@@ -9,6 +10,7 @@ class DefaultProvider:
         self,
         AI_MODEL: str = "mixtral-8x7b",
         TRANSCRIPTION_MODEL: str = "base",
+        HUGGINGFACE_API_KEY: str = "",
         VOICE: str = "Brian",
         **kwargs
     ):
@@ -17,11 +19,19 @@ class DefaultProvider:
         self.AI_TOP_P = 0.7
         self.MAX_TOKENS = 16000
         self.VOICE = VOICE if VOICE else "Brian"
+        self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.TRANSCRIPTION_MODEL = (
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
         )
         self.chunk_size = 256
-        self.services = ["llm", "embeddings", "tts", "transcription", "translation"]
+        self.services = [
+            "llm",
+            "embeddings",
+            "tts",
+            "transcription",
+            "translation",
+            "image",
+        ]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         return await Gpt4freeProvider(
@@ -46,5 +56,10 @@ class DefaultProvider:
         return await AudioToText(model=self.TRANSCRIPTION_MODEL).transcribe_audio(
             file=audio_path, translate=True
         )
+
+    async def generate_image(self, prompt: str):
+        return await HuggingfaceProvider(
+            HUGGINGFACE_API_KEY=self.HUGGINGFACE_API_KEY
+        ).generate_image(prompt=prompt)
 
     # Would be nice to add a generate_image method here, but I don't have a good default that doesn't require configuration yet.

@@ -176,6 +176,46 @@ class Agent:
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        tts_provider = (
+            self.AGENT_CONFIG["settings"]["tts_provider"]
+            if "tts_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TTS_PROVIDER = Providers(
+            name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        transcription_provider = (
+            self.AGENT_CONFIG["settings"]["transcription_provider"]
+            if "transcription_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TRANSCRIPTION_PROVIDER = Providers(
+            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        translation_provider = (
+            self.AGENT_CONFIG["settings"]["translation_provider"]
+            if "translation_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TRANSLATION_PROVIDER = Providers(
+            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        image_provider = (
+            self.AGENT_CONFIG["settings"]["image_provider"]
+            if "image_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.IMAGE_PROVIDER = Providers(
+            name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        embeddings_provider = (
+            self.AGENT_CONFIG["settings"]["embeddings_provider"]
+            if "embeddings_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.EMBEDDINGS_PROVIDER = Providers(
+            name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
         self.available_commands = Extensions(
             agent_name=self.agent_name,
             agent_config=self.AGENT_CONFIG,
@@ -252,20 +292,20 @@ class Agent:
         )
         return answer.replace("\_", "_")
 
-    async def text_to_speech(self, text: str):
-        return await self.PROVIDER.text_to_speech(text=text)
-
     async def embeddings(self, text: str):
-        return await self.PROVIDER.embeddings(text=text)
+        return await self.EMBEDDINGS_PROVIDER.embeddings(text=text)
 
     async def transcribe_audio(self, audio_path: str):
-        return await self.PROVIDER.transcribe_audio(audio_path=audio_path)
+        return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
 
     async def translate_audio(self, audio_path: str):
-        return await self.PROVIDER.translate_audio(audio_path=audio_path)
+        return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
 
     async def generate_image(self, prompt: str):
-        return await self.PROVIDER.generate_image(prompt=prompt)
+        return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
+
+    async def text_to_speech(self, text: str):
+        return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
