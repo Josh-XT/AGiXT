@@ -168,7 +168,9 @@ class Agent:
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
-        self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+        self.PROVIDER_SETTINGS = (
+            self.AGENT_CONFIG["settings"] if "settings" in self.AGENT_CONFIG else {}
+        )
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
