@@ -92,6 +92,7 @@ async def chat_completion(
     authorization: str = Header(None),
 ):
     # prompt.model is the agent name
+    # prompt.user is the conversation name
     ApiClient = get_api_client(authorization=authorization)
     agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
     agent_config = agent.agent.AGENT_CONFIG
