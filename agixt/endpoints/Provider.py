@@ -1,6 +1,11 @@
 from typing import Dict
 from fastapi import APIRouter, Depends, Header
-from Providers import get_provider_options, get_providers, get_providers_with_settings
+from Providers import (
+    get_provider_options,
+    get_providers,
+    get_providers_with_settings,
+    get_providers_by_service,
+)
 from Embedding import get_embedding_providers, get_embedders
 from ApiClient import verify_api_key, DB_CONNECTED
 from typing import Any
@@ -31,6 +36,16 @@ async def get_provider_settings(provider_name: str, user=Depends(verify_api_key)
 )
 async def get_all_providers(user=Depends(verify_api_key)):
     providers = get_providers_with_settings()
+    return {"providers": providers}
+
+
+@app.get(
+    "/api/providers/service/{service}",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_providers_by_service_name(service: str, user=Depends(verify_api_key)):
+    providers = get_providers_by_service(service=service)
     return {"providers": providers}
 
 
