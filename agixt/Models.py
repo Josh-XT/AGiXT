@@ -66,8 +66,6 @@ class ChatCompletions(BaseModel):
     messages: List[dict] = None
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
-    functions: Optional[List[dict]] = None
-    function_call: Optional[str] = None
     tools: Optional[List[dict]] = None
     tools_choice: Optional[str] = "auto"
     n: Optional[int] = 1
