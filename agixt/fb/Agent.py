@@ -102,10 +102,10 @@ class Agent:
         self.AGENT_CONFIG = self.get_agent_config()
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
+        self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
-        self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
         self.AI_PROVIDER = self.PROVIDER_SETTINGS["provider"]
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
@@ -154,7 +154,7 @@ class Agent:
             name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
-            self.chunk_size = embeddings_provider.chunk_size
+            self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
             self.chunk_size = 256
         if "AI_MODEL" in self.PROVIDER_SETTINGS:
