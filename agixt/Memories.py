@@ -484,7 +484,6 @@ class Memories:
         prompt_name: str = "Ask Questions",
         prompt_category: str = "Default",
         batch_size: int = 10,
-        qa: bool = False,
         **kwargs,
     ):
         i = 0
@@ -508,17 +507,16 @@ class Memories:
                         **kwargs,
                     },
                 )
-                if not qa
-                else await self.agent_qa(question=user_input, context_results=10)
             )
             tasks.append(task)
         responses += await asyncio.gather(**tasks)
         return responses
 
     # Answer a question with context injected, return in sharegpt format
-    async def agent_qa(self, question: str = "", context_results: int = 10):
+    async def agent_dpo_qa(self, question: str = "", context_results: int = 10):
         context = await self.get_context(user_input=question, limit=context_results)
-        answer = await self.ApiClient.prompt_agent(
+        prompt = f"### Context\n{context}\n### Question\n{question}"
+        chosen = await self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Answer Question with Memory",
             prompt_args={
@@ -531,17 +529,18 @@ class Memories:
         self.collection_number = 0
         await self.write_text_to_memory(
             user_input=question,
-            text=answer,
+            text=chosen,
             external_source="Synthetic QA",
         )
-        qa = [
-            {
-                "from": "human",
-                "value": f"### Context\n{context}\n### Question\n{question}",
+        rejected = await self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Wrong Answers Only",
+            prompt_args={
+                "prompt_category": "Default",
+                "user_input": question,
             },
-            {"from": "gpt", "value": answer},
-        ]
-        return qa
+        )
+        return prompt, chosen, rejected
 
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(
@@ -560,7 +559,6 @@ class Memories:
         # Get a list of questions about each memory
         question_list = self.batch_prompt(
             user_inputs=memories,
-            qa=False,
             batch_size=batch_size,
         )
         for question in question_list:
@@ -572,14 +570,22 @@ class Memories:
             question = [item for item in question if item]
             question = [item.lstrip("0123456789.*- ") for item in question]
             questions += question
-        # Answer each question with context injected
-        qa = self.batch_prompt(
-            user_inputs=questions,
-            qa=True,
-            batch_size=batch_size,
-        )
-        conversations = {"conversations": [qa]}
+        prompts = []
+        good_answers = []
+        bad_answers = []
+        for question in questions:
+            prompt, chosen, rejected = await self.agent_dpo_qa(
+                question=question, context_results=10
+            )
+            prompts.append(prompt)
+            good_answers.append(chosen)
+            bad_answers.append(rejected)
+        dpo_dataset = {
+            "prompt": questions,
+            "chosen": good_answers,
+            "rejected": bad_answers,
+        }
         # Save messages to a json file to be used as a dataset
-        with open(f"{dataset_name}.json", "w") as f:
-            f.write(json.dumps(conversations))
-        return conversations
+        with open(f"dpo-{dataset_name}.json", "w") as f:
+            f.write(json.dumps(dpo_dataset))
+        return dpo_dataset
