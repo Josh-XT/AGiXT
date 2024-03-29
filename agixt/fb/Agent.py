@@ -153,6 +153,10 @@ class Agent:
         self.EMBEDDINGS_PROVIDER = Providers(
             name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
+            self.chunk_size = embeddings_provider.chunk_size
+        else:
+            self.chunk_size = 256
         if "AI_MODEL" in self.PROVIDER_SETTINGS:
             self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
             if self.AI_MODEL == "":

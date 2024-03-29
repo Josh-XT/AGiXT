@@ -216,6 +216,10 @@ class Agent:
         self.EMBEDDINGS_PROVIDER = Providers(
             name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
+            self.chunk_size = embeddings_provider.chunk_size
+        else:
+            self.chunk_size = 256
         self.available_commands = Extensions(
             agent_name=self.agent_name,
             agent_config=self.AGENT_CONFIG,
