@@ -592,6 +592,6 @@ class Memories:
             "rejected": bad_answers,
         }
         # Save messages to a json file to be used as a dataset
-        with open(f"dpo-{dataset_name}.json", "w") as f:
+        with open(f"./WORKSPACE/{dataset_name}.json", "w") as f:
             f.write(json.dumps(dpo_dataset))
         return dpo_dataset

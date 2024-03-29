@@ -15,7 +15,6 @@ from readers.file import FileReader
 from readers.website import WebsiteReader
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
-from AudioToText import AudioToText
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
@@ -181,7 +180,7 @@ async def chat_completion(
                             if "url" in message["audio_url"]
                             else message["audio_url"]
                         )
-                        transcribed_audio = AudioToText().transcribe_audio(
+                        transcribed_audio = agent.agent.transcribe_audio(
                             file=audio_url, prompt=new_prompt
                         )
                         new_prompt += transcribed_audio
