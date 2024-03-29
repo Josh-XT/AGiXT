@@ -62,7 +62,7 @@ class Completions(BaseModel):
 
 
 class ChatCompletions(BaseModel):
-    model: str = "gpt-3.5-turbo"
+    model: str = "gpt-3.5-turbo"  # This is the agent name
     messages: List[dict] = None
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
@@ -77,7 +77,7 @@ class ChatCompletions(BaseModel):
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
-    user: Optional[str] = None
+    user: Optional[str] = "Chat"  # This is the conversation name
 
 
 class TextToSpeech(BaseModel):
