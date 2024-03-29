@@ -1,13 +1,14 @@
 from providers.gpt4free import Gpt4freeProvider
 from providers.huggingface import HuggingfaceProvider
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+from faster_whisper import WhisperModel
 import os
 import base64
 import uuid
 import logging
 import ffmpeg
 import requests
-from faster_whisper import WhisperModel
+import numpy as np
 
 
 class DefaultProvider:
@@ -47,7 +48,7 @@ class DefaultProvider:
     async def text_to_speech(self, text: str):
         return await Gpt4freeProvider(VOICE=self.VOICE).text_to_speech(text=text)
 
-    def embeddings(self, text: str):
+    def embeddings(self, text: str) -> np.ndarray:
         embedder = ONNXMiniLM_L6_V2()
         embedder.DOWNLOAD_PATH = os.getcwd()
         return ONNXMiniLM_L6_V2().__call__(input=[text])[0]

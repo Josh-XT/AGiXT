@@ -1,17 +1,4 @@
-import uuid
 import requests
-import base64
-import io
-
-try:
-    from PIL import Image
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
-    from PIL import Image
-import logging
 
 
 # This will create a hive agent that will create memories for itself and each agent in the rotation.
