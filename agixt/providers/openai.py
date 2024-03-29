@@ -67,6 +67,9 @@ class OpenaiProvider:
                 break
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
+        if images != []:
+            if "vision" not in self.AI_MODEL:
+                self.AI_MODEL = "gpt-4-vision-preview"
         if not self.API_URI.endswith("/"):
             self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
