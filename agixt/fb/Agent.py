@@ -200,8 +200,8 @@ class Agent:
         )
         return answer.replace("\_", "_")
 
-    def embeddings(self, text: str) -> np.ndarray:
-        return self.EMBEDDINGS_PROVIDER.embeddings(text=text)
+    def embeddings(self, input) -> np.ndarray:
+        return self.EMBEDDINGS_PROVIDER.embeddings(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)

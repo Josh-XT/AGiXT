@@ -187,7 +187,7 @@ class Memories:
             if hasattr(embedding_provider, "chunk_size")
             else 256
         )
-        self.embedder = embedding_provider.embeddings
+        self.embedder = embedding_provider
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):

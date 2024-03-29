@@ -395,7 +395,7 @@ async def embedding(
     agent_name = embedding.model
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     tokens = get_tokens(embedding.input)
-    embedding = agent.embeddings(text=embedding.input)
+    embedding = agent.embeddings(input=embedding.input)
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,

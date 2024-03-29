@@ -48,10 +48,10 @@ class DefaultProvider:
     async def text_to_speech(self, text: str):
         return await Gpt4freeProvider(VOICE=self.VOICE).text_to_speech(text=text)
 
-    def embeddings(self, text: str) -> np.ndarray:
+    def embeddings(self, input) -> np.ndarray:
         embedder = ONNXMiniLM_L6_V2()
         embedder.DOWNLOAD_PATH = os.getcwd()
-        return ONNXMiniLM_L6_V2().__call__(input=[text])[0]
+        return embedder.__call__(input=[input])[0]
 
     async def transcribe_audio(
         self,

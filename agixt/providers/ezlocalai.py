@@ -2,6 +2,7 @@ import logging
 import random
 import re
 import base64
+import numpy as np
 
 try:
     import openai
@@ -159,11 +160,11 @@ class EzlocalaiProvider:
         audio_content = base64.b64decode(tts_response.content)
         return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"
 
-    def embeddings(self, text: str):
+    def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
         response = openai.embeddings.create(
-            input=text,
+            input=input,
             model="text-embedding-3-small",
         )
         return response.data[0].embedding

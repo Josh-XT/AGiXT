@@ -2,6 +2,7 @@ import time
 import logging
 import random
 import base64
+import numpy as np
 
 try:
     import openai
@@ -168,11 +169,11 @@ class OpenaiProvider:
         encoded_image_data = base64.b64encode(image_data).decode("utf-8")
         return f"data:image/png;base64,{encoded_image_data}"
 
-    def embeddings(self, text: str):
+    def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI
         openai.api_key = self.OPENAI_API_KEY
         response = openai.embeddings.create(
-            input=text,
+            input=input,
             model="text-embedding-3-small",
         )
         return response.data[0].embedding

@@ -18,6 +18,7 @@ from Extensions import Extensions
 from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
 import logging
 import json
+import numpy as np
 import os
 
 
@@ -298,8 +299,8 @@ class Agent:
         )
         return answer.replace("\_", "_")
 
-    async def embeddings(self, text: str):
-        return self.EMBEDDINGS_PROVIDER.embeddings(text=text)
+    def embeddings(self, input) -> np.ndarray:
+        return self.EMBEDDINGS_PROVIDER.embeddings(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
