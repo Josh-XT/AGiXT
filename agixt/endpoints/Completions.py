@@ -172,6 +172,14 @@ async def chat_completion(
             prompt_category = agent_settings["prompt_category"]
         else:
             prompt_category = "Default"
+        if "prompt_args" in agent_settings:
+            prompt_args = (
+                json.loads(agent_settings["prompt_args"])
+                if isinstance(agent_settings["prompt_args"], str)
+                else agent_settings["prompt_args"]
+            )
+        else:
+            prompt_args = {}
         for message in prompt.messages:
             if "conversation_name" in message:
                 conversation_name = message["conversation_name"]
@@ -343,6 +351,7 @@ async def chat_completion(
             conversation_name=conversation_name,
             browse_links=browse_links,
             images=images,
+            **prompt_args,
         )
     prompt_tokens = get_tokens(str(prompt.messages))
     completion_tokens = get_tokens(response)
