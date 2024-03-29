@@ -14,6 +14,7 @@ from bitsandbytes import nn as bnb
 from trl import DPOTrainer
 from unsloth import FastLanguageModel
 from agixtsdk import AGiXTSDK
+from Memories import Memories
 
 
 def fine_tune_llm(
@@ -27,10 +28,13 @@ def fine_tune_llm(
     push: bool = False,
 ):
     # Step 1: Build AGiXT dataset
-    agixt = AGiXTSDK(base_uri=base_uri, api_key=api_key)
-    response = agixt.create_dataset(
-        agent_name=agent_name, dataset_name=dataset_name, batch_size=5
-    )
+    sdk = AGiXTSDK(base_uri=base_uri, api_key=api_key)
+    response = Memories(
+        agent_name=agent_name,
+        agent_config=sdk.get_agentconfig(agent_name),
+        collection_number=0,
+        ApiClient=sdk,
+    ).create_dataset_from_memories(dataset_name=dataset_name, batch_size=5)
     dataset_name = (
         response["message"].split("Creation of dataset ")[1].split(" for agent")[0]
     )
