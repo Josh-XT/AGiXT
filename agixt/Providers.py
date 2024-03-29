@@ -25,33 +25,23 @@ def get_providers():
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
     options = {}
-    if provider_name == "llamacppapi":
-        provider_name = "llamacpp"
     if provider_name in DISABLED_PROVIDERS:
         return {}
     logging.info(f"Getting options for provider: {provider_name}")
     # This will keep transformers from being installed unless needed.
-    if provider_name == "pipeline":
-        options = DEFAULT_SETTINGS.copy()
-        options["provider"] = provider_name
-        options["HUGGINGFACE_API_KEY"] = ""
-        options["MODEL_PATH"] = ""
-    else:
-        try:
-            module = importlib.import_module(f"providers.{provider_name}")
-            provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
-            signature = inspect.signature(provider_class.__init__)
-            options = {
-                name: (
-                    param.default
-                    if param.default is not inspect.Parameter.empty
-                    else None
-                )
-                for name, param in signature.parameters.items()
-                if name != "self" and name != "kwargs"
-            }
-        except:
-            pass
+    try:
+        module = importlib.import_module(f"providers.{provider_name}")
+        provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+        signature = inspect.signature(provider_class.__init__)
+        options = {
+            name: (
+                param.default if param.default is not inspect.Parameter.empty else None
+            )
+            for name, param in signature.parameters.items()
+            if name != "self" and name != "kwargs"
+        }
+    except:
+        pass
     if "provider" not in options:
         options["provider"] = provider_name
     return options
@@ -66,6 +56,30 @@ def get_providers_with_settings():
             }
         )
     return providers
+
+
+def get_provider_services(provider_name="openai"):
+    try:
+        module = importlib.import_module(f"providers.{provider_name}")
+        provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+        return provider_class.services
+    except:
+        return []
+
+
+def get_providers_by_service(service="llm"):
+    providers = []
+    if service in ["llm", "tts", "image", "embeddings", "transcription", "translation"]:
+        try:
+            for provider in get_providers():
+                if provider in DISABLED_PROVIDERS:
+                    continue
+                if service in get_provider_services(provider):
+                    providers.append(provider)
+            return providers
+        except:
+            return []
+    return []
 
 
 class Providers:

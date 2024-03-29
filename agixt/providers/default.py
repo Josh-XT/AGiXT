@@ -21,6 +21,7 @@ class DefaultProvider:
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
         )
         self.chunk_size = 256
+        self.services = ["llm", "embeddings", "tts", "transcription", "translation"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         return await Gpt4freeProvider(

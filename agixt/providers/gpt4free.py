@@ -234,6 +234,7 @@ class Gpt4freeProvider:
             self.STREAMLABS_VOICE = random.choice(STREAMLABS_VOICES)
         else:
             self.STREAMLABS_VOICE = VOICE
+        self.services = ["llm", "tts"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         max_new_tokens = (

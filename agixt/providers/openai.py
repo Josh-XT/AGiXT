@@ -47,6 +47,14 @@ class OpenaiProvider:
         )
         self.FAILURES = []
         self.chunk_size = 1024
+        self.services = [
+            "llm",
+            "tts",
+            "image",
+            "embeddings",
+            "transcription",
+            "translation",
+        ]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)

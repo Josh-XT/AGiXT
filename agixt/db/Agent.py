@@ -252,6 +252,21 @@ class Agent:
         )
         return answer.replace("\_", "_")
 
+    async def text_to_speech(self, text: str):
+        return await self.PROVIDER.text_to_speech(text=text)
+
+    async def embeddings(self, text: str):
+        return await self.PROVIDER.embeddings(text=text)
+
+    async def transcribe_audio(self, audio_path: str):
+        return await self.PROVIDER.transcribe_audio(audio_path=audio_path)
+
+    async def translate_audio(self, audio_path: str):
+        return await self.PROVIDER.translate_audio(audio_path=audio_path)
+
+    async def generate_image(self, prompt: str):
+        return await self.PROVIDER.generate_image(prompt=prompt)
+
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return ""

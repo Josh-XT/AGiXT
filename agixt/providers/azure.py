@@ -36,6 +36,7 @@ class AzureProvider:
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
+        self.services = ["llm"]
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []) -> str:
         num_retries = 3

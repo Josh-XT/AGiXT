@@ -54,6 +54,7 @@ class HuggingfaceProvider:
         self.stop = stop
         self.MAX_RETRIES = MAX_RETRIES
         self.parameters = kwargs
+        self.services = ["llm", "tts", "image"]
 
     def get_url(self) -> str:
         return self.HUGGINGFACE_API_URL.replace("{model}", self.MODEL_PATH)
@@ -211,7 +212,7 @@ class HuggingfaceProvider:
 
             # Convert image_data to base64 string
             encoded_image_data = base64.b64encode(image_data).decode("utf-8")
-            return f"#GENERATED_IMAGE:{encoded_image_data}"
+            return f"data:image/png;base64,{encoded_image_data}"
         except Exception as e:
             logging.error(f"Error generating image: {e}")
             return f"Error generating image: {e}"

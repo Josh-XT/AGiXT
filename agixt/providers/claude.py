@@ -23,6 +23,7 @@ class ClaudeProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 200000
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-opus-20240229"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.services = ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if (
