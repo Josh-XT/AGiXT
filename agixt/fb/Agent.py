@@ -3,7 +3,7 @@ import json
 import glob
 import shutil
 import importlib
-import logging
+import numpy as np
 from inspect import signature, Parameter
 from Providers import Providers
 from Extensions import Extensions
@@ -200,7 +200,7 @@ class Agent:
         )
         return answer.replace("\_", "_")
 
-    async def embeddings(self, text: str):
+    def embeddings(self, text: str) -> np.ndarray:
         return self.EMBEDDINGS_PROVIDER.embeddings(text=text)
 
     async def transcribe_audio(self, audio_path: str):
