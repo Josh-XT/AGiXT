@@ -3,6 +3,7 @@ import random
 import re
 import base64
 import numpy as np
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 try:
     import openai
@@ -45,6 +46,11 @@ class EzlocalaiProvider:
         )
         self.FAILURES = []
         self.failure_count = 0
+        self.embedder = OpenAIEmbeddingFunction(
+            model_name="text-embedding-3-small",
+            api_key=self.EZLOCALAI_API_KEY,
+            base_url=self.API_URI,
+        )
         self.chunk_size = 1024
         self.services = ["llm", "tts", "transcription", "translation"]
 

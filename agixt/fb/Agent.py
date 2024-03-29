@@ -157,6 +157,7 @@ class Agent:
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
             self.chunk_size = 256
+        self.embedder = self.EMBEDDINGS_PROVIDER.embedder
         if "AI_MODEL" in self.PROVIDER_SETTINGS:
             self.AI_MODEL = self.PROVIDER_SETTINGS["AI_MODEL"]
             if self.AI_MODEL == "":
@@ -201,7 +202,7 @@ class Agent:
         return answer.replace("\_", "_")
 
     def embeddings(self, input) -> np.ndarray:
-        return self.EMBEDDINGS_PROVIDER.embeddings(input=input)
+        return self.embedder(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)

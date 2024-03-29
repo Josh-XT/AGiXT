@@ -219,6 +219,13 @@ class Agent:
         self.EMBEDDINGS_PROVIDER = Providers(
             name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        self.embedder = (
+            self.EMBEDDINGS_PROVIDER.embedder
+            if self.EMBEDDINGS_PROVIDER
+            else Providers(
+                name="default", ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            ).embedder
+        )
         if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
@@ -300,7 +307,7 @@ class Agent:
         return answer.replace("\_", "_")
 
     def embeddings(self, input) -> np.ndarray:
-        return self.EMBEDDINGS_PROVIDER.embeddings(input=input)
+        return self.embedder(input=input)
 
     async def transcribe_audio(self, audio_path: str):
         return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)

@@ -29,6 +29,8 @@ class DefaultProvider:
         self.TRANSCRIPTION_MODEL = (
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
         )
+        self.embedder = ONNXMiniLM_L6_V2()
+        self.embedder.DOWNLOAD_PATH = os.getcwd()
         self.chunk_size = 256
         self.services = [
             "llm",
@@ -49,9 +51,7 @@ class DefaultProvider:
         return await Gpt4freeProvider(VOICE=self.VOICE).text_to_speech(text=text)
 
     def embeddings(self, input) -> np.ndarray:
-        embedder = ONNXMiniLM_L6_V2()
-        embedder.DOWNLOAD_PATH = os.getcwd()
-        return embedder.__call__(input=[input])[0]
+        return self.embedder.__call__(input=[input])[0]
 
     async def transcribe_audio(
         self,
