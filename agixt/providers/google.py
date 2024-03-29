@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 try:
     import google.generativeai as genai  # Primary import attempt
@@ -7,12 +8,21 @@ except ImportError:
     import subprocess
 
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "google.generativeai"]
+        [sys.executable, "-m", "pip", "install", "google-generativeai"]
     )
     import google.generativeai as genai  # Import again after installation
 
+try:
+    import gtts as ts
+except ImportError:
+    import sys
+    import subprocess
 
-class GeminiProvider:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
+    import gtts as ts
+
+
+class GoogleProvider:
     def __init__(
         self,
         GOOGLE_API_KEY: str,
@@ -30,7 +40,7 @@ class GeminiProvider:
         - MAX_TOKENS: int, maximum tokens to generate (default is 4000).
         - AI_TEMPERATURE: float, temperature for AI model (default is 0.7).
         """
-        self.requirements = ["google.generativeai"]
+        self.requirements = ["google-generativeai"]
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.AI_MODEL = AI_MODEL
         self.MAX_TOKENS = MAX_TOKENS
@@ -83,3 +93,12 @@ class GeminiProvider:
             return generated_text
         except Exception as e:
             return f"Gemini Error: {e}"
+
+    async def text_to_speech(self, text: str):
+        tts = ts.gTTS(text)
+        tts.save("speech.mp3")
+        with open("speech.mp3", "rb") as f:
+            audio = f.read()
+        os.remove("speech.mp3")
+        audio = audio.decode("utf-8")
+        return f"data:audio/mp3;base64,{audio}"

@@ -142,13 +142,13 @@ class EzlocalaiProvider:
             )
         return translation.text
 
-    async def tts(self, prompt: str, voice: str = "HAL9000"):
+    async def text_to_speech(self, text: str):
         openai.base_url = self.API_URI
         openai.api_key = self.EZLOCALAI_API_KEY
         tts_response = openai.audio.speech.create(
             model="tts-1",
-            voice=voice,
-            input=prompt,
+            voice=self.VOICE,
+            input=text,
         )
         audio_content = base64.b64decode(tts_response.content)
-        return audio_content
+        return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"

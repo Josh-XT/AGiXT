@@ -25,6 +25,7 @@ class OpenaiProvider:
         WAIT_BETWEEN_REQUESTS: int = 1,
         WAIT_AFTER_FAILURE: int = 3,
         SYSTEM_MESSAGE: str = "",
+        VOICE: str = "alloy",
         **kwargs,
     ):
         self.requirements = ["openai"]
@@ -39,6 +40,7 @@ class OpenaiProvider:
         )
         self.OPENAI_API_KEY = OPENAI_API_KEY
         self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
+        self.VOICE = VOICE if VOICE else "alloy"
         self.FAILURES = []
 
     def rotate_uri(self):
@@ -67,12 +69,10 @@ class OpenaiProvider:
                 {"role": "user", "content": [{"type": "text", "text": prompt}]}
             )
             for image in images:
-                # Get base64 image like data:image/...
-                # image is a file path
                 file_type = image.split(".")[-1]
                 with open(image, "rb") as f:
                     image_base64 = f.read()
-                messages[0]["content"].append(  # use data:image/type;base64,base64
+                messages[0]["content"].append(
                     {
                         "type": "image_url",
                         "image_url": {
@@ -88,7 +88,6 @@ class OpenaiProvider:
         if int(self.WAIT_BETWEEN_REQUESTS) > 0:
             time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
         try:
-            # Use chat completion API
             response = openai.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=messages,
@@ -126,16 +125,16 @@ class OpenaiProvider:
             )
         return translation.text
 
-    async def tts(self, prompt: str, voice: str = "alloy"):
+    async def text_to_speech(self, text: str):
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
         tts_response = openai.audio.speech.create(
             model="tts-1",
-            voice=voice,
-            input=prompt,
+            voice=self.VOICE,
+            input=text,
         )
         audio_content = base64.b64decode(tts_response.content)
-        return audio_content
+        return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"
 
     async def generate_image(self, prompt: str, filename: str = "image.png") -> str:
         image_path = f"./WORKSPACE/{filename}"
