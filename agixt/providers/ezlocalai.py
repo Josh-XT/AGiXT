@@ -1,6 +1,7 @@
 import logging
 import random
 import re
+import base64
 
 try:
     import openai
@@ -122,3 +123,32 @@ class EzlocalaiProvider:
                 logging.info("ezLocalai failed 3 times, unable to proceed.")
                 return "ezLocalai failed 3 times, unable to proceed."
             return await self.inference(prompt=prompt, tokens=tokens, images=images)
+
+    async def transcribe_audio(self, audio_path: str):
+        openai.base_url = self.API_URI
+        openai.api_key = self.EZLOCALAI_API_KEY
+        with open(audio_path, "rb") as audio_file:
+            transcription = openai.audio.transcriptions.create(
+                model="whisper-1", file=audio_file
+            )
+        return transcription.text
+
+    async def translate_audio(self, audio_path: str):
+        openai.base_url = self.API_URI
+        openai.api_key = self.EZLOCALAI_API_KEY
+        with open(audio_path, "rb") as audio_file:
+            translation = openai.audio.translations.create(
+                model="base", file=audio_file
+            )
+        return translation.text
+
+    async def tts(self, prompt: str, voice: str = "HAL9000"):
+        openai.base_url = self.API_URI
+        openai.api_key = self.EZLOCALAI_API_KEY
+        tts_response = openai.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=prompt,
+        )
+        audio_content = base64.b64decode(tts_response.content)
+        return audio_content
