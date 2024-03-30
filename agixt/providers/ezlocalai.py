@@ -52,7 +52,10 @@ class EzlocalaiProvider:
             base_url=self.API_URI,
         )
         self.chunk_size = 1024
-        self.services = ["llm", "tts", "transcription", "translation"]
+
+    @staticmethod
+    def services():
+        return ["llm", "tts", "transcription", "translation"]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)

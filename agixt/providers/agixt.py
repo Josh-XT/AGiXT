@@ -16,7 +16,10 @@ class AgixtProvider:
         self.agents = self.ApiClient.get_agents() if agents == [] else agents
         self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
         self.ELEVENLABS_VOICE = VOICE
-        self.services = ["llm", "tts"]
+
+    @staticmethod
+    def services():
+        return ["llm", "tts"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         for agent in self.agents:

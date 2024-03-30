@@ -62,7 +62,7 @@ def get_provider_services(provider_name="openai"):
     try:
         module = importlib.import_module(f"providers.{provider_name}")
         provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
-        return provider_class.services
+        return provider_class.services()
     except:
         return []
 

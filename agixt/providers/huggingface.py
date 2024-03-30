@@ -54,7 +54,10 @@ class HuggingfaceProvider:
         self.stop = stop
         self.MAX_RETRIES = MAX_RETRIES
         self.parameters = kwargs
-        self.services = ["llm", "tts", "image"]
+
+    @staticmethod
+    def services():
+        return ["llm", "tts", "image"]
 
     def get_url(self) -> str:
         return self.HUGGINGFACE_API_URL.replace("{model}", self.MODEL_PATH)

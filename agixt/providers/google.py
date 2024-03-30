@@ -57,7 +57,10 @@ class GoogleProvider:
         self.generation_config = genai.types.GenerationConfig(
             max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE
         )
-        self.services = ["llm", "tts"]
+
+    @staticmethod
+    def services():
+        return ["llm", "tts"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         """

@@ -32,7 +32,10 @@ class DefaultProvider:
         self.embedder = ONNXMiniLM_L6_V2()
         self.embedder.DOWNLOAD_PATH = os.getcwd()
         self.chunk_size = 256
-        self.services = [
+
+    @staticmethod
+    def services():
+        return [
             "llm",
             "embeddings",
             "tts",

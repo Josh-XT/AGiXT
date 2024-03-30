@@ -54,14 +54,10 @@ class OpenaiProvider:
             base_url=self.API_URI,
         )
         self.chunk_size = 1024
-        self.services = [
-            "llm",
-            "tts",
-            "image",
-            "embeddings",
-            "transcription",
-            "translation",
-        ]
+
+    @staticmethod
+    def services():
+        return ["llm", "tts", "image", "embeddings", "transcription", "translation"]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
