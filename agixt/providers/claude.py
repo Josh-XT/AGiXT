@@ -41,7 +41,6 @@ class ClaudeProvider:
         messages = []
         if images:
             for image in images:
-                # image is a file path, get the content, we have to send as data:image/{filetype};base64
                 with open(image, "rb") as f:
                     image_base64 = f.read()
                 file_type = image.split(".")[-1]
