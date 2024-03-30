@@ -61,8 +61,7 @@ from Memories import Memories
 def fine_tune_llm(
     agent_name: str = "AGiXT",
     dataset_name: str = "dataset",
-    base_uri: str = "http://localhost:7437",
-    api_key: str = "Your AGiXT API Key",
+    ApiClient=AGiXTSDK(),
     model_name: str = "unsloth/mistral-7b-v0.2",
     max_seq_length: int = 16384,
     output_path: str = "./WORKSPACE/merged_model",
@@ -70,8 +69,7 @@ def fine_tune_llm(
     private_repo: bool = True,
 ):
     # Step 1: Build AGiXT dataset
-    sdk = AGiXTSDK(base_uri=base_uri, api_key=api_key)
-    agent_config = sdk.get_agentconfig(agent_name)
+    agent_config = ApiClient.get_agentconfig(agent_name)
     if not agent_config:
         agent_config = {}
     huggingface_api_key = (
@@ -83,13 +81,16 @@ def fine_tune_llm(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=0,
-        ApiClient=sdk,
+        ApiClient=ApiClient,
     ).create_dataset_from_memories(dataset_name=dataset_name, batch_size=5)
     dataset_name = (
         response["message"].split("Creation of dataset ")[1].split(" for agent")[0]
     )
     dataset_path = f"./WORKSPACE/{dataset_name}.json"
-
+    agent_config["settings"]["training"] = True
+    ApiClient.update_agent_settings(
+        agent_name=agent_name, settings=agent_config["settings"]
+    )
     # Step 2: Create qLora adapter
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_name,
@@ -168,6 +169,10 @@ def fine_tune_llm(
         tokenizer.push_to_hub(
             huggingface_output_path, use_temp_dir=False, private=private_repo
         )
+    agent_config["settings"]["training"] = False
+    ApiClient.update_agent_settings(
+        agent_name=agent_name, settings=agent_config["settings"]
+    )
 
 
 if __name__ == "__main__":
