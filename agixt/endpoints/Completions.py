@@ -307,13 +307,12 @@ async def chat_completion(
         "choices": [
             {
                 "index": 0,
-                "message": [
-                    {
-                        "role": "assistant",
-                        "content": response,
-                    },
-                ],
+                "message": {
+                    "role": "assistant",
+                    "content": str(response),
+                },
                 "finish_reason": "stop",
+                "logprobs": None,
             }
         ],
         "usage": {
@@ -382,7 +381,7 @@ async def completion(
 # Embedding endpoint
 # https://platform.openai.com/docs/api-reference/embeddings/createEmbedding
 @app.post(
-    "/v1/embedding",
+    "/v1/embeddings",
     tags=["OpenAI Style Endpoints"],
     dependencies=[Depends(verify_api_key)],
 )
