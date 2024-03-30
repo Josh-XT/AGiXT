@@ -445,15 +445,18 @@ class Agent:
                 .filter_by(provider_id=provider.id, name=setting_name)
                 .first()
             )
-
-            agent_provider_setting = (
-                self.session.query(AgentProviderSetting)
-                .filter_by(
-                    provider_setting_id=setting.id,
-                    agent_provider_id=agent_provider.id,
+            try:
+                agent_provider_setting = (
+                    self.session.query(AgentProviderSetting)
+                    .filter_by(
+                        provider_setting_id=setting.id,
+                        agent_provider_id=agent_provider.id,
+                    )
+                    .first()
                 )
-                .first()
-            )
+            except Exception as e:
+                agent_provider_setting = None
+
             if agent_provider_setting:
                 agent_provider_setting.value = setting_value
             else:
