@@ -66,13 +66,22 @@ def fine_tune_llm(
     model_name: str = "unsloth/mistral-7b-v0.2",
     max_seq_length: int = 16384,
     output_path: str = "./WORKSPACE/merged_model",
-    push: bool = False,
+    huggingface_output_path: str = "JoshXT/finetuned-mistral-7b-v0.2",
+    private_repo: bool = True,
 ):
     # Step 1: Build AGiXT dataset
     sdk = AGiXTSDK(base_uri=base_uri, api_key=api_key)
+    agent_config = sdk.get_agentconfig(agent_name)
+    if not agent_config:
+        agent_config = {}
+    huggingface_api_key = (
+        agent_config["settings"]["HUGGINGFACE_API_KEY"]
+        if "HUGGINGFACE_API_KEY" in agent_config["settings"]
+        else None
+    )
     response = Memories(
         agent_name=agent_name,
-        agent_config=sdk.get_agentconfig(agent_name),
+        agent_config=agent_config,
         collection_number=0,
         ApiClient=sdk,
     ).create_dataset_from_memories(dataset_name=dataset_name, batch_size=5)
@@ -83,7 +92,10 @@ def fine_tune_llm(
 
     # Step 2: Create qLora adapter
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_name, max_seq_length=max_seq_length, load_in_4bit=True
+        model_name=model_name,
+        max_seq_length=max_seq_length,
+        load_in_4bit=True,
+        token=huggingface_api_key,
     )
     model = FastLanguageModel.get_peft_model(
         model,
@@ -119,11 +131,15 @@ def fine_tune_llm(
         torch_dtype=torch.bfloat16,
         quantization_config=quantization_config,
         device_map="auto",
+        token=huggingface_api_key,
     ), AutoTokenizer.from_pretrained(model_name)
     os.makedirs(output_path, exist_ok=True)
     if os.path.exists(output_path):
         return AutoModelForCausalLM.from_pretrained(
-            output_path, torch_dtype=torch.bfloat16, device_map="auto"
+            output_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            token=huggingface_api_key,
         )
     for name, module in model.named_modules():
         if isinstance(module, bnb.nn.Linear4bit):
@@ -145,9 +161,13 @@ def fine_tune_llm(
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     model.save_pretrained(output_path, safe_serialization=True, max_shard_size="4GB")
-    if push:
-        model.push_to_hub(output_path, use_temp_dir=False)
-        tokenizer.push_to_hub(output_path, use_temp_dir=False)
+    if huggingface_api_key:
+        model.push_to_hub(
+            huggingface_output_path, use_temp_dir=False, private=private_repo
+        )
+        tokenizer.push_to_hub(
+            huggingface_output_path, use_temp_dir=False, private=private_repo
+        )
 
 
 if __name__ == "__main__":
@@ -160,5 +180,6 @@ if __name__ == "__main__":
         model_name="unsloth/mistral-7b-v0.2",
         max_seq_length=16384,
         output_path="./WORKSPACE/merged_model",
-        push=False,
+        huggingface_output_path="JoshXT/finetuned-mistral-7b-v0.2",
+        private_repo=True,
     )
