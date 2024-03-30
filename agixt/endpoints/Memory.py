@@ -496,7 +496,7 @@ async def fine_tune_model(
         fine_tune_llm(
             agent_name=agent_name,
             dataset_name=dataset_name,
-            model_name=finetune.model_name,
+            model_name=finetune.model,
             max_seq_length=finetune.max_seq_length,
             huggingface_output_path=finetune.huggingface_output_path,
             private_repo=finetune.private_repo,
