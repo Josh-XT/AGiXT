@@ -151,8 +151,8 @@ def get_agents(user=DEFAULT_USER):
                 session.query(AgentSettingModel)
                 .filter_by(agent_id=agent.id, name="training")
                 .first()
-            ).value.lower() == "true"
-        except Exception as e:
+            )
+        except:
             agent_settings = None
         if agent_settings:
             if agent_settings.value.lower() == "true":
@@ -169,10 +169,13 @@ def get_agents(user=DEFAULT_USER):
                 session.query(AgentSettingModel)
                 .filter_by(agent_id=agent.id, name="training")
                 .first()
-            ).value.lower() == "true"
-        except Exception as e:
+            )
+        except:
             agent_settings = None
         if agent_settings:
+            # Check if the agent is in the output already
+            if agent.name in [a["name"] for a in output]:
+                continue
             if agent_settings.value.lower() == "true":
                 output.append({"name": agent.name, "status": True})
             else:
