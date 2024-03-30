@@ -17,12 +17,14 @@ class ClaudeProvider:
         AI_MODEL: str = "claude-3-opus-20240229",
         MAX_TOKENS: int = 200000,
         AI_TEMPERATURE: float = 0.7,
+        SYSTEM_MESSAGE: str = "",
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 200000
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-opus-20240229"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
 
     @staticmethod
     def services():
@@ -70,6 +72,7 @@ class ClaudeProvider:
                 messages=messages,
                 model=self.AI_MODEL,
                 max_tokens=4096,
+                system=self.SYSTEM_MESSAGE,
             )
             return response.content[0].text
         except Exception as e:
