@@ -445,11 +445,6 @@ class Agent:
                 .filter_by(provider_id=provider.id, name=setting_name)
                 .first()
             )
-            if not setting:
-                logging.error(
-                    f"Provider setting '{setting_name}' does not exist for provider '{provider.name}'."
-                )
-                continue
 
             agent_provider_setting = (
                 self.session.query(AgentProviderSetting)

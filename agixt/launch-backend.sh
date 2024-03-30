@@ -4,6 +4,7 @@ if [ "$DB_CONNECTED" = "true" ]; then
     sleep 5
     echo "Connecting to DB..."
     python3 DBConnection.py
+    sleep 5
 fi
 if [ -n "$NGROK_TOKEN" ]; then
     echo "Starting ngrok..."
