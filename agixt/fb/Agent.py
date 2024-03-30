@@ -93,11 +93,11 @@ def get_agents(user="USER"):
                 agent_config["settings"] = {}
             if "training" in agent_config["settings"]:
                 if str(agent_config["settings"]["training"]).lower() == "true":
-                    output.append({"name": agent.name, "status": True})
+                    output.append({"name": agent, "status": True})
                 else:
-                    output.append({"name": agent.name, "status": False})
+                    output.append({"name": agent, "status": False})
             else:
-                output.append({"name": agent.name, "status": False})
+                output.append({"name": agent, "status": False})
     return output
 
 
