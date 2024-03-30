@@ -51,7 +51,7 @@ class OpenaiProvider:
         self.embedder = OpenAIEmbeddingFunction(
             model_name="text-embedding-3-small",
             api_key=self.OPENAI_API_KEY,
-            base_url=self.API_URI,
+            api_base=self.API_URI,
         )
         self.chunk_size = 1024
 
