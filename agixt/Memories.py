@@ -589,8 +589,18 @@ class Memories:
                 question=question, context_results=10
             )
             prompts.append(prompt)
-            good_answers.append(chosen)
-            bad_answers.append(rejected)
+            good_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": chosen, "role": "assistant"},
+                ]
+            )
+            bad_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": rejected, "role": "assistant"},
+                ]
+            )
         dpo_dataset = {
             "prompt": questions,
             "chosen": good_answers,
