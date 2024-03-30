@@ -146,40 +146,16 @@ def get_agents(user=DEFAULT_USER):
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
     for agent in agents:
-        try:
-            agent_settings = (
-                session.query(AgentSettingModel)
-                .filter_by(agent_id=agent.id, name="training")
-                .first()
-            )
-        except:
-            agent_settings = None
-        if agent_settings:
-            if agent_settings.value.lower() == "true":
-                output.append({"name": agent.name, "status": True})
-            else:
-                output.append({"name": agent.name, "status": False})
+        output.append({"name": agent.name, "status": False})
     # Get global agents that belong to DEFAULT_USER
     global_agents = (
         session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
     )
     for agent in global_agents:
-        try:
-            agent_settings = (
-                session.query(AgentSettingModel)
-                .filter_by(agent_id=agent.id, name="training")
-                .first()
-            )
-        except:
-            agent_settings = None
-        if agent_settings:
-            # Check if the agent is in the output already
-            if agent.name in [a["name"] for a in output]:
-                continue
-            if agent_settings.value.lower() == "true":
-                output.append({"name": agent.name, "status": True})
-            else:
-                output.append({"name": agent.name, "status": False})
+        # Check if the agent is in the output already
+        if agent.name in [a["name"] for a in output]:
+            continue
+        output.append({"name": agent.name, "status": False})
     return output
 
 
