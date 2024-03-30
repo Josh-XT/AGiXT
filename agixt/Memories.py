@@ -174,7 +174,7 @@ class Memories:
         )
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
-        embedding_provider = Providers(
+        self.embedding_provider = Providers(
             name=(
                 self.agent_settings["embeddings_provider"]
                 if "embeddings_provider" in self.agent_settings
@@ -183,11 +183,11 @@ class Memories:
             ApiClient=ApiClient,
         )
         self.chunk_size = (
-            embedding_provider.chunk_size
-            if hasattr(embedding_provider, "chunk_size")
+            self.embedding_provider.chunk_size
+            if hasattr(self.embedding_provider, "chunk_size")
             else 256
         )
-        self.embedder = embedding_provider.embedder
+        self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):
@@ -342,7 +342,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embedder(text=user_input))
+        embedding = array(self.embedding_provider(text=user_input))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
