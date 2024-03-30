@@ -557,6 +557,10 @@ class Memories:
     async def create_dataset_from_memories(
         self, dataset_name: str = "", batch_size: int = 10
     ):
+        self.agent_config["settings"]["training"] = True
+        self.ApiClient.update_agent_settings(
+            agent_name=self.agent_name, settings=self.agent_config["settings"]
+        )
         memories = []
         questions = []
         if dataset_name == "":
@@ -609,4 +613,8 @@ class Memories:
         # Save messages to a json file to be used as a dataset
         with open(f"./WORKSPACE/{dataset_name}.json", "w") as f:
             f.write(json.dumps(dpo_dataset))
+        self.agent_config["settings"]["training"] = False
+        self.ApiClient.update_agent_settings(
+            agent_name=self.agent_name, settings=self.agent_config["settings"]
+        )
         return dpo_dataset
