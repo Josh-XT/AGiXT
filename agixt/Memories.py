@@ -342,7 +342,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embedding_provider(text=user_input))
+        embedding = array(self.embedding_provider.embeddings(text=user_input))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
