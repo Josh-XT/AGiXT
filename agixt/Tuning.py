@@ -120,34 +120,30 @@ def fine_tune_llm(
         quantization_config=quantization_config,
         device_map="auto",
     ), AutoTokenizer.from_pretrained(model_name)
-
-    def dequantize_model(
-        model, tokenizer, output_path, dtype=torch.bfloat16, device="cuda"
-    ):
-        if os.path.exists(output_path):
-            return AutoModelForCausalLM.from_pretrained(
-                output_path, torch_dtype=torch.bfloat16, device_map="auto"
+    os.makedirs(output_path, exist_ok=True)
+    dtype = torch.bfloat16
+    device = "cuda"
+    if os.path.exists(output_path):
+        return AutoModelForCausalLM.from_pretrained(
+            output_path, torch_dtype=torch.bfloat16, device_map="auto"
+        )
+    for name, module in model.named_modules():
+        if isinstance(module, bnb.nn.Linear4bit):
+            quant_state = copy.deepcopy(module.weight.quant_state)
+            quant_state.dtype = dtype
+            weights = dequantize_4bit(
+                module.weight.data, quant_state=quant_state, quant_type="nf4"
+            ).to(dtype)
+            new_module = torch.nn.Linear(
+                module.in_features, module.out_features, bias=None, dtype=dtype
             )
-        os.makedirs(output_path, exist_ok=True)
-        for name, module in model.named_modules():
-            if isinstance(module, bnb.nn.Linear4bit):
-                quant_state = copy.deepcopy(module.weight.quant_state)
-                quant_state.dtype = dtype
-                weights = dequantize_4bit(
-                    module.weight.data, quant_state=quant_state, quant_type="nf4"
-                ).to(dtype)
-                new_module = torch.nn.Linear(
-                    module.in_features, module.out_features, bias=None, dtype=dtype
-                )
-                new_module.weight = torch.nn.Parameter(weights)
-                new_module.to(device=device, dtype=dtype)
-                parent, target, target_name = _get_submodules(model, name)
-                setattr(parent, target_name, new_module)
-        model.is_loaded_in_4bit = False
-        model.save_pretrained(output_path)
-        tokenizer.save_pretrained(output_path)
-
-    model = dequantize_model(model, tokenizer, f"{model_name}-dequantized")
+            new_module.weight = torch.nn.Parameter(weights)
+            new_module.to(device=device, dtype=dtype)
+            parent, target, target_name = _get_submodules(model, name)
+            setattr(parent, target_name, new_module)
+    model.is_loaded_in_4bit = False
+    model.save_pretrained(output_path)
+    tokenizer.save_pretrained(output_path)
     model = PeftModel.from_pretrained(model=model, model_id=adapter_path)
     model = model.merge_and_unload()
     model.save_pretrained(output_path, safe_serialization=True, max_shard_size="4GB")
@@ -156,14 +152,15 @@ def fine_tune_llm(
         tokenizer.push_to_hub(output_path, use_temp_dir=False)
 
 
-# Usage
-fine_tune_llm(
-    agent_name="AGiXT",
-    dataset_name="dataset",
-    base_uri="http://localhost:7437",
-    api_key="Your AGiXT API Key",
-    model_name="unsloth/zephyr-sft",
-    max_seq_length=16384,
-    output_path="./WORKSPACE/merged_model",
-    push=False,
-)
+if __name__ == "__main__":
+    # Usage
+    fine_tune_llm(
+        agent_name="AGiXT",
+        dataset_name="dataset",
+        base_uri="http://localhost:7437",
+        api_key="Your AGiXT API Key",
+        model_name="unsloth/zephyr-sft",
+        max_seq_length=16384,
+        output_path="./WORKSPACE/merged_model",
+        push=False,
+    )
