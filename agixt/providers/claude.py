@@ -36,15 +36,38 @@ class ClaudeProvider:
             return (
                 "Please go to the Agent Management page to set your Anthropic API key."
             )
+        messages = []
+        if images:
+            for image in images:
+                # image is a file path, get the content, we have to send as data:image/{filetype};base64
+                with open(image, "rb") as f:
+                    image_base64 = f.read()
+                file_type = image.split(".")[-1]
+                if file_type == "jpg":
+                    file_type = "jpeg"
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": f"image/{file_type}",
+                                    "data": image_base64,
+                                },
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                )
+        else:
+            messages.append({"role": "user", "content": prompt})
+
         try:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
             response = c.messages.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
+                messages=messages,
                 model=self.AI_MODEL,
                 max_tokens=4096,
             )
