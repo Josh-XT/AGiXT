@@ -1,5 +1,15 @@
 version: "3.7"
 services:
+  db:
+    image: postgres
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - ./data:/var/lib/postgresql/data
   agixt:
     image: joshxt/agixt:main
     init: true
