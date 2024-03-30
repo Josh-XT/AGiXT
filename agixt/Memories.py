@@ -611,7 +611,10 @@ class Memories:
             "rejected": bad_answers,
         }
         # Save messages to a json file to be used as a dataset
-        with open(f"./WORKSPACE/{dataset_name}.json", "w") as f:
+        os.makedirs(f"./WORKSPACE/{self.agent_name}/datasets", exist_ok=True)
+        with open(
+            f"./WORKSPACE/{self.agent_name}/datasets/{dataset_name}.json", "w"
+        ) as f:
             f.write(json.dumps(dpo_dataset))
         self.agent_config["settings"]["training"] = False
         self.ApiClient.update_agent_settings(

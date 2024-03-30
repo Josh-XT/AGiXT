@@ -61,13 +61,13 @@ from Memories import Memories
 def fine_tune_llm(
     agent_name: str = "AGiXT",
     dataset_name: str = "dataset",
-    ApiClient=AGiXTSDK(),
     model_name: str = "unsloth/mistral-7b-v0.2",
     max_seq_length: int = 16384,
-    output_path: str = "./WORKSPACE/merged_model",
     huggingface_output_path: str = "JoshXT/finetuned-mistral-7b-v0.2",
     private_repo: bool = True,
+    ApiClient=AGiXTSDK(),
 ):
+    output_path = "./models"
     # Step 1: Build AGiXT dataset
     agent_config = ApiClient.get_agentconfig(agent_name)
     if not agent_config:
@@ -86,7 +86,7 @@ def fine_tune_llm(
     dataset_name = (
         response["message"].split("Creation of dataset ")[1].split(" for agent")[0]
     )
-    dataset_path = f"./WORKSPACE/{dataset_name}.json"
+    dataset_path = f"./WORKSPACE/{agent_name}/datasets/{dataset_name}.json"
     agent_config["settings"]["training"] = True
     ApiClient.update_agent_settings(
         agent_name=agent_name, settings=agent_config["settings"]

@@ -477,7 +477,7 @@ async def create_dataset(
 
 # Train model
 @app.post(
-    "/api/agent/{agent_name}/train",
+    "/api/agent/{agent_name}/memory/dataset/{dataset_name}/finetune",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
     summary="Fine tune a language model with the agent's memories as a synthetic dataset",
@@ -485,6 +485,7 @@ async def create_dataset(
 async def fine_tune_model(
     agent_name: str,
     finetune: FinetuneAgentModel,
+    dataset_name: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
@@ -494,12 +495,12 @@ async def fine_tune_model(
     asyncio.create_task(
         fine_tune_llm(
             agent_name=agent_name,
-            dataset_name=finetune.dataset_name,
-            ApiClient=ApiClient,
+            dataset_name=dataset_name,
             model_name=finetune.model_name,
             max_seq_length=finetune.max_seq_length,
             huggingface_output_path=finetune.huggingface_output_path,
             private_repo=finetune.private_repo,
+            ApiClient=ApiClient,
         )
     )
     return ResponseMessage(

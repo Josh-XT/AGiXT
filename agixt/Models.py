@@ -27,7 +27,6 @@ class Dataset(BaseModel):
 
 
 class FinetuneAgentModel(BaseModel):
-    dataset_name: str
     model_name: Optional[str] = "unsloth/mistral-7b-v0.2"
     max_seq_length: Optional[int] = 16384
     huggingface_output_path: Optional[str] = "JoshXT/finetuned-mistral-7b-v0.2"
