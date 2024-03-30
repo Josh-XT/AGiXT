@@ -154,7 +154,9 @@ def get_agents(user=DEFAULT_USER):
         session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
     )
     for agent in global_agents:
-        agent_config = Agent(agent_name=agent, user=user).get_agent_config()
+        agent_config = (
+            session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+        )
         if "settings" not in agent_config:
             agent_config["settings"] = {}
         if "training" in agent_config["settings"]:
