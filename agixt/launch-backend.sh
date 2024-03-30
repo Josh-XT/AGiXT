@@ -1,7 +1,7 @@
 #!/bin/sh
 echo "Starting AGiXT..."
 if [ "$DB_CONNECTED" = "true" ]; then
-    sleep 5
+    sleep 15
     echo "Connecting to DB..."
     python3 DBConnection.py
     sleep 5
