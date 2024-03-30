@@ -5,7 +5,6 @@ import glob
 import os
 import inspect
 import logging
-from Defaults import DEFAULT_SETTINGS
 from dotenv import load_dotenv
 
 load_dotenv()
