@@ -63,7 +63,7 @@ def fine_tune_llm(
     dataset_name: str = "dataset",
     base_uri: str = "http://localhost:7437",
     api_key: str = "Your AGiXT API Key",
-    model_name: str = "unsloth/zephyr-sft",
+    model_name: str = "unsloth/mistral-7b-v0.2",
     max_seq_length: int = 16384,
     output_path: str = "./WORKSPACE/merged_model",
     push: bool = False,
@@ -121,8 +121,6 @@ def fine_tune_llm(
         device_map="auto",
     ), AutoTokenizer.from_pretrained(model_name)
     os.makedirs(output_path, exist_ok=True)
-    dtype = torch.bfloat16
-    device = "cuda"
     if os.path.exists(output_path):
         return AutoModelForCausalLM.from_pretrained(
             output_path, torch_dtype=torch.bfloat16, device_map="auto"
@@ -130,15 +128,15 @@ def fine_tune_llm(
     for name, module in model.named_modules():
         if isinstance(module, bnb.nn.Linear4bit):
             quant_state = copy.deepcopy(module.weight.quant_state)
-            quant_state.dtype = dtype
+            quant_state.dtype = torch.bfloat16
             weights = dequantize_4bit(
                 module.weight.data, quant_state=quant_state, quant_type="nf4"
-            ).to(dtype)
+            ).to(torch.bfloat16)
             new_module = torch.nn.Linear(
-                module.in_features, module.out_features, bias=None, dtype=dtype
+                module.in_features, module.out_features, bias=None, dtype=torch.bfloat16
             )
             new_module.weight = torch.nn.Parameter(weights)
-            new_module.to(device=device, dtype=dtype)
+            new_module.to(device="cuda", dtype=torch.bfloat16)
             parent, target, target_name = _get_submodules(model, name)
             setattr(parent, target_name, new_module)
     model.is_loaded_in_4bit = False
@@ -159,7 +157,7 @@ if __name__ == "__main__":
         dataset_name="dataset",
         base_uri="http://localhost:7437",
         api_key="Your AGiXT API Key",
-        model_name="unsloth/zephyr-sft",
+        model_name="unsloth/mistral-7b-v0.2",
         max_seq_length=16384,
         output_path="./WORKSPACE/merged_model",
         push=False,
