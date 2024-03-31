@@ -62,10 +62,11 @@ class DefaultProvider:
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
         file_extension = audio_path.split(".")[-1]
-        # if file_extension != "wav":
+        logging.info(f"[STT] Loading audio: {audio_path}")
         audio_segment = AudioSegment.from_file(audio_path, format=file_extension)
         audio_segment = audio_segment.set_frame_rate(16000)
         audio_path = audio_path.replace(f".{file_extension}", ".wav")
+        logging.info(f"[STT] Converting audio to WAV: {audio_path}")
         audio_segment.export(audio_path, format="wav")
         segments, _ = self.w.transcribe(
             audio_path,
@@ -78,7 +79,6 @@ class DefaultProvider:
         for segment in segments:
             user_input += segment.text
         logging.info(f"[STT] Transcribed User Input: {user_input}")
-        os.remove(audio_path)
         return user_input
 
     async def translate_audio(self, audio_path: str):

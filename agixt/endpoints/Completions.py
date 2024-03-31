@@ -431,8 +431,8 @@ async def text_to_speech(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
-    response = await agent.text_to_speech(text=tts.input)
-    return response
+    audio_data = await agent.text_to_speech(text=tts.input)
+    return base64.b64encode(audio_data).decode("utf-8")
 
 
 # Image Generation endpoint

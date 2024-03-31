@@ -152,7 +152,7 @@ class OpenaiProvider:
             voice=self.VOICE,
             input=text,
         )
-        return tts_response.content.decode("utf-8")
+        return tts_response.content
 
     async def generate_image(self, prompt: str, filename: str = "image.png") -> str:
         image_path = f"./WORKSPACE/{filename}"
