@@ -152,8 +152,7 @@ class OpenaiProvider:
             voice=self.VOICE,
             input=text,
         )
-        audio_content = base64.b64decode(tts_response.content)
-        return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"
+        return tts_response.content
 
     async def generate_image(self, prompt: str, filename: str = "image.png") -> str:
         image_path = f"./WORKSPACE/{filename}"

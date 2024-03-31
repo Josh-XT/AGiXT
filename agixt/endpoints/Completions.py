@@ -432,8 +432,6 @@ async def text_to_speech(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
     response = await agent.text_to_speech(text=tts.input)
-    if response.startswith("data:"):
-        response = response.split(",")[1]
     return response
 
 
