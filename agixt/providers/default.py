@@ -2,27 +2,10 @@ from providers.gpt4free import Gpt4freeProvider
 from providers.huggingface import HuggingfaceProvider
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from faster_whisper import WhisperModel
+from pydub import AudioSegment
 import os
-import base64
-import uuid
 import logging
 import numpy as np
-import ffmpeg
-import requests
-
-
-def convert_to_wav(base64_audio, audio_format):
-    if "/" in audio_format:
-        audio_format = audio_format.split("/")[-1]
-    audio_data = base64.b64decode(base64_audio)
-    input_filename = f"{uuid.uuid4().hex}.{audio_format}"
-    input_file = os.path.join("./WORKSPACE", input_filename)
-    with open(input_file, "wb") as f:
-        f.write(audio_data)
-    filename = f"{uuid.uuid4().hex}.wav"
-    file_path = os.path.join("./WORKSPACE", filename)
-    ffmpeg.input(input_file).output(file_path, ar=16000).run(overwrite_output=True)
-    return file_path, filename
 
 
 class DefaultProvider:
@@ -73,45 +56,31 @@ class DefaultProvider:
     async def transcribe_audio(
         self,
         audio_path,
-        language=None,
-        prompt=None,
-        temperature=0.0,
         translate=False,
     ):
         self.w = WhisperModel(
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
-        if audio_path.startswith("data:"):
-            audio_path = audio_path.split(",")[1]
-            audio_format = audio_path.split(";")[0]
-        elif audio_path.startswith("http"):
-            audio_path = requests.get(audio_path).content
-            audio_path = base64.b64encode(audio_path).decode("utf-8")
-            audio_format = "audio/wav"
-        else:
-            # File path
-            audio_format = audio_path.split(".")[-1]
-            with open(audio_path, "rb") as f:
-                audio_path = f.read()
-            audio_path = base64.b64encode(audio_path).decode("utf-8")
-        file_path, filename = convert_to_wav(audio_path, audio_format)
-        if not os.path.exists(file_path):
-            raise RuntimeError(f"Failed to load audio.")
+        file_extension = os.path.splitext(audio_path)[1]
+        if file_extension != ".wav":
+            audio_segment = AudioSegment.from_file(
+                audio_path, format=file_extension[1:]
+            )
+            audio_segment = audio_segment.set_frame_rate(16000)
+            audio_path = audio_path.replace(file_extension, ".wav")
+            audio_segment.export(audio_path, format="wav")
         segments, _ = self.w.transcribe(
-            file_path,
+            audio_path,
             task="transcribe" if not translate else "translate",
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
-            initial_prompt=prompt,
-            language=language,
-            temperature=temperature,
         )
         segments = list(segments)
         user_input = ""
         for segment in segments:
             user_input += segment.text
         logging.info(f"[STT] Transcribed User Input: {user_input}")
-        os.remove(file_path)
+        os.remove(audio_path)
         return user_input
 
     async def translate_audio(self, audio_path: str):

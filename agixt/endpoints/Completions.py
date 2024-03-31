@@ -369,9 +369,12 @@ async def speech_to_text(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
-    response = await agent.transcribe_audio(
-        audio_path=f"data:audio/{file.content_type};base64,{file.file.read()}",
-    )
+    # Save as audio file based on its type
+    audio_format = file.content_type.split("/")[1]
+    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    with open(audio_path, "wb") as f:
+        f.write(file.file.read())
+    response = await agent.transcribe_audio(audio_path=audio_path)
     if response.startswith("data:"):
         response = response.split(",")[1]
     return {"text": response}
@@ -397,9 +400,12 @@ async def translate_audio(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
-    response = await agent.translate_audio(
-        audio_path=f"data:audio/{file.content_type};base64,{file.file.read()}",
-    )
+    # Save as audio file based on its type
+    audio_format = file.content_type.split("/")[1]
+    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    with open(audio_path, "wb") as f:
+        f.write(file.file.read())
+    response = await agent.translate_audio(audio_path=audio_path)
     if response.startswith("data:"):
         response = response.split(",")[1]
     return {"text": response}
