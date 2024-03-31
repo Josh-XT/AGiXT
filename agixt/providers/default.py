@@ -63,6 +63,8 @@ class DefaultProvider:
         )
         file_extension = os.path.splitext(audio_path)[1]
         if file_extension != ".wav":
+            if file_extension == "x-wav":
+                file_extension = ".wav"
             audio_segment = AudioSegment.from_file(
                 audio_path, format=file_extension[1:]
             )
