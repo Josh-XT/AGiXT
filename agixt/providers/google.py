@@ -105,4 +105,4 @@ class GoogleProvider:
             audio = f.read()
         os.remove("speech.mp3")
         audio = audio.decode("utf-8")
-        return f"data:audio/mp3;base64,{audio}"
+        return audio

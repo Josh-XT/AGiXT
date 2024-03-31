@@ -166,8 +166,7 @@ class EzlocalaiProvider:
             voice=self.VOICE,
             input=text,
         )
-        audio_content = base64.b64decode(tts_response.content)
-        return f"data:audio/wav;base64,{base64.b64encode(audio_content).decode()}"
+        return tts_response.content
 
     def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI

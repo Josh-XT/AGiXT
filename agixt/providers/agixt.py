@@ -55,6 +55,6 @@ class AgixtProvider:
             )
         if response.status_code == 200:
             # Return the base64 audio/wav
-            return f"data:audio/wav;base64,{response.content.decode('utf-8')}"
+            return response.content.decode("utf-8")
         else:
             return "Failed to generate audio."

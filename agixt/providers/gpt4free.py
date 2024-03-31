@@ -273,4 +273,4 @@ class Gpt4freeProvider:
         response = requests.get(
             f"https://api.streamelements.com/kappa/v2/speech?voice={self.STREAMLABS_VOICE}&text={text}"
         )
-        return f"data:audio/wav;base64,{base64.b64encode(response.content).decode()}"
+        return response.content
