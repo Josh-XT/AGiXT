@@ -6,8 +6,6 @@ import os
 import base64
 import uuid
 import logging
-import ffmpeg
-import requests
 import numpy as np
 
 
@@ -58,48 +56,23 @@ class DefaultProvider:
 
     async def transcribe_audio(
         self,
-        audio_path: str,
-        language: str = None,
-        prompt: str = None,
-        temperature: float = 0.0,
-        translate: bool = False,
+        audio_path,
+        language=None,
+        prompt=None,
+        temperature=0.0,
+        translate=False,
     ):
-        """
-        Transcribe an audio file to text.
-        :param file: The audio file to transcribe. Can be a local file path, a URL, or a base64 encoded string.
-        :param language: The language of the audio file. If not provided, the language will be automatically detected.
-        :param prompt: The prompt to use for the transcription.
-        :param temperature: The temperature to use for the transcription.
-        :param translate: Whether to translate the transcription to English.
-        """
-        file = audio_path
-        self.w = WhisperModel(self.model, download_root="models", device="cpu")
-        if file.startswith("data:"):
-            audio_format = file.split(",")[0].split("/")[1].split(";")[0]
-            base64_audio = file.split(",")[1]
-        elif file.startswith("http"):
-            try:
-                audio_data = requests.get(file).content
-                audio_format = file.split("/")[-1]
-                base64_audio = base64.b64encode(audio_data).decode("utf-8")
-            except Exception as e:
-                return f"Failed to download audio file: {e}"
-        else:
-            file_path = os.path.join(os.getcwd(), "WORKSPACE", file)
-            if not os.path.exists(file_path):
-                return "File not found."
-            audio_format = file_path.split(".")[-1]
-            with open(file_path, "rb") as f:
-                audio_data = f.read()
-            base64_audio = base64.b64encode(audio_data).decode("utf-8")
-        if "/" in audio_format:
-            audio_format = audio_format.split("/")[1]
-        input_file = os.path.join(
-            os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.{audio_format}"
+        self.w = WhisperModel(
+            self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
         filename = f"{uuid.uuid4().hex}.wav"
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
-        ffmpeg.input(input_file).output(file_path, ar=16000).run(overwrite_output=True)
+        if audio_path.startswith("data:"):
+            base64_audio = audio_path.split(",")[1]
+        else:
+            with open(audio_path, "rb") as f:
+                audio_content = f.read()
+            base64_audio = base64.b64encode(audio_content).decode("utf-8")
         audio_data = base64.b64decode(base64_audio)
         with open(file_path, "wb") as audio_file:
             audio_file.write(audio_data)
@@ -118,7 +91,7 @@ class DefaultProvider:
         user_input = ""
         for segment in segments:
             user_input += segment.text
-        logging.info(f"[AudioToText] Transcribed User Input: {user_input}")
+        logging.info(f"[STT] Transcribed User Input: {user_input}")
         os.remove(file_path)
         return user_input
 

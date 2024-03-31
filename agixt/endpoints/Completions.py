@@ -324,60 +324,6 @@ async def chat_completion(
     return res_model
 
 
-# Completions endpoint
-# https://platform.openai.com/docs/api-reference/completions/createCompletion
-@app.post(
-    "/v1/completions",
-    tags=["OpenAI Style Endpoints"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def completion(
-    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
-):
-    # prompt.model is the agent name
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
-    agent_config = agent.agent.AGENT_CONFIG
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
-    else:
-        model = "undefined"
-    response = await agent.run(
-        user_input=prompt.prompt,
-        prompt="Custom Input",
-        context_results=3,
-        shots=prompt.n,
-    )
-    characters = string.ascii_letters + string.digits
-    prompt_tokens = get_tokens(prompt.prompt)
-    completion_tokens = get_tokens(response)
-    total_tokens = int(prompt_tokens) + int(completion_tokens)
-    random_chars = "".join(random.choice(characters) for _ in range(15))
-    res_model = {
-        "id": f"cmpl-{random_chars}",
-        "object": "text_completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "text": response,
-                "index": 0,
-                "logprobs": None,
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-    }
-    return res_model
-
-
 # Embedding endpoint
 # https://platform.openai.com/docs/api-reference/embeddings/createEmbedding
 @app.post(
