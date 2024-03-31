@@ -6,6 +6,7 @@ import base64
 import PIL
 import uuid
 import json
+import os
 from fastapi import APIRouter, Depends, Header
 from Interactions import Interactions, get_tokens, log_interaction
 from ApiClient import Agent, verify_api_key, get_api_client
@@ -373,7 +374,10 @@ async def speech_to_text(
     audio_format = file.content_type.split("/")[1]
     if audio_format == "x-wav":
         audio_format = "wav"
-    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    # audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    audio_path = os.path.join(
+        os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.{audio_format}"
+    )
     with open(audio_path, "wb") as f:
         f.write(file.file.read())
     response = await agent.transcribe_audio(audio_path=audio_path)
