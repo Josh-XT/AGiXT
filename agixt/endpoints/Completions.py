@@ -371,6 +371,8 @@ async def speech_to_text(
     agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
     # Save as audio file based on its type
     audio_format = file.content_type.split("/")[1]
+    if audio_format == "x-wav":
+        audio_format = "wav"
     audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
     with open(audio_path, "wb") as f:
         f.write(file.file.read())
