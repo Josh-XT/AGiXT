@@ -54,6 +54,6 @@ class AgixtProvider:
                 json={"text": text},
             )
         if response.status_code == 200:
-            return response.content
+            return response.content.decode("utf-8")
         else:
             return "Failed to generate audio."

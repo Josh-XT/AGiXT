@@ -273,4 +273,4 @@ class Gpt4freeProvider:
         response = requests.get(
             f"https://api.streamelements.com/kappa/v2/speech?voice={self.STREAMLABS_VOICE}&text={text}"
         )
-        return response.content
+        return response.content.decode("utf-8")

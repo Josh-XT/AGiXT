@@ -166,7 +166,7 @@ class EzlocalaiProvider:
             voice=self.VOICE,
             input=text,
         )
-        return tts_response.content
+        return tts_response.content.decode("utf-8")
 
     def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI
