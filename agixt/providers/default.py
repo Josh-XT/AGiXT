@@ -58,7 +58,7 @@ class DefaultProvider:
 
     async def transcribe_audio(
         self,
-        file: str,
+        audio_path: str,
         language: str = None,
         prompt: str = None,
         temperature: float = 0.0,
@@ -72,6 +72,7 @@ class DefaultProvider:
         :param temperature: The temperature to use for the transcription.
         :param translate: Whether to translate the transcription to English.
         """
+        file = audio_path
         self.w = WhisperModel(self.model, download_root="models", device="cpu")
         if file.startswith("data:"):
             audio_format = file.split(",")[0].split("/")[1].split(";")[0]
@@ -123,7 +124,7 @@ class DefaultProvider:
 
     async def translate_audio(self, audio_path: str):
         return await self.transcribe_audio(
-            file=audio_path,
+            audio_path=audio_path,
             translate=True,
         )
 
