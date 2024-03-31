@@ -62,11 +62,11 @@ class DefaultProvider:
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
         file_extension = audio_path.split(".")[-1]
-        if file_extension != "wav":
-            audio_segment = AudioSegment.from_file(audio_path, format=file_extension)
-            audio_segment = audio_segment.set_frame_rate(16000)
-            audio_path = audio_path.replace(file_extension, ".wav")
-            audio_segment.export(audio_path, format="wav")
+        # if file_extension != "wav":
+        audio_segment = AudioSegment.from_file(audio_path, format=file_extension)
+        audio_segment = audio_segment.set_frame_rate(16000)
+        audio_path = audio_path.replace(file_extension, ".wav")
+        audio_segment.export(audio_path, format="wav")
         segments, _ = self.w.transcribe(
             audio_path,
             task="transcribe" if not translate else "translate",
