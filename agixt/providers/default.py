@@ -7,6 +7,22 @@ import base64
 import uuid
 import logging
 import numpy as np
+import ffmpeg
+import requests
+
+
+def convert_to_wav(base64_audio, audio_format):
+    if "/" in audio_format:
+        audio_format = audio_format.split("/")[-1]
+    audio_data = base64.b64decode(base64_audio)
+    input_filename = f"{uuid.uuid4().hex}.{audio_format}"
+    input_file = os.path.join("./WORKSPACE", input_filename)
+    with open(input_file, "wb") as f:
+        f.write(audio_data)
+    filename = f"{uuid.uuid4().hex}.wav"
+    file_path = os.path.join("./WORKSPACE", filename)
+    ffmpeg.input(input_file).output(file_path, ar=16000).run(overwrite_output=True)
+    return file_path, filename
 
 
 class DefaultProvider:
@@ -65,17 +81,20 @@ class DefaultProvider:
         self.w = WhisperModel(
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
-        filename = f"{uuid.uuid4().hex}.wav"
-        file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if audio_path.startswith("data:"):
-            base64_audio = audio_path.split(",")[1]
+            audio_path = audio_path.split(",")[1]
+            audio_format = audio_path.split(";")[0]
+        elif audio_path.startswith("http"):
+            audio_path = requests.get(audio_path).content
+            audio_path = base64.b64encode(audio_path).decode("utf-8")
+            audio_format = "audio/wav"
         else:
+            # File path
+            audio_format = audio_path.split(".")[-1]
             with open(audio_path, "rb") as f:
-                audio_content = f.read()
-            base64_audio = base64.b64encode(audio_content).decode("utf-8")
-        audio_data = base64.b64decode(base64_audio)
-        with open(file_path, "wb") as audio_file:
-            audio_file.write(audio_data)
+                audio_path = f.read()
+            audio_path = base64.b64encode(audio_path).decode("utf-8")
+        file_path, filename = convert_to_wav(audio_path, audio_format)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio.")
         segments, _ = self.w.transcribe(
