@@ -426,6 +426,8 @@ async def speech_to_text(
     response = await agent.transcribe_audio(
         audio_path=f"data:audio/{file.content_type};base64,{file.file.read()}",
     )
+    if response.startswith("data:"):
+        response = response.split(",")[1]
     return {"text": response}
 
 
@@ -452,6 +454,8 @@ async def translate_audio(
     response = await agent.translate_audio(
         audio_path=f"data:audio/{file.content_type};base64,{file.file.read()}",
     )
+    if response.startswith("data:"):
+        response = response.split(",")[1]
     return {"text": response}
 
 
