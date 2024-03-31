@@ -65,7 +65,7 @@ class DefaultProvider:
         # if file_extension != "wav":
         audio_segment = AudioSegment.from_file(audio_path, format=file_extension)
         audio_segment = audio_segment.set_frame_rate(16000)
-        audio_path = audio_path.replace(file_extension, ".wav")
+        audio_path = audio_path.replace(f".{file_extension}", ".wav")
         audio_segment.export(audio_path, format="wav")
         segments, _ = self.w.transcribe(
             audio_path,
