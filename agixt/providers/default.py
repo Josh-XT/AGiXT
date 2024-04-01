@@ -57,17 +57,6 @@ class DefaultProvider:
     def embeddings(self, input) -> np.ndarray:
         return self.embedder.__call__(input=[input])[0]
 
-    async def convert_to_wav(self, base64_audio, audio_type="webm"):
-        audio_data = base64.b64decode(base64_audio)
-        input_filename = f"{uuid.uuid4().hex}.{audio_type}"
-        input_file = os.path.join("./WORKSPACE", input_filename)
-        with open(input_file, "wb") as f:
-            f.write(audio_data)
-        filename = f"{uuid.uuid4().hex}.wav"
-        file_path = os.path.join("./WORKSPACE", filename)
-        ffmpeg.input(input_file).output(file_path, ar=16000).run(overwrite_output=True)
-        return file_path, filename
-
     async def transcribe_audio(
         self,
         audio_path,
@@ -76,27 +65,8 @@ class DefaultProvider:
         self.w = WhisperModel(
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
-        audio_format = audio_path.split(".")[-1]
-        with open(audio_path, "rb") as f:
-            audio = f.read()
-        base64_audio = f"{base64.b64encode(audio).decode('utf-8')}"
-        filename = f"{uuid.uuid4().hex}.wav"
-        audio_data = base64.b64decode(base64_audio)
-        audio_segment = AudioSegment.from_file(
-            io.BytesIO(audio_data), format=audio_format.lower()
-        )
-        audio_segment = audio_segment.set_frame_rate(16000)
-        file_path = os.path.join("./WORKSPACE", filename)
-        audio_segment.export(file_path, format="wav")
-        if audio_format.lower() != "wav":
-            file_path, filename = await self.convert_to_wav(
-                base64_audio=base64_audio, audio_type=audio_format
-            )
-        with open(file_path, "rb") as f:
-            audio = f.read()
-        user_audio = f"{base64.b64encode(audio).decode('utf-8')}"
         segments, _ = self.w.transcribe(
-            user_audio,
+            audio_path,
             task="transcribe" if not translate else "translate",
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
