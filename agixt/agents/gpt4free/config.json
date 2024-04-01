@@ -2,6 +2,11 @@
   "commands": {},
   "settings": {
     "provider": "gpt4free",
+    "tts_provider": "default",
+    "transcription_provider": "default",
+    "translation_provider": "default",
+    "embeddings_provider": "default",
+    "image_provider": "default",
     "AI_MODEL": "mixtral-8x7b",
     "AI_TEMPERATURE": "0.4",
     "MAX_TOKENS": "32000",
