@@ -350,6 +350,9 @@ async def embedding(
     }
 
 
+import logging
+
+
 # Audio Transcription endpoint
 # https://platform.openai.com/docs/api-reference/audio/createTranscription
 @app.post(
@@ -370,19 +373,13 @@ async def speech_to_text(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
-    # Save as audio file based on its type
     audio_format = file.content_type.split("/")[1]
     if audio_format == "x-wav":
         audio_format = "wav"
-    # audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
-    audio_path = os.path.join(
-        os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.{audio_format}"
-    )
+    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
     with open(audio_path, "wb") as f:
         f.write(file.file.read())
     response = await agent.transcribe_audio(audio_path=audio_path)
-    if response.startswith("data:"):
-        response = response.split(",")[1]
     return {"text": response}
 
 
