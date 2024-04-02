@@ -123,6 +123,7 @@ class EzlocalaiProvider:
             if "User:" in response:
                 response = response.split("User:")[0]
             response = response.lstrip()
+            response.replace("<s>", "").replace("</s>", "")
             if "http://localhost:8091/outputs/" in response:
                 response = response.replace(
                     "http://localhost:8091/outputs/", self.OUTPUT_URL
