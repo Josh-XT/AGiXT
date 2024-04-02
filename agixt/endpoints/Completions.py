@@ -44,9 +44,10 @@ async def chat_completion(
     # prompt.model is the agent name
     # prompt.user is the conversation name
     ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
-    agent_config = agent.agent.AGENT_CONFIG
+    agent_name = prompt.model
     conversation_name = prompt.user
+    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.agent.AGENT_CONFIG
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
     if "mode" in agent_config:
         mode = agent_config["mode"]
@@ -65,7 +66,7 @@ async def chat_completion(
         )
         command_args[agent_settings["command_variable"]] = prompt.messages[0]["content"]
         response = await Extensions(
-            agent_name=prompt.model,
+            agent_name=agent_name,
             agent_config=agent_config,
             conversation_name=conversation_name,
             ApiClient=ApiClient,
@@ -76,9 +77,9 @@ async def chat_completion(
             command_args=agent_settings["command_args"],
         )
         log_interaction(
-            agent_name=prompt.model,
+            agent_name=agent_name,
             conversation_name=conversation_name,
-            role=prompt.model,
+            role=agent_name,
             message=response,
             user=user,
         )
@@ -96,7 +97,7 @@ async def chat_completion(
         response = Chains(user=user, ApiClient=ApiClient).run_chain(
             chain_name=chain_name,
             user_input=prompt.messages[0]["content"],
-            agent_override=prompt.model,
+            agent_override=agent_name,
             all_responses=False,
             chain_args=chain_args,
             from_step=1,
@@ -197,7 +198,7 @@ async def chat_completion(
                             collection_number = 0
                         if video_url.startswith("https://www.youtube.com/watch?v="):
                             youtube_reader = YoutubeReader(
-                                agent_name=prompt.model,
+                                agent_name=agent_name,
                                 agent_config=agent_config,
                                 collection_number=collection_number,
                                 ApiClient=ApiClient,
@@ -224,7 +225,7 @@ async def chat_completion(
                         if file_url.startswith("http"):
                             if file_url.startswith("https://www.youtube.com/watch?v="):
                                 youtube_reader = YoutubeReader(
-                                    agent_name=prompt.model,
+                                    agent_name=agent_name,
                                     agent_config=agent_config,
                                     collection_number=collection_number,
                                     ApiClient=ApiClient,
@@ -235,7 +236,7 @@ async def chat_completion(
                                 )
                             elif file_url.startswith("https://github.com"):
                                 github_reader = GithubReader(
-                                    agent_name=prompt.model,
+                                    agent_name=agent_name,
                                     agent_config=agent_config,
                                     collection_number=collection_number,
                                     ApiClient=ApiClient,
@@ -261,7 +262,7 @@ async def chat_completion(
                                 )
                             else:
                                 website_reader = WebsiteReader(
-                                    agent_name=prompt.model,
+                                    agent_name=agent_name,
                                     agent_config=agent_config,
                                     collection_number=collection_number,
                                     ApiClient=ApiClient,
@@ -277,7 +278,7 @@ async def chat_completion(
                             with open(file_path, "wb") as f:
                                 f.write(file_data)
                             file_reader = FileReader(
-                                agent_name=prompt.model,
+                                agent_name=agent_name,
                                 agent_config=agent_config,
                                 collection_number=collection_number,
                                 ApiClient=ApiClient,
@@ -304,7 +305,7 @@ async def chat_completion(
         "id": conversation_name,
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": prompt.model,
+        "model": agent_name,
         "choices": [
             {
                 "index": 0,
