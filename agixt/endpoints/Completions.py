@@ -75,10 +75,6 @@ async def chat_completion(
         )
     else:
         prompt_args = {}
-    if "prompt_variable" in agent_settings:
-        prompt_variable = agent_settings["prompt_variable"]
-    else:
-        prompt_variable = "user_input"
     if "command_name" in agent_settings:
         command_name = agent_settings["command_name"]
     else:
@@ -125,8 +121,6 @@ async def chat_completion(
                 if isinstance(message["prompt_args"], str)
                 else message["prompt_args"]
             )
-        if "prompt_variable" in message:
-            prompt_variable = message["prompt_variable"]
         if "command_name" in message:
             command_name = message["command_name"]
         if "command_args" in message:
@@ -289,61 +283,62 @@ async def chat_completion(
                             user=user,
                         )
                         await file_reader.write_file_to_memory(file_path)
-            if mode == "command" and command_name and command_variable:
-                command_args = (
-                    json.loads(agent_settings["command_args"])
-                    if isinstance(agent_settings["command_args"], str)
-                    else agent_settings["command_args"]
-                )
-                command_args[agent_settings["command_variable"]] = prompt.messages[0][
-                    "content"
-                ]
-                response = await Extensions(
-                    agent_name=agent_name,
-                    agent_config=agent_config,
-                    conversation_name=conversation_name,
-                    ApiClient=ApiClient,
-                    api_key=authorization,
-                    user=user,
-                ).execute_command(
-                    command_name=agent_settings["command_name"],
-                    command_args=agent_settings["command_args"],
-                )
-                log_interaction(
-                    agent_name=agent_name,
-                    conversation_name=conversation_name,
-                    role=agent_name,
-                    message=response,
-                    user=user,
-                )
-            elif mode == "chain" and chain_name:
-                chain_name = agent_settings["chain_name"]
-                chain_args = (
-                    json.loads(agent_settings["chain_args"])
-                    if isinstance(agent_settings["chain_args"], str)
-                    else agent_settings["chain_args"]
-                )
-                response = Chains(user=user, ApiClient=ApiClient).run_chain(
-                    chain_name=chain_name,
-                    user_input=prompt.messages[0]["content"],
-                    agent_override=agent_name,
-                    all_responses=False,
-                    chain_args=chain_args,
-                    from_step=1,
-                )
-        response = await agent.run(
-            user_input=new_prompt,
-            prompt=prompt_name,
-            prompt_category=prompt_category,
-            context_results=context_results,
-            shots=prompt.n,
-            websearch=websearch,
-            websearch_depth=websearch_depth,
-            conversation_name=conversation_name,
-            browse_links=browse_links,
-            images=images,
-            **prompt_args,
-        )
+        if mode == "command" and command_name and command_variable:
+            command_args = (
+                json.loads(agent_settings["command_args"])
+                if isinstance(agent_settings["command_args"], str)
+                else agent_settings["command_args"]
+            )
+            command_args[agent_settings["command_variable"]] = prompt.messages[0][
+                "content"
+            ]
+            response = await Extensions(
+                agent_name=agent_name,
+                agent_config=agent_config,
+                conversation_name=conversation_name,
+                ApiClient=ApiClient,
+                api_key=authorization,
+                user=user,
+            ).execute_command(
+                command_name=agent_settings["command_name"],
+                command_args=agent_settings["command_args"],
+            )
+            log_interaction(
+                agent_name=agent_name,
+                conversation_name=conversation_name,
+                role=agent_name,
+                message=response,
+                user=user,
+            )
+        elif mode == "chain" and chain_name:
+            chain_name = agent_settings["chain_name"]
+            chain_args = (
+                json.loads(agent_settings["chain_args"])
+                if isinstance(agent_settings["chain_args"], str)
+                else agent_settings["chain_args"]
+            )
+            response = Chains(user=user, ApiClient=ApiClient).run_chain(
+                chain_name=chain_name,
+                user_input=prompt.messages[0]["content"],
+                agent_override=agent_name,
+                all_responses=False,
+                chain_args=chain_args,
+                from_step=1,
+            )
+        elif mode == "prompt":
+            response = await agent.run(
+                user_input=new_prompt,
+                prompt=prompt_name,
+                prompt_category=prompt_category,
+                context_results=context_results,
+                shots=prompt.n,
+                websearch=websearch,
+                websearch_depth=websearch_depth,
+                conversation_name=conversation_name,
+                browse_links=browse_links,
+                images=images,
+                **prompt_args,
+            )
     prompt_tokens = get_tokens(str(prompt.messages))
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
