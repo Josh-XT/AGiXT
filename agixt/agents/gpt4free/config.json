@@ -19,6 +19,11 @@
     "WAIT_AFTER_FAILURE": "3",
     "stream": "false",
     "WORKING_DIRECTORY": "./WORKSPACE",
-    "WORKING_DIRECTORY_RESTRICTED": "True"
+    "WORKING_DIRECTORY_RESTRICTED": "True",
+    "mode": "prompt",
+    "prompt_category": "Default",
+    "prompt_name": "Chat",
+    "VOICE": "Brian",
+    "PERSONA": ""
   }
 }
