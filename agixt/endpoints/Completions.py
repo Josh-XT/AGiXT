@@ -161,18 +161,8 @@ async def chat_completion(
                             if "url" in msg["image_url"]
                             else msg["image_url"]
                         )
-
                         if url.startswith("http"):
-                            try:
-                                file_type = (
-                                    url.split(",")[0].split("/")[1].split(";")[0]
-                                )
-                            except:
-                                file_type = url.split(".")[-1]
-                            image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            image = requests.get(url).content
-                            image = PIL.Image.open(io.BytesIO(image))
-                            image.save(image_path)
+                            image_path = url
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
