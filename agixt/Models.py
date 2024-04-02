@@ -53,21 +53,6 @@ class PromptCategoryList(BaseModel):
     prompt_categories: List[str]
 
 
-class Completions(BaseModel):
-    model: str = "gpt-3.5-turbo"
-    prompt: str = ""
-    max_tokens: Optional[int] = 4096
-    temperature: Optional[float] = 0.9
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    logit_bias: Optional[Dict[str, float]] = None
-    stop: Optional[List[str]] = None
-    echo: Optional[bool] = False
-    user: Optional[str] = None
-    format_prompt: Optional[bool] = True
-
-
 class ChatCompletions(BaseModel):
     model: str = "gpt-3.5-turbo"  # This is the agent name
     messages: List[dict] = None

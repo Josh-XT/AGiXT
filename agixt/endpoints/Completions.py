@@ -1,13 +1,7 @@
-import string
-import random
 import time
-import requests
 import base64
-import PIL
 import uuid
 import json
-import os
-import io
 from fastapi import APIRouter, Depends, Header
 from Interactions import Interactions, get_tokens, log_interaction
 from ApiClient import Agent, verify_api_key, get_api_client
@@ -20,7 +14,6 @@ from readers.github import GithubReader
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
-    Completions,
     ChatCompletions,
     EmbeddingModel,
     TextToSpeech,
