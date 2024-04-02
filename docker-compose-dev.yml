@@ -1,11 +1,30 @@
 version: "3.7"
 services:
+  db:
+    image: postgres
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - ./data:/var/lib/postgresql/data
   agixt:
     image: joshxt/agixt:main
     init: true
     environment:
+      - DB_CONNECTED=${DB_CONNECTED:-false}
+      - DATABASE_HOST=${DATABASE_HOST:-db}
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-postgres}
+      - DATABASE_PORT=${DATABASE_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
+      - USING_JWT=${USING_JWT:-false}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
+      - DISABLED_EXTENSIONS=${DISABLED_EXTENSIONS:-}
+      - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
       - TZ=${TZ-America/New_York}
@@ -21,28 +40,12 @@ services:
       - ./agixt/conversations:/agixt/conversations
       - ./voices:/agixt/voices
       - /var/run/docker.sock:/var/run/docker.sock
-  agixtchat:
-    image: joshxt/agixtchat:main
-    depends_on:
-      - agixt
-    environment:
-      - TZ=${TZ-America/New_York}
-    ports:
-      - "3437:3437"
-  nextjs:
-    image: joshxt/agixt-nextjs:latest
-    depends_on:
-      - agixt
-    environment:
-      - TZ=${TZ-America/New_York}
-    ports:
-      - "24498:24498"
   streamlit:
     image: joshxt/streamlit:main
     depends_on:
       - agixt
     environment:
-      - AGIXT_URI=http://agixt:7437
+      - AGIXT_URI=${AGIXT_URI-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE

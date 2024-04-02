@@ -19,6 +19,7 @@ from Models import (
     YoutubeInput,
     ResponseMessage,
     Dataset,
+    FinetuneAgentModel,
 )
 
 app = APIRouter()
@@ -471,4 +472,37 @@ async def create_dataset(
     )
     return ResponseMessage(
         message=f"Creation of dataset {dataset.dataset_name} for agent {agent_name} started."
+    )
+
+
+# Train model
+@app.post(
+    "/api/agent/{agent_name}/memory/dataset/{dataset_name}/finetune",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Fine tune a language model with the agent's memories as a synthetic dataset",
+)
+async def fine_tune_model(
+    agent_name: str,
+    finetune: FinetuneAgentModel,
+    dataset_name: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    from Tuning import fine_tune_llm
+
+    ApiClient = get_api_client(authorization=authorization)
+    asyncio.create_task(
+        fine_tune_llm(
+            agent_name=agent_name,
+            dataset_name=dataset_name,
+            model_name=finetune.model,
+            max_seq_length=finetune.max_seq_length,
+            huggingface_output_path=finetune.huggingface_output_path,
+            private_repo=finetune.private_repo,
+            ApiClient=ApiClient,
+        )
+    )
+    return ResponseMessage(
+        message=f"Fine-tuning of model {finetune.model_name} started. The agent's status has is now set to True, it will be set to False once the training is complete."
     )

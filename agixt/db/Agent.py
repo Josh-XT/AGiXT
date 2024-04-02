@@ -18,6 +18,7 @@ from Extensions import Extensions
 from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
 import logging
 import json
+import numpy as np
 import os
 
 
@@ -144,15 +145,16 @@ def get_agents(user=DEFAULT_USER):
     session = get_session()
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
-
     for agent in agents:
         output.append({"name": agent.name, "status": False})
-
     # Get global agents that belong to DEFAULT_USER
     global_agents = (
         session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
     )
     for agent in global_agents:
+        # Check if the agent is in the output already
+        if agent.name in [a["name"] for a in output]:
+            continue
         output.append({"name": agent.name, "status": False})
     return output
 
@@ -168,7 +170,9 @@ class Agent:
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
             self.AGENT_CONFIG["settings"] = {}
-        self.PROVIDER_SETTINGS = self.AGENT_CONFIG["settings"]
+        self.PROVIDER_SETTINGS = (
+            self.AGENT_CONFIG["settings"] if "settings" in self.AGENT_CONFIG else {}
+        )
         for setting in DEFAULT_SETTINGS:
             if setting not in self.PROVIDER_SETTINGS:
                 self.PROVIDER_SETTINGS[setting] = DEFAULT_SETTINGS[setting]
@@ -176,6 +180,57 @@ class Agent:
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        tts_provider = (
+            self.AGENT_CONFIG["settings"]["tts_provider"]
+            if "tts_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TTS_PROVIDER = Providers(
+            name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        transcription_provider = (
+            self.AGENT_CONFIG["settings"]["transcription_provider"]
+            if "transcription_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TRANSCRIPTION_PROVIDER = Providers(
+            name=transcription_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        translation_provider = (
+            self.AGENT_CONFIG["settings"]["translation_provider"]
+            if "translation_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.TRANSLATION_PROVIDER = Providers(
+            name=translation_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        image_provider = (
+            self.AGENT_CONFIG["settings"]["image_provider"]
+            if "image_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.IMAGE_PROVIDER = Providers(
+            name=image_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        embeddings_provider = (
+            self.AGENT_CONFIG["settings"]["embeddings_provider"]
+            if "embeddings_provider" in self.AGENT_CONFIG["settings"]
+            else "default"
+        )
+        self.EMBEDDINGS_PROVIDER = Providers(
+            name=embeddings_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+        )
+        self.embedder = (
+            self.EMBEDDINGS_PROVIDER.embedder
+            if self.EMBEDDINGS_PROVIDER
+            else Providers(
+                name="default", ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            ).embedder
+        )
+        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
+            self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
+        else:
+            self.chunk_size = 256
         self.available_commands = Extensions(
             agent_name=self.agent_name,
             agent_config=self.AGENT_CONFIG,
@@ -251,6 +306,21 @@ class Agent:
             prompt=prompt, tokens=tokens, images=images
         )
         return answer.replace("\_", "_")
+
+    def embeddings(self, input) -> np.ndarray:
+        return self.embedder(input=input)
+
+    async def transcribe_audio(self, audio_path: str):
+        return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
+
+    async def translate_audio(self, audio_path: str):
+        return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
+
+    async def generate_image(self, prompt: str):
+        return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
+
+    async def text_to_speech(self, text: str):
+        return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
@@ -367,20 +437,18 @@ class Agent:
                 .filter_by(provider_id=provider.id, name=setting_name)
                 .first()
             )
-            if not setting:
-                logging.error(
-                    f"Provider setting '{setting_name}' does not exist for provider '{provider.name}'."
+            try:
+                agent_provider_setting = (
+                    self.session.query(AgentProviderSetting)
+                    .filter_by(
+                        provider_setting_id=setting.id,
+                        agent_provider_id=agent_provider.id,
+                    )
+                    .first()
                 )
-                continue
+            except Exception as e:
+                agent_provider_setting = None
 
-            agent_provider_setting = (
-                self.session.query(AgentProviderSetting)
-                .filter_by(
-                    provider_setting_id=setting.id,
-                    agent_provider_id=agent_provider.id,
-                )
-                .first()
-            )
             if agent_provider_setting:
                 agent_provider_setting.value = setting_value
             else:

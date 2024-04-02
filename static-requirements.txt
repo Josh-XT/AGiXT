@@ -3,8 +3,8 @@ beautifulsoup4==4.12.3
 docker==7.0.0
 docx2txt==0.8
 GitPython==3.1.42
-pdfplumber==0.10.3
-playwright==1.40.0
+pdfplumber==0.11.0
+playwright==1.42.0
 pandas==2.1.4
 PyYAML==6.0.1
 requests==2.31.0
@@ -12,13 +12,13 @@ python-dotenv==1.0.0
 ffmpeg-python==0.2.0
 cryptography==42.0.5
 pillow==10.2.0
-SQLAlchemy==2.0.27
+SQLAlchemy==2.0.29
 psycopg2-binary==2.9.9
 gTTS==2.5.1
 tiktoken==0.6.0
 PyJWT==2.8.0
 websocket-client==1.7.0
-lxml==5.1.0
+lxml==5.1.1
 sendgrid==6.11.0
 httpx==0.27.0
 numpy==1.26.4

@@ -26,6 +26,13 @@ class Dataset(BaseModel):
     batch_size: int = 5
 
 
+class FinetuneAgentModel(BaseModel):
+    model: Optional[str] = "unsloth/mistral-7b-v0.2"
+    max_seq_length: Optional[int] = 16384
+    huggingface_output_path: Optional[str] = "JoshXT/finetuned-mistral-7b-v0.2"
+    private_repo: Optional[bool] = True
+
+
 class Objective(BaseModel):
     objective: str
 
@@ -46,28 +53,11 @@ class PromptCategoryList(BaseModel):
     prompt_categories: List[str]
 
 
-class Completions(BaseModel):
-    model: str = "gpt-3.5-turbo"
-    prompt: str = ""
-    max_tokens: Optional[int] = 4096
-    temperature: Optional[float] = 0.9
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    logit_bias: Optional[Dict[str, float]] = None
-    stop: Optional[List[str]] = None
-    echo: Optional[bool] = False
-    user: Optional[str] = None
-    format_prompt: Optional[bool] = True
-
-
 class ChatCompletions(BaseModel):
     model: str = "gpt-3.5-turbo"  # This is the agent name
     messages: List[dict] = None
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
-    functions: Optional[List[dict]] = None
-    function_call: Optional[str] = None
     tools: Optional[List[dict]] = None
     tools_choice: Optional[str] = "auto"
     n: Optional[int] = 1
@@ -86,6 +76,13 @@ class TextToSpeech(BaseModel):
     voice: Optional[str] = "default"
     language: Optional[str] = "en"
     user: Optional[str] = None
+
+
+class ImageCreation(BaseModel):
+    prompt: str
+    model: Optional[str] = "dall-e-3"
+    n: Optional[int] = 1
+    size: Optional[str] = "1024x1024"
 
 
 class EmbeddingModel(BaseModel):

@@ -19,6 +19,10 @@ class Gpt4freeProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
 
+    @staticmethod
+    def services():
+        return ["llm"]
+
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         max_new_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
@@ -48,16 +52,3 @@ class Gpt4freeProvider:
                     for provider_name in provider.exceptions:
                         error = provider.exceptions[provider_name]
                         logging.error(f"[Gpt4Free] {provider_name}: {error}")
-
-
-if __name__ == "__main__":
-    import asyncio, time
-
-    async def run_test():
-        test = Gpt4freeProvider()
-        start = time.time()
-        response = await test.inference("What is the meaning of life?")
-        print(response)
-        print(f"{round(time.time()-start, 2)} secs")
-
-    asyncio.run(run_test())
