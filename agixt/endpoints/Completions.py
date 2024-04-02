@@ -142,6 +142,8 @@ async def chat_completion(
                 websearch_depth = int(message["websearch_depth"])
             if "browse_links" in message:
                 browse_links = str(message["browse_links"]).lower() == "true"
+            if "content" not in message:
+                continue
             if isinstance(message["content"], str):
                 role = message["role"] if "role" in message else "User"
                 if role.lower() == "system":

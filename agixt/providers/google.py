@@ -33,15 +33,6 @@ class GoogleProvider:
         AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
-        """
-        Initialize the GeminiProvider with required parameters.
-
-        Parameters:
-        - GOOGLE_API_KEY: str, API key for Google API.
-        - AI_MODEL: str, AI model to use (default is 'gemini-pro').
-        - MAX_TOKENS: int, maximum tokens to generate (default is 4000).
-        - AI_TEMPERATURE: float, temperature for AI model (default is 0.7).
-        """
         self.requirements = ["google-generativeai", "gTTS", "pydub"]
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.AI_MODEL = AI_MODEL
@@ -53,41 +44,26 @@ class GoogleProvider:
         return ["llm", "tts"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
-        """
-        Perform inference using the Gemini model asynchronously.
-
-        Parameters:
-        - prompt: str, input prompt for generating text.
-        - tokens: int, additional tokens to generate (default is 0).
-
-        Returns:
-        - str, generated text.
-        """
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
         try:
             genai.configure(api_key=self.GOOGLE_API_KEY)
             model = genai.GenerativeModel(self.AI_MODEL)
-            # Adjust based on Gemini API
             new_max_tokens = int(self.MAX_TOKENS) - tokens
             generation_config = genai.types.GenerationConfig(
                 max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE)
             )
-
             response = await asyncio.to_thread(
                 model.generate_content,
                 contents=prompt,
                 generation_config=generation_config,
             )
-
-            # Extract the generated text from the response
             if response.parts:
                 generated_text = "".join(part.text for part in response.parts)
             else:
                 generated_text = "".join(
                     part.text for part in response.candidates[0].content.parts
                 )
-
             return generated_text
         except Exception as e:
             return f"Gemini Error: {e}"
