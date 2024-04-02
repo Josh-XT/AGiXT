@@ -152,6 +152,7 @@ class Memories:
         summarize_content: bool = False,
         user=DEFAULT_USER,
     ):
+        global DEFAULT_USER
         self.agent_name = agent_name
         if not DEFAULT_USER:
             DEFAULT_USER = "USER"
