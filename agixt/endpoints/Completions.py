@@ -7,6 +7,7 @@ import PIL
 import uuid
 import json
 import os
+import io
 from fastapi import APIRouter, Depends, Header
 from Interactions import Interactions, get_tokens, log_interaction
 from ApiClient import Agent, verify_api_key, get_api_client
@@ -104,7 +105,6 @@ async def chat_completion(
         )
     else:
         images = []
-        pil_images = []
         new_prompt = ""
         websearch = False
         websearch_depth = 0
@@ -164,18 +164,18 @@ async def chat_completion(
                         image_path = f"./WORKSPACE/{uuid.uuid4().hex}.jpg"
                         if url.startswith("http"):
                             image = requests.get(url).content
+                            image = PIL.Image.open(io.BytesIO(image))
+                            image.save(image_path)
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
                                 file_type = "jpg"
                             image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            image = base64.b64decode(url.split(",")[1])
-                        with open(image_path, "wb") as f:
-                            f.write(image)
+                            image_content = url.split(",")[1]
+                            image = base64.b64decode(image_content)
+                            with open(image_path, "wb") as f:
+                                f.write(image)
                         images.append(image_path)
-                        pil_img = PIL.Image.open(image_path)
-                        pil_img = pil_img.convert("RGB")
-                        pil_images.append(pil_img)
                     if "audio_url" in message:
                         audio_url = (
                             message["audio_url"]["url"]
