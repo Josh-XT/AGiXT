@@ -88,17 +88,27 @@ class OpenaiProvider:
                 {"role": "user", "content": [{"type": "text", "text": prompt}]}
             )
             for image in images:
-                file_type = image.split(".")[-1]
-                with open(image, "rb") as f:
-                    image_base64 = f.read()
-                messages[0]["content"].append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/{file_type};base64,{image_base64}"
-                        },
-                    }
-                )
+                if image.startswith("http"):
+                    messages[0]["content"].append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image,
+                            },
+                        }
+                    )
+                else:
+                    file_type = image.split(".")[-1]
+                    with open(image, "rb") as f:
+                        image_base64 = f.read()
+                    messages[0]["content"].append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{file_type};base64,{image_base64}"
+                            },
+                        }
+                    )
         else:
             messages.append({"role": "user", "content": prompt})
         if self.SYSTEM_MESSAGE:

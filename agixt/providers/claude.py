@@ -7,6 +7,9 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
     import anthropic
 
+import httpx
+import base64
+
 
 # List of models available at https://docs.anthropic.com/claude/docs/models-overview
 # Get API key at https://console.anthropic.com/settings/keys
@@ -41,9 +44,17 @@ class ClaudeProvider:
         messages = []
         if images:
             for image in images:
-                with open(image, "rb") as f:
-                    image_base64 = f.read()
+                # If the image is a url, download it
+                if image.startswith("http"):
+                    image_base64 = base64.b64encode(httpx.get(image).content).decode(
+                        "utf-8"
+                    )
+                else:
+                    with open(image, "rb") as f:
+                        image_base64 = f.read()
                 file_type = image.split(".")[-1]
+                if not file_type:
+                    file_type = "jpeg"
                 if file_type == "jpg":
                     file_type = "jpeg"
                 messages.append(
