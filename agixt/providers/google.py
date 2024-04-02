@@ -21,6 +21,8 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
     import gtts as ts
 
+from pydub import AudioSegment
+
 
 class GoogleProvider:
     def __init__(
@@ -100,13 +102,14 @@ class GoogleProvider:
 
     async def text_to_speech(self, text: str):
         tts = ts.gTTS(text)
-        tts.save("speech.mp3")
-        with open("speech.mp3", "rb") as f:
-            audio = f.read()
-        # Turn the mp3 into a 16k wav
-        os.system("ffmpeg -i speech.mp3 -ar 16000 speech.wav")
-        with open("speech.wav", "rb") as f:
-            audio = f.read()
-        os.remove("speech.mp3")
-        os.remove("speech.wav")
-        return audio
+        mp3_path = "speech.mp3"
+        tts.save(mp3_path)
+        wav_path = "output_speech.wav"
+        AudioSegment.from_mp3(mp3_path).set_frame_rate(16000).export(
+            wav_path, format="wav"
+        )
+        os.remove(mp3_path)
+        with open(wav_path, "rb") as f:
+            audio_content = f.read()
+        os.remove(wav_path)
+        return audio_content
