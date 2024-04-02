@@ -42,23 +42,11 @@ class GoogleProvider:
         - MAX_TOKENS: int, maximum tokens to generate (default is 4000).
         - AI_TEMPERATURE: float, temperature for AI model (default is 0.7).
         """
-        self.requirements = ["google-generativeai"]
+        self.requirements = ["google-generativeai", "gTTS", "pydub"]
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.AI_MODEL = AI_MODEL
         self.MAX_TOKENS = MAX_TOKENS
         self.AI_TEMPERATURE = AI_TEMPERATURE
-
-        # Configure and setup Gemini model
-        try:
-            genai.configure(api_key=self.GOOGLE_API_KEY)
-            self.model = genai.GenerativeModel(self.AI_MODEL)
-        except Exception as e:
-            print(f"Error setting up Gemini model: {e}")
-
-        # Set default generation config
-        self.generation_config = genai.types.GenerationConfig(
-            max_output_tokens=self.MAX_TOKENS, temperature=self.AI_TEMPERATURE
-        )
 
     @staticmethod
     def services():
@@ -76,6 +64,8 @@ class GoogleProvider:
         - str, generated text.
         """
         try:
+            genai.configure(api_key=self.GOOGLE_API_KEY)
+            model = genai.GenerativeModel(self.AI_MODEL)
             # Adjust based on Gemini API
             new_max_tokens = int(self.MAX_TOKENS) - tokens
             generation_config = genai.types.GenerationConfig(
@@ -83,7 +73,7 @@ class GoogleProvider:
             )
 
             response = await asyncio.to_thread(
-                self.model.generate_content,
+                model.generate_content,
                 contents=prompt,
                 generation_config=generation_config,
             )
