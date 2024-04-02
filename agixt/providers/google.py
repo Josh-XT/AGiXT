@@ -27,7 +27,7 @@ from pydub import AudioSegment
 class GoogleProvider:
     def __init__(
         self,
-        GOOGLE_API_KEY: str,
+        GOOGLE_API_KEY: str = "None",
         AI_MODEL: str = "gemini-pro",
         MAX_TOKENS: int = 4000,
         AI_TEMPERATURE: float = 0.7,
@@ -63,6 +63,8 @@ class GoogleProvider:
         Returns:
         - str, generated text.
         """
+        if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
+            return "Please set your Google API key in the Agent Management page."
         try:
             genai.configure(api_key=self.GOOGLE_API_KEY)
             model = genai.GenerativeModel(self.AI_MODEL)
