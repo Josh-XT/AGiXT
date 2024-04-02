@@ -2,7 +2,7 @@
   "commands": {},
   "settings": {
     "provider": "gpt4free",
-    "tts_provider": "google",
+    "tts_provider": "default",
     "transcription_provider": "default",
     "translation_provider": "default",
     "embeddings_provider": "default",

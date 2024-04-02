@@ -126,8 +126,6 @@ async def chat_completion(
         else:
             prompt_args = {}
         for message in prompt.messages:
-            if "conversation_name" in message:
-                conversation_name = message["conversation_name"]
             if "context_results" in message:
                 context_results = int(message["context_results"])
             else:

@@ -10,7 +10,7 @@ DEFAULT_SETTINGS = {
     "prompt_category": "Default",
     "prompt_name": "Chat",
     "embeddings_provider": "default",
-    "tts_provider": "google",
+    "tts_provider": "default",
     "transcription_provider": "default",
     "translation_provider": "default",
     "image_provider": "default",
