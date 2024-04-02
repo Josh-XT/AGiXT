@@ -9,7 +9,7 @@ from chromadb.config import Settings
 from chromadb.api.types import QueryResult
 from numpy import array, linalg, ndarray
 from hashlib import sha256
-from Embedding import Embedding
+from Providers import Providers
 from datetime import datetime
 from collections import Counter
 from typing import List
@@ -31,7 +31,7 @@ def nlp(text):
 
 
 def snake(old_str: str = ""):
-    if old_str == "":
+    if not old_str:
         return ""
     if " " in old_str:
         old_str = old_str.replace(" ", "")
@@ -152,13 +152,16 @@ class Memories:
         summarize_content: bool = False,
         user=DEFAULT_USER,
     ):
+        global DEFAULT_USER
         self.agent_name = agent_name
+        if not DEFAULT_USER:
+            DEFAULT_USER = "USER"
+        if not user:
+            user = "USER"
         if user != DEFAULT_USER:
-            if user == "":
-                user = "USER"
             self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
-            self.collection_name = snake(agent_name)
+            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
         self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"
@@ -174,9 +177,20 @@ class Memories:
         )
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
-        self.embed = Embedding(agent_settings=self.agent_settings)
-        self.chunk_size = self.embed.chunk_size
-        self.embedder = self.embed.embedder
+        self.embedding_provider = Providers(
+            name=(
+                self.agent_settings["embeddings_provider"]
+                if "embeddings_provider" in self.agent_settings
+                else "default"
+            ),
+            ApiClient=ApiClient,
+        )
+        self.chunk_size = (
+            self.embedding_provider.chunk_size
+            if hasattr(self.embedding_provider, "chunk_size")
+            else 256
+        )
+        self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):
@@ -331,7 +345,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embed.embed_text(text=user_input))
+        embedding = array(self.embedding_provider.embeddings(user_input))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
@@ -484,7 +498,6 @@ class Memories:
         prompt_name: str = "Ask Questions",
         prompt_category: str = "Default",
         batch_size: int = 10,
-        qa: bool = False,
         **kwargs,
     ):
         i = 0
@@ -508,17 +521,16 @@ class Memories:
                         **kwargs,
                     },
                 )
-                if not qa
-                else await self.agent_qa(question=user_input, context_results=10)
             )
             tasks.append(task)
         responses += await asyncio.gather(**tasks)
         return responses
 
     # Answer a question with context injected, return in sharegpt format
-    async def agent_qa(self, question: str = "", context_results: int = 10):
+    async def agent_dpo_qa(self, question: str = "", context_results: int = 10):
         context = await self.get_context(user_input=question, limit=context_results)
-        answer = await self.ApiClient.prompt_agent(
+        prompt = f"### Context\n{context}\n### Question\n{question}"
+        chosen = await self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Answer Question with Memory",
             prompt_args={
@@ -531,22 +543,27 @@ class Memories:
         self.collection_number = 0
         await self.write_text_to_memory(
             user_input=question,
-            text=answer,
+            text=chosen,
             external_source="Synthetic QA",
         )
-        qa = [
-            {
-                "from": "human",
-                "value": f"### Context\n{context}\n### Question\n{question}",
+        rejected = await self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Wrong Answers Only",
+            prompt_args={
+                "prompt_category": "Default",
+                "user_input": question,
             },
-            {"from": "gpt", "value": answer},
-        ]
-        return qa
+        )
+        return prompt, chosen, rejected
 
     # Creates a synthetic dataset from memories in sharegpt format
     async def create_dataset_from_memories(
         self, dataset_name: str = "", batch_size: int = 10
     ):
+        self.agent_config["settings"]["training"] = True
+        self.ApiClient.update_agent_settings(
+            agent_name=self.agent_name, settings=self.agent_config["settings"]
+        )
         memories = []
         questions = []
         if dataset_name == "":
@@ -560,7 +577,6 @@ class Memories:
         # Get a list of questions about each memory
         question_list = self.batch_prompt(
             user_inputs=memories,
-            qa=False,
             batch_size=batch_size,
         )
         for question in question_list:
@@ -572,14 +588,39 @@ class Memories:
             question = [item for item in question if item]
             question = [item.lstrip("0123456789.*- ") for item in question]
             questions += question
-        # Answer each question with context injected
-        qa = self.batch_prompt(
-            user_inputs=questions,
-            qa=True,
-            batch_size=batch_size,
-        )
-        conversations = {"conversations": [qa]}
+        prompts = []
+        good_answers = []
+        bad_answers = []
+        for question in questions:
+            prompt, chosen, rejected = await self.agent_dpo_qa(
+                question=question, context_results=10
+            )
+            prompts.append(prompt)
+            good_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": chosen, "role": "assistant"},
+                ]
+            )
+            bad_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": rejected, "role": "assistant"},
+                ]
+            )
+        dpo_dataset = {
+            "prompt": questions,
+            "chosen": good_answers,
+            "rejected": bad_answers,
+        }
         # Save messages to a json file to be used as a dataset
-        with open(f"{dataset_name}.json", "w") as f:
-            f.write(json.dumps(conversations))
-        return conversations
+        os.makedirs(f"./WORKSPACE/{self.agent_name}/datasets", exist_ok=True)
+        with open(
+            f"./WORKSPACE/{self.agent_name}/datasets/{dataset_name}.json", "w"
+        ) as f:
+            f.write(json.dumps(dpo_dataset))
+        self.agent_config["settings"]["training"] = False
+        self.ApiClient.update_agent_settings(
+            agent_name=self.agent_name, settings=self.agent_config["settings"]
+        )
+        return dpo_dataset

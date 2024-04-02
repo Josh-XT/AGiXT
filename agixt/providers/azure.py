@@ -1,5 +1,4 @@
 from time import time
-from openai.error import RateLimitError
 
 try:
     import openai
@@ -38,21 +37,25 @@ class AzureProvider:
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.AZURE_EMBEDDER_DEPLOYMENT_ID = AZURE_EMBEDDER_DEPLOYMENT_ID
 
+    @staticmethod
+    def services():
+        return ["llm"]
+
     async def inference(self, prompt: str, tokens: int = 0, images: list = []) -> str:
         num_retries = 3
         messages = [{"role": "system", "content": prompt}]
         for _ in range(num_retries):
             try:
-                resp = openai.ChatCompletion.create(
+                resp = openai.chat.completions.create(
                     engine=self.AI_MODEL,
                     messages=messages,
                     max_tokens=int(self.MAX_TOKENS),
                     temperature=float(self.AI_TEMPERATURE),
                     top_p=float(self.AI_TOP_P),
-                )["choices"][0]["message"]["content"]
-                return resp
+                )
+                return resp.choices[0].message.content
 
-            except RateLimitError:
+            except:
                 logging.info("Rate limit exceeded. Retrying after 20 seconds.")
                 time.sleep(20)
                 continue
