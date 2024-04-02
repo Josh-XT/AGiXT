@@ -50,150 +50,186 @@ async def chat_completion(
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     agent_config = agent.agent.AGENT_CONFIG
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
+    images = []
+    new_prompt = ""
+    websearch = False
+    websearch_depth = 0
+    browse_links = True
     if "mode" in agent_config:
         mode = agent_config["mode"]
     else:
         mode = "prompt"
-    if (
-        mode == "command"
-        and "command_name" in agent_settings
-        and "command_args" in agent_settings
-        and "command_variable" in agent_settings
-    ):
+    if "prompt_name" in agent_settings:
+        prompt_name = agent_settings["prompt_name"]
+    else:
+        prompt_name = "Chat"
+    if "prompt_category" in agent_settings:
+        prompt_category = agent_settings["prompt_category"]
+    else:
+        prompt_category = "Default"
+    if "prompt_args" in agent_settings:
+        prompt_args = (
+            json.loads(agent_settings["prompt_args"])
+            if isinstance(agent_settings["prompt_args"], str)
+            else agent_settings["prompt_args"]
+        )
+    else:
+        prompt_args = {}
+    if "prompt_variable" in agent_settings:
+        prompt_variable = agent_settings["prompt_variable"]
+    else:
+        prompt_variable = "user_input"
+    if "command_name" in agent_settings:
+        command_name = agent_settings["command_name"]
+    else:
+        command_name = ""
+    if "command_args" in agent_settings:
         command_args = (
             json.loads(agent_settings["command_args"])
             if isinstance(agent_settings["command_args"], str)
             else agent_settings["command_args"]
         )
-        command_args[agent_settings["command_variable"]] = prompt.messages[0]["content"]
-        response = await Extensions(
-            agent_name=agent_name,
-            agent_config=agent_config,
-            conversation_name=conversation_name,
-            ApiClient=ApiClient,
-            api_key=authorization,
-            user=user,
-        ).execute_command(
-            command_name=agent_settings["command_name"],
-            command_args=agent_settings["command_args"],
-        )
-        log_interaction(
-            agent_name=agent_name,
-            conversation_name=conversation_name,
-            role=agent_name,
-            message=response,
-            user=user,
-        )
-    elif (
-        mode == "chain"
-        and "chain_name" in agent_settings
-        and "chain_args" in agent_settings
-    ):
+    else:
+        command_args = {}
+    if "command_variable" in agent_settings:
+        command_variable = agent_settings["command_variable"]
+    else:
+        command_variable = "text"
+    if "chain_name" in agent_settings:
         chain_name = agent_settings["chain_name"]
+    else:
+        chain_name = ""
+    if "chain_args" in agent_settings:
         chain_args = (
             json.loads(agent_settings["chain_args"])
             if isinstance(agent_settings["chain_args"], str)
             else agent_settings["chain_args"]
         )
-        response = Chains(user=user, ApiClient=ApiClient).run_chain(
-            chain_name=chain_name,
-            user_input=prompt.messages[0]["content"],
-            agent_override=agent_name,
-            all_responses=False,
-            chain_args=chain_args,
-            from_step=1,
-        )
     else:
-        images = []
-        new_prompt = ""
-        websearch = False
-        websearch_depth = 0
-        browse_links = True
-        if "prompt_name" in agent_settings:
-            prompt_name = agent_settings["prompt_name"]
+        chain_args = {}
+    for message in prompt.messages:
+        if "mode" in message:
+            if message["mode"] in ["prompt", "command", "chain"]:
+                mode = message["mode"]
+        if "context_results" in message:
+            context_results = int(message["context_results"])
         else:
-            prompt_name = "Chat"
-        if "prompt_category" in agent_settings:
-            prompt_category = agent_settings["prompt_category"]
-        else:
-            prompt_category = "Default"
-        if "prompt_args" in agent_settings:
+            context_results = 5
+        if "prompt_category" in message:
+            prompt_category = message["prompt_category"]
+        if "prompt_name" in message:
+            prompt_name = message["prompt_name"]
+        if "prompt_args" in message:
             prompt_args = (
-                json.loads(agent_settings["prompt_args"])
-                if isinstance(agent_settings["prompt_args"], str)
-                else agent_settings["prompt_args"]
+                json.loads(message["prompt_args"])
+                if isinstance(message["prompt_args"], str)
+                else message["prompt_args"]
             )
-        else:
-            prompt_args = {}
-        for message in prompt.messages:
-            if "context_results" in message:
-                context_results = int(message["context_results"])
-            else:
-                context_results = 5
-            if "prompt_category" in message:
-                prompt_category = message["prompt_category"]
-            if "prompt_name" in message:
-                prompt_name = message["prompt_name"]
-            if "websearch" in message:
-                websearch = str(message["websearch"]).lower() == "true"
-            if "websearch_depth" in message:
-                websearch_depth = int(message["websearch_depth"])
-            if "browse_links" in message:
-                browse_links = str(message["browse_links"]).lower() == "true"
-            if "content" not in message:
-                continue
-            if isinstance(message["content"], str):
-                role = message["role"] if "role" in message else "User"
-                if role.lower() == "system":
-                    if "/" in message["content"]:
-                        new_prompt += f"{message['content']}\n\n"
-                if role.lower() == "user":
+        if "prompt_variable" in message:
+            prompt_variable = message["prompt_variable"]
+        if "command_name" in message:
+            command_name = message["command_name"]
+        if "command_args" in message:
+            command_args = (
+                json.loads(message["command_args"])
+                if isinstance(message["command_args"], str)
+                else message["command_args"]
+            )
+        if "command_variable" in message:
+            command_variable = message["command_variable"]
+        if "chain_name" in message:
+            chain_name = message["chain_name"]
+        if "chain_args" in message:
+            chain_args = (
+                json.loads(message["chain_args"])
+                if isinstance(message["chain_args"], str)
+                else message["chain_args"]
+            )
+        if "websearch" in message:
+            websearch = str(message["websearch"]).lower() == "true"
+        if "websearch_depth" in message:
+            websearch_depth = int(message["websearch_depth"])
+        if "browse_links" in message:
+            browse_links = str(message["browse_links"]).lower() == "true"
+        if "content" not in message:
+            continue
+        if isinstance(message["content"], str):
+            role = message["role"] if "role" in message else "User"
+            if role.lower() == "system":
+                if "/" in message["content"]:
                     new_prompt += f"{message['content']}\n\n"
-            if isinstance(message["content"], list):
-                for msg in message["content"]:
-                    if "text" in msg:
-                        role = message["role"] if "role" in message else "User"
-                        if role.lower() == "user":
-                            new_prompt += f"{msg['text']}\n\n"
-                    if "image_url" in msg:
-                        url = (
-                            msg["image_url"]["url"]
-                            if "url" in msg["image_url"]
-                            else msg["image_url"]
+            if role.lower() == "user":
+                new_prompt += f"{message['content']}\n\n"
+        if isinstance(message["content"], list):
+            for msg in message["content"]:
+                if "text" in msg:
+                    role = message["role"] if "role" in message else "User"
+                    if role.lower() == "user":
+                        new_prompt += f"{msg['text']}\n\n"
+                if "image_url" in msg:
+                    url = (
+                        msg["image_url"]["url"]
+                        if "url" in msg["image_url"]
+                        else msg["image_url"]
+                    )
+                    if url.startswith("http"):
+                        image_path = url
+                    else:
+                        file_type = url.split(",")[0].split("/")[1].split(";")[0]
+                        if file_type == "jpeg":
+                            file_type = "jpg"
+                        image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                        image_content = url.split(",")[1]
+                        image = base64.b64decode(image_content)
+                        with open(image_path, "wb") as f:
+                            f.write(image)
+                    images.append(image_path)
+                if "audio_url" in message:
+                    audio_url = (
+                        message["audio_url"]["url"]
+                        if "url" in message["audio_url"]
+                        else message["audio_url"]
+                    )
+                    transcribed_audio = agent.agent.transcribe_audio(
+                        file=audio_url, prompt=new_prompt
+                    )
+                    new_prompt += transcribed_audio
+                if "video_url" in message:
+                    video_url = str(
+                        message["video_url"]["url"]
+                        if "url" in message["video_url"]
+                        else message["video_url"]
+                    )
+                    if "collection_number" in message:
+                        collection_number = int(message["collection_number"])
+                    else:
+                        collection_number = 0
+                    if video_url.startswith("https://www.youtube.com/watch?v="):
+                        youtube_reader = YoutubeReader(
+                            agent_name=agent_name,
+                            agent_config=agent_config,
+                            collection_number=collection_number,
+                            ApiClient=ApiClient,
+                            user=user,
                         )
-                        if url.startswith("http"):
-                            image_path = url
-                        else:
-                            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-                            if file_type == "jpeg":
-                                file_type = "jpg"
-                            image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            image_content = url.split(",")[1]
-                            image = base64.b64decode(image_content)
-                            with open(image_path, "wb") as f:
-                                f.write(image)
-                        images.append(image_path)
-                    if "audio_url" in message:
-                        audio_url = (
-                            message["audio_url"]["url"]
-                            if "url" in message["audio_url"]
-                            else message["audio_url"]
-                        )
-                        transcribed_audio = agent.agent.transcribe_audio(
-                            file=audio_url, prompt=new_prompt
-                        )
-                        new_prompt += transcribed_audio
-                    if "video_url" in message:
-                        video_url = str(
-                            message["video_url"]["url"]
-                            if "url" in message["video_url"]
-                            else message["video_url"]
-                        )
-                        if "collection_number" in message:
-                            collection_number = int(message["collection_number"])
-                        else:
-                            collection_number = 0
-                        if video_url.startswith("https://www.youtube.com/watch?v="):
+                        await youtube_reader.write_youtube_captions_to_memory(video_url)
+                if (
+                    "file_url" in message
+                    or "application_url" in message
+                    or "text_url" in message
+                    or "url" in message
+                ):
+                    file_url = str(
+                        message["file_url"]["url"]
+                        if "url" in message["file_url"]
+                        else message["file_url"]
+                    )
+                    if "collection_number" in message:
+                        collection_number = int(message["collection_number"])
+                    else:
+                        collection_number = 0
+                    if file_url.startswith("http"):
+                        if file_url.startswith("https://www.youtube.com/watch?v="):
                             youtube_reader = YoutubeReader(
                                 agent_name=agent_name,
                                 agent_config=agent_config,
@@ -202,86 +238,99 @@ async def chat_completion(
                                 user=user,
                             )
                             await youtube_reader.write_youtube_captions_to_memory(
-                                video_url
+                                file_url
                             )
-                    if (
-                        "file_url" in message
-                        or "application_url" in message
-                        or "text_url" in message
-                        or "url" in message
-                    ):
-                        file_url = str(
-                            message["file_url"]["url"]
-                            if "url" in message["file_url"]
-                            else message["file_url"]
-                        )
-                        if "collection_number" in message:
-                            collection_number = int(message["collection_number"])
-                        else:
-                            collection_number = 0
-                        if file_url.startswith("http"):
-                            if file_url.startswith("https://www.youtube.com/watch?v="):
-                                youtube_reader = YoutubeReader(
-                                    agent_name=agent_name,
-                                    agent_config=agent_config,
-                                    collection_number=collection_number,
-                                    ApiClient=ApiClient,
-                                    user=user,
-                                )
-                                await youtube_reader.write_youtube_captions_to_memory(
-                                    file_url
-                                )
-                            elif file_url.startswith("https://github.com"):
-                                github_reader = GithubReader(
-                                    agent_name=agent_name,
-                                    agent_config=agent_config,
-                                    collection_number=collection_number,
-                                    ApiClient=ApiClient,
-                                    user=user,
-                                )
-                                await github_reader.write_github_repository_to_memory(
-                                    github_repo=file_url,
-                                    github_user=(
-                                        agent_settings["GITHUB_USER"]
-                                        if "GITHUB_USER" in agent_settings
-                                        else None
-                                    ),
-                                    github_token=(
-                                        agent_settings["GITHUB_TOKEN"]
-                                        if "GITHUB_TOKEN" in agent_settings
-                                        else None
-                                    ),
-                                    github_branch=(
-                                        "main"
-                                        if "branch" not in message
-                                        else message["branch"]
-                                    ),
-                                )
-                            else:
-                                website_reader = WebsiteReader(
-                                    agent_name=agent_name,
-                                    agent_config=agent_config,
-                                    collection_number=collection_number,
-                                    ApiClient=ApiClient,
-                                    user=user,
-                                )
-                                await website_reader.write_website_to_memory(url)
-                        else:
-                            file_type = (
-                                file_url.split(",")[0].split("/")[1].split(";")[0]
-                            )
-                            file_data = base64.b64decode(file_url.split(",")[1])
-                            file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            with open(file_path, "wb") as f:
-                                f.write(file_data)
-                            file_reader = FileReader(
+                        elif file_url.startswith("https://github.com"):
+                            github_reader = GithubReader(
                                 agent_name=agent_name,
                                 agent_config=agent_config,
                                 collection_number=collection_number,
                                 ApiClient=ApiClient,
                                 user=user,
                             )
-                            await file_reader.write_file_to_memory(file_path)
+                            await github_reader.write_github_repository_to_memory(
+                                github_repo=file_url,
+                                github_user=(
+                                    agent_settings["GITHUB_USER"]
+                                    if "GITHUB_USER" in agent_settings
+                                    else None
+                                ),
+                                github_token=(
+                                    agent_settings["GITHUB_TOKEN"]
+                                    if "GITHUB_TOKEN" in agent_settings
+                                    else None
+                                ),
+                                github_branch=(
+                                    "main"
+                                    if "branch" not in message
+                                    else message["branch"]
+                                ),
+                            )
+                        else:
+                            website_reader = WebsiteReader(
+                                agent_name=agent_name,
+                                agent_config=agent_config,
+                                collection_number=collection_number,
+                                ApiClient=ApiClient,
+                                user=user,
+                            )
+                            await website_reader.write_website_to_memory(url)
+                    else:
+                        file_type = file_url.split(",")[0].split("/")[1].split(";")[0]
+                        file_data = base64.b64decode(file_url.split(",")[1])
+                        file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                        with open(file_path, "wb") as f:
+                            f.write(file_data)
+                        file_reader = FileReader(
+                            agent_name=agent_name,
+                            agent_config=agent_config,
+                            collection_number=collection_number,
+                            ApiClient=ApiClient,
+                            user=user,
+                        )
+                        await file_reader.write_file_to_memory(file_path)
+            if mode == "command" and command_name and command_variable:
+                command_args = (
+                    json.loads(agent_settings["command_args"])
+                    if isinstance(agent_settings["command_args"], str)
+                    else agent_settings["command_args"]
+                )
+                command_args[agent_settings["command_variable"]] = prompt.messages[0][
+                    "content"
+                ]
+                response = await Extensions(
+                    agent_name=agent_name,
+                    agent_config=agent_config,
+                    conversation_name=conversation_name,
+                    ApiClient=ApiClient,
+                    api_key=authorization,
+                    user=user,
+                ).execute_command(
+                    command_name=agent_settings["command_name"],
+                    command_args=agent_settings["command_args"],
+                )
+                log_interaction(
+                    agent_name=agent_name,
+                    conversation_name=conversation_name,
+                    role=agent_name,
+                    message=response,
+                    user=user,
+                )
+            elif mode == "chain" and chain_name:
+                chain_name = agent_settings["chain_name"]
+                chain_args = (
+                    json.loads(agent_settings["chain_args"])
+                    if isinstance(agent_settings["chain_args"], str)
+                    else agent_settings["chain_args"]
+                )
+                response = Chains(user=user, ApiClient=ApiClient).run_chain(
+                    chain_name=chain_name,
+                    user_input=prompt.messages[0]["content"],
+                    agent_override=agent_name,
+                    all_responses=False,
+                    chain_args=chain_args,
+                    from_step=1,
+                )
         response = await agent.run(
             user_input=new_prompt,
             prompt=prompt_name,
