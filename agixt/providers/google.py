@@ -103,5 +103,10 @@ class GoogleProvider:
         tts.save("speech.mp3")
         with open("speech.mp3", "rb") as f:
             audio = f.read()
+        # Turn the mp3 into a 16k wav
+        os.system("ffmpeg -i speech.mp3 -ar 16000 speech.wav")
+        with open("speech.wav", "rb") as f:
+            audio = f.read()
         os.remove("speech.mp3")
-        return audio.decode("utf-8")
+        os.remove("speech.wav")
+        return audio
