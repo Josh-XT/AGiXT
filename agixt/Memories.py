@@ -31,7 +31,7 @@ def nlp(text):
 
 
 def snake(old_str: str = ""):
-    if old_str == "":
+    if not old_str:
         return ""
     if " " in old_str:
         old_str = old_str.replace(" ", "")
