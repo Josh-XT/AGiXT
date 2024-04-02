@@ -48,8 +48,8 @@ async def chat_completion(
     websearch = False
     websearch_depth = 0
     browse_links = True
-    if "mode" in agent_config:
-        mode = agent_config["mode"]
+    if "mode" in agent_settings:
+        mode = agent_settings["mode"]
     else:
         mode = "prompt"
     if "prompt_name" in agent_settings:
