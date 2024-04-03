@@ -31,7 +31,7 @@ class ClaudeProvider:
 
     @staticmethod
     def services():
-        return ["llm"]
+        return ["llm", "vision"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if (

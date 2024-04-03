@@ -57,7 +57,15 @@ class OpenaiProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts", "image", "embeddings", "transcription", "translation"]
+        return [
+            "llm",
+            "tts",
+            "image",
+            "embeddings",
+            "transcription",
+            "translation",
+            "vision",
+        ]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
