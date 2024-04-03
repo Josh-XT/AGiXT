@@ -11,7 +11,7 @@ requests==2.31.0
 python-dotenv==1.0.0
 ffmpeg-python==0.2.0
 cryptography==42.0.5
-pillow==10.2.0
+pillow==10.3.0
 SQLAlchemy==2.0.29
 psycopg2-binary==2.9.9
 gTTS==2.5.1
