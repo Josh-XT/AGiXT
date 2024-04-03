@@ -303,9 +303,7 @@ async def chat_completion(
                 if isinstance(agent_settings["command_args"], str)
                 else agent_settings["command_args"]
             )
-            command_args[agent_settings["command_variable"]] = prompt.messages[0][
-                "content"
-            ]
+            command_args[agent_settings["command_variable"]] = new_prompt
             response = await Extensions(
                 agent_name=agent_name,
                 agent_config=agent_config,
@@ -333,7 +331,7 @@ async def chat_completion(
             )
             response = Chains(user=user, ApiClient=ApiClient).run_chain(
                 chain_name=chain_name,
-                user_input=prompt.messages[0]["content"],
+                user_input=new_prompt,
                 agent_override=agent_name,
                 all_responses=False,
                 chain_args=chain_args,
@@ -353,7 +351,7 @@ async def chat_completion(
                 images=images,
                 **prompt_args,
             )
-    prompt_tokens = get_tokens(str(prompt.messages))
+    prompt_tokens = get_tokens(new_prompt)
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
     res_model = {
