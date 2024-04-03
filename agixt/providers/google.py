@@ -1,5 +1,6 @@
 import asyncio
 import os
+from pathlib import Path
 
 try:
     import google.generativeai as genai  # Primary import attempt
@@ -41,18 +42,33 @@ class GoogleProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts"]
+        return ["llm", "tts", "vision"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
         try:
             genai.configure(api_key=self.GOOGLE_API_KEY)
-            model = genai.GenerativeModel(self.AI_MODEL)
-            new_max_tokens = int(self.MAX_TOKENS) - tokens
             generation_config = genai.types.GenerationConfig(
                 max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE)
             )
+            model = genai.GenerativeModel(
+                model_name=self.AI_MODEL if not images else "gemini-pro-vision",
+                generation_config=generation_config,
+            )
+            new_max_tokens = int(self.MAX_TOKENS) - tokens
+            new_prompt = []
+            if images:
+                for image in images:
+                    file_extension = Path(image).suffix
+                    new_prompt.append(
+                        {
+                            "mime_type": f"image/{file_extension}",
+                            "data": Path(image).read_bytes(),
+                        }
+                    )
+                new_prompt.append(prompt)
+                prompt = new_prompt
             response = await asyncio.to_thread(
                 model.generate_content,
                 contents=prompt,

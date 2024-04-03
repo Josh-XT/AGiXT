@@ -55,7 +55,7 @@ class EzlocalaiProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts", "transcription", "translation"]
+        return ["llm", "tts", "transcription", "translation", "vision"]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
