@@ -2,6 +2,7 @@ import time
 import base64
 import uuid
 import json
+import requests
 from fastapi import APIRouter, Depends, Header
 from Interactions import Interactions, get_tokens, log_interaction
 from ApiClient import Agent, verify_api_key, get_api_client
@@ -19,6 +20,7 @@ from Models import (
     TextToSpeech,
     ImageCreation,
 )
+from pydub import AudioSegment
 
 app = APIRouter()
 
@@ -177,8 +179,27 @@ async def chat_completion(
                         if "url" in message["audio_url"]
                         else message["audio_url"]
                     )
+                    # If it is not a url, we need to find the file type and convert with pydub
+                    if not audio_url.startswith("http"):
+                        file_type = audio_url.split(",")[0].split("/")[1].split(";")[0]
+                        audio_data = base64.b64decode(audio_url.split(",")[1])
+                        audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                        with open(audio_path, "wb") as f:
+                            f.write(audio_data)
+                        audio_url = audio_path
+                    else:
+                        # Download the audio file from the url, get the file type and convert to wav
+                        audio_type = audio_url.split(".")[-1]
+                        audio_url = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_type}"
+                        audio_data = requests.get(audio_url).content
+                        with open(audio_url, "wb") as f:
+                            f.write(audio_data)
+                    wav_file = f"./WORKSPACE/{uuid.uuid4().hex}.wav"
+                    AudioSegment.from_file(audio_url).set_frame_rate(16000).export(
+                        wav_file, format="wav"
+                    )
                     transcribed_audio = agent.agent.transcribe_audio(
-                        file=audio_url, prompt=new_prompt
+                        audio_path=wav_file
                     )
                     new_prompt += transcribed_audio
                 if "video_url" in message:
