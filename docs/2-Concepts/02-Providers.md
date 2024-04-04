@@ -10,7 +10,7 @@ The agent's LLM provider will be the logical language model. This is generally a
 
 - OpenAI and Azure OpenAI
 - ezLocalai
-- Antropic (Claude)
+- Anthropic (Claude)
 - Google (Gemini)
 - Hugging Face (Open source models)
 - gpt4free (Free providers, results may vary.)
@@ -23,7 +23,7 @@ Vision providers are used to get descriptions of images that are uploaded in mes
 
 - OpenAI
 - ezLocalai
-- Antropic (Claude)
+- Anthropic (Claude)
 - Google (Gemini)
 
 ## Image Generation Providers
