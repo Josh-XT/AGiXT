@@ -68,7 +68,15 @@ def get_provider_services(provider_name="openai"):
 
 def get_providers_by_service(service="llm"):
     providers = []
-    if service in ["llm", "tts", "image", "embeddings", "transcription", "translation"]:
+    if service in [
+        "llm",
+        "tts",
+        "image",
+        "embeddings",
+        "transcription",
+        "translation",
+        "vision",
+    ]:
         try:
             for provider in get_providers():
                 if provider in DISABLED_PROVIDERS:
