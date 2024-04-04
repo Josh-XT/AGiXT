@@ -101,6 +101,7 @@ class Interactions:
         step_number=0,
         conversation_name="",
         websearch: bool = False,
+        vision_response: str = "",
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -197,6 +198,8 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
+        if vision_response != "":
+            context += f"Visual thoughts from viewing images:\n{vision_response}\n"
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
@@ -410,6 +413,7 @@ class Interactions:
         prompt_category: str = "Default",
         persist_context_in_history: bool = False,
         images: list = [],
+        create_image: bool = False,
         **kwargs,
     ):
         shots = int(shots)
@@ -478,6 +482,30 @@ class Interactions:
                     websearch_depth=websearch_depth,
                     websearch_timeout=websearch_timeout,
                 )
+        vision_response = ""
+        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+            vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
+            if images != [] and vision_provider != "None" and vision_provider != "":
+                try:
+                    vision_response = await self.agent.inference(
+                        prompt=user_input, tokens=tokens, images=images
+                    )
+                except:
+                    pass
+        image_response = ""
+        if create_image:
+            try:
+                sd_prompt = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="AGiXT SD Generator_V3",
+                    prompt_args={
+                        "user_input": user_input,
+                        "conversation_name": "AGiXT Terminal",
+                    },
+                )
+                image_response = await self.agent.generate_image(prompt=sd_prompt)
+            except:
+                pass
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -487,6 +515,7 @@ class Interactions:
             step_number=step_number,
             conversation_name=conversation_name,
             websearch=websearch,
+            vision_response=vision_response,
             **kwargs,
         )
         log_message = (
@@ -503,7 +532,7 @@ class Interactions:
         )
         try:
             self.response = await self.agent.inference(
-                prompt=formatted_prompt, tokens=tokens, images=images
+                prompt=formatted_prompt, tokens=tokens
             )
         except Exception as e:
             # Log the error with the full traceback for the provider
@@ -584,6 +613,8 @@ class Interactions:
                     for shot, response in enumerate(responses)
                 ]
             )
+        if image_response != "":
+            self.response += f"\n![image]({image_response})"
         return self.response
 
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
