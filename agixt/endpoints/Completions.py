@@ -173,11 +173,11 @@ async def chat_completion(
                         with open(image_path, "wb") as f:
                             f.write(image)
                     images.append(image_path)
-                if "audio_url" in message:
+                if "audio_url" in msg:
                     audio_url = (
-                        message["audio_url"]["url"]
-                        if "url" in message["audio_url"]
-                        else message["audio_url"]
+                        msg["audio_url"]["url"]
+                        if "url" in msg["audio_url"]
+                        else msg["audio_url"]
                     )
                     # If it is not a url, we need to find the file type and convert with pydub
                     if not audio_url.startswith("http"):
@@ -202,14 +202,14 @@ async def chat_completion(
                         audio_path=wav_file
                     )
                     new_prompt += transcribed_audio
-                if "video_url" in message:
+                if "video_url" in msg:
                     video_url = str(
-                        message["video_url"]["url"]
-                        if "url" in message["video_url"]
-                        else message["video_url"]
+                        msg["video_url"]["url"]
+                        if "url" in msg["video_url"]
+                        else msg["video_url"]
                     )
-                    if "collection_number" in message:
-                        collection_number = int(message["collection_number"])
+                    if "collection_number" in msg:
+                        collection_number = int(msg["collection_number"])
                     else:
                         collection_number = 0
                     if video_url.startswith("https://www.youtube.com/watch?v="):
@@ -222,18 +222,22 @@ async def chat_completion(
                         )
                         await youtube_reader.write_youtube_captions_to_memory(video_url)
                 if (
-                    "file_url" in message
-                    or "application_url" in message
-                    or "text_url" in message
-                    or "url" in message
+                    "file_url" in msg
+                    or "application_url" in msg
+                    or "text_url" in msg
+                    or "url" in msg
                 ):
                     file_url = str(
-                        message["file_url"]["url"]
-                        if "url" in message["file_url"]
-                        else message["file_url"]
+                        msg["file_url"]["url"]
+                        if "url" in msg["file_url"]
+                        else msg["file_url"]
                     )
-                    if "collection_number" in message:
-                        collection_number = int(message["collection_number"])
+                    if "collection_number" in message or "collection_number" in msg:
+                        collection_number = int(
+                            message["collection_number"]
+                            if "collection_number" in message
+                            else msg["collection_number"]
+                        )
                     else:
                         collection_number = 0
                     if file_url.startswith("http"):
