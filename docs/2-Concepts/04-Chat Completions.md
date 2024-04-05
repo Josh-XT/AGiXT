@@ -68,21 +68,21 @@ response = openai.chat.completions.create(
                 },
                 {
                     "type": "text_url",  # Or just "url"
-                    "url": {  # Content of the text or URL for it to be scraped
+                    "text_url": {  # Content of the text or URL for it to be scraped
                         "url": "https://agixt.com"
                     },
                     "collection_number": 0,  # Optional field, defaults to 0.
                 },
                 {
                     "type": "application_url",
-                    "url": {  # Will scrape mime type `application` into the agent's memory
+                    "application_url": {  # Will scrape mime type `application` into the agent's memory
                         "url": "data:application/pdf;base64,base64_encoded_pdf_here"
                     },
                     "collection_number": 0,  # Optional field, defaults to 0.
                 },
                 {
                     "type": "audio_url",
-                    "url": {  # Will transcribe the audio and send it to the agent
+                    "audio_url": {  # Will transcribe the audio and send it to the agent
                         "url": "data:audio/wav;base64,base64_encoded_audio_here"
                     },
                 },
