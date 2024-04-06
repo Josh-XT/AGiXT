@@ -18,6 +18,7 @@ class microsoft365(Extensions):
         M365_CLIENT_ID: str = "",
         M365_CLIENT_SECRET: str = "",
         M365_TENANT_ID: str = "",
+        **kwargs,
     ):
         self.client_id = M365_CLIENT_ID
         self.client_secret = M365_CLIENT_SECRET
