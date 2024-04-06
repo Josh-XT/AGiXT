@@ -29,17 +29,17 @@ class microsoft365(Extensions):
 
         if self.account:
             self.commands = {
-                "Get Emails": self.get_emails,
-                "Send Email": self.send_email,
-                "Move Email to Folder": self.move_email_to_folder,
-                "Create Draft Email": self.create_draft_email,
-                "Delete Email": self.delete_email,
-                "Search Emails": self.search_emails,
-                "Reply to Email": self.reply_to_email,
-                "Process Attachments": self.process_attachments,
-                "Get Calendar Items": self.get_calendar_items,
-                "Add Calendar Item": self.add_calendar_item,
-                "Remove Calendar Item": self.remove_calendar_item,
+                "Microsoft - Get Emails": self.get_emails,
+                "Microsoft - Send Email": self.send_email,
+                "Microsoft - Move Email to Folder": self.move_email_to_folder,
+                "Microsoft - Create Draft Email": self.create_draft_email,
+                "Microsoft - Delete Email": self.delete_email,
+                "Microsoft - Search Emails": self.search_emails,
+                "Microsoft - Reply to Email": self.reply_to_email,
+                "Microsoft - Process Attachments": self.process_attachments,
+                "Microsoft - Get Calendar Items": self.get_calendar_items,
+                "Microsoft - Add Calendar Item": self.add_calendar_item,
+                "Microsoft - Remove Calendar Item": self.remove_calendar_item,
             }
         else:
             self.commands = {}

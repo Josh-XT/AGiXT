@@ -52,17 +52,17 @@ class google(Extensions):
 
         if self.creds:
             self.commands = {
-                "Get Emails": self.get_emails,
-                "Send Email": self.send_email,
-                "Move Email to Folder": self.move_email_to_folder,
-                "Create Draft Email": self.create_draft_email,
-                "Delete Email": self.delete_email,
-                "Search Emails": self.search_emails,
-                "Reply to Email": self.reply_to_email,
-                "Process Attachments": self.process_attachments,
-                "Get Calendar Items": self.get_calendar_items,
-                "Add Calendar Item": self.add_calendar_item,
-                "Remove Calendar Item": self.remove_calendar_item,
+                "Google - Get Emails": self.get_emails,
+                "Google - Send Email": self.send_email,
+                "Google - Move Email to Folder": self.move_email_to_folder,
+                "Google - Create Draft Email": self.create_draft_email,
+                "Google - Delete Email": self.delete_email,
+                "Google - Search Emails": self.search_emails,
+                "Google - Reply to Email": self.reply_to_email,
+                "Google - Process Attachments": self.process_attachments,
+                "Google - Get Calendar Items": self.get_calendar_items,
+                "Google - Add Calendar Item": self.add_calendar_item,
+                "Google - Remove Calendar Item": self.remove_calendar_item,
                 "Google Search": self.google_official_search,
             }
         else:
