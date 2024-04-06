@@ -96,6 +96,7 @@ jobs:
           DATABASE_NAME: postgres
           SCHEMA: ${{ inputs.auth-schema }}
           LOG_LEVEL: DEBUG
+          MFA_VERIFY: authenticator
       service-under-test:
         image: ${{ inputs.image }}
         ports:
