@@ -41,11 +41,11 @@ class google(Extensions):
         GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
-        self.client_id = GOOGLE_CLIENT_ID
-        self.client_secret = GOOGLE_CLIENT_SECRET
-        self.refresh_token = GOOGLE_REFRESH_TOKEN
+        self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
+        self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
+        self.GOOGLE_REFRESH_TOKEN = GOOGLE_REFRESH_TOKEN
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
-        self.custom_search_engine_id = GOOGLE_SEARCH_ENGINE_ID
+        self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
         self.creds = self.authenticate()
@@ -72,9 +72,9 @@ class google(Extensions):
         try:
             creds = Credentials.from_authorized_user_info(
                 info={
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "refresh_token": self.refresh_token,
+                    "client_id": self.GOOGLE_CLIENT_ID,
+                    "client_secret": self.GOOGLE_CLIENT_SECRET,
+                    "refresh_token": self.GOOGLE_REFRESH_TOKEN,
                 }
             )
 
@@ -454,7 +454,7 @@ class google(Extensions):
             service = build("customsearch", "v1", developerKey=self.GOOGLE_API_KEY)
             result = (
                 service.cse()
-                .list(q=query, cx=self.custom_search_engine_id, num=num_results)
+                .list(q=query, cx=self.GOOGLE_SEARCH_ENGINE_ID, num=num_results)
                 .execute()
             )
             search_results = result.get("items", [])
