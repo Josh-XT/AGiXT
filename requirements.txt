@@ -11,5 +11,8 @@ uvicorn
 ngrok==1.2.0
 faster-whisper==1.0.1
 youtube-transcript-api==0.6.2
-python-multipart
+O365==2.0.34
+google-auth==2.29.0
+google-api-python-client==2.125.0
+python-multipart==0.0.9
 g4f

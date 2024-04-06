@@ -1,26 +1,25 @@
 import os
 import time
 import datetime
-
-try:
-    import git
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "GitPython==3.1.42"])
-    import git
-
-try:
-    from github import Github, RateLimitExceededException
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub==2.2.0"])
-    from github import Github, RateLimitExceededException
-
 from Extensions import Extensions
+
+try:
+    import git
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "GitPython"])
+    import git
+
+try:
+    from github import Github, RateLimitExceededException
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub"])
+    from github import Github, RateLimitExceededException
 
 
 class github(Extensions):
@@ -49,6 +48,7 @@ class github(Extensions):
                 "Get Github Repository Commit": self.get_repo_commit,
                 "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
                 "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
+                "Close Github Issue": self.close_issue,
             }
             try:
                 self.gh = Github(self.GITHUB_API_KEY)
@@ -93,7 +93,10 @@ class github(Extensions):
 
     async def create_repo(self, repo_name: str, content_of_readme: str) -> str:
         try:
-            user = self.gh.get_user(self.GITHUB_USERNAME)
+            try:
+                user = self.gh.get_organization(self.GITHUB_USERNAME)
+            except:
+                user = self.gh.get_user(self.GITHUB_USERNAME)
             repo = user.create_repo(repo_name, private=True)
             repo_url = repo.clone_url
             repo_dir = f"./{repo_name}"
@@ -208,28 +211,37 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def create_repo_issue(self, repo_url: str, title: str, body: str) -> str:
+    async def create_repo_issue(
+        self, repo_url: str, title: str, body: str, assignee: str = None
+    ) -> str:
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            issue = repo.create_issue(title=title, body=body)
+            issue = repo.create_issue(title=title, body=body, assignee=assignee)
             self.failures = 0
             return f"Created new issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
-                return await self.create_repo_issue(repo_url, title, body)
+                return await self.create_repo_issue(
+                    repo_url=repo_url, title=title, body=body, assignee=assignee
+                )
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
 
     async def update_repo_issue(
-        self, repo_url: str, issue_number: int, title: str, body: str
+        self,
+        repo_url: str,
+        issue_number: int,
+        title: str,
+        body: str,
+        assignee: str = None,
     ) -> str:
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)
-            issue.edit(title=title, body=body)
+            issue.edit(title=title, body=body, assignee=assignee)
             self.failures = 0
             return f"Updated issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
         except RateLimitExceededException:
@@ -392,6 +404,27 @@ class github(Extensions):
                 return await self.add_comment_to_repo_pull_request(
                     repo_url, pull_request_number, comment_body
                 )
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def close_issue(self, repo_url, issue_number):
+        try:
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+            issue = repo.get_issue(issue_number)
+
+            # Close the ticket
+            issue.edit(state="closed")
+
+            self.failures = 0
+            return (
+                f"Closed ticket in GitHub Repository: {repo_url}, Issue #{issue_number}"
+            )
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.close_ticket(repo_url, issue_number)
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
