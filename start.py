@@ -48,7 +48,7 @@ def prompt_user(prompt, default=None):
 def start_ezlocalai():
     load_dotenv()
     uri = os.getenv("EZLOCALAI_URI", f"http://{get_local_ip()}:8091")
-    api_key = os.getenv("AGIXT_API_KEY", api_key)
+    api_key = os.getenv("AGIXT_API_KEY", "")
     nvidia_gpu = False
     if not os.path.exists("ezlocalai"):
         run_shell_command("git clone https://github.com/DevXT-LLC/ezlocalai ezlocalai")
@@ -199,16 +199,30 @@ ops = prompt_user(
 Choose an option"""
 )
 if ops == "1":
+    print("Starting, please wait...")
     if use_ezlocalai:
         start_ezlocalai()
+        print(
+            f"ezLocalai started. It may take a few minutes for the server to become available at {os.getenv('EZLOCALAI_URI')}"
+        )
     run_shell_command(
         "docker-compose down && docker-compose pull && docker-compose up -d"
     )
+    print(
+        f"AGiXT started. It may take a few minutes for the server to become available at {os.getenv('AGIXT_URI')}"
+    )
 elif ops == "2":
+    print("Starting, please wait...")
     if use_ezlocalai:
         start_ezlocalai()
+        print(
+            f"ezLocalai started. It may take a few minutes for the server to become available at {os.getenv('EZLOCALAI_URI')}"
+        )
     run_shell_command(
         "docker-compose -f docker-compose-dev.yml down && docker-compose -f docker-compose-dev.yml pull && docker-compose -f docker-compose-dev.yml up -d"
+    )
+    print(
+        f"AGiXT started. It may take a few minutes for the server to become available at {os.getenv('AGIXT_URI')}"
     )
 else:
     print("Exiting...")
