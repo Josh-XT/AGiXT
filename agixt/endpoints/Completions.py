@@ -198,7 +198,7 @@ async def chat_completion(
                     AudioSegment.from_file(audio_url).set_frame_rate(16000).export(
                         wav_file, format="wav"
                     )
-                    transcribed_audio = agent.agent.transcribe_audio(
+                    transcribed_audio = await agent.agent.transcribe_audio(
                         audio_path=wav_file
                     )
                     new_prompt += transcribed_audio
