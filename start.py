@@ -38,7 +38,10 @@ def get_local_ip():
 
 
 def prompt_user(prompt, default=None):
-    user_input = input(f"{prompt} (default: {default}): ").strip()
+    if default:
+        user_input = input(f"{prompt} (default: {default}): ").strip()
+    else:
+        user_input = input(f"{prompt}: ").strip()
     return user_input if user_input else default
 
 
@@ -193,8 +196,7 @@ ops = prompt_user(
 1. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Stable)
 2. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Development)
 3. Exit
-""",
-    "1",
+Choose an option"""
 )
 if ops == "1":
     if use_ezlocalai:
