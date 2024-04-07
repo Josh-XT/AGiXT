@@ -85,18 +85,17 @@ if not is_docker_installed():
     print("Docker is not installed. Please install Docker and try again.")
     exit(1)
 
+print("\033[1m\033[96m")
+print("    ___   _______ _  ________")
+print("   /   | / ____(_) |/ /_  __/")
+print("  / /| |/ / __/ /|   / / /   ")
+print(" / ___ / /_/ / //   | / /    ")
+print("/_/  |_\____/_//_/|_|/_/     ")
+print(" ")
+print("----------------------------------------------------\033[0m")
+print("\033[1m\033[95mVisit our documentation at https://AGiXT.com \033[0m")
+
 if not os.path.isfile(".env"):
-    print("\033[1m\033[96m")  # Set font to bold and color to cyan
-    print("    ___   _______ _  ________")
-    print("   /   | / ____(_) |/ /_  __/")
-    print("  / /| |/ / __/ /|   / / /   ")
-    print(" / ___ / /_/ / //   | / /    ")
-    print("/_/  |_\____/_//_/|_|/_/     ")
-    print(" ")
-    print(
-        "----------------------------------------------------\033[0m"
-    )  # Reset font and color
-    print("\033[1m\033[95mVisit our documentation at https://AGiXT.com \033[0m")
     print("\033[1m\033[95mWelcome to the AGiXT Environment Setup!\033[0m")
     local_ip = get_local_ip()
     api_key = prompt_user("Set your AGiXT API key", "None")
@@ -158,11 +157,11 @@ if use_ezlocalai == None:
         env_file.close()
 else:
     use_ezlocalai = use_ezlocalai.lower() == "true"
-
+print("\033[1m\033[95mWelcome to the AGiXT! \033[0m")
 ops = prompt_user(
     f"""Choose from the following options:
-1. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ' '}(Stable)
-2. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ' '}(Development)
+1. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Stable)
+2. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Development)
 3. Exit
 """,
     "1",
