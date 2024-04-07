@@ -4,6 +4,7 @@ import subprocess
 import platform
 from dotenv import load_dotenv
 import socket
+import json
 
 try:
     import win32com.client as wim
@@ -99,20 +100,15 @@ if not os.path.isfile(".env"):
     print("\033[1m\033[95mWelcome to the AGiXT Environment Setup!\033[0m")
     local_ip = get_local_ip()
     api_key = prompt_user("Set your AGiXT API key", "None")
-    agixt_uri = prompt_user("Set your AGiXT URI", f"http://{local_ip}:7437")
-    db = prompt_user("Use experimental AGiXT database? (Y/N)", "No")
+    agixt_uri = prompt_user(
+        "Set your AGiXT URI (This does not change the port)", f"http://{local_ip}:7437"
+    )
     if api_key.lower() == "none":
         api_key = ""
     with open(".env", "w") as env_file:
         env_file.write(f"AGIXT_URI={agixt_uri}\n")
         env_file.write(f"AGIXT_API_KEY={api_key}\n")
         env_file.write("UVICORN_WORKERS=10\n")
-        if db.lower() in ["y", "yes"]:
-            env_file.write("DB_CONNECTED=true\n")
-            env_file.write(
-                f"DB_PASSWORD={api_key if api_key != 'None' else 'postgres'}\n"
-            )
-            env_file.write("USING_JWT=true\n")
 load_dotenv()
 use_ezlocalai = os.getenv("USE_EZLOCALAI", None)
 if use_ezlocalai == None:
@@ -150,6 +146,40 @@ if use_ezlocalai == None:
             env_file.write(f"DEFAULT_LLM={default_llm}\n")
             env_file.write(f"DEFAULT_VLM={default_vlm}\n")
             env_file.write(f"IMG_ENABLED={img_enabled}\n")
+        # Create a default ezlocalai agent that will work with AGiXT out of the box
+        ezlocalai_agent_settings = {
+            "commands": {},
+            "settings": {
+                "provider": "ezlocalai",
+                "tts_provider": "ezlocalai",
+                "transcription_provider": "ezlocalai",
+                "translation_provider": "ezlocalai",
+                "embeddings_provider": "default",
+                "image_provider": "ezlocalai" if img_enabled else "default",
+                "EZLOCALAI_API_KEY": api_key,
+                "AI_MODEL": "Mistral-7B-Instruct-v0.2",
+                "API_URI": f"{ezlocalai_uri}/v1/",
+                "MAX_TOKENS": "4096",
+                "AI_TEMPERATURE": 0.5,
+                "AI_TOP_P": 0.9,
+                "SYSTEM_MESSAGE": "",
+                "VOICE": "HAL9000",
+                "mode": "prompt",
+                "prompt_category": "Default",
+                "prompt_name": "Chat",
+                "helper_agent_name": "AGiXT",
+                "WEBSEARCH_TIMEOUT": 0,
+                "WAIT_BETWEEN_REQUESTS": 1,
+                "WAIT_AFTER_FAILURE": 3,
+                "WORKING_DIRECTORY": "./WORKSPACE",
+                "WORKING_DIRECTORY_RESTRICTED": True,
+                "AUTONOMOUS_EXECUTION": True,
+                "PERSONA": "",
+            },
+        }
+        os.makedirs("agixt/agents/AGiXT", exist_ok=True)
+        with open("agixt/agents/AGiXT/config.json", "w") as file:
+            file.write(json.dumps(ezlocalai_agent_settings, indent=4))
     else:
         use_ezlocalai = False
         env_file = open(".env", "a")
