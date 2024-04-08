@@ -333,7 +333,7 @@ async def chat_completion(
                 if isinstance(agent_settings["chain_args"], str)
                 else agent_settings["chain_args"]
             )
-            response = Chains(user=user, ApiClient=ApiClient).run_chain(
+            response = await Chains(user=user, ApiClient=ApiClient).run_chain(
                 chain_name=chain_name,
                 user_input=new_prompt,
                 agent_override=agent_name,
