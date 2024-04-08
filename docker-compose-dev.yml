@@ -38,7 +38,6 @@ services:
       - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
       - ./agixt/conversations:/agixt/conversations
-      - ./voices:/agixt/voices
       - /var/run/docker.sock:/var/run/docker.sock
   streamlit:
     image: joshxt/streamlit:main
