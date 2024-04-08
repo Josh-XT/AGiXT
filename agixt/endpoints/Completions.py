@@ -308,6 +308,13 @@ async def chat_completion(
                 else agent_settings["command_args"]
             )
             command_args[agent_settings["command_variable"]] = new_prompt
+            log_interaction(
+                agent_name=agent_name,
+                conversation_name=conversation_name,
+                role="USER",
+                message=new_prompt,
+                user=user,
+            )
             response = await Extensions(
                 agent_name=agent_name,
                 agent_config=agent_config,
@@ -332,6 +339,13 @@ async def chat_completion(
                 json.loads(agent_settings["chain_args"])
                 if isinstance(agent_settings["chain_args"], str)
                 else agent_settings["chain_args"]
+            )
+            log_interaction(
+                agent_name=agent_name,
+                conversation_name=conversation_name,
+                role="USER",
+                message=new_prompt,
+                user=user,
             )
             response = await Chains(user=user, ApiClient=ApiClient).run_chain(
                 chain_name=chain_name,
