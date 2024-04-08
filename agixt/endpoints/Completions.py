@@ -341,6 +341,13 @@ async def chat_completion(
                 chain_args=chain_args,
                 from_step=1,
             )
+            log_interaction(
+                agent_name=agent_name,
+                conversation_name=conversation_name,
+                role=agent_name,
+                message=response,
+                user=user,
+            )
         elif mode == "prompt":
             response = await agent.run(
                 user_input=new_prompt,
