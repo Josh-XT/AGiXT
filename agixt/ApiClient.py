@@ -49,6 +49,7 @@ def verify_api_key(authorization: str = Header(None)):
     DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
     if DEFAULT_USER == "":
         DEFAULT_USER = "USER"
+    authorization = authorization.replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization is None:
             raise HTTPException(
