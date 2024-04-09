@@ -324,7 +324,7 @@ async def chat_completion(
                 user=user,
             ).execute_command(
                 command_name=agent_settings["command_name"],
-                command_args=agent_settings["command_args"],
+                command_args=command_args,
             )
             log_interaction(
                 agent_name=agent_name,
