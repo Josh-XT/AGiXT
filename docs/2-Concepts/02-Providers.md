@@ -67,3 +67,24 @@ Speech translation providers are used to translate speech from any language that
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
 - default (faster-whisper)
+
+# Services for Providers
+
+There are multiple provider services for different providers for features like TTS, Audio to Text, Embeddings, and Image Generation.
+Each provider now has a `services` property which is a list of services available from that provider. Providers with an embeddings service will have an additional property for `chunk_size` for the embedder.
+
+For example, the OpenAI provider has:
+```
+self.chunk_size = 1024
+
+@staticmethod
+def services():
+    return [
+      "llm", # Language model
+      "tts", # Text to speech
+      "image", # Image generation
+      "embeddings", # Embeddings creation
+      "transcription", # Audio transcription to text
+      "translation", # Audio translation to text in English
+  ]
+```
