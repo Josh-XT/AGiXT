@@ -15,7 +15,7 @@ The agent's LLM provider will be the logical language model. This is generally a
 - Anthropic (Claude)
 - Google (Gemini)
 - Hugging Face (Open source models)
-- gpt4free (Free providers, results may vary.)
+- default: gpt4free (Free providers, results may vary.)
 
 ## Vision Providers
 
@@ -35,7 +35,7 @@ Image generation providers are used to generate images based on the users input.
 ### Current Image Generation Providers
 
 - OpenAI (DALL-E)
-- Hugging Face (Stable Diffusion)
+- default: Hugging Face (Stable Diffusion)
 
 ## Text to Speech (TTS) Providers
 
@@ -47,6 +47,7 @@ Text to speech providers are used to generate speech from the agent's response. 
 - ezLocalai (Voice cloning TTS)
 - Google (gTTS, set as default)
 - Elevenlabs (Voice cloning TTS over API, listed under `agixt` Provider)
+- default: streamlabs
 
 ## Speech Transcription Providers
 
@@ -56,7 +57,7 @@ Speech transcription providers are used to transcribe speech from the user to te
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default (faster-whisper)
+- default: faster-whisper
 
 ## Speech Translation Providers
 
@@ -66,4 +67,4 @@ Speech translation providers are used to translate speech from any language that
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default (faster-whisper)
+- default: faster-whisper
