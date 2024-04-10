@@ -26,3 +26,70 @@ GitHub repository training allows you to enter the repository name, for example 
 ## Memory Management
 
 On the Memory Management page, you can query the memory with any search term you would like as if you were saying the same thing to an agent.  This will show each memory relevant to your search and its relevance score.  You can choose to delete any memory you would like from the memory management page.
+
+# Synthetic Dataset Creation and Training
+AGiXT can take all memories created and turn them into a synthetic dataset in the format of `question/good answer/bad answer` for [DPO](https://huggingface.co/docs/trl/main/en/dpo_trainer), [CPO](https://huggingface.co/docs/trl/main/en/cpo_trainer), and [ORPO](https://huggingface.co/docs/trl/main/en/orpo_trainer) trainers to be used in Transformers (or pick your solution) to fine-tune models. The API Endpoint for this training feature is `/api/agent/{agent_name}/memory/dataset`.
+
+Once the dataset is done being created, it can be found at `AGiXT/agixt/WORKSPACE/{dataset_name}.json`.
+
+### Example with Python SDK
+The example below will consume the AGiXT GitHub repository to the agent's memory, then create a synthetic dataset with the learned information.
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="Your AGiXT API Key")
+
+# Define the agent we're working with
+agent_name="gpt4free"
+
+# Consume the whole AGiXT GitHub Repository to the agent's memory.
+agixt.learn_github_repo(
+    agent_name=agent_name,
+    github_repo="Josh-XT/AGiXT",
+    collection_number=0,
+)
+
+# Create a synthetic dataset in DPO/CPO/ORPO format.
+agixt.create_dataset(
+    agent_name=agent_name, dataset_name="Your_dataset_name", batch_size=5
+)
+```
+
+### Model Training Based on Agent Memory
+
+Finally, we want to make "training" a full process instead of stopping at the memories. After your agent learns from GitHub repo, files, arXive articles, websites, or YouTube captions based on its memories, you can use the training endpoint to:
+
+- Turn all of the agent's memories into synthetic DPO/CPO/ORPO format dataset
+- Turn the dataset into DPO QLoRA with `unsloth`
+- Merge into the model of your choosing to make your own model from the data you trained your AGiXT agent on
+- Uploads your new model to HuggingFace with your choice of `provate_repo` on a `bool` once complete if your agent has a `HUGGINGFACE_API_KEY` in its config.
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="Your AGiXT API Key")
+
+# Define the agent we're working with
+agent_name="gpt4free"
+
+# Consume the whole AGiXT GitHub Repository to the agent's memory.
+agixt.learn_github_repo(
+    agent_name=agent_name,
+    github_repo="Josh-XT/AGiXT",
+    collection_number=0,
+)
+
+# Train the desired model on a synthetic DPO dataset created based on the agents memories.
+agixt.train(
+      agent_name="AGiXT",
+      dataset_name="dataset",
+      model="unsloth/mistral-7b-v0.2",
+      max_seq_length=16384,
+      huggingface_output_path="JoshXT/finetuned-mistral-7b-v0.2",
+      private_repo=True,
+)
+```
+
+
+
