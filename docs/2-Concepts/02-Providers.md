@@ -15,7 +15,7 @@ The agent's LLM provider will be the logical language model. This is generally a
 - Anthropic (Claude)
 - Google (Gemini)
 - Hugging Face (Open source models)
-- gpt4free (Free providers, results may vary.)
+- default: gpt4free (Free providers, results may vary.)
 
 ## Vision Providers
 
@@ -35,7 +35,7 @@ Image generation providers are used to generate images based on the users input.
 ### Current Image Generation Providers
 
 - OpenAI (DALL-E)
-- Hugging Face (Stable Diffusion)
+- default: Hugging Face (Stable Diffusion)
 
 ## Text to Speech (TTS) Providers
 
@@ -45,8 +45,8 @@ Text to speech providers are used to generate speech from the agent's response. 
 
 - OpenAI
 - ezLocalai (Voice cloning TTS)
-- Google (gTTS, set as default)
 - Elevenlabs (Voice cloning TTS over API, listed under `agixt` Provider)
+- default: Google (gTTS)
 
 ## Speech Transcription Providers
 
@@ -56,7 +56,7 @@ Speech transcription providers are used to transcribe speech from the user to te
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default (faster-whisper)
+- default: faster-whisper
 
 ## Speech Translation Providers
 
@@ -74,7 +74,8 @@ There are multiple provider services for different providers for features like T
 Each provider now has a `services` property which is a list of services available from that provider. Providers with an embeddings service will have an additional property for `chunk_size` for the embedder.
 
 For example, the OpenAI provider has:
-```
+
+```python
 self.chunk_size = 1024
 
 @staticmethod
@@ -88,3 +89,4 @@ def services():
       "translation", # Audio translation to text in English
   ]
 ```
+
