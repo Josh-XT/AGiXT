@@ -66,7 +66,7 @@ Speech translation providers are used to translate speech from any language that
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default (faster-whisper)
+- default: (faster-whisper)
 
 # Services for Providers
 
