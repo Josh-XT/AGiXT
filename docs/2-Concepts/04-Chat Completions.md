@@ -96,3 +96,5 @@ response = openai.chat.completions.create(
 )
 print(response.choices[0].message.content)
 ```
+
+GitHub and YouTube captions can be read in the chat completions pipeline. The associated endpoint for YouTube captions reader is `/api/agent/{agent_name}/learn/youtube`. If `browse_links` is enabled and a YouTube video link is given in the chat, the agent will read the content of the captions for the YouTube video linked into memory.
