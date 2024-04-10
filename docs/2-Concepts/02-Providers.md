@@ -45,9 +45,8 @@ Text to speech providers are used to generate speech from the agent's response. 
 
 - OpenAI
 - ezLocalai (Voice cloning TTS)
-- Google (gTTS, set as default)
 - Elevenlabs (Voice cloning TTS over API, listed under `agixt` Provider)
-- default: streamlabs
+- default: Google (gTTS)
 
 ## Speech Transcription Providers
 
