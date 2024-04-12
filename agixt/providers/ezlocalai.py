@@ -46,12 +46,6 @@ class EzlocalaiProvider:
         )
         self.FAILURES = []
         self.failure_count = 0
-        self.embedder = OpenAIEmbeddingFunction(
-            model_name="text-embedding-3-small",
-            api_key=self.EZLOCALAI_API_KEY,
-            api_base=self.API_URI,
-        )
-        self.chunk_size = 1024
 
     @staticmethod
     def services():

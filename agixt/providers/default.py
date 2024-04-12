@@ -31,8 +31,6 @@ class DefaultProvider:
         self.TRANSCRIPTION_MODEL = (
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
         )
-        self.embedder = ONNXMiniLM_L6_V2()
-        self.embedder.DOWNLOAD_PATH = os.getcwd()
         self.chunk_size = 256
 
     @staticmethod
@@ -45,6 +43,11 @@ class DefaultProvider:
             "translation",
             "image",
         ]
+
+    def embedder(self):
+        embed = ONNXMiniLM_L6_V2()
+        embed.DOWNLOAD_PATH = os.getcwd()
+        return embed
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         return await Gpt4freeProvider(
