@@ -192,7 +192,7 @@ class Memories:
             if hasattr(self.embedding_provider, "chunk_size")
             else 256
         )
-        self.embedder = self.embedding_provider.embedder
+
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):
@@ -270,6 +270,7 @@ class Memories:
         ]
 
     async def get_collection(self):
+        self.embedder = self.embedding_provider.embedder()
         try:
             return self.chroma_client.get_collection(
                 name=self.collection_name, embedding_function=self.embedder
