@@ -49,16 +49,13 @@ def verify_api_key(authorization: str = Header(None)):
     DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
     if DEFAULT_USER == "":
         DEFAULT_USER = "USER"
-    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization is None:
             logging.info("Authorization header is missing")
             raise HTTPException(
                 status_code=401, detail="Authorization header is missing"
             )
-        if "bearer" in authorization.lower():
-            scheme, _, api_key = authorization.partition(" ")
-            authorization = api_key
+        authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
         if USING_JWT:
             try:
                 token = jwt.decode(
@@ -80,8 +77,5 @@ def verify_api_key(authorization: str = Header(None)):
 
 
 def get_api_client(authorization: str = Header(None)):
-    if authorization:
-        if "bearer" in authorization.lower():
-            scheme, _, api_key = authorization.partition(" ")
-            authorization = api_key
+    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=authorization)
