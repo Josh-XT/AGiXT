@@ -168,12 +168,14 @@ class Memories:
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
-            agent_config if agent_config else {"settings": {"embedder": "default"}}
+            agent_config
+            if agent_config
+            else {"settings": {"embeddings_provider": "default"}}
         )
         self.agent_settings = (
             self.agent_config["settings"]
             if "settings" in self.agent_config
-            else {"embedder": "default"}
+            else {"embeddings_provider": "default"}
         )
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
