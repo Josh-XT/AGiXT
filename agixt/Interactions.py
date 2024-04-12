@@ -419,7 +419,7 @@ class Interactions:
         shots = int(shots)
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
-        disable_memory = True if str(disable_memory).lower() == "true" else False
+        disable_memory = False if str(disable_memory).lower() == "false" else True
         browse_links = True if str(browse_links).lower() == "true" else False
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
