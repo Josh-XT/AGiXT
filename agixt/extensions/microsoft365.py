@@ -57,10 +57,8 @@ class microsoft365(Extensions):
             if account.authenticate():
                 return account
             else:
-                print("Authentication failed.")
                 return None
         except Exception as e:
-            print(f"Error during authentication: {str(e)}")
             return None
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):

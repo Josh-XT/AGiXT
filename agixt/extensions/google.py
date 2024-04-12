@@ -83,7 +83,6 @@ class google(Extensions):
 
             return creds
         except Exception as e:
-            print(f"Error during authentication: {str(e)}")
             return None
 
     async def get_emails(self, query=None, max_emails=10):
