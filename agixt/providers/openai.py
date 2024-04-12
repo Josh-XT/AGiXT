@@ -48,6 +48,14 @@ class OpenaiProvider:
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "whisper-1"
         )
         self.FAILURES = []
+        try:
+            self.embedder = OpenAIEmbeddingFunction(
+                model_name="text-embedding-3-small",
+                api_key=self.OPENAI_API_KEY,
+                api_base=self.API_URI,
+            )
+        except Exception as e:
+            self.embedder = None
         self.chunk_size = 1024
 
     @staticmethod
@@ -61,24 +69,6 @@ class OpenaiProvider:
             "translation",
             "vision",
         ]
-
-    def embedder(self):
-        try:
-            return OpenAIEmbeddingFunction(
-                model_name="text-embedding-3-small",
-                api_key=self.OPENAI_API_KEY,
-                api_base=self.API_URI,
-            )
-        except Exception as e:
-            logging.info(f"Error creating OpenAI Embedding Function: {e}")
-            return None
-
-    def embeddings(self, input) -> np.ndarray:
-        try:
-            return self.embedder().embed(input)
-        except Exception as e:
-            logging.info(f"Error getting embeddings: {e}")
-            return None
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
