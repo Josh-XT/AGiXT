@@ -92,7 +92,7 @@ jobs:
           POSTGRES_DB: postgres
       stripe-service:
         image: stripe/stripe-cli
-        options: --entrypoint "/bin/sh" -c "stripe login --api-key ${{ inputs.stripe-secret-key }} && stripe listen --forward-to service-under-test:${{ inputs.port }}/${{ inputs.stripe-webhook-path }} > /stripe-output.txt"        
+        options: --entrypoint "/bin/sh" -c "stripe login --api-key \${{ inputs.stripe-secret-key }} && stripe listen --forward-to service-under-test:\${{ inputs.port }}/\${{ inputs.stripe-webhook-path }} > /stripe-output.txt"        
         ports:
           - 5665:5665
       secondary-service:
