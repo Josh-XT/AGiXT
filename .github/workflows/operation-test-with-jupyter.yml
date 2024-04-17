@@ -92,7 +92,7 @@ jobs:
           POSTGRES_DB: postgres
       stripe-service:
         image: stripe/stripe-cli
-        options: --entrypoint "/bin/sh -c 'stripe login --api-key ${{ inputs.stripe-secret-key }} && stripe listen --forward-to service-under-test:${{ inputs.port }}/${{ inputs.stripe-webhook-path }}'"
+        options: --entrypoint "/bin/sh -c 'stripe login --api-key ${{ inputs.stripe-secret-key }} && stripe listen --forward-to service-under-test:${{ inputs.port }}/${{ inputs.stripe-webhook-path }}' > /stripe-output.txt"
         ports:
           - 5665:5665
       secondary-service:
@@ -128,6 +128,7 @@ jobs:
           DEFAULT_EMAIL: ${{ inputs.default-email }}
           DEFAULT_SERVICE: sendgrid
           MFA_VERIFY: authenticator
+          STRIPE_WEBHOOK_SECRET: ${{ env.WEBHOOK_SECRET }}
 
     steps:
       - uses: actions/setup-python@v5
@@ -137,14 +138,16 @@ jobs:
         uses: actions/checkout@v4.1.1
         with:
           fetch-depth: 1
-
+      - name: Set stripe webhook secret
+        run: |
+          WEBHOOK_SECRET=$(grep "Your webhook signing secret is" /stripe-output.txt | awk '{print $6}')
+          echo "WEBHOOK_SECRET=$WEBHOOK_SECRET" >> $GITHUB_ENV
       - name: Install jupyter
         run: pip3 install jupyter nbconvert[webpdf]
       - name: Update package lists and install jupyter output generation dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
-     
       - name: Clone repository and install package
         if: inputs.clone-repo
         run: |
