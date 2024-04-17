@@ -64,6 +64,14 @@ on:
         type: string
         default: none
         description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
+      stripe-secret-key:
+        type: string
+        default: none
+        description: Optional stripe key for running a stripe CLI
+      stripe-webhook-path:
+        type: string
+        default: webhook
+        description: Optional stripe key for running a stripe CLI
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -82,6 +90,11 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+      stripe-service:
+        image: stripe/stripe-cli
+        options: --entrypoint "/bin/sh -c 'stripe login --api-key ${{ inputs.stripe-secret-key }} && stripe listen --forward-to service-under-test:${{ inputs.port }}/${{ inputs.stripe-webhook-path }}'"
+        ports:
+          - 5665:5665
       secondary-service:
         image: ${{ inputs.secondary-image }}
         ports:
@@ -131,7 +144,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
-
+      - name: Run Stripe CLI
+        if: inputs.stripe-secret-key
+        run: |
+          docker ps
+          docker exec stripe-service /bin/sh -c "stripe login --api-key $STRIPE_SECRET_KEY && stripe listen --forward-to service-under-test:$PORT/$WEBHOOK_PATH"
       - name: Clone repository and install package
         if: inputs.clone-repo
         run: |
