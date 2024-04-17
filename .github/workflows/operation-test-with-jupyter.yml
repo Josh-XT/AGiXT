@@ -144,11 +144,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --fix-missing -y pandoc texlive-xetex texlive-fonts-recommended texlive-plain-generic
-      - name: Run Stripe CLI
-        if: inputs.stripe-secret-key
-        run: |
-          docker ps
-          docker exec stripe-service /bin/sh -c "stripe login --api-key $STRIPE_SECRET_KEY && stripe listen --forward-to service-under-test:$PORT/$WEBHOOK_PATH"
+     
       - name: Clone repository and install package
         if: inputs.clone-repo
         run: |
