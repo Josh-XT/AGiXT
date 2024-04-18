@@ -60,6 +60,10 @@ on:
         type: string
         default: none
         description: Optional sendgrid api-key available as os.getenv('SENDGRID_API_KEY') in your notebook
+      stripe-api-key:
+        type: string
+        default: none
+        description: Optional stripe api-key available as os.getenv('STRIPE_API_KEY') in your notebook
       default-email:
         type: string
         default: none
@@ -115,7 +119,8 @@ jobs:
           DEFAULT_EMAIL: ${{ inputs.default-email }}
           DEFAULT_SERVICE: sendgrid
           MFA_VERIFY: authenticator
-
+          MODE: development
+          STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
     steps:
       - uses: actions/setup-python@v5
         with:
