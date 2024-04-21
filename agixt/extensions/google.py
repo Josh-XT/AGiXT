@@ -86,6 +86,16 @@ class google(Extensions):
             return None
 
     async def get_emails(self, query=None, max_emails=10):
+        """
+        Get emails from the user's Gmail account
+
+        Args:
+        query (str): The search query to filter emails
+        max_emails (int): The maximum number of emails to retrieve
+
+        Returns:
+        List[Dict]: A list of email data
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
             result = (
@@ -126,6 +136,18 @@ class google(Extensions):
             return []
 
     async def send_email(self, recipient, subject, body, attachments=None):
+        """
+        Send an email using the user's Gmail account
+
+        Args:
+        recipient (str): The email address of the recipient
+        subject (str): The subject of the email
+        body (str): The body of the email
+        attachments (List[str]): A list of file paths to attach to the email
+
+        Returns:
+        str: The result of sending the email
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
 
@@ -164,6 +186,16 @@ class google(Extensions):
             return "Failed to send email."
 
     async def move_email_to_folder(self, message_id, folder_name):
+        """
+        Move an email to a specific folder in the user's Gmail account
+
+        Args:
+        message_id (str): The ID of the email message
+        folder_name (str): The name of the folder to move the email to
+
+        Returns:
+        str: The result of moving the email
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
 
@@ -197,6 +229,18 @@ class google(Extensions):
             return "Failed to move email."
 
     async def create_draft_email(self, recipient, subject, body, attachments=None):
+        """
+        Create a draft email in the user's Gmail account
+
+        Args:
+        recipient (str): The email address of the recipient
+        subject (str): The subject of the email
+        body (str): The body of the email
+        attachments (List[str]): A list of file paths to attach to the email
+
+        Returns:
+        str: The result of creating the draft email
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
 
@@ -235,6 +279,15 @@ class google(Extensions):
             return "Failed to create draft email."
 
     async def delete_email(self, message_id):
+        """
+        Delete an email from the user's Gmail account
+
+        Args:
+        message_id (str): The ID of the email message
+
+        Returns:
+        str: The result of deleting the email
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
             service.users().messages().delete(userId="me", id=message_id).execute()
@@ -244,6 +297,16 @@ class google(Extensions):
             return "Failed to delete email."
 
     async def search_emails(self, query, max_emails=10):
+        """
+        Search emails in the user's Gmail account
+
+        Args:
+        query (str): The search query to filter emails
+        max_emails (int): The maximum number of emails to retrieve
+
+        Returns:
+        List[Dict]: A list of email data
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
             result = (
@@ -284,6 +347,17 @@ class google(Extensions):
             return []
 
     async def reply_to_email(self, message_id, body, attachments=None):
+        """
+        Reply to an email in the user's Gmail account
+
+        Args:
+        message_id (str): The ID of the email message
+        body (str): The body of the reply email
+        attachments (List[str]): A list of file paths to attach to the reply email
+
+        Returns:
+        str: The result of sending the reply
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
             message = (
@@ -332,6 +406,15 @@ class google(Extensions):
             return "Failed to send reply."
 
     async def process_attachments(self, message_id):
+        """
+        Process attachments from an email in the user's Gmail account
+
+        Args:
+        message_id (str): The ID of the email message
+
+        Returns:
+        List[str]: A list of file paths to the saved attachments
+        """
         try:
             service = build("gmail", "v1", credentials=self.creds)
             message = (
@@ -364,6 +447,17 @@ class google(Extensions):
             return []
 
     async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
+        """
+        Get calendar items from the user's Google Calendar
+
+        Args:
+        start_date (datetime): The start date to filter calendar items
+        end_date (datetime): The end date to filter calendar items
+        max_items (int): The maximum number of calendar items to retrieve
+
+        Returns:
+        List[Dict]: A list of calendar item data
+        """
         try:
             service = build("calendar", "v3", credentials=self.creds)
 
@@ -411,6 +505,19 @@ class google(Extensions):
     async def add_calendar_item(
         self, subject, start_time, end_time, location, attendees=None
     ):
+        """
+        Add a calendar item to the user's Google Calendar
+
+        Args:
+        subject (str): The subject of the calendar item
+        start_time (str): The start time of the calendar item
+        end_time (str): The end time of the calendar item
+        location (str): The location of the calendar item
+        attendees (List[str]): A list of email addresses of attendees
+
+        Returns:
+        str: The result of adding the calendar item
+        """
         try:
             service = build("calendar", "v3", credentials=self.creds)
 
@@ -438,6 +545,15 @@ class google(Extensions):
             return "Failed to add calendar item."
 
     async def remove_calendar_item(self, item_id):
+        """
+        Remove a calendar item from the user's Google Calendar
+
+        Args:
+        item_id (str): The ID of the calendar item to remove
+
+        Returns:
+        str: The result of removing the calendar item
+        """
         try:
             service = build("calendar", "v3", credentials=self.creds)
             service.events().delete(calendarId="primary", eventId=item_id).execute()
@@ -449,6 +565,16 @@ class google(Extensions):
     async def google_official_search(
         self, query: str, num_results: int = 8
     ) -> Union[str, List[str]]:
+        """
+        Perform a Google search using the official Google API
+
+        Args:
+        query (str): The search query
+        num_results (int): The number of search results to retrieve
+
+        Returns:
+        Union[str, List[str]]: The search results
+        """
         try:
             service = build("customsearch", "v1", developerKey=self.GOOGLE_API_KEY)
             result = (

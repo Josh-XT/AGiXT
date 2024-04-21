@@ -26,6 +26,15 @@ class searxng(Extensions):
         return endpoint
 
     async def search(self, query: str) -> List[str]:
+        """
+        Search using the SearXNG search engine
+
+        Args:
+        query (str): The query to search for
+
+        Returns:
+        List[str]: A list of search results
+        """
         try:
             response = requests.get(
                 self.SEARXNG_ENDPOINT,
