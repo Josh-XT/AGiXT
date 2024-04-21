@@ -40,6 +40,15 @@ class mysql_database(Extensions):
             return None
 
     async def execute_sql(self, query: str):
+        """
+        Execute a custom SQL query in the MySQL database
+
+        Args:
+        query (str): The SQL query to execute
+
+        Returns:
+        str: The result of the SQL query
+        """
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
         logging.info(f"Executing SQL Query: {query}")
@@ -88,6 +97,12 @@ class mysql_database(Extensions):
             return await self.execute_sql(query=new_query)
 
     async def get_schema(self):
+        """
+        Get the schema of the MySQL database
+
+        Returns:
+        str: The schema of the MySQL database
+        """
         logging.info(f"Getting schema for database '{self.MYSQL_DATABASE_NAME}'")
         connection = self.get_connection()
         cursor = connection.cursor()

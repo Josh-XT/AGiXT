@@ -62,6 +62,15 @@ class github(Extensions):
         self.failures = 0
 
     async def clone_repo(self, repo_url: str) -> str:
+        """
+        Clone a GitHub repository to the local workspace
+
+        Args:
+        repo_url (str): The URL of the GitHub repository to clone
+
+        Returns:
+        str: The result of the cloning operation
+        """
         split_url = repo_url.split("//")
         if self.GITHUB_USERNAME is not None and self.GITHUB_API_KEY is not None:
             auth_repo_url = f"//{self.GITHUB_USERNAME}:{self.GITHUB_API_KEY}@".join(
@@ -92,6 +101,16 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def create_repo(self, repo_name: str, content_of_readme: str) -> str:
+        """
+        Create a new private GitHub repository
+
+        Args:
+        repo_name (str): The name of the repository to create
+        content_of_readme (str): The content of the README.md file
+
+        Returns:
+        str: The URL of the newly created repository
+        """
         try:
             try:
                 user = self.gh.get_organization(self.GITHUB_USERNAME)
@@ -117,6 +136,15 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_code_contents(self, repo_url: str) -> str:
+        """
+        Get the code contents of a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+
+        Returns:
+        str: The code contents of the repository in markdown format
+        """
         repo_name = repo_url.split("/")[-1]
         await self.clone_repo(repo_url)
         python_files = []
@@ -177,6 +205,15 @@ class github(Extensions):
         return content
 
     async def get_repo_issues(self, repo_url: str) -> str:
+        """
+        Get the open issues for a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+
+        Returns:
+        str: The open issues for the repository
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issues = repo.get_issues(state="open")
@@ -197,6 +234,16 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_issue(self, repo_url: str, issue_number: int) -> str:
+        """
+        Get the details of a specific issue in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        issue_number (int): The issue number to retrieve
+
+        Returns:
+        str: The details of the issue
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)
@@ -214,6 +261,18 @@ class github(Extensions):
     async def create_repo_issue(
         self, repo_url: str, title: str, body: str, assignee: str = None
     ) -> str:
+        """
+        Create a new issue in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        title (str): The title of the issue
+        body (str): The body of the issue
+        assignee (str): The assignee for the issue
+
+        Returns:
+        str: The result of the issue creation operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.create_issue(title=title, body=body, assignee=assignee)
@@ -238,6 +297,19 @@ class github(Extensions):
         body: str,
         assignee: str = None,
     ) -> str:
+        """
+        Update an existing issue in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        issue_number (int): The issue number to update
+        title (str): The new title of the issue
+        body (str): The new body of the issue
+        assignee (str): The new assignee for the issue
+
+        Returns:
+        str: The result of the issue update operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)
@@ -254,6 +326,15 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_pull_requests(self, repo_url: str) -> str:
+        """
+        Get the open pull requests for a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+
+        Returns:
+        str: The open pull requests for the repository
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             pull_requests = repo.get_pulls(state="open")
@@ -277,6 +358,16 @@ class github(Extensions):
     async def get_repo_pull_request(
         self, repo_url: str, pull_request_number: int
     ) -> str:
+        """
+        Get the details of a specific pull request in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        pull_request_number (int): The pull request number to retrieve
+
+        Returns:
+        str: The details of the pull request
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             pull_request = repo.get_pull(pull_request_number)
@@ -294,6 +385,19 @@ class github(Extensions):
     async def create_repo_pull_request(
         self, repo_url: str, title: str, body: str, head: str, base: str
     ) -> str:
+        """
+        Create a new pull request in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        title (str): The title of the pull request
+        body (str): The body of the pull request
+        head (str): The branch to merge from
+        base (str): The branch to merge to
+
+        Returns:
+        str: The result of the pull request creation operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             pull_request = repo.create_pull(
@@ -315,6 +419,18 @@ class github(Extensions):
     async def update_repo_pull_request(
         self, repo_url: str, pull_request_number: int, title: str, body: str
     ) -> str:
+        """
+        Update an existing pull request in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        pull_request_number (int): The pull request number to update
+        title (str): The new title of the pull request
+        body (str): The new body of the pull request
+
+        Returns:
+        str: The result of the pull request update operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             pull_request = repo.get_pull(pull_request_number)
@@ -333,6 +449,16 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_commits(self, repo_url: str, days: int = 7) -> str:
+        """
+        Get the commits for a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        days (int): The number of days to retrieve commits for (default is 7 days)
+
+        Returns:
+        str: The commits for the repository
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             if days == 0:
@@ -358,6 +484,16 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def get_repo_commit(self, repo_url: str, commit_sha: str) -> str:
+        """
+        Get the details of a specific commit in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        commit_sha (str): The commit SHA to retrieve
+
+        Returns:
+        str: The details of the commit
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             commit = repo.get_commit(commit_sha)
@@ -371,6 +507,17 @@ class github(Extensions):
     async def add_comment_to_repo_issue(
         self, repo_url: str, issue_number: int, comment_body: str
     ) -> str:
+        """
+        Add a comment to an issue in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        issue_number (int): The issue number to add a comment to
+        comment_body (str): The body of the comment
+
+        Returns:
+        str: The result of the comment addition operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)
@@ -391,6 +538,17 @@ class github(Extensions):
     async def add_comment_to_repo_pull_request(
         self, repo_url: str, pull_request_number: int, comment_body: str
     ) -> str:
+        """
+        Add a comment to a pull request in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        pull_request_number (int): The pull request number to add a comment to
+        comment_body (str): The body of the comment
+
+        Returns:
+        str: The result of the comment addition operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             pull_request = repo.get_pull(pull_request_number)
@@ -409,6 +567,16 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def close_issue(self, repo_url, issue_number):
+        """
+        Close an issue in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        issue_number (int): The issue number to close
+
+        Returns:
+        str: The result of the issue closure operation
+        """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)

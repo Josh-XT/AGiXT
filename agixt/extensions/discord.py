@@ -53,28 +53,90 @@ class discord(Extensions):
                 pass
 
     async def send_message(self, channel_id: int, content: str):
+        """
+        Send a message to a Discord channel
+
+        Args:
+        channel_id (int): The ID of the Discord channel
+        content (str): The content of the message
+
+        Returns:
+        str: The result of sending the message
+        """
         channel = self.bot.get_channel(channel_id)
         await channel.send(content)
+        return f"Message sent to channel {channel_id} successfully!"
 
     async def get_messages(self, channel_id: int, limit: int = 100):
+        """
+        Get messages from a Discord channel
+
+        Args:
+        channel_id (int): The ID of the Discord channel
+        limit (int): The number of messages to retrieve
+
+        Returns:
+        str: The messages from the channel
+        """
         channel = self.bot.get_channel(channel_id)
         messages = await channel.history(limit=limit).flatten()
-        return [(message.author, message.content) for message in messages]
+        str_messages = ""
+        for message in messages:
+            str_messages += f"{message.author}: {message.content}\n"
+        return str_messages
 
     async def delete_message(self, channel_id: int, message_id: int):
+        """
+        Delete a message from a Discord channel
+
+        Args:
+        channel_id (int): The ID of the Discord channel
+        message_id (int): The ID of the message to delete
+
+        Returns:
+        str: The result of deleting the message
+        """
         channel = self.bot.get_channel(channel_id)
         message = await channel.fetch_message(message_id)
         await message.delete()
+        return f"Message {message_id} deleted successfully!"
 
     async def create_invite(self, channel_id: int, max_age: int = 0, max_uses: int = 0):
+        """
+        Create an invite to a Discord channel
+
+        Args:
+        channel_id (int): The ID of the Discord channel
+        max_age (int): The maximum age of the invite in seconds
+        max_uses (int): The maximum number of uses for the invite
+
+        Returns:
+        str: The invite URL
+        """
         channel = self.bot.get_channel(channel_id)
         invite = await channel.create_invite(max_age=max_age, max_uses=max_uses)
         return invite.url
 
     async def get_servers(self):
-        return [guild.name for guild in self.bot.guilds]
+        """
+        Get the list of servers the bot is connected to
+
+        Returns:
+        str: The list of servers
+        """
+        servers = [guild.name for guild in self.bot.guilds]
+        return ", ".join(servers)
 
     async def get_server_info(self, server_id: int):
+        """
+        Get information about a Discord server
+
+        Args:
+        server_id (int): The ID of the Discord server
+
+        Returns:
+        dict: The information about the server
+        """
         server = self.bot.get_guild(server_id)
         return {
             "name": server.name,
