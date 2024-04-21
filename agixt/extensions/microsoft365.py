@@ -62,6 +62,17 @@ class microsoft365(Extensions):
             return None
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
+        """
+        Get emails from the specified folder in the Microsoft 365 email account
+
+        Args:
+        folder_name (str): The name of the folder to retrieve emails from
+        max_emails (int): The maximum number of emails to retrieve
+        page_size (int): The number of emails to retrieve per page
+
+        Returns:
+        list: A list of dictionaries containing email date
+        """
         try:
             mailbox = self.account.mailbox()
             folder = mailbox.get_folder(folder_name=folder_name)
@@ -90,6 +101,19 @@ class microsoft365(Extensions):
     async def send_email(
         self, recipient, subject, body, attachments=None, priority=None
     ):
+        """
+        Send an email using the Microsoft 365 email account
+
+        Args:
+        recipient (str): The email address of the recipient
+        subject (str): The subject of the email
+        body (str): The body of the email
+        attachments (list): A list of file paths to attach to the email
+        priority (str): The priority of the email (e.g. "normal", "high", "low")
+
+        Returns:
+        str: The result of sending the email
+        """
         try:
             mailbox = self.account.mailbox()
             message = mailbox.new_message()
@@ -120,6 +144,19 @@ class microsoft365(Extensions):
     async def create_draft_email(
         self, recipient, subject, body, attachments=None, priority=None
     ):
+        """
+        Create a draft email in the Microsoft 365 email account
+
+        Args:
+        recipient (str): The email address of the recipient
+        subject (str): The subject of the email
+        body (str): The body of the email
+        attachments (list): A list of file paths to attach to the email
+        priority (str): The priority of the email (e.g. "normal", "high", "low")
+
+        Returns:
+        str: The result of creating the draft email
+        """
         try:
             mailbox = self.account.mailbox()
             draft = mailbox.new_message()
@@ -138,6 +175,15 @@ class microsoft365(Extensions):
             return "Failed to create draft email."
 
     async def delete_email(self, message_id):
+        """
+        Delete an email from the Microsoft 365 email account
+
+        Args:
+        message_id (str): The ID of the email message to delete
+
+        Returns:
+        str: The result of deleting the email
+        """
         try:
             mailbox = self.account.mailbox()
             message = mailbox.get_message(object_id=message_id)
@@ -150,6 +196,18 @@ class microsoft365(Extensions):
     async def search_emails(
         self, query, folder_name="Inbox", max_emails=10, date_range=None
     ):
+        """
+        Search for emails in the Microsoft 365 email account
+
+        Args:
+        query (str): The search query to use
+        folder_name (str): The name of the folder to search in
+        max_emails (int): The maximum number of emails to retrieve
+        date_range (tuple): A tuple containing the start and end dates for the search
+
+        Returns:
+        list: A list of dictionaries containing email data
+        """
         try:
             mailbox = self.account.mailbox()
             folder = mailbox.get_folder(folder_name=folder_name)
@@ -178,6 +236,17 @@ class microsoft365(Extensions):
             return []
 
     async def reply_to_email(self, message_id, body, attachments=None):
+        """
+        Reply to an email in the Microsoft 365 email account
+
+        Args:
+        message_id (str): The ID of the email message to reply to
+        body (str): The body of the reply email
+        attachments (list): A list of file paths to attach to the reply email
+
+        Returns:
+        str: The result of sending the reply email
+        """
         try:
             mailbox = self.account.mailbox()
             message = mailbox.get_message(object_id=message_id)
@@ -193,6 +262,15 @@ class microsoft365(Extensions):
             return "Failed to send reply."
 
     async def process_attachments(self, message_id):
+        """
+        Process attachments from an email in the Microsoft 365 email account
+
+        Args:
+        message_id (str): The ID of the email message to process attachments from
+
+        Returns:
+        list: A list of file paths to the saved attachments
+        """
         try:
             mailbox = self.account.mailbox()
             message = mailbox.get_message(object_id=message_id)
@@ -209,6 +287,18 @@ class microsoft365(Extensions):
             return []
 
     async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
+        """
+        Get calendar items from the Microsoft 365 calendar account
+
+        Args:
+        start_date (datetime): The start date for the calendar items
+        end_date (datetime): The end date for the calendar items
+        max_items (int): The maximum number of items to retrieve
+
+        Returns:
+        list: A list of dictionaries containing calendar item data
+        """
+
         try:
             schedule = self.account.schedule()
             calendar = schedule.get_default_calendar()
@@ -243,6 +333,20 @@ class microsoft365(Extensions):
     async def add_calendar_item(
         self, subject, start_time, end_time, location, attendees=None, body=None
     ):
+        """
+        Add a calendar item to the Microsoft 365 calendar account
+
+        Args:
+        subject (str): The subject of the calendar item
+        start_time (datetime): The start time of the calendar item
+        end_time (datetime): The end time of the calendar item
+        location (str): The location of the calendar item
+        attendees (list): A list of email addresses of attendees
+        body (str): The body of the calendar item
+
+        Returns:
+        str: The result of adding the calendar item
+        """
         try:
             schedule = self.account.schedule()
             calendar = schedule.get_default_calendar()
@@ -268,6 +372,15 @@ class microsoft365(Extensions):
             return "Failed to add calendar item."
 
     async def remove_calendar_item(self, item_id):
+        """
+        Remove a calendar item from the Microsoft 365 calendar account
+
+        Args:
+        item_id (str): The ID of the calendar item to remove
+
+        Returns:
+        str: The result of removing the calendar item
+        """
         try:
             schedule = self.account.schedule()
             calendar = schedule.get_default_calendar()

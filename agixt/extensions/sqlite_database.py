@@ -34,6 +34,15 @@ class sqlite_database(Extensions):
             return None
 
     async def execute_sql(self, query: str):
+        """
+        Execute a custom SQL query in the SQLite database
+
+        Args:
+        query (str): The SQL query to execute
+
+        Returns:
+        str: The result of the SQL query
+        """
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
         query = query.replace("\n", " ")
@@ -83,6 +92,13 @@ class sqlite_database(Extensions):
             return await self.execute_sql(query=new_query)
 
     async def get_schema(self):
+        """
+        Get the schema of the SQLite database
+
+        Returns:
+        str: The schema of the SQLite database
+        """
+
         logging.info(f"Getting schema for database '{self.SQLITE_DATABASE_PATH}'")
         connection = self.get_connection()
         cursor = connection.cursor()

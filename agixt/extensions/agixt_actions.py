@@ -182,6 +182,15 @@ class agixt_actions(Extensions):
         self.failures = 0
 
     async def read_file_content(self, file_path: str):
+        """
+        Read the content of a file and store it in long term memory
+
+        Args:
+        file_path (str): The path to the file
+
+        Returns:
+        str: Success message
+        """
         with open(file_path, "r") as f:
             file_content = f.read()
         filename = os.path.basename(file_path)
@@ -193,6 +202,15 @@ class agixt_actions(Extensions):
         )
 
     async def write_website_to_memory(self, url: str):
+        """
+        Read the content of a website and store it in long term memory
+
+        Args:
+        url (str): The URL of the website
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_url(
             agent_name=self.agent_name,
             url=url,
@@ -202,6 +220,16 @@ class agixt_actions(Extensions):
     async def store_long_term_memory(
         self, input: str, data_to_correlate_with_input: str
     ):
+        """
+        Store information in long term memory
+
+        Args:
+        input (str): The user input
+        data_to_correlate_with_input (str): The data to correlate with the user input in long term memory, useful for feedback or remembering important information for later
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_text(
             agent_name=self.agent_name,
             user_input=input,
@@ -209,6 +237,16 @@ class agixt_actions(Extensions):
         )
 
     async def search_arxiv(self, query: str, max_articles: int = 5):
+        """
+        Search for articles on arXiv, read into long term memory
+
+        Args:
+        query (str): The search query
+        max_articles (int): The maximum number of articles to read
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_arxiv(
             query=query,
             article_ids=None,
@@ -217,6 +255,15 @@ class agixt_actions(Extensions):
         )
 
     async def read_github_repository(self, repository_url: str):
+        """
+        Read the content of a GitHub repository and store it in long term memory
+
+        Args:
+        repository_url (str): The URL of the GitHub repository
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_github_repo(
             agent_name=self.agent_name,
             github_repo=repository_url,
@@ -233,6 +280,20 @@ class agixt_actions(Extensions):
         smart_chain: bool = False,
         researching: bool = False,
     ):
+        """
+        Create a task chain from a numbered list of tasks
+
+        Args:
+        agent (str): The agent to create the task chain for
+        primary_objective (str): The primary objective to keep in mind while working on the task
+        numbered_list_of_tasks (str): The numbered list of tasks to complete
+        short_chain_description (str): A short description of the chain
+        smart_chain (bool): Whether to create a smart chain
+        researching (bool): Whether to include web research in the chain
+
+        Returns:
+        str: The name of the created chain
+        """
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
@@ -309,6 +370,15 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def run_chain(self, input_for_task: str = ""):
+        """
+        Run a chain
+
+        Args:
+        input_for_task (str): The input for the task
+
+        Returns:
+        str: The response from the chain
+        """
         response = await self.ApiClient.run_chain(
             chain_name=self.command_name,
             user_input=input_for_task,
@@ -322,6 +392,15 @@ class agixt_actions(Extensions):
         return response
 
     def parse_openapi(self, data):
+        """
+        Parse OpenAPI data to extract endpoints
+
+        Args:
+        data (dict): The OpenAPI data
+
+        Returns:
+        list: The list of endpoints
+        """
         endpoints = []
         schemas = data.get("components", {}).get(
             "schemas", {}
@@ -382,6 +461,15 @@ class agixt_actions(Extensions):
         return endpoints
 
     def get_auth_type(self, openapi_data):
+        """
+        Get the authentication type from the OpenAPI data
+
+        Args:
+        openapi_data (dict): The OpenAPI data
+
+        Returns:
+        str: The authentication type
+        """
         # The "components" section contains the security schemes
         if (
             "components" in openapi_data
@@ -399,6 +487,16 @@ class agixt_actions(Extensions):
         return "basic"
 
     async def generate_openapi_chain(self, extension_name: str, openapi_json_url: str):
+        """
+        Generate an AGiXT extension from an OpenAPI JSON URL
+
+        Args:
+        extension_name (str): The name of the extension
+        openapi_json_url (str): The URL of the OpenAPI JSON file
+
+        Returns:
+        str: The name of the created chain
+        """
         # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
@@ -499,6 +597,17 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def generate_helper_chain(self, user_agent, helper_agent, task_in_question):
+        """
+        Generate a helper chain for an agent
+
+        Args:
+        user_agent (str): The user agent
+        helper_agent (str): The helper agent
+        task_in_question (str): The task in question
+
+        Returns:
+        str: The name of the created chain
+        """
         chain_name = f"Help Chain - {user_agent} to {helper_agent}"
         self.ApiClient.add_chain(chain_name=chain_name)
         i = 1
@@ -528,6 +637,16 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def ask_for_help(self, your_agent_name, your_task):
+        """
+        Ask for help from a helper agent
+
+        Args:
+        your_agent_name (str): Your agent name
+        your_task (str): Your task
+
+        Returns:
+        str: The response from the helper agent
+        """
         return self.ApiClient.run_chain(
             chain_name="Ask Helper Agent for Help",
             user_input=your_task,
@@ -542,6 +661,16 @@ class agixt_actions(Extensions):
     async def create_command(
         self, function_description: str, agent: str = "AGiXT"
     ) -> List[str]:
+        """
+        Create a new command
+
+        Args:
+        function_description (str): The description of the function
+        agent (str): The agent to create the command for
+
+        Returns:
+        str: The response from the chain
+        """
         try:
             return self.ApiClient.run_chain(
                 chain_name="Create New Command",
@@ -557,6 +686,15 @@ class agixt_actions(Extensions):
             return f"Unable to create command: {e}"
 
     async def ask(self, user_input: str) -> str:
+        """
+        Ask a question
+
+        Args:
+        user_input (str): The user input
+
+        Returns:
+        str: The response to the question
+        """
         response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Chat",
@@ -570,6 +708,15 @@ class agixt_actions(Extensions):
         return response
 
     async def instruct(self, user_input: str) -> str:
+        """
+        Instruct the agent
+
+        Args:
+        user_input (str): The user input
+
+        Returns:
+        str: The response to the instruction
+        """
         response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="instruct",
@@ -583,11 +730,30 @@ class agixt_actions(Extensions):
         return response
 
     async def get_python_code_from_response(self, response: str):
+        """
+        Get the Python code from the response
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The Python code
+        """
         if "```python" in response:
             response = response.split("```python")[1].split("```")[0]
         return response
 
     async def execute_python_code_internal(self, code: str, text: str = "") -> str:
+        """
+        Execute Python code
+
+        Args:
+        code (str): The Python code
+        text (str): The text
+
+        Returns:
+        str: The result of the Python code
+        """
         working_dir = os.environ.get("WORKING_DIRECTORY", self.WORKING_DIRECTORY)
         if text:
             csv_content_header = text.split("\n")[0]
@@ -602,6 +768,15 @@ class agixt_actions(Extensions):
         return execute_python_code(code=code, working_directory=working_dir)
 
     async def get_mindmap(self, task: str):
+        """
+        Get a mindmap for a task
+
+        Args:
+        task (str): The task
+
+        Returns:
+        dict: The mindmap
+        """
         mindmap = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Mindmap",
@@ -613,10 +788,27 @@ class agixt_actions(Extensions):
         return parse_mindmap(mindmap=mindmap)
 
     async def make_csv_code_block(self, data: str) -> str:
+        """
+        Make a CSV code block
+
+        Args:
+        data (str): The data
+
+        Returns:
+        str: The CSV code block
+        """
         return f"```csv\n{data}\n```"
 
     async def get_csv_preview(self, filename: str):
-        # Get first 2 lines of the file
+        """
+        Get a preview of a CSV file
+
+        Args:
+        filename (str): The filename
+
+        Returns:
+        str: The preview of the CSV file consisting of the first 2 lines
+        """
         filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
         with open(filepath, "r") as f:
             lines = f.readlines()
@@ -625,17 +817,42 @@ class agixt_actions(Extensions):
         return lines_string
 
     async def get_csv_preview_text(self, text: str):
-        # Get first 2 lines of the text
+        """
+        Get a preview of a CSV text
+
+        Args:
+        text (str): The text
+
+        Returns:
+        str: The preview of the CSV text consisting of the first 2 lines
+        """
         lines = text.split("\n")
         lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
     async def get_csv_from_response(self, response: str) -> str:
+        """
+        Get the CSV data from the response
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The CSV data
+        """
         return response.split("```csv")[1].split("```")[0]
 
-    # Convert LLM response of a list of either numbers like a numbered list, *'s, -'s to a list from the string response
     async def convert_llm_response_to_list(self, response):
+        """
+        Convert an LLM response to a list
+
+        Args:
+        response (str): The response
+
+        Returns:
+        list: The list
+        """
         response = response.split("\n")
         response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
         response = [item for item in response if item]
@@ -643,6 +860,15 @@ class agixt_actions(Extensions):
         return response
 
     async def convert_questions_to_dataset(self, response):
+        """
+        Convert questions to a dataset
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The dataset
+        """
         questions = await self.convert_llm_response_to_list(response)
         tasks = []
         i = 0
@@ -667,6 +893,16 @@ class agixt_actions(Extensions):
     async def convert_string_to_pydantic_model(
         self, input_string: str, output_model: Type[BaseModel]
     ):
+        """
+        Convert a string to a Pydantic model
+
+        Args:
+        input_string (str): The input string
+        output_model (Type[BaseModel]): The output model
+
+        Returns:
+        Type[BaseModel]: The Pydantic model
+        """
         fields = output_model.model_fields
         field_descriptions = [f"{field}: {fields[field]}" for field in fields]
         schema = "\n".join(field_descriptions)
