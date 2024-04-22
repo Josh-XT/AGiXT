@@ -17,8 +17,6 @@ AGiXT is a dynamic Artificial Intelligence Automation Platform engineered to orc
 
 Embracing the spirit of extremity in every facet of life, we introduce AGiXT. This advanced AI Automation Platform is our bold step towards the realization of Artificial General Intelligence (AGI). Seamlessly orchestrating instruction management and executing complex tasks across diverse AI providers, AGiXT combines adaptive memory, smart features, and a versatile plugin system to maximize AI potential. With our unwavering commitment to innovation, we're dedicated to pushing the boundaries of AI and bringing AGI closer to reality.
 
-[AGiXT Setup and Usage Video](https://www.youtube.com/watch?v=XbjjPdYRM_k)
-
 ## Table of Contents 📖
 
 - [AGiXT](#agixt)
@@ -26,7 +24,6 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [⚠️ Disclaimers](#️-disclaimers)
     - [Monitor Your Usage](#monitor-your-usage)
   - [Key Features 🗝️](#key-features-️)
-    - [Getting Started with Local Models and AGiXT Video](#getting-started-with-local-models-and-agixt-video)
   - [Quick Start Guide](#quick-start-guide)
     - [Windows and Mac Prerequisites](#windows-and-mac-prerequisites)
     - [Linux Prerequisites](#linux-prerequisites)
@@ -35,11 +32,6 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [Configuration](#configuration)
   - [Documentation](#documentation)
   - [Other Repositories](#other-repositories)
-  - [Contributing](#contributing)
-  - [Donations and Sponsorships](#donations-and-sponsorships)
-  - [Our Team 🧑‍💻](#our-team-)
-    - [Josh (@Josh-XT)](#josh-josh-xt)
-    - [James (@JamesonRGrieve)](#james-jamesonrgrieve)
   - [History](#history)
 
 ## ⚠️ Disclaimers
@@ -66,12 +58,6 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 - **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
 The features that AGiXT provides cover a wide range of services and are used for different tasks. Refer to [Processes and Frameworks](https://josh-xt.github.io/AGiXT/2-Concepts/1-Processes%20and%20Frameworks.html) for more details about the services and framework.
-
-### Getting Started with Local Models and AGiXT Video
-
-This is a video that walks through the process of setting up and using AGiXT to interact with locally hosted language models. This is a great way to get started with AGiXT and see how it works.
-
-[![Getting Started with Local Models and AGiXT](https://img.youtube.com/vi/XbjjPdYRM_k/0.jpg)](https://www.youtube.com/watch?v=XbjjPdYRM_k)
 
 ## Quick Start Guide
 
@@ -161,33 +147,7 @@ Need more information? Check out the [documentation](https://josh-xt.github.io/A
 
 ## Other Repositories
 
-Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/repositories> - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
-
-## Contributing
-
-[![Contribute](https://img.shields.io/github/issues/Josh-XT/AGiXT/help%20wanted?color=purple&label=Quick%20Contribute&logo=github&style=plastic)](https://github.com/Josh-XT/AGiXT/labels/help%20wanted)
-
-We welcome contributions to AGiXT! If you're interested in contributing, please check out our [contributions guide](https://github.com/Josh-XT/AGiXT/tree/main/.github/CONTRIBUTING.md) the [open issues on the backend](https://github.com/Josh-XT/AGiXT/issues), [open issues on the frontend](https://github.com/JamesonRGrieve/Agent-LLM-Frontend/issues) and [pull requests](https://github.com/Josh-XT/AGiXT/pulls), submit a [pull request](https://github.com/Josh-XT/AGiXT/pulls/new), or [suggest new features](https://github.com/Josh-XT/AGiXT/issues/new). To stay updated on the project's progress, [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT) and [![Twitter](https://img.shields.io/badge/Twitter-Follow_@JamesonRGrieve-blue?logo=twitter&style=plastic)](https://twitter.com/JamesonRGrieve). Also feel free to join our [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD).
-
-## Donations and Sponsorships
-
-We appreciate any support for AGiXT's development, including donations, sponsorships, and any other kind of assistance. If you would like to support us, please use one of the various methods listed at the top of the repository or contact us through our [![Discord](https://img.shields.io/discord/1097720481970397356?label=Discord&logo=discord&logoColor=white&style=plastic&color=5865f2)](https://discord.gg/d3TkHRZcjD) or [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh_XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT).
-
-We're always looking for ways to improve AGiXT and make it more useful for our users. Your support will help us continue to develop and enhance the application. Thank you for considering to support us!
-
-## Our Team 🧑‍💻
-
-### Josh (@Josh-XT)
-
-- [![GitHub](https://img.shields.io/badge/GitHub-Follow_@Josh--XT-white?logo=github&style=plastic)](https://github.com/Josh-XT)
-- [![Twitter](https://img.shields.io/badge/Twitter-Follow_@Josh__XT-blue?logo=twitter&style=plastic)](https://twitter.com/Josh_XT)
-- [![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_@JoshXT-blue?logo=linkedin&style=plastic)](https://www.linkedin.com/in/joshxt/)
-
-### James (@JamesonRGrieve)
-
-- [![GitHub](https://img.shields.io/badge/GitHub-Follow_@JamesonRGrieve-white?logo=github&style=plastic)](https://github.com/JamesonRGrieve)
-- [![Twitter](https://img.shields.io/badge/Twitter-Follow_@JamesonRGrieve-blue?logo=twitter&style=plastic)](https://twitter.com/JamesonRGrieve)
-- [![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow_@JamesonRGrieve-blue?logo=linkedin&style=plastic)](https://www.linkedin.com/in/jamesonrgrieve/)
+Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/repositories> - these include the AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, AGiXT Dart SDK, AGiXT C# SDK, and more!
 
 ## History
 
