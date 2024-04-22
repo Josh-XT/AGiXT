@@ -402,8 +402,6 @@ class Interactions:
         user_input: str = "",
         prompt: str = "",
         context_results: int = 5,
-        websearch: bool = False,
-        websearch_depth: int = 3,
         chain_name: str = "",
         step_number: int = 0,
         shots: int = 1,
@@ -425,16 +423,31 @@ class Interactions:
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
         disable_memory = False if str(disable_memory).lower() == "false" else True
+        if "disable_memory" in kwargs:
+            disable_memory = (
+                False if str(kwargs["disable_memory"]).lower() == "false" else True
+            )
         browse_links = True if str(browse_links).lower() == "true" else False
+        if "browse_links" in kwargs:
+            browse_links = (
+                True if str(kwargs["browse_links"]).lower() == "true" else False
+            )
+        websearch = False
+        if "websearch" in kwargs:
+            websearch = True if str(kwargs["websearch"]).lower() == "true" else False
+        websearch_depth = 3
+        if "websearch_depth" in kwargs:
+            try:
+                websearch_depth = int(kwargs["websearch_depth"])
+            except:
+                websearch_depth = 3
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = f"{str(datetime.now())} Conversation"
-        if "WEBSEARCH_TIMEOUT" in self.agent.PROVIDER_SETTINGS:
+        if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
-                websearch_timeout = int(
-                    self.agent.PROVIDER_SETTINGS["WEBSEARCH_TIMEOUT"]
-                )
+                websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
             except:
                 websearch_timeout = 0
         else:

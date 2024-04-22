@@ -47,16 +47,6 @@ async def chat_completion(
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
     images = []
     new_prompt = ""
-    websearch = (
-        False
-        if "websearch" not in agent_settings
-        else str(agent_settings["websearch"]).lower() == "true"
-    )
-    websearch_depth = (
-        0
-        if "websearch_depth" not in agent_settings
-        else int(agent_settings["websearch_depth"])
-    )
     browse_links = True
     if "mode" in agent_settings:
         mode = agent_settings["mode"]
@@ -142,10 +132,6 @@ async def chat_completion(
                 if isinstance(message["chain_args"], str)
                 else message["chain_args"]
             )
-        if "websearch" in message:
-            websearch = str(message["websearch"]).lower() == "true"
-        if "websearch_depth" in message:
-            websearch_depth = int(message["websearch_depth"])
         if "browse_links" in message:
             browse_links = str(message["browse_links"]).lower() == "true"
         if "content" not in message:
@@ -377,8 +363,6 @@ async def chat_completion(
                 prompt_category=prompt_category,
                 context_results=context_results,
                 shots=prompt.n,
-                websearch=websearch,
-                websearch_depth=websearch_depth,
                 conversation_name=conversation_name,
                 browse_links=browse_links,
                 images=images,
