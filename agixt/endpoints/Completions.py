@@ -49,13 +49,13 @@ async def chat_completion(
     new_prompt = ""
     websearch = (
         False
-        if "WEBSEARCH_ENABLED" not in agent_settings
-        else str(agent_settings["WEBSEARCH_ENABLED"]).lower() == "true"
+        if "websearch" not in agent_settings
+        else str(agent_settings["websearch"]).lower() == "true"
     )
     websearch_depth = (
         0
-        if "WEBSEARCH_DEPTH" not in agent_settings
-        else int(agent_settings["WEBSEARCH_DEPTH"])
+        if "websearch_depth" not in agent_settings
+        else int(agent_settings["websearch_depth"])
     )
     browse_links = True
     if "mode" in agent_settings:

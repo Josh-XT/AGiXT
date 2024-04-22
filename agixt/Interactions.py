@@ -416,6 +416,11 @@ class Interactions:
         create_image: bool = False,
         **kwargs,
     ):
+        for setting in self.agent.AGENT_CONFIG["settings"]:
+            if setting not in kwargs:
+                kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
+        if shots == 0:
+            shots = 1
         shots = int(shots)
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
