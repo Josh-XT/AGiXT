@@ -9,7 +9,7 @@ class searxng(Extensions):
     def __init__(self, SEARXNG_INSTANCE_URL: str = "", **kwargs):
         self.SEARXNG_INSTANCE_URL = SEARXNG_INSTANCE_URL
         self.SEARXNG_ENDPOINT = self.get_server()
-        self.commands = {"Use The Search Engine": self.search}
+        self.commands = {"Use The SearXNG Search Engine": self.search}
 
     def get_server(self):
         if self.SEARXNG_INSTANCE_URL == "":

@@ -25,24 +25,19 @@ class microsoft365(Extensions):
         self.tenant_id = M365_TENANT_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
-        self.account = self.authenticate()
-
-        if self.account:
-            self.commands = {
-                "Microsoft - Get Emails": self.get_emails,
-                "Microsoft - Send Email": self.send_email,
-                "Microsoft - Move Email to Folder": self.move_email_to_folder,
-                "Microsoft - Create Draft Email": self.create_draft_email,
-                "Microsoft - Delete Email": self.delete_email,
-                "Microsoft - Search Emails": self.search_emails,
-                "Microsoft - Reply to Email": self.reply_to_email,
-                "Microsoft - Process Attachments": self.process_attachments,
-                "Microsoft - Get Calendar Items": self.get_calendar_items,
-                "Microsoft - Add Calendar Item": self.add_calendar_item,
-                "Microsoft - Remove Calendar Item": self.remove_calendar_item,
-            }
-        else:
-            self.commands = {}
+        self.commands = {
+            "Microsoft - Get Emails": self.get_emails,
+            "Microsoft - Send Email": self.send_email,
+            "Microsoft - Move Email to Folder": self.move_email_to_folder,
+            "Microsoft - Create Draft Email": self.create_draft_email,
+            "Microsoft - Delete Email": self.delete_email,
+            "Microsoft - Search Emails": self.search_emails,
+            "Microsoft - Reply to Email": self.reply_to_email,
+            "Microsoft - Process Attachments": self.process_attachments,
+            "Microsoft - Get Calendar Items": self.get_calendar_items,
+            "Microsoft - Add Calendar Item": self.add_calendar_item,
+            "Microsoft - Remove Calendar Item": self.remove_calendar_item,
+        }
 
     def authenticate(self):
         try:
@@ -74,7 +69,7 @@ class microsoft365(Extensions):
         list: A list of dictionaries containing email date
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             folder = mailbox.get_folder(folder_name=folder_name)
             emails = []
             query = folder.new_query().order_by("receivedDateTime", ascending=False)
@@ -115,7 +110,7 @@ class microsoft365(Extensions):
         str: The result of sending the email
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             message = mailbox.new_message()
             message.to.add(recipient)
             message.subject = subject
@@ -133,7 +128,7 @@ class microsoft365(Extensions):
 
     async def move_email_to_folder(self, message_id, destination_folder):
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             message = mailbox.get_message(object_id=message_id)
             message.move(destination_folder)
             return f"Email moved to {destination_folder} folder."
@@ -158,7 +153,7 @@ class microsoft365(Extensions):
         str: The result of creating the draft email
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             draft = mailbox.new_message()
             draft.to.add(recipient)
             draft.subject = subject
@@ -185,7 +180,7 @@ class microsoft365(Extensions):
         str: The result of deleting the email
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             message = mailbox.get_message(object_id=message_id)
             message.delete()
             return "Email deleted successfully."
@@ -209,7 +204,7 @@ class microsoft365(Extensions):
         list: A list of dictionaries containing email data
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             folder = mailbox.get_folder(folder_name=folder_name)
             emails = []
             search_query = folder.new_query(query)
@@ -248,7 +243,7 @@ class microsoft365(Extensions):
         str: The result of sending the reply email
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             message = mailbox.get_message(object_id=message_id)
             reply = message.reply()
             reply.body = body
@@ -272,7 +267,7 @@ class microsoft365(Extensions):
         list: A list of file paths to the saved attachments
         """
         try:
-            mailbox = self.account.mailbox()
+            mailbox = self.authenticate().mailbox()
             message = mailbox.get_message(object_id=message_id)
             attachments = message.attachments
             saved_attachments = []
@@ -300,7 +295,7 @@ class microsoft365(Extensions):
         """
 
         try:
-            schedule = self.account.schedule()
+            schedule = self.authenticate().schedule()
             calendar = schedule.get_default_calendar()
 
             if start_date is None:
@@ -348,7 +343,7 @@ class microsoft365(Extensions):
         str: The result of adding the calendar item
         """
         try:
-            schedule = self.account.schedule()
+            schedule = self.authenticate().schedule()
             calendar = schedule.get_default_calendar()
 
             new_event = calendar.new_event()
@@ -382,7 +377,7 @@ class microsoft365(Extensions):
         str: The result of removing the calendar item
         """
         try:
-            schedule = self.account.schedule()
+            schedule = self.authenticate().schedule()
             calendar = schedule.get_default_calendar()
 
             event = calendar.get_event(item_id)

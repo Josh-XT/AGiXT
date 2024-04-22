@@ -48,25 +48,20 @@ class google(Extensions):
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
-        self.creds = self.authenticate()
-
-        if self.creds:
-            self.commands = {
-                "Google - Get Emails": self.get_emails,
-                "Google - Send Email": self.send_email,
-                "Google - Move Email to Folder": self.move_email_to_folder,
-                "Google - Create Draft Email": self.create_draft_email,
-                "Google - Delete Email": self.delete_email,
-                "Google - Search Emails": self.search_emails,
-                "Google - Reply to Email": self.reply_to_email,
-                "Google - Process Attachments": self.process_attachments,
-                "Google - Get Calendar Items": self.get_calendar_items,
-                "Google - Add Calendar Item": self.add_calendar_item,
-                "Google - Remove Calendar Item": self.remove_calendar_item,
-                "Google Search": self.google_official_search,
-            }
-        else:
-            self.commands = {}
+        self.commands = {
+            "Google - Get Emails": self.get_emails,
+            "Google - Send Email": self.send_email,
+            "Google - Move Email to Folder": self.move_email_to_folder,
+            "Google - Create Draft Email": self.create_draft_email,
+            "Google - Delete Email": self.delete_email,
+            "Google - Search Emails": self.search_emails,
+            "Google - Reply to Email": self.reply_to_email,
+            "Google - Process Attachments": self.process_attachments,
+            "Google - Get Calendar Items": self.get_calendar_items,
+            "Google - Add Calendar Item": self.add_calendar_item,
+            "Google - Remove Calendar Item": self.remove_calendar_item,
+            "Google Search": self.google_official_search,
+        }
 
     def authenticate(self):
         try:
@@ -97,7 +92,7 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
             result = (
                 service.users()
                 .messages()
@@ -149,7 +144,7 @@ class google(Extensions):
         str: The result of sending the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
 
             message = MIMEMultipart()
             message["to"] = recipient
@@ -197,7 +192,7 @@ class google(Extensions):
         str: The result of moving the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
 
             folders = service.users().labels().list(userId="me").execute()
             folder_id = next(
@@ -242,7 +237,7 @@ class google(Extensions):
         str: The result of creating the draft email
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
 
             message = MIMEMultipart()
             message["to"] = recipient
@@ -289,7 +284,7 @@ class google(Extensions):
         str: The result of deleting the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
             service.users().messages().delete(userId="me", id=message_id).execute()
             return "Email deleted successfully."
         except Exception as e:
@@ -308,7 +303,7 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
             result = (
                 service.users()
                 .messages()
@@ -359,7 +354,7 @@ class google(Extensions):
         str: The result of sending the reply
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
             message = (
                 service.users()
                 .messages()
@@ -416,7 +411,7 @@ class google(Extensions):
         List[str]: A list of file paths to the saved attachments
         """
         try:
-            service = build("gmail", "v1", credentials=self.creds)
+            service = build("gmail", "v1", credentials=self.authenticate())
             message = (
                 service.users().messages().get(userId="me", id=message_id).execute()
             )
@@ -459,7 +454,7 @@ class google(Extensions):
         List[Dict]: A list of calendar item data
         """
         try:
-            service = build("calendar", "v3", credentials=self.creds)
+            service = build("calendar", "v3", credentials=self.authenticate())
 
             if start_date is None:
                 start_date = datetime.utcnow().isoformat() + "Z"
@@ -519,7 +514,7 @@ class google(Extensions):
         str: The result of adding the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.creds)
+            service = build("calendar", "v3", credentials=self.authenticate())
 
             event = {
                 "summary": subject,
@@ -555,7 +550,7 @@ class google(Extensions):
         str: The result of removing the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.creds)
+            service = build("calendar", "v3", credentials=self.authenticate())
             service.events().delete(calendarId="primary", eventId=item_id).execute()
             return "Calendar item removed successfully."
         except Exception as e:

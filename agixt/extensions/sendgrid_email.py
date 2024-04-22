@@ -16,8 +16,7 @@ class sendgrid_email(Extensions):
     def __init__(self, SENDGRID_API_KEY: str = "", SENDGRID_EMAIL: str = "", **kwargs):
         self.SENDGRID_API_KEY = SENDGRID_API_KEY
         self.SENDGRID_EMAIL = SENDGRID_EMAIL
-        if self.SENDGRID_API_KEY:
-            self.commands = {"Send Email with Sendgrid": self.send_email}
+        self.commands = {"Send Email with Sendgrid": self.send_email}
 
     async def send_email(self, to_email: str, subject: str, content: str):
         """

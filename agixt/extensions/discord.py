@@ -21,16 +21,15 @@ class discord(Extensions):
     ):
         self.DISCORD_API_KEY = DISCORD_API_KEY
         self.DISCORD_COMMAND_PREFIX = DISCORD_COMMAND_PREFIX
+        self.commands = {
+            "Send Discord Message": self.send_message,
+            "Get Discord Messages": self.get_messages,
+            "Delete Discord Message": self.delete_message,
+            "Create Discord Invite": self.create_invite,
+            "Get Discord Servers": self.get_servers,
+            "Get Discord Server Information": self.get_server_info,
+        }
         if self.DISCORD_API_KEY:
-            self.commands = {
-                "Send Discord Message": self.send_message,
-                "Get Discord Messages": self.get_messages,
-                "Delete Discord Message": self.delete_message,
-                "Create Discord Invite": self.create_invite,
-                "Get Discord Servers": self.get_servers,
-                "Get Discord Server Information": self.get_server_info,
-            }
-
             try:
                 intents = dc.Intents.default()
                 intents.typing = False
