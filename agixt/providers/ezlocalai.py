@@ -20,7 +20,7 @@ class EzlocalaiProvider:
         self,
         EZLOCALAI_API_KEY: str = "None",
         AI_MODEL: str = "zephyr-7b-beta",
-        API_URI: str = "http://localhost:8091/v1/",
+        EZLOCALAI_API_URI: str = "http://localhost:8091/v1/",
         MAX_TOKENS: int = 8192,
         AI_TEMPERATURE: float = 1.33,
         AI_TOP_P: float = 0.95,
@@ -32,9 +32,9 @@ class EzlocalaiProvider:
         self.requirements = ["openai"]
         self.AI_MODEL = AI_MODEL if AI_MODEL else "zephyr-7b-beta"
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 8192
-        if not API_URI.endswith("/"):
-            API_URI += "/"
-        self.API_URI = API_URI if API_URI else "http://localhost:8091/v1/"
+        if not EZLOCALAI_API_URI.endswith("/"):
+            EZLOCALAI_API_URI += "/"
+        self.API_URI = EZLOCALAI_API_URI if EZLOCALAI_API_URI else "http://localhost:8091/v1/"
         self.SYSTEM_MESSAGE = SYSTEM_MESSAGE
         self.VOICE = VOICE if VOICE else "DukeNukem"
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
