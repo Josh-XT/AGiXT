@@ -400,7 +400,6 @@ class Interactions:
     async def run(
         self,
         user_input: str = "",
-        prompt: str = "",
         context_results: int = 5,
         chain_name: str = "",
         step_number: int = 0,
@@ -408,7 +407,6 @@ class Interactions:
         disable_memory: bool = True,
         conversation_name: str = "",
         browse_links: bool = False,
-        prompt_category: str = "Default",
         persist_context_in_history: bool = False,
         images: list = [],
         create_image: bool = False,
@@ -420,6 +418,10 @@ class Interactions:
         if shots == 0:
             shots = 1
         shots = int(shots)
+        prompt_category = "Default"
+        prompt = "Chat"
+        if "prompt_name" in kwargs:
+            prompt = kwargs["prompt_name"]
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]
         disable_memory = False if str(disable_memory).lower() == "false" else True
