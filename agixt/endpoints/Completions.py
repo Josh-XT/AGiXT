@@ -359,8 +359,6 @@ async def chat_completion(
         elif mode == "prompt":
             response = await agent.run(
                 user_input=new_prompt,
-                prompt=prompt_name,
-                prompt_category=prompt_category,
                 context_results=context_results,
                 shots=prompt.n,
                 conversation_name=conversation_name,
