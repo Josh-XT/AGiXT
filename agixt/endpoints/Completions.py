@@ -47,8 +47,16 @@ async def chat_completion(
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
     images = []
     new_prompt = ""
-    websearch = False
-    websearch_depth = 0
+    websearch = (
+        False
+        if "WEBSEARCH_ENABLED" not in agent_settings
+        else agent_settings["WEBSEARCH_ENABLED"].lower() == "true"
+    )
+    websearch_depth = (
+        0
+        if "WEBSEARCH_DEPTH" not in agent_settings
+        else int(agent_settings["WEBSEARCH_DEPTH"])
+    )
     browse_links = True
     if "mode" in agent_settings:
         mode = agent_settings["mode"]
