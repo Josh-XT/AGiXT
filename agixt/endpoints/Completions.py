@@ -50,7 +50,7 @@ async def chat_completion(
     websearch = (
         False
         if "WEBSEARCH_ENABLED" not in agent_settings
-        else agent_settings["WEBSEARCH_ENABLED"].lower() == "true"
+        else str(agent_settings["WEBSEARCH_ENABLED"]).lower() == "true"
     )
     websearch_depth = (
         0
