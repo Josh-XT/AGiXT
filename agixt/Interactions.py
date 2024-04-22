@@ -96,17 +96,19 @@ class Interactions:
         user_input: str = "",
         top_results: int = 5,
         prompt="",
-        prompt_category="Default",
         chain_name="",
         step_number=0,
         conversation_name="",
-        websearch: bool = False,
         vision_response: str = "",
+        websearch: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
+        prompt_category = (
+            "Default" if "prompt_category" not in kwargs else kwargs["prompt_category"]
+        )
         try:
             prompt = self.cp.get_prompt(
                 prompt_name=prompt_name, prompt_category=prompt_category
@@ -418,14 +420,9 @@ class Interactions:
         if shots == 0:
             shots = 1
         shots = int(shots)
-        prompt_category = "Default"
         prompt = "Chat"
         if "prompt_name" in kwargs:
             prompt = kwargs["prompt_name"]
-            del kwargs["prompt_name"]
-        if "prompt_category" in kwargs:
-            prompt_category = kwargs["prompt_category"]
-            del kwargs["prompt_category"]
         disable_memory = False if str(disable_memory).lower() == "false" else True
         if "disable_memory" in kwargs:
             disable_memory = (
@@ -536,7 +533,6 @@ class Interactions:
             user_input=user_input,
             top_results=int(context_results),
             prompt=prompt,
-            prompt_category=prompt_category,
             chain_name=chain_name,
             step_number=step_number,
             conversation_name=conversation_name,
@@ -588,7 +584,6 @@ class Interactions:
                     "user_input": user_input,
                     "context_results": context_results,
                     "conversation_name": conversation_name,
-                    "prompt_category": prompt_category,
                     **kwargs,
                 },
             )
@@ -627,7 +622,6 @@ class Interactions:
                         "context_results": context_results,
                         "conversation_name": conversation_name,
                         "disable_memory": disable_memory,
-                        "prompt_category": prompt_category,
                         **kwargs,
                     },
                 )
