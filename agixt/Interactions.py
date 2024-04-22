@@ -236,13 +236,12 @@ class Interactions:
             working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
         except:
             working_directory = "./WORKSPACE"
+        helper_agent_name = self.agent_name
         if "helper_agent_name" not in kwargs:
             if "helper_agent_name" in self.agent.AGENT_CONFIG["settings"]:
                 helper_agent_name = self.agent.AGENT_CONFIG["settings"][
                     "helper_agent_name"
                 ]
-            else:
-                helper_agent_name = self.agent_name
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
