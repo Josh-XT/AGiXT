@@ -384,11 +384,25 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        results = await self.get_memories_data(
+        default_collection_name = self.collection_name
+        if self.user != DEFAULT_USER:
+            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
+            if self.collection_number > 0:
+                self.collection_name = (
+                    f"{self.collection_name}_{self.collection_number}"
+                )
+        default_results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
+        self.collection_name = default_collection_name
+        user_results = await self.get_memories_data(
+            user_input=user_input,
+            limit=limit,
+            min_relevance_score=min_relevance_score,
+        )
+        results = user_results + default_results
         response = []
         if results:
             for result in results:
@@ -403,9 +417,7 @@ class Memories:
                     else None
                 )
                 if external_source:
-                    # If the external source is a url or a file path, add it to the metadata
-                    if external_source:
-                        metadata = f"Sourced from {external_source}:\n{metadata}"
+                    metadata = f"Sourced from {external_source}:\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response
