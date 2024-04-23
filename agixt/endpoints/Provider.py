@@ -6,7 +6,7 @@ from Providers import (
     get_providers_with_settings,
     get_providers_by_service,
 )
-from ApiClient import verify_api_key, DB_CONNECTED
+from ApiClient import verify_api_key, DB_CONNECTED, get_api_client
 from typing import Any
 
 app = APIRouter()
@@ -70,23 +70,41 @@ async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
 
 
 if DB_CONNECTED:
-    from db.User import create_user
+    from db.User import create_user, is_admin
     from Models import User
 
     @app.post("/api/user", tags=["User"])
-    async def createuser(account: User, authorization: str = Header(None)):
+    async def createuser(
+        account: User, authorization: str = Header(None), user=Depends(verify_api_key)
+    ):
+        if not is_admin(user):
+            return {"error": "Unauthorized"}, 401
+        ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,
             email=account.email,
             role="user",
             settings=account.settings,
+            commands=account.commands,
+            training_urls=account.training_urls,
+            github_repos=account.github_repos,
+            ApiClient=ApiClient,
         )
 
     @app.post("/api/admin", tags=["User"])
-    async def createadmin(account: User, authorization: str = Header(None)):
+    async def createadmin(
+        account: User, authorization: str = Header(None), user=Depends(verify_api_key)
+    ):
+        if not is_admin(user):
+            return {"error": "Unauthorized"}, 401
+        ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,
             email=account.email,
             role="admin",
             settings=account.settings,
+            commands=account.commands,
+            training_urls=account.training_urls,
+            github_repos=account.github_repos,
+            ApiClient=ApiClient,
         )
