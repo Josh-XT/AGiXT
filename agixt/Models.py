@@ -254,3 +254,5 @@ class User(BaseModel):
     agent_name: Optional[str] = "AGiXT"
     settings: Optional[Dict[str, Any]] = {}
     commands: Optional[Dict[str, Any]] = {}
+    training_urls: Optional[List[str]] = []
+    github_repos: Optional[List[str]] = []
