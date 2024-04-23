@@ -75,8 +75,18 @@ if DB_CONNECTED:
 
     @app.post("/api/user", tags=["User"])
     async def createuser(account: User, authorization: str = Header(None)):
-        return create_user(api_key=authorization, email=account.email, role="user")
+        return create_user(
+            api_key=authorization,
+            email=account.email,
+            role="user",
+            settings=account.settings,
+        )
 
     @app.post("/api/admin", tags=["User"])
     async def createadmin(account: User, authorization: str = Header(None)):
-        return create_user(api_key=authorization, email=account.email, role="admin")
+        return create_user(
+            api_key=authorization,
+            email=account.email,
+            role="admin",
+            settings=account.settings,
+        )
