@@ -10,7 +10,7 @@ def create_user(
     agent_name: str = "AGiXT",
     settings: dict = {},
     commands: dict = {},
-) -> bool:
+):
     if api_key != os.environ.get("AGIXT_API_KEY"):
         return {"error": "Invalid API key"}, 401
     session = get_session()
