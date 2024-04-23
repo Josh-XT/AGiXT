@@ -384,6 +384,7 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
+        global DEFAULT_USER
         default_collection_name = self.collection_name
         if self.user != DEFAULT_USER:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
