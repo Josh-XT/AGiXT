@@ -162,6 +162,7 @@ class Memories:
             self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
+        self.user = user
         self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"
