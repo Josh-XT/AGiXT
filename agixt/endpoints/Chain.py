@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
-from ApiClient import Chain, verify_api_key, get_api_client
+from ApiClient import Chain, verify_api_key, get_api_client, is_admin
 from Chains import Chains
-from db.User import is_admin
 from Models import (
     RunChain,
     RunChainStep,

@@ -1,10 +1,10 @@
 from DBConnection import User, get_session
-from db.Agent import add_agent, Agent
+from db.Agent import add_agent
 import os
 from agixtsdk import AGiXTSDK
 
 
-def is_admin(email: str = "", api_key: str = ""):
+def is_agixt_admin(email: str = "", api_key: str = ""):
     if api_key == os.environ.get("AGIXT_API_KEY", ""):
         return True
     session = get_session()
@@ -25,7 +25,7 @@ def create_user(
     github_repos: list = [],
     ApiClient: AGiXTSDK = AGiXTSDK(),
 ):
-    if not is_admin(email=email, api_key=api_key):
+    if not is_agixt_admin(email=email, api_key=api_key):
         return {"error": "Access Denied"}, 403
     session = get_session()
     user_exists = session.query(User).filter_by(email=email).first()

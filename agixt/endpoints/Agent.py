@@ -1,7 +1,6 @@
 import logging
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
-from db.User import is_admin
 from Interactions import Interactions
 from ApiClient import (
     Agent,
@@ -11,6 +10,7 @@ from ApiClient import (
     get_agents,
     verify_api_key,
     get_api_client,
+    is_admin,
 )
 from Models import (
     AgentNewName,

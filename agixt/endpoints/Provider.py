@@ -6,7 +6,7 @@ from Providers import (
     get_providers_with_settings,
     get_providers_by_service,
 )
-from ApiClient import verify_api_key, DB_CONNECTED, get_api_client
+from ApiClient import verify_api_key, DB_CONNECTED, get_api_client, is_admin
 from typing import Any
 
 app = APIRouter()
@@ -70,7 +70,7 @@ async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
 
 
 if DB_CONNECTED:
-    from db.User import create_user, is_admin
+    from db.User import create_user
     from Models import User
 
     @app.post("/api/user", tags=["User"])
