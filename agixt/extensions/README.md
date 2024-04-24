@@ -65,10 +65,7 @@ class github(Extensions):
                 self.gh = Github(self.GITHUB_API_KEY)
             except Exception as e:
                 self.gh = None
-                self.commands = {}
-                print(f"GitHub Error: {str(e)}")
         else:
-            self.commands = {}
             self.gh = None
         self.failures = 0
 
