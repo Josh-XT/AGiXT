@@ -19,7 +19,6 @@ class DefaultProvider:
     def __init__(
         self,
         AI_MODEL: str = "mixtral-8x7b",
-        TRANSCRIPTION_MODEL: str = "base",
         HUGGINGFACE_API_KEY: str = "",
         **kwargs,
     ):
@@ -29,7 +28,9 @@ class DefaultProvider:
         self.MAX_TOKENS = 16000
         self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.TRANSCRIPTION_MODEL = (
-            TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
+            "base"
+            if "TRANSCRIPTION_MODEL" not in kwargs
+            else kwargs["TRANSCRIPTION_MODEL"]
         )
         self.embedder = ONNXMiniLM_L6_V2()
         self.embedder.DOWNLOAD_PATH = os.getcwd()
