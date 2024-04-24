@@ -77,8 +77,8 @@ if DB_CONNECTED:
     async def createuser(
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
-        if not is_admin(user):
-            return {"error": "Unauthorized"}, 401
+        if not is_admin(email=user, api_key=authorization):
+            return {"error": "Access Denied"}, 403
         ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,
@@ -95,8 +95,8 @@ if DB_CONNECTED:
     async def createadmin(
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
-        if not is_admin(user):
-            return {"error": "Unauthorized"}, 401
+        if not is_admin(email=user, api_key=authorization):
+            return {"error": "Access Denied"}, 403
         ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,

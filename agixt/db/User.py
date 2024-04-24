@@ -4,6 +4,16 @@ import os
 from agixtsdk import AGiXTSDK
 
 
+def is_admin(email: str = "", api_key: str = ""):
+    if api_key == os.environ.get("AGIXT_API_KEY", ""):
+        return True
+    session = get_session()
+    user = session.query(User).filter_by(email=email).first()
+    if user.role == "admin":
+        return True
+    return False
+
+
 def create_user(
     api_key: str,
     email: str,
@@ -15,8 +25,8 @@ def create_user(
     github_repos: list = [],
     ApiClient: AGiXTSDK = AGiXTSDK(),
 ):
-    if api_key != os.environ.get("AGIXT_API_KEY"):
-        return {"error": "Invalid API key"}, 401
+    if not is_admin(email=email, api_key=api_key):
+        return {"error": "Access Denied"}, 403
     session = get_session()
     user_exists = session.query(User).filter_by(email=email).first()
     if user_exists:
@@ -39,11 +49,3 @@ def create_user(
         for repo in github_repos:
             ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
     return {"status": "Success"}, 200
-
-
-def is_admin(email: str):
-    session = get_session()
-    user = session.query(User).filter_by(email=email).first()
-    if user.role == "admin":
-        return True
-    return False
