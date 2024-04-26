@@ -60,7 +60,7 @@ RUN npm install -g playwright && \
     playwright install
 
 # Update g4f
-RUN pip install g4f==0.2.2.8 --force-reinstall
+RUN pip install g4f --force-reinstall
 
 COPY . .
 
