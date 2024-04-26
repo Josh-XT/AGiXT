@@ -374,7 +374,7 @@ async def wipe_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await WebsiteReader(
@@ -399,7 +399,7 @@ async def wipe_agent_memories(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     try:
         collection_number = int(collection_number)
@@ -460,7 +460,7 @@ async def create_dataset(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
@@ -496,7 +496,7 @@ async def fine_tune_model(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     from Tuning import fine_tune_llm
 
     ApiClient = get_api_client(authorization=authorization)

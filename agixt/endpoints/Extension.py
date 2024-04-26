@@ -46,7 +46,7 @@ async def run_command(
     authorization: str = Header(None),
 ):
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient

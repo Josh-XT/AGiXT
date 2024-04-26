@@ -32,7 +32,7 @@ async def addagent(
     authorization: str = Header(None),
 ) -> Dict[str, str]:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     return add_agent(
         agent_name=agent.agent_name, provider_settings=agent.settings, user=user
     )
@@ -45,7 +45,7 @@ async def import_agent(
     agent: AgentConfig, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, str]:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     return add_agent(
         agent_name=agent.agent_name,
         provider_settings=agent.settings,
@@ -66,7 +66,7 @@ async def renameagent(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     rename_agent(agent_name=agent_name, new_name=new_name.new_name, user=user)
     return ResponseMessage(message="Agent renamed.")
 
@@ -83,7 +83,7 @@ async def update_agent_settings(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     update_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
@@ -103,7 +103,7 @@ async def update_agent_commands(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     update_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
@@ -120,7 +120,7 @@ async def deleteagent(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     delete_agent(agent_name=agent_name, user=user)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
@@ -140,7 +140,7 @@ async def get_agentconfig(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
@@ -160,7 +160,7 @@ async def prompt_agent(
     authorization: str = Header(None),
 ):
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     response = await agent.run(
@@ -179,7 +179,7 @@ async def get_commands(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     return {"commands": agent.AGENT_CONFIG["commands"]}
@@ -197,7 +197,7 @@ async def toggle_command(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if not is_admin(email=user, api_key=authorization):
-        return {"error": "Access Denied"}, 403
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     try:

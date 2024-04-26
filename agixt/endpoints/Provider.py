@@ -1,5 +1,5 @@
 from typing import Dict
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from Providers import (
     get_provider_options,
     get_providers,
@@ -78,7 +78,7 @@ if DB_CONNECTED:
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
         if not is_admin(email=user, api_key=authorization):
-            return {"error": "Access Denied"}, 403
+            raise HTTPException(status_code=403, detail="Access Denied")
         ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,
@@ -96,7 +96,7 @@ if DB_CONNECTED:
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
         if not is_admin(email=user, api_key=authorization):
-            return {"error": "Access Denied"}, 403
+            raise HTTPException(status_code=403, detail="Access Denied")
         ApiClient = get_api_client(authorization=authorization)
         return create_user(
             api_key=authorization,
