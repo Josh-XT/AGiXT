@@ -49,7 +49,7 @@ class EzlocalaiProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts", "transcription", "translation", "vision"]
+        return ["llm", "tts", "transcription", "translation", "vision", "embeddings"]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
@@ -176,6 +176,6 @@ class EzlocalaiProvider:
         openai.api_key = self.EZLOCALAI_API_KEY
         response = openai.embeddings.create(
             input=input,
-            model="text-embedding-3-small",
+            model="bge-m3",
         )
         return response.data[0].embedding
