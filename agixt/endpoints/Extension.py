@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
-from ApiClient import Agent, log_interaction, verify_api_key, get_api_client
+from ApiClient import Agent, log_interaction, verify_api_key, get_api_client, is_admin
 from Models import CommandExecution
-import logging
 
 
 app = APIRouter()
@@ -37,7 +36,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 
 @app.post(
     "/api/agent/{agent_name}/command",
-    tags=["Extensions"],
+    tags=["Extensions", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_command(
@@ -46,7 +45,8 @@ async def run_command(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    logging.info(f"Autorization: {authorization}")
+    if not is_admin(email=user, api_key=authorization):
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
