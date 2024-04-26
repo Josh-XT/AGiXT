@@ -79,3 +79,14 @@ def verify_api_key(authorization: str = Header(None)):
 def get_api_client(authorization: str = Header(None)):
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=authorization)
+
+
+def is_admin(email: str, api_key: str = None):
+    if os.getenv("AGIXT_API_KEY", None) == api_key:
+        return True
+    db = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+    if db:
+        from db.User import is_agixt_admin
+
+        return is_agixt_admin(email=email, api_key=api_key)
+    return False
