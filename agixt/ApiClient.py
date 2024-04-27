@@ -82,7 +82,6 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str, api_key: str = None):
-    logging.info(f"email: {email}, api_key: {api_key}")
     if api_key is None:
         api_key = ""
     api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
