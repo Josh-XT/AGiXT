@@ -45,7 +45,7 @@ class HuggingfaceProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts", "image"]
+        return ["llm", "image"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         payload = {
