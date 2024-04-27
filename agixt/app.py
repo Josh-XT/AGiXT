@@ -1,7 +1,7 @@
 import uvicorn
 import os
 import logging
-from fastapi import FastAPI, Form, File, UploadFile, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from endpoints.Agent import app as agent_endpoints
@@ -12,7 +12,6 @@ from endpoints.Extension import app as extension_endpoints
 from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
-from ApiClient import verify_api_key
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -41,31 +40,6 @@ app.add_middleware(
 )
 
 app.mount("/outputs", StaticFiles(directory="WORKSPACE"), name="outputs")
-
-
-@app.post(
-    "/v1/audio/voices",
-    tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def upload_voice(
-    voice: str = Form("default"),
-    file: UploadFile = File(...),
-    user=Depends(verify_api_key),
-):
-    voice_name = voice
-    file_path = os.path.join(os.getcwd(), "voices", f"{voice}.wav")
-    if os.path.exists(file_path):
-        i = 1
-        while os.path.exists(file_path):
-            file_path = os.path.join(os.getcwd(), "voices", f"{voice}-{i}.wav")
-            voice_name = f"{voice}-{i}"
-            i += 1
-    with open(file_path, "wb") as audio_file:
-        audio_file.write(await file.read())
-    return {"detail": f"Voice {voice_name} has been uploaded."}
-
-
 app.include_router(agent_endpoints)
 app.include_router(chain_endpoints)
 app.include_router(completions_endpoints)
