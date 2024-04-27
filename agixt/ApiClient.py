@@ -82,7 +82,9 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str, api_key: str = None):
-    if os.getenv("AGIXT_API_KEY", None) == api_key:
+    if api_key is None:
+        api_key = ""
+    if os.getenv("AGIXT_API_KEY", "") == api_key:
         return True
     db = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
     if db:
