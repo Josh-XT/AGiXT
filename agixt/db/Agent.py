@@ -437,6 +437,8 @@ class Agent:
                 .filter_by(provider_id=provider.id, name=setting_name)
                 .first()
             )
+            if not setting:
+                setting = ProviderSetting(provider_id=provider.id, name=setting_name)
             try:
                 agent_provider_setting = (
                     self.session.query(AgentProviderSetting)
