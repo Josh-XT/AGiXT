@@ -373,7 +373,7 @@ async def chat_completion(
         ):
             tts_response = await agent.agent.text_to_speech(text=response)
             # If tts_response is a not a url starting with http, it is a base64 encoded audio file
-            if not tts_response.startswith("http"):
+            if not str(tts_response).startswith("http"):
                 file_type = "wav"
                 file_name = f"{uuid.uuid4().hex}.{file_type}"
                 audio_path = f"./WORKSPACE/{file_name}"
