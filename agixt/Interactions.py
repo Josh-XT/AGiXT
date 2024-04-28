@@ -528,7 +528,7 @@ class Interactions:
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
                 pass
-        if prompt in kwargs:
+        if "prompt" in kwargs:
             prompt = kwargs[prompt]
             del kwargs[prompt]
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
