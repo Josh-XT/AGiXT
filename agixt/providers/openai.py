@@ -1,7 +1,9 @@
 import time
 import logging
 import random
-import base64
+import requests
+import uuid
+import os
 import numpy as np
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
@@ -175,21 +177,24 @@ class OpenaiProvider:
         )
         return tts_response.content
 
-    async def generate_image(self, prompt: str, filename: str = "image.png") -> str:
+    async def generate_image(self, prompt: str) -> str:
+        filename = f"{uuid.uuid4()}.png"
         image_path = f"./WORKSPACE/{filename}"
+        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
         openai.api_key = self.OPENAI_API_KEY
-        response = openai.Image.create(
+        response = openai.images.generate(
             prompt=prompt,
+            model="dall-e-3",
             n=1,
-            size="256x256",
-            response_format="b64_json",
+            size="1024x1024",
+            response_format="url",
         )
         logging.info(f"Image Generated for prompt:{prompt}")
-        image_data = base64.b64decode(response["data"][0]["b64_json"])
-        with open(image_path, mode="wb") as png:
-            png.write(image_data)
-        encoded_image_data = base64.b64encode(image_data).decode("utf-8")
-        return f"data:image/png;base64,{encoded_image_data}"
+        url = response.data[0].url
+        with open(image_path, "wb") as f:
+            f.write(requests.get(url).content)
+        agixt_uri = os.environ.get("AGIXT_URI", "http://localhost:7437")
+        return f"{agixt_uri}/outputs/{filename}"
 
     def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI

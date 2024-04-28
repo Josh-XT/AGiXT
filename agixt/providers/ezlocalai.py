@@ -2,6 +2,9 @@ import logging
 import random
 import re
 import numpy as np
+import requests
+import os
+import uuid
 
 try:
     import openai
@@ -47,7 +50,15 @@ class EzlocalaiProvider:
 
     @staticmethod
     def services():
-        return ["llm", "tts", "transcription", "translation", "vision", "embeddings"]
+        return [
+            "llm",
+            "tts",
+            "image",
+            "embeddings",
+            "transcription",
+            "translation",
+            "vision",
+        ]
 
     def rotate_uri(self):
         self.FAILURES.append(self.API_URI)
@@ -165,6 +176,25 @@ class EzlocalaiProvider:
             input=text,
         )
         return tts_response.content
+
+    async def generate_image(self, prompt: str) -> str:
+        filename = f"{uuid.uuid4()}.png"
+        image_path = f"./WORKSPACE/{filename}"
+        openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
+        openai.api_key = self.OPENAI_API_KEY
+        response = openai.images.generate(
+            prompt=prompt,
+            model="stabilityai/sdxl-turbo",
+            n=1,
+            size="512x512",
+            response_format="url",
+        )
+        logging.info(f"Image Generated for prompt:{prompt}")
+        url = response.data[0].url
+        with open(image_path, "wb") as f:
+            f.write(requests.get(url).content)
+        agixt_uri = os.environ.get("AGIXT_URI", "http://localhost:7437")
+        return f"{agixt_uri}/outputs/{filename}"
 
     def embeddings(self, input) -> np.ndarray:
         openai.base_url = self.API_URI
