@@ -422,6 +422,9 @@ class Interactions:
         prompt = "Chat"
         if "prompt_name" in kwargs:
             prompt = kwargs["prompt_name"]
+        if "prompt" in kwargs:
+            prompt = kwargs["prompt"]
+            del kwargs["prompt"]
         disable_memory = False if str(disable_memory).lower() == "false" else True
         if "disable_memory" in kwargs:
             disable_memory = (
@@ -528,9 +531,6 @@ class Interactions:
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
                 pass
-        if "prompt" in kwargs:
-            prompt = kwargs[prompt]
-            del kwargs[prompt]
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
