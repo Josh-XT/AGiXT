@@ -1,9 +1,7 @@
 import logging
 import random
 import re
-import base64
 import numpy as np
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 try:
     import openai
@@ -107,9 +105,6 @@ class EzlocalaiProvider:
                 top_p=float(self.AI_TOP_P),
                 n=1,
                 stream=False,
-                extra_body={
-                    "voice": self.VOICE,
-                },
             )
             response = response.choices[0].message.content
             if "User:" in response:

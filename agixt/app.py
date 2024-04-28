@@ -3,6 +3,7 @@ import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/outputs", StaticFiles(directory="WORKSPACE"), name="outputs")
 app.include_router(agent_endpoints)
 app.include_router(chain_endpoints)
 app.include_router(completions_endpoints)

@@ -10,6 +10,7 @@ load_dotenv()
 USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 WORKERS = int(os.getenv("UVICORN_WORKERS", 10))
+AGIXT_URI = os.getenv("AGIXT_URI", "http://localhost:7437")
 AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
 
