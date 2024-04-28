@@ -80,7 +80,7 @@ class AgentProviderSetting(Base):
     agent_provider_id = Column(
         UUID(as_uuid=True), ForeignKey("agent_provider.id"), nullable=False
     )
-    value = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
 
 
 class AgentProvider(Base):
@@ -213,7 +213,7 @@ class ChainStepArgument(Base):
         ForeignKey("chain_step.id", ondelete="CASCADE"),
         nullable=False,  # Add the ondelete option
     )
-    value = Column(Text, nullable=False)
+    value = Column(Text, nullable=True)
 
 
 class ChainStepResponse(Base):
