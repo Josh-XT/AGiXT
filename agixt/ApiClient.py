@@ -84,7 +84,7 @@ def get_api_client(authorization: str = Header(None)):
 
 def is_admin(email: str, api_key: str = None):
     global DB_CONNECTED, AGIXT_API_KEY
-    if DB_CONNECTED == False:
+    if DB_CONNECTED != True:
         return True
     if api_key is None:
         api_key = ""
