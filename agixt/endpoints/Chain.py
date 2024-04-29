@@ -58,8 +58,8 @@ async def run_chain(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    # if not is_admin(email=user, api_key=authorization):
-    #    raise HTTPException(status_code=403, detail="Access Denied")
+    if not is_admin(email=user, api_key=authorization):
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     chain_response = await Chains(user=user, ApiClient=ApiClient).run_chain(
         chain_name=chain_name,

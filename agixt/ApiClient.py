@@ -86,6 +86,7 @@ def is_admin(email: str, api_key: str = None):
     if api_key is None:
         api_key = ""
     api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
+    load_dotenv()
     if os.getenv("AGIXT_API_KEY", "") == api_key:
         return True
     db = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
