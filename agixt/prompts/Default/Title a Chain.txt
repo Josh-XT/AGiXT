@@ -15,5 +15,7 @@ Focus on:
 
 Express those key aspects in a five-word title using: [Adjective/Adverb] [Verb/Gerund] [Noun Phrase] to/for [Noun Phrase]
 
-Task:Create a five-word title for the following prompt:
+**RESPOND ONLY WITH THE FIVE-WORD TITLE, NO EXPLANATION/QUOTES OR IT WILL BREAK AUTOMATION**
+
+Task: Create a five-word title for the following prompt:
 {user_input}
