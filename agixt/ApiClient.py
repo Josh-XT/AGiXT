@@ -84,15 +84,14 @@ def get_api_client(authorization: str = Header(None)):
 
 def is_admin(email: str, api_key: str = None):
     global DB_CONNECTED, AGIXT_API_KEY
-    if not DB_CONNECTED:
+    if DB_CONNECTED == False:
         return True
     if api_key is None:
         api_key = ""
     api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY == api_key:
         return True
-    db = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-    if db:
+    if DB_CONNECTED == True:
         from db.User import is_agixt_admin
 
         return is_agixt_admin(email=email, api_key=api_key)
