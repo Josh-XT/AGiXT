@@ -83,6 +83,7 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
+    load_dotenv()
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     DB_CONNECTED = (
         True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
@@ -97,5 +98,8 @@ def is_admin(email: str = "USER", api_key: str = None):
     if DB_CONNECTED == True:
         from db.User import is_agixt_admin
 
+        DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
+        if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
+            DEFAULT_USER = "USER"
         return is_agixt_admin(email=email, api_key=api_key)
     return False
