@@ -414,7 +414,6 @@ class Interactions:
         create_image: bool = False,
         **kwargs,
     ):
-        logging.info(f"USER_INPUT: {self.agent_name}")
         for setting in self.agent.AGENT_CONFIG["settings"]:
             if setting not in kwargs:
                 kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
@@ -496,6 +495,7 @@ class Interactions:
                                                 url=sublink[1]
                                             )
                                             i = i + 1
+        logging.info(f"Made it to websearch: {websearch}")
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
@@ -510,6 +510,7 @@ class Interactions:
                     websearch_depth=websearch_depth,
                     websearch_timeout=websearch_timeout,
                 )
+        logging.info(f"Made it past websearch: {websearch}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
@@ -520,6 +521,7 @@ class Interactions:
                     )
                 except:
                     pass
+        logging.info(f"Made it past vision: {vision_response}")
         image_response = ""
         if create_image:
             try:
@@ -532,6 +534,7 @@ class Interactions:
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
                 pass
+        logging.info(f"Made it past image generation: {image_response}")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -543,6 +546,8 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
+        logging.info(f"Formatted Prompt: {formatted_prompt}")
+        logging.info(f"Unformatted Prompt: {unformatted_prompt}")
         log_message = (
             user_input
             if user_input != "" and persist_context_in_history == False
@@ -555,10 +560,12 @@ class Interactions:
             message=log_message,
             user=self.user,
         )
+        logging.info(f"Logged Interaction: {log_message}")
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
             )
+            logging.info(f"Response: {self.response}")
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""
@@ -598,6 +605,7 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
+            logging.info("Prompt contains {COMMANDS} placeholder.")
             await self.execution_agent(conversation_name=conversation_name)
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
