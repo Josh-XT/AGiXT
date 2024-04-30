@@ -11,7 +11,7 @@ import logging
 import docker
 import asyncio
 
-IMAGE_NAME = "ghcr.io/josh-xt/safeexecute:latest"
+IMAGE_NAME = "joshxt/safeexecute:latest"
 
 
 def install_docker_image():
