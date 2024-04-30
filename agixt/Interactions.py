@@ -249,6 +249,7 @@ class Interactions:
         conversation = get_conversation(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
+            user=self.user,
         )
         if "conversation_results" in kwargs:
             conversation_results = int(kwargs["conversation_results"])

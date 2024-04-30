@@ -60,14 +60,13 @@ async def chat_completion(
         prompt_category = agent_settings["prompt_category"]
     else:
         prompt_category = "Default"
+    prompt_args = {}
     if "prompt_args" in agent_settings:
         prompt_args = (
             json.loads(agent_settings["prompt_args"])
             if isinstance(agent_settings["prompt_args"], str)
             else agent_settings["prompt_args"]
         )
-    else:
-        prompt_args = {}
     if "command_name" in agent_settings:
         command_name = agent_settings["command_name"]
     else:
