@@ -512,7 +512,7 @@ class Interactions:
                         websearch_timeout=websearch_timeout,
                     )
                 except:
-                    pass
+                    logging.warning("Failed to websearch.")
         logging.info(f"Made it past websearch: {websearch}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
@@ -523,10 +523,10 @@ class Interactions:
                         prompt=user_input, tokens=tokens, images=images
                     )
                 except:
-                    pass
+                    logging.warning("Failed to get vision response.")
         logging.info(f"Made it past vision: {vision_response}")
         image_response = ""
-        if create_image:
+        if create_image == True:
             try:
                 sd_prompt = await self.run(
                     prompt_name="AGiXT SD Generator_V3",
@@ -536,7 +536,7 @@ class Interactions:
                 )
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
-                pass
+                logging.warning("Failed to create image.")
         logging.info(f"Made it past image generation: {image_response}")
         logging.info(f"User Input: {user_input}")
         logging.info(f"Context Results: {context_results}")
