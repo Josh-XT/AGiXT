@@ -382,7 +382,7 @@ async def chat_completion(
                 with open(audio_path, "wb") as f:
                     f.write(audio_data)
                 global AGIXT_URI
-                tts_response = f"{AGIXT_URI}/outputs/{file_name}"
+                tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
             response = f"{response}\n\n{tts_response}"
     prompt_tokens = get_tokens(new_prompt)
     completion_tokens = get_tokens(response)
