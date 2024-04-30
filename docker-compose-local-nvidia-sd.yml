@@ -22,7 +22,7 @@ services:
       - ./agixt/conversations:/agixt/conversations
       - /var/run/docker.sock:/var/run/docker.sock
   streamlit:
-    image: joshxt/streamlit:latest
+    image: joshxt/streamlit:main
     depends_on:
       - agixt
     environment:
