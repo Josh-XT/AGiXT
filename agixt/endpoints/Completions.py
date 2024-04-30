@@ -356,17 +356,6 @@ async def chat_completion(
                 user=user,
             )
         elif mode == "prompt":
-            new_prompt_args = {
-                "user_input": new_prompt,
-                "context_results": context_results,
-                "conversation_name": conversation_name,
-                "browse_links": browse_links,
-                "images": images,
-                "prompt_name": prompt_name,
-                "prompt_category": prompt_category,
-                **prompt_args,
-            }
-            logging.info(f"Prompt args: {new_prompt_args}")
             response = await agent.run(
                 user_input=new_prompt,
                 context_results=context_results,

@@ -414,6 +414,7 @@ class Interactions:
         create_image: bool = False,
         **kwargs,
     ):
+        logging.info(f"USER_INPUT: {self.agent_name}")
         for setting in self.agent.AGENT_CONFIG["settings"]:
             if setting not in kwargs:
                 kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
@@ -531,7 +532,6 @@ class Interactions:
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
                 pass
-        logging.info(f"USER INPUT: {user_input}")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
