@@ -505,11 +505,14 @@ class Interactions:
             else:
                 search_string = user_input
             if search_string != "":
-                await self.websearch.websearch_agent(
-                    user_input=search_string,
-                    websearch_depth=websearch_depth,
-                    websearch_timeout=websearch_timeout,
-                )
+                try:
+                    await self.websearch.websearch_agent(
+                        user_input=search_string,
+                        websearch_depth=websearch_depth,
+                        websearch_timeout=websearch_timeout,
+                    )
+                except:
+                    pass
         logging.info(f"Made it past websearch: {websearch}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
@@ -535,6 +538,15 @@ class Interactions:
             except:
                 pass
         logging.info(f"Made it past image generation: {image_response}")
+        logging.info(f"User Input: {user_input}")
+        logging.info(f"Context Results: {context_results}")
+        logging.info(f"Prompt: {prompt}")
+        logging.info(f"Chain Name: {chain_name}")
+        logging.info(f"Step Number: {step_number}")
+        logging.info(f"Conversation Name: {conversation_name}")
+        logging.info(f"Websearch: {websearch}")
+        logging.info(f"Vision Response: {vision_response}")
+        logging.info(f"kwargs: {kwargs}")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
