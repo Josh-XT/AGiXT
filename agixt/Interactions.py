@@ -451,7 +451,8 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
+            clean_datetime = re.sub(r"[^a-zA-Z0-9]", "", str(datetime.now()))
+            conversation_name = f"{clean_datetime} Conversation"
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
