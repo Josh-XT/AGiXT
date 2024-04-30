@@ -23,7 +23,7 @@ async def add_prompt(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if not is_admin(email=user, api_key=authorization):
+    if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).add_prompt(
@@ -115,7 +115,7 @@ async def delete_prompt(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if not is_admin(email=user, api_key=authorization):
+    if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).delete_prompt(
@@ -139,7 +139,7 @@ async def rename_prompt(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if not is_admin(email=user, api_key=authorization):
+    if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).rename_prompt(
@@ -165,7 +165,7 @@ async def update_prompt(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    if not is_admin(email=user, api_key=authorization):
+    if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).update_prompt(

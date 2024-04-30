@@ -82,8 +82,11 @@ def get_api_client(authorization: str = Header(None)):
     return AGiXTSDK(base_uri="http://localhost:7437", api_key=authorization)
 
 
-def is_admin(email: str, api_key: str = None):
-    global DB_CONNECTED, AGIXT_API_KEY
+def is_admin(email: str = "USER", api_key: str = None):
+    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    DB_CONNECTED = (
+        True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+    )
     if DB_CONNECTED != True:
         return True
     if api_key is None:
