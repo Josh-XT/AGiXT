@@ -26,7 +26,7 @@ environment_setup() {
         read -p "Quick Setup without advanced configuration? (Y for yes, N for No): " quick_setup
         if [[ "$quick_setup" == [Yy]* ]]; then
           auto_update = true
-          agixt_uri = "http://localhost:7437"
+          agixt_uri = "http://agixt:7437"
           api_key = ""
           agixt_workers = 10
         else
@@ -63,7 +63,7 @@ environment_setup() {
           fi
         fi
         echo "AGIXT_AUTO_UPDATE=${auto_update:-true}" >> .env
-        echo "AGIXT_URI=${agixt_uri:-http://localhost:7437}" >> .env
+        echo "AGIXT_URI=${agixt_uri:-http://agixt:7437}" >> .env
         echo "AGIXT_API_KEY=${api_key:-}" >> .env
         echo "UVICORN_WORKERS=${agixt_workers:-10}" >> .env
     fi
@@ -280,7 +280,7 @@ docker_install_local_nvidia_sd() {
 # Function to perform the local install
 local_install() {
   sed -i '/^AGIXT_URI=/d' .env
-  echo "AGIXT_URI=http://localhost:7437" >> .env
+  echo "AGIXT_URI=http://agixt:7437" >> .env
   sed -i '/^TEXTGEN_URI=/d' .env
   echo "TEXTGEN_URI=http://localhost:5000" >> .env
   source .env
