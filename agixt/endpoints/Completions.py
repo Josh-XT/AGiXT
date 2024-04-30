@@ -37,6 +37,7 @@ async def chat_completion(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    logging.info(f"Chat Completions: {prompt.__dict__}")
     # prompt.model is the agent name
     # prompt.user is the conversation name
     ApiClient = get_api_client(authorization=authorization)
