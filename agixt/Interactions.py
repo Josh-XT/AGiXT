@@ -521,13 +521,11 @@ class Interactions:
         image_response = ""
         if create_image:
             try:
-                sd_prompt = self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
+                sd_prompt = await self.run(
                     prompt_name="AGiXT SD Generator_V3",
-                    prompt_args={
-                        "user_input": user_input,
-                        "conversation_name": "AGiXT Terminal",
-                    },
+                    prompt_category="Default",
+                    user_input=user_input,
+                    conversation_name="AGiXT Terminal",
                 )
                 image_response = await self.agent.generate_image(prompt=sd_prompt)
             except:
@@ -576,19 +574,24 @@ class Interactions:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            return self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
+            prompt_args = {
+                "chain_name": chain_name,
+                "step_number": step_number,
+                "shots": shots,
+                "disable_memory": disable_memory,
+                "user_input": user_input,
+                "context_results": context_results,
+                "conversation_name": conversation_name,
+                **kwargs,
+            }
+            return await self.run(
                 prompt_name=prompt,
-                prompt_args={
-                    "chain_name": chain_name,
-                    "step_number": step_number,
-                    "shots": shots,
-                    "disable_memory": disable_memory,
-                    "user_input": user_input,
-                    "context_results": context_results,
-                    "conversation_name": conversation_name,
-                    **kwargs,
-                },
+                prompt_category=(
+                    "Default"
+                    if "prompt_category" not in kwargs
+                    else kwargs["prompt_category"]
+                ),
+                **prompt_args,
             )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
@@ -615,18 +618,24 @@ class Interactions:
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
-                shot_response = self.ApiClient.prompt_agent(
+                prompt_args = {
+                    "chain_name": chain_name,
+                    "step_number": step_number,
+                    "user_input": user_input,
+                    "context_results": context_results,
+                    "conversation_name": conversation_name,
+                    "disable_memory": disable_memory,
+                    **kwargs,
+                }
+                shot_response = await self.run(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
-                    prompt_args={
-                        "chain_name": chain_name,
-                        "step_number": step_number,
-                        "user_input": user_input,
-                        "context_results": context_results,
-                        "conversation_name": conversation_name,
-                        "disable_memory": disable_memory,
-                        **kwargs,
-                    },
+                    prompt_category=(
+                        "Default"
+                        if "prompt_category" not in kwargs
+                        else kwargs["prompt_category"]
+                    ),
+                    **prompt_args,
                 )
                 time.sleep(1)
                 responses.append(shot_response)
@@ -641,19 +650,15 @@ class Interactions:
         return self.response
 
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
-        chains = self.ApiClient.get_chains()
+        ch = Chain(user=self.user)
+        chains = ch.get_chains()
         chain_name = f"{agent_name} Command Suggestions"
         if chain_name in chains:
-            step = (
-                int(
-                    self.ApiClient.get_chain(chain_name=chain_name)["steps"][-1]["step"]
-                )
-                + 1
-            )
+            step = int(ch.get_chain(chain_name=chain_name)["steps"][-1]["step"]) + 1
         else:
-            self.ApiClient.add_chain(chain_name=chain_name)
+            ch.add_chain(chain_name=chain_name)
             step = 1
-        self.ApiClient.add_step(
+        ch.add_chain_step(
             chain_name=chain_name,
             agent_name=agent_name,
             step_number=step,
@@ -689,14 +694,15 @@ class Interactions:
                                 command_args = {}
                         if command_name not in command_list:
                             # Ask the agent for clarification on which command should be executed.
-                            response = self.ApiClient.prompt_agent(
-                                agent_name=self.agent_name,
+                            prompt_args = {
+                                "command_name": command_name,
+                                "command_args": json.dumps(command_args),
+                                "conversation_name": "AGiXT Terminal",
+                            }
+                            response = await self.run(
                                 prompt_name="Command Clarification",
-                                prompt_args={
-                                    "command_name": command_name,
-                                    "command_args": json.dumps(command_args),
-                                    "conversation_name": "AGiXT Terminal",
-                                },
+                                prompt_category="Default",
+                                **prompt_args,
                             )
                         else:
                             # Check if the command is a valid command in the self.agent.available_commands list
