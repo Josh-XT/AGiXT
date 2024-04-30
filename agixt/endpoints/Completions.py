@@ -364,6 +364,8 @@ async def chat_completion(
                 conversation_name=conversation_name,
                 browse_links=browse_links,
                 images=images,
+                prompt_name=prompt_name,
+                prompt_category=prompt_category,
                 **prompt_args,
             )
     if "tts_provider" in agent_settings:
