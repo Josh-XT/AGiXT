@@ -77,7 +77,7 @@ if DB_CONNECTED:
     async def createuser(
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
-        if not is_admin(email=user, api_key=authorization):
+        if is_admin(email=user, api_key=authorization) != True:
             raise HTTPException(status_code=403, detail="Access Denied")
         ApiClient = get_api_client(authorization=authorization)
         return create_user(
@@ -95,7 +95,7 @@ if DB_CONNECTED:
     async def createadmin(
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
-        if not is_admin(email=user, api_key=authorization):
+        if is_admin(email=user, api_key=authorization) != True:
             raise HTTPException(status_code=403, detail="Access Denied")
         ApiClient = get_api_client(authorization=authorization)
         return create_user(

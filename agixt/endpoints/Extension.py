@@ -45,7 +45,7 @@ async def run_command(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if not is_admin(email=user, api_key=authorization):
+    if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
