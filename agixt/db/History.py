@@ -1,6 +1,7 @@
 import os
 import yaml
 from datetime import datetime
+import logging
 from DBConnection import (
     Conversation,
     Message,
@@ -158,9 +159,15 @@ def new_conversation(
         print(
             f"Created a new conversation: '{conversation_name}' for agent '{agent_name}'."
         )
+    else:
+        conversation = existing_conversation
+    return conversation
 
 
 def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_USER):
+    logging.info(
+        f"Agent: {agent_name}, Conversation: {conversation_name}, Role: {role}, Message: {message}, User: {user}"
+    )
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -175,7 +182,6 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
         if not agent:
             print(f"Agent '{agent_name}' not found in the database.")
             return
-
     conversation = (
         session.query(Conversation)
         .filter(
@@ -187,12 +193,10 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
 
     if not conversation:
         # Create a new conversation if it doesn't exist
-        conversation = Conversation(name=conversation_name, user_id=user_id)
-        session.add(conversation)
-        session.commit()
-
+        conversation = new_conversation(
+            agent_name=agent_name, conversation_name=conversation_name, user=user
+        )
     timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
-
     new_message = Message(
         role=role,
         content=message,
@@ -201,7 +205,6 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
     )
     session.add(new_message)
     session.commit()
-
     print(f"Logged interaction: [{timestamp}] {role}: {message}")
 
 
