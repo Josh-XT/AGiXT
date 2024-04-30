@@ -98,8 +98,9 @@ def is_admin(email: str = "USER", api_key: str = None):
     if DB_CONNECTED == True:
         from db.User import is_agixt_admin
 
-        DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
-        if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
-            DEFAULT_USER = "USER"
+        if email == "" or email is None or email == "None":
+            email = os.getenv("DEFAULT_USER", "USER")
+        if email == "" or email is None or email == "None":
+            email = "USER"
         return is_agixt_admin(email=email, api_key=api_key)
     return False
