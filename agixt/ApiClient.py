@@ -100,7 +100,7 @@ def is_admin(email: str = "USER", api_key: str = None):
 
         if email == "" or email is None or email == "None":
             email = os.getenv("DEFAULT_USER", "USER")
-        if email == "" or email is None or email == "None":
-            email = "USER"
+            if email == "" or email is None or email == "None":
+                email = "USER"
         return is_agixt_admin(email=email, api_key=api_key)
     return False
