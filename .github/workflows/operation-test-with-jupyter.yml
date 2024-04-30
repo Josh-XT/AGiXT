@@ -15,7 +15,7 @@ on:
         type: string
         required: false
         description: "Secondary image to run"
-        default: "joshxt/safeexecute:latest"
+        default: "ghcr.io/josh-xt/safeexecute:latest"
       secondary-image-port:
         type: string
         required: false
