@@ -159,8 +159,6 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     response = await agent.run(
