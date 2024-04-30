@@ -37,13 +37,14 @@ async def chat_completion(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    logging.info(f"Chat Completions: {prompt.__dict__}")
     # prompt.model is the agent name
     # prompt.user is the conversation name
     ApiClient = get_api_client(authorization=authorization)
+    logging.info(f"Made it to API client initialized")
     agent_name = prompt.model
     conversation_name = prompt.user
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    logging.info(f"Made it to interactions")
     agent_config = agent.agent.AGENT_CONFIG
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
     images = []
@@ -357,6 +358,7 @@ async def chat_completion(
                 user=user,
             )
         elif mode == "prompt":
+            logging.info(f"Made it to run with prompt args {prompt_args}")
             response = await agent.run(
                 user_input=new_prompt,
                 context_results=context_results,
