@@ -39,6 +39,7 @@ async def chat_completion(
 ):
     # prompt.model is the agent name
     # prompt.user is the conversation name
+    global AGIXT_URI
     ApiClient = get_api_client(authorization=authorization)
     agent_name = prompt.model
     conversation_name = prompt.user
@@ -333,7 +334,6 @@ async def chat_completion(
                         audio_data = base64.b64decode(tts_response)
                         with open(audio_path, "wb") as f:
                             f.write(audio_data)
-                        global AGIXT_URI
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     response = f"{response}\n\n{tts_response}"
             log_interaction(
@@ -379,7 +379,7 @@ async def chat_completion(
                         audio_data = base64.b64decode(tts_response)
                         with open(audio_path, "wb") as f:
                             f.write(audio_data)
-                        global AGIXT_URI
+
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     response = f"{response}\n\n{tts_response}"
             log_interaction(
