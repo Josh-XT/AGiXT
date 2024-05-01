@@ -523,7 +523,7 @@ class Interactions:
                         "./WORKSPACE/", f"{AGIXT_URI}/outputs/"
                     )
                     image_urls.append(image_url)
-                logging.info(f"Getting vision response for images: {images}")
+                logging.info(f"Getting vision response for images: {image_urls}")
                 try:
                     vision_response = await self.agent.inference(
                         prompt=user_input, tokens=tokens, images=image_urls
