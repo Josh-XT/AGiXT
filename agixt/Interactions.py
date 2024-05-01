@@ -644,6 +644,7 @@ class Interactions:
                     agent_settings["image_provider"] != "None"
                     and agent_settings["image_provider"] != ""
                     and agent_settings["image_provider"] != None
+                    and agent_settings["image_provider"] != "default"
                 ):
                     img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like an image as visual or a picture generated. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
                     logging.info(f"[IMG] Decision maker prompt: {img_gen_prompt}")
