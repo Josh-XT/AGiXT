@@ -155,18 +155,19 @@ async def chat_completion(
                         if "url" in msg["image_url"]
                         else msg["image_url"]
                     )
+                    image_path = f"./WORKSPACE/{uuid.uuid4().hex}.jpg"
                     if url.startswith("http"):
-                        image_path = url
+                        image = requests.get(url).content
                     else:
                         file_type = url.split(",")[0].split("/")[1].split(";")[0]
                         if file_type == "jpeg":
                             file_type = "jpg"
                         image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                        image_content = url.split(",")[1]
-                        image = base64.b64decode(image_content)
-                        with open(image_path, "wb") as f:
-                            f.write(image)
+                        image = base64.b64decode(url.split(",")[1])
+                    with open(image_path, "wb") as f:
+                        f.write(image)
                     images.append(image_path)
+                    logging.info(f"Images: {images}")
                 if "audio_url" in msg:
                     audio_url = (
                         msg["audio_url"]["url"]
