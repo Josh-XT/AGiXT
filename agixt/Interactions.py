@@ -741,6 +741,8 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
+                        logging.info(f"Agent command list: {command_list}")
+                        logging.info(f"Command to execute: {command_name}")
                         if command_name in command_list:
                             # Check if the command is a valid command in the self.agent.available_commands list
                             try:
