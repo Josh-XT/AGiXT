@@ -528,7 +528,8 @@ class Interactions:
                     vision_response = await self.agent.inference(
                         prompt=user_input, tokens=tokens, images=image_urls
                     )
-                except:
+                except Exception as e:
+                    logging.error(f"Error getting vision response: {e}")
                     logging.warning("Failed to get vision response.")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
