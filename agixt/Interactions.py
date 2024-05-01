@@ -5,6 +5,8 @@ import json
 import time
 import logging
 import tiktoken
+import base64
+import uuid
 from datetime import datetime
 from readers.website import WebsiteReader
 from readers.file import FileReader
@@ -17,6 +19,7 @@ from ApiClient import (
     Chain,
     log_interaction,
     get_conversation,
+    AGIXT_URI,
 )
 from Defaults import DEFAULT_USER
 
@@ -621,6 +624,24 @@ class Interactions:
             await self.execution_agent(conversation_name=conversation_name)
         logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
+            agent_settings = self.agent.AGENT_CONFIG["settings"]
+            if "tts_provider" in agent_settings:
+                if (
+                    agent_settings["tts_provider"] != "None"
+                    and agent_settings["tts_provider"] != ""
+                ):
+                    tts_response = await self.agent.text_to_speech(text=self.response)
+                    # If tts_response is a not a url starting with http, it is a base64 encoded audio file
+                    if not str(tts_response).startswith("http"):
+                        file_type = "wav"
+                        file_name = f"{uuid.uuid4().hex}.{file_type}"
+                        audio_path = f"./WORKSPACE/{file_name}"
+                        audio_data = base64.b64decode(tts_response)
+                        with open(audio_path, "wb") as f:
+                            f.write(audio_data)
+                        global AGIXT_URI
+                        tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
+                    self.response = f"{self.response}\n\n{tts_response}"
             if disable_memory != True:
                 try:
                     await self.agent_memory.write_text_to_memory(
@@ -630,6 +651,38 @@ class Interactions:
                     )
                 except:
                     pass
+            if "image_provider" in agent_settings:
+                if (
+                    agent_settings["image_provider"] != "None"
+                    and agent_settings["image_provider"] != ""
+                ):
+                    img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like an image as visual or a picture generated. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
+                    logging.info(f"[IMG] Decision maker prompt: {img_gen_prompt}")
+                    create_img = self.agent.inference(prompt=img_gen_prompt)
+                    create_img = str(create_img).lower()
+                    logging.info(f"[IMG] Decision maker response: {create_img}")
+                    if "yes" in create_img or "es," in create_img:
+                        img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
+                        image_generation_prompt = self.agent.inference(
+                            prompt=img_prompt
+                        )
+                        image_generation_prompt = str(image_generation_prompt)
+                        logging.info(
+                            f"[IMG] Image generation response: {image_generation_prompt}"
+                        )
+                        if "```markdown" in image_generation_prompt:
+                            image_generation_prompt = image_generation_prompt.split(
+                                "```markdown"
+                            )[1]
+                            image_generation_prompt = image_generation_prompt.split(
+                                "```"
+                            )[0]
+                        generated_image = self.agent.generate_image(
+                            prompt=image_generation_prompt
+                        )
+                        self.response = (
+                            f"{self.response}\n\n![This is an image]({generated_image})"
+                        )
             log_interaction(
                 agent_name=self.agent_name,
                 conversation_name=conversation_name,

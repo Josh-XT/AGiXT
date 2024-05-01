@@ -367,23 +367,6 @@ async def chat_completion(
                 prompt_category=prompt_category,
                 **prompt_args,
             )
-    if "tts_provider" in agent_settings:
-        if (
-            agent_settings["tts_provider"] != "None"
-            and agent_settings["tts_provider"] != ""
-        ):
-            tts_response = await agent.agent.text_to_speech(text=response)
-            # If tts_response is a not a url starting with http, it is a base64 encoded audio file
-            if not str(tts_response).startswith("http"):
-                file_type = "wav"
-                file_name = f"{uuid.uuid4().hex}.{file_type}"
-                audio_path = f"./WORKSPACE/{file_name}"
-                audio_data = base64.b64decode(tts_response)
-                with open(audio_path, "wb") as f:
-                    f.write(audio_data)
-                global AGIXT_URI
-                tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
-            response = f"{response}\n\n{tts_response}"
     prompt_tokens = get_tokens(new_prompt)
     completion_tokens = get_tokens(response)
     total_tokens = int(prompt_tokens) + int(completion_tokens)
