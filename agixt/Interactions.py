@@ -414,7 +414,6 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
-        create_image: bool = False,
         **kwargs,
     ):
         for setting in self.agent.AGENT_CONFIG["settings"]:
@@ -529,17 +528,6 @@ class Interactions:
                     logging.warning("Failed to get vision response.")
         logging.info(f"Made it past vision: {vision_response}")
         image_response = ""
-        if create_image == True:
-            try:
-                sd_prompt = await self.run(
-                    prompt_name="AGiXT SD Generator_V3",
-                    prompt_category="Default",
-                    user_input=user_input,
-                    conversation_name="AGiXT Terminal",
-                )
-                image_response = await self.agent.generate_image(prompt=sd_prompt)
-            except:
-                logging.warning("Failed to create image.")
         logging.info(f"Made it past image generation: {image_response}")
         logging.info(f"User Input: {user_input}")
         logging.info(f"Context Results: {context_results}")
@@ -659,12 +647,12 @@ class Interactions:
                 ):
                     img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like an image as visual or a picture generated. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
                     logging.info(f"[IMG] Decision maker prompt: {img_gen_prompt}")
-                    create_img = self.agent.inference(prompt=img_gen_prompt)
+                    create_img = await self.agent.inference(prompt=img_gen_prompt)
                     create_img = str(create_img).lower()
                     logging.info(f"[IMG] Decision maker response: {create_img}")
                     if "yes" in create_img or "es," in create_img:
                         img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
-                        image_generation_prompt = self.agent.inference(
+                        image_generation_prompt = await self.agent.inference(
                             prompt=img_prompt
                         )
                         image_generation_prompt = str(image_generation_prompt)
