@@ -516,13 +516,13 @@ class Interactions:
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
             if images != [] and vision_provider != "None" and vision_provider != "":
+                logging.info(f"Getting vision response for images: {images}")
                 try:
                     vision_response = await self.agent.inference(
                         prompt=user_input, tokens=tokens, images=images
                     )
                 except:
                     logging.warning("Failed to get vision response.")
-        image_response = ""
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -534,6 +534,7 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
+        logging.info(f"Formatted Prompt: {formatted_prompt}")
         log_message = (
             user_input
             if user_input != "" and persist_context_in_history == False
