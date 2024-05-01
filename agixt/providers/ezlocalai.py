@@ -107,6 +107,7 @@ class EzlocalaiProvider:
                     )
         else:
             messages.append({"role": "user", "content": prompt})
+        logging.info(f"Messages to ezLocalai: {messages}")
         try:
             response = openai.chat.completions.create(
                 model=self.AI_MODEL,
