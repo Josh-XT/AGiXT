@@ -591,13 +591,20 @@ class Interactions:
             await self.execution_agent(conversation_name=conversation_name)
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
+            if "<audio controls>" in self.response:
+                self.response = re.sub(
+                    r"<audio controls>(.*?)</audio>", "", self.response, flags=re.DOTALL
+                )
+            if "![" in self.response:
+                self.response = re.sub(
+                    r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
+                )
             if "tts_provider" in agent_settings:
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
                 ):
                     tts_response = await self.agent.text_to_speech(text=self.response)
-                    # If tts_response is a not a url starting with http, it is a base64 encoded audio file
                     if not str(tts_response).startswith("http"):
                         file_type = "wav"
                         file_name = f"{uuid.uuid4().hex}.{file_type}"
