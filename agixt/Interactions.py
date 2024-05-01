@@ -526,8 +526,9 @@ class Interactions:
                 logging.info(f"Getting vision response for images: {image_urls}")
                 try:
                     vision_response = await self.agent.inference(
-                        prompt=user_input, tokens=tokens, images=image_urls
+                        prompt=user_input, images=image_urls
                     )
+                    logging.info(f"Vision Response: {vision_response}")
                 except Exception as e:
                     logging.error(f"Error getting vision response: {e}")
                     logging.warning("Failed to get vision response.")
