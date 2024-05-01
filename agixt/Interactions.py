@@ -766,19 +766,7 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
-                        if command_name not in command_list:
-                            # Ask the agent for clarification on which command should be executed.
-                            prompt_args = {
-                                "command_name": command_name,
-                                "command_args": json.dumps(command_args),
-                                "conversation_name": "AGiXT Terminal",
-                            }
-                            response = await self.run(
-                                prompt_name="Command Clarification",
-                                prompt_category="Default",
-                                **prompt_args,
-                            )
-                        else:
+                        if command_name in command_list:
                             # Check if the command is a valid command in the self.agent.available_commands list
                             try:
                                 if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
