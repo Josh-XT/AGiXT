@@ -605,6 +605,10 @@ class Interactions:
                 self.response = re.sub(
                     r"<audio controls>(.*?)</audio>", "", self.response, flags=re.DOTALL
                 )
+            if "<image src=" in self.response:
+                self.response = re.sub(
+                    r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
+                )
             if "![" in self.response:
                 self.response = re.sub(
                     r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
