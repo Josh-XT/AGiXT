@@ -414,6 +414,7 @@ class Interactions:
         images: list = [],
         **kwargs,
     ):
+        global AGIXT_URI
         for setting in self.agent.AGENT_CONFIG["settings"]:
             if setting not in kwargs:
                 kwargs[setting] = self.agent.AGENT_CONFIG["settings"][setting]
@@ -516,10 +517,16 @@ class Interactions:
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
             if images != [] and vision_provider != "None" and vision_provider != "":
+                image_urls = []
+                for image in images:
+                    image_url = str(image).replace(
+                        "./WORKSPACE/", f"{AGIXT_URI}/outputs/"
+                    )
+                    image_urls.append(image_url)
                 logging.info(f"Getting vision response for images: {images}")
                 try:
                     vision_response = await self.agent.inference(
-                        prompt=user_input, tokens=tokens, images=images
+                        prompt=user_input, tokens=tokens, images=image_urls
                     )
                 except:
                     logging.warning("Failed to get vision response.")
@@ -613,7 +620,6 @@ class Interactions:
                         audio_data = base64.b64decode(tts_response)
                         with open(audio_path, "wb") as f:
                             f.write(audio_data)
-                        global AGIXT_URI
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     self.response = f"{self.response}\n\n{tts_response}"
             if disable_memory != True:

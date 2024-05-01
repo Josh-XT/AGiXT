@@ -162,7 +162,8 @@ async def chat_completion(
                         file_type = url.split(",")[0].split("/")[1].split(";")[0]
                         if file_type == "jpeg":
                             file_type = "jpg"
-                        image_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                        file_name = f"{uuid.uuid4().hex}.{file_type}"
+                        image_path = f"./WORKSPACE/{file_name}"
                         image = base64.b64decode(url.split(",")[1])
                     with open(image_path, "wb") as f:
                         f.write(image)
