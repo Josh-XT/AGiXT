@@ -181,7 +181,7 @@ class EzlocalaiProvider:
         filename = f"{uuid.uuid4()}.png"
         image_path = f"./WORKSPACE/{filename}"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
-        openai.api_key = self.OPENAI_API_KEY
+        openai.api_key = self.EZLOCALAI_API_KEY
         response = openai.images.generate(
             prompt=prompt,
             model="stabilityai/sdxl-turbo",
