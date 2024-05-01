@@ -203,7 +203,7 @@ class Interactions:
         else:
             context = ""
         if vision_response != "":
-            context += f"Visual thoughts from viewing images:\n{vision_response}\n"
+            context += f"Visual thoughts from viewing uploaded images by user in this interaction:\n{vision_response}\n"
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
