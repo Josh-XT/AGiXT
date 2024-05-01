@@ -78,35 +78,23 @@ class EzlocalaiProvider:
         max_tokens = (
             int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
         )
-        messages = []
         if len(images) > 0:
-            messages.append(
-                {"role": "user", "content": [{"type": "text", "text": prompt}]}
-            )
-            for image in images:
-                if image.startswith("http"):
-                    messages[0]["content"].append(
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": image,
+                                "url": images[0],
                             },
-                        }
-                    )
-                else:
-                    file_type = image.split(".")[-1]
-                    with open(image, "rb") as f:
-                        image_base64 = f.read()
-                    messages[0]["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/{file_type};base64,{image_base64}"
-                            },
-                        }
-                    )
+                        },
+                    ],
+                }
+            ]
         else:
-            messages.append({"role": "user", "content": prompt})
+            messages = [{"role": "user", "content": prompt}]
         logging.info(f"Messages to ezLocalai: {messages}")
         try:
             response = openai.chat.completions.create(
