@@ -12,21 +12,18 @@ import numpy as np
 # tts: gTTS
 # transcription: faster-whisper
 # translation: faster-whisper
-# image: huggingface (Requires API Key)
 
 
 class DefaultProvider:
     def __init__(
         self,
         AI_MODEL: str = "mixtral-8x7b",
-        HUGGINGFACE_API_KEY: str = "",
         **kwargs,
     ):
         self.AI_MODEL = AI_MODEL if AI_MODEL else "mixtral-8x7b"
         self.AI_TEMPERATURE = 0.7
         self.AI_TOP_P = 0.7
         self.MAX_TOKENS = 16000
-        self.HUGGINGFACE_API_KEY = HUGGINGFACE_API_KEY
         self.TRANSCRIPTION_MODEL = (
             "base"
             if "TRANSCRIPTION_MODEL" not in kwargs
@@ -44,7 +41,6 @@ class DefaultProvider:
             "tts",
             "transcription",
             "translation",
-            "image",
         ]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
@@ -85,8 +81,3 @@ class DefaultProvider:
             audio_path=audio_path,
             translate=True,
         )
-
-    async def generate_image(self, prompt: str):
-        return await HuggingfaceProvider(
-            HUGGINGFACE_API_KEY=self.HUGGINGFACE_API_KEY
-        ).generate_image(prompt=prompt)
