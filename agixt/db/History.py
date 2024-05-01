@@ -80,7 +80,7 @@ def get_conversations(agent_name, user=DEFAULT_USER):
 
 
 def get_conversation(
-    agent_name, conversation_name=None, limit=100, page=1, user=DEFAULT_USER
+    agent_name="", conversation_name=None, limit=100, page=1, user=DEFAULT_USER
 ):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -100,8 +100,14 @@ def get_conversation(
         conversation = Conversation(name=conversation_name, user_id=user_id)
         session.add(conversation)
         session.commit()
+    offset = (page - 1) * limit
     messages = (
-        session.query(Message).filter(Message.conversation_id == conversation.id).all()
+        session.query(Message)
+        .filter(Message.conversation_id == conversation.id)
+        .order_by(Message.timestamp.asc())
+        .limit(limit)
+        .offset(offset)
+        .all()
     )
     if not messages:
         return {"interactions": []}
