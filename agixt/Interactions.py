@@ -123,7 +123,6 @@ class Interactions:
             )
             prompt = prompt_name
             prompt_args = []
-        logging.info(f"CONTEXT RESULTS: {top_results}")
         if top_results == 0:
             context = []
         else:
@@ -399,7 +398,6 @@ class Interactions:
             **args,
         )
         tokens = get_tokens(formatted_prompt)
-        logging.info(f"FORMATTED PROMPT: {formatted_prompt}")
         return formatted_prompt, prompt, tokens
 
     async def run(
@@ -497,7 +495,6 @@ class Interactions:
                                                 url=sublink[1]
                                             )
                                             i = i + 1
-        logging.info(f"Made it to websearch: {websearch}")
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
@@ -515,7 +512,6 @@ class Interactions:
                     )
                 except:
                     logging.warning("Failed to websearch.")
-        logging.info(f"Made it past websearch: {websearch}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
@@ -526,18 +522,7 @@ class Interactions:
                     )
                 except:
                     logging.warning("Failed to get vision response.")
-        logging.info(f"Made it past vision: {vision_response}")
         image_response = ""
-        logging.info(f"Made it past image generation: {image_response}")
-        logging.info(f"User Input: {user_input}")
-        logging.info(f"Context Results: {context_results}")
-        logging.info(f"Prompt: {prompt}")
-        logging.info(f"Chain Name: {chain_name}")
-        logging.info(f"Step Number: {step_number}")
-        logging.info(f"Conversation Name: {conversation_name}")
-        logging.info(f"Websearch: {websearch}")
-        logging.info(f"Vision Response: {vision_response}")
-        logging.info(f"kwargs: {kwargs}")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -549,8 +534,6 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
-        logging.info(f"Formatted Prompt: {formatted_prompt}")
-        logging.info(f"Unformatted Prompt: {unformatted_prompt}")
         log_message = (
             user_input
             if user_input != "" and persist_context_in_history == False
@@ -563,26 +546,23 @@ class Interactions:
             message=log_message,
             user=self.user,
         )
-        logging.info(f"Logged Interaction: {log_message}")
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
             )
-            logging.info(f"Response: {self.response}")
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""
             for err in e:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
-            logging.info(f"PROMPT CONTENT: {formatted_prompt}")
-            logging.info(f"TOKENS: {tokens}")
+            logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             self.failures += 1
             if self.failures == 5:
                 self.failures == 0
-                logging.info("Failed to get a response 5 times in a row.")
+                logging.warning("Failed to get a response 5 times in a row.")
                 return None
-            logging.info(f"Retrying in 10 seconds...")
+            logging.warning(f"Retrying in 10 seconds...")
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
@@ -608,9 +588,7 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
-            logging.info("Prompt contains {COMMANDS} placeholder.")
             await self.execution_agent(conversation_name=conversation_name)
-        logging.info(f"Response: {self.response}")
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "tts_provider" in agent_settings:
@@ -647,19 +625,15 @@ class Interactions:
                     and agent_settings["image_provider"] != "default"
                 ):
                     img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like an image as visual or a picture generated. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
-                    logging.info(f"[IMG] Decision maker prompt: {img_gen_prompt}")
                     create_img = await self.agent.inference(prompt=img_gen_prompt)
                     create_img = str(create_img).lower()
-                    logging.info(f"[IMG] Decision maker response: {create_img}")
+                    logging.info(f"Image Generation Decision Response: {create_img}")
                     if "yes" in create_img or "es," in create_img:
                         img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
                         image_generation_prompt = await self.agent.inference(
                             prompt=img_prompt
                         )
                         image_generation_prompt = str(image_generation_prompt)
-                        logging.info(
-                            f"[IMG] Image generation response: {image_generation_prompt}"
-                        )
                         if "```markdown" in image_generation_prompt:
                             image_generation_prompt = image_generation_prompt.split(
                                 "```markdown"
@@ -674,7 +648,7 @@ class Interactions:
                             self.response = f"{self.response}\n\n![Image generated by {self.agent_name}]({generated_image})"
                         except:
                             logging.warning(
-                                f"[IMG] Failed to generate image for prompt: {image_generation_prompt}"
+                                f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
             log_interaction(
                 agent_name=self.agent_name,
@@ -713,8 +687,8 @@ class Interactions:
                     for shot, response in enumerate(responses)
                 ]
             )
-        if image_response != "":
-            self.response += f"\n![image]({image_response})"
+        logging.info(f"{self.user}: {user_input}")
+        logging.info(f"{self.agent_name}: {self.response}")
         return self.response
 
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
