@@ -605,6 +605,7 @@ class Interactions:
                         audio_data = base64.b64decode(tts_response)
                         with open(audio_path, "wb") as f:
                             f.write(audio_data)
+                        global AGIXT_URI
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     self.response = f"{self.response}\n\n{tts_response}"
             if disable_memory != True:
