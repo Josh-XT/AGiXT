@@ -28,11 +28,12 @@ def create_user(
     if not is_agixt_admin(email=email, api_key=api_key):
         return {"error": "Access Denied"}, 403
     session = get_session()
+    email = email.lower()
     user_exists = session.query(User).filter_by(email=email).first()
     if user_exists:
         session.close()
         return {"error": "User already exists"}, 400
-    user = User(email=email.lower(), role=role.lower())
+    user = User(email=email, role=role.lower())
     session.add(user)
     session.commit()
     session.close()
