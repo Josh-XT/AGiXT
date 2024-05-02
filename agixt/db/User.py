@@ -18,7 +18,7 @@ def create_user(
     api_key: str,
     email: str,
     role: str = "user",
-    agent_name: str = "AGiXT",
+    agent_name: str = "",
     settings: dict = {},
     commands: dict = {},
     training_urls: list = [],
@@ -37,12 +37,13 @@ def create_user(
     session.add(user)
     session.commit()
     session.close()
-    add_agent(
-        agent_name=agent_name,
-        provider_settings=settings,
-        commands=commands,
-        user=email,
-    )
+    if agent_name != "" and agent_name is not None:
+        add_agent(
+            agent_name=agent_name,
+            provider_settings=settings,
+            commands=commands,
+            user=email,
+        )
     if training_urls != []:
         for url in training_urls:
             ApiClient.learn_url(agent_name=agent_name, url=url)

@@ -251,7 +251,7 @@ class CommandExecution(BaseModel):
 
 class User(BaseModel):
     email: str
-    agent_name: Optional[str] = "AGiXT"
+    agent_name: Optional[str] = ""
     settings: Optional[Dict[str, Any]] = {}
     commands: Optional[Dict[str, Any]] = {}
     training_urls: Optional[List[str]] = []
