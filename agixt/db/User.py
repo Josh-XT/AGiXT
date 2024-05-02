@@ -40,7 +40,7 @@ def create_user(
         agent_name=agent_name,
         provider_settings=settings,
         commands=commands,
-        user=user,
+        user=email,
     )
     if training_urls != []:
         for url in training_urls:
