@@ -1,5 +1,4 @@
 from providers.gpt4free import Gpt4freeProvider
-from providers.huggingface import HuggingfaceProvider
 from providers.google import GoogleProvider
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from faster_whisper import WhisperModel
