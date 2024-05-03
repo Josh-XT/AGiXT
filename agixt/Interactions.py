@@ -279,10 +279,6 @@ class Interactions:
                     # Inject minimal conversation history into the prompt, just enough to give the agent some context.
                     # Strip code blocks out of the message
                     message = regex.sub(r"(```.*?```)", "", message)
-                    # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
-                    message = regex.sub(
-                        r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
-                    )
                     conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:
@@ -771,12 +767,7 @@ class Interactions:
                                         command_name=command_name,
                                         command_args=command_args,
                                     )
-                                    formatted_output = (
-                                        f"```\n{command_output}\n```"
-                                        if "#GENERATED_IMAGE" not in command_output
-                                        and "#GENERATED_AUDIO" not in command_output
-                                        else command_output
-                                    )
+                                    formatted_output = f"```\n{command_output}\n```"
                                     message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                                     log_interaction(
                                         agent_name=self.agent_name,

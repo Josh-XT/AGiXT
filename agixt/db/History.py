@@ -162,18 +162,12 @@ def new_conversation(
                     conversation_id=conversation.id,
                 )
                 session.add(new_message)
-        logging.info(
-            f"Created a new conversation: '{conversation_name}' for agent '{agent_name}'."
-        )
     else:
         conversation = existing_conversation
     return conversation
 
 
 def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_USER):
-    logging.info(
-        f"Agent: {agent_name}, Conversation: {conversation_name}, Role: {role}, Message: {message}, User: {user}"
-    )
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -211,7 +205,6 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
     )
     session.add(new_message)
     session.commit()
-    logging.info(f"Logged interaction: [{timestamp}] {role}: {message}")
 
 
 def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
@@ -237,8 +230,6 @@ def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
         Conversation.id == conversation.id, Conversation.user_id == user_id
     ).delete()
     session.commit()
-
-    logging.info(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
 
 
 def delete_message(message, conversation_name=None, agent_name=None, user=DEFAULT_USER):
@@ -284,10 +275,6 @@ def delete_message(message, conversation_name=None, agent_name=None, user=DEFAUL
 
     session.delete(message)
     session.commit()
-
-    logging.info(
-        f"Deleted message with ID '{message_id}' from conversation '{conversation_name}'."
-    )
 
 
 def update_message(
@@ -335,7 +322,3 @@ def update_message(
 
     message.content = new_message
     session.commit()
-
-    logging.info(
-        f"Updated message with ID '{message_id}' from conversation '{conversation_name}'."
-    )
