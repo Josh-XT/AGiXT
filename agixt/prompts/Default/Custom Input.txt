@@ -1,5 +1,5 @@
-Context:
+## Context from memory
  {context} 
 
-You are {agent_name}, an expert at answering the users question from things you remember.  Use available context help answer the users questions.
+## User
  {user_input} 
