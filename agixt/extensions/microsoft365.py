@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime, timedelta
 from Extensions import Extensions
 
@@ -90,7 +91,7 @@ class microsoft365(Extensions):
                     emails.append(email_data)
             return emails
         except Exception as e:
-            print(f"Error retrieving emails: {str(e)}")
+            logging.info(f"Error retrieving emails: {str(e)}")
             return []
 
     async def send_email(
@@ -123,7 +124,7 @@ class microsoft365(Extensions):
             message.send()
             return "Email sent successfully."
         except Exception as e:
-            print(f"Error sending email: {str(e)}")
+            logging.info(f"Error sending email: {str(e)}")
             return "Failed to send email."
 
     async def move_email_to_folder(self, message_id, destination_folder):
@@ -133,7 +134,7 @@ class microsoft365(Extensions):
             message.move(destination_folder)
             return f"Email moved to {destination_folder} folder."
         except Exception as e:
-            print(f"Error moving email: {str(e)}")
+            logging.info(f"Error moving email: {str(e)}")
             return "Failed to move email."
 
     async def create_draft_email(
@@ -166,7 +167,7 @@ class microsoft365(Extensions):
             draft.save_draft()
             return "Draft email created successfully."
         except Exception as e:
-            print(f"Error creating draft email: {str(e)}")
+            logging.info(f"Error creating draft email: {str(e)}")
             return "Failed to create draft email."
 
     async def delete_email(self, message_id):
@@ -185,7 +186,7 @@ class microsoft365(Extensions):
             message.delete()
             return "Email deleted successfully."
         except Exception as e:
-            print(f"Error deleting email: {str(e)}")
+            logging.info(f"Error deleting email: {str(e)}")
             return "Failed to delete email."
 
     async def search_emails(
@@ -227,7 +228,7 @@ class microsoft365(Extensions):
                 emails.append(email_data)
             return emails
         except Exception as e:
-            print(f"Error searching emails: {str(e)}")
+            logging.info(f"Error searching emails: {str(e)}")
             return []
 
     async def reply_to_email(self, message_id, body, attachments=None):
@@ -253,7 +254,7 @@ class microsoft365(Extensions):
             reply.send()
             return "Reply sent successfully."
         except Exception as e:
-            print(f"Error replying to email: {str(e)}")
+            logging.info(f"Error replying to email: {str(e)}")
             return "Failed to send reply."
 
     async def process_attachments(self, message_id):
@@ -278,7 +279,7 @@ class microsoft365(Extensions):
                 saved_attachments.append(attachment_path)
             return saved_attachments
         except Exception as e:
-            print(f"Error processing attachments: {str(e)}")
+            logging.info(f"Error processing attachments: {str(e)}")
             return []
 
     async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
@@ -322,7 +323,7 @@ class microsoft365(Extensions):
 
             return calendar_items
         except Exception as e:
-            print(f"Error retrieving calendar items: {str(e)}")
+            logging.info(f"Error retrieving calendar items: {str(e)}")
             return []
 
     async def add_calendar_item(
@@ -363,7 +364,7 @@ class microsoft365(Extensions):
 
             return "Calendar item added successfully."
         except Exception as e:
-            print(f"Error adding calendar item: {str(e)}")
+            logging.info(f"Error adding calendar item: {str(e)}")
             return "Failed to add calendar item."
 
     async def remove_calendar_item(self, item_id):
@@ -385,5 +386,5 @@ class microsoft365(Extensions):
 
             return "Calendar item removed successfully."
         except Exception as e:
-            print(f"Error removing calendar item: {str(e)}")
+            logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."

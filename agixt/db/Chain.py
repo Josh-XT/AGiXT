@@ -11,6 +11,7 @@ from DBConnection import (
     User,
 )
 from Defaults import DEFAULT_USER
+import logging
 
 
 class Chain:
@@ -320,11 +321,11 @@ class Chain:
                 )  # Remove the chain step from the session
                 self.session.commit()
             else:
-                print(
+                logging.info(
                     f"No step found with number {step_number} in chain '{chain_name}'"
                 )
         else:
-            print(f"No chain found with name '{chain_name}'")
+            logging.info(f"No chain found with name '{chain_name}'")
 
     def delete_chain(self, chain_name):
         chain = (

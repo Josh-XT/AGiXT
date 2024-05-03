@@ -366,7 +366,7 @@ class Agent:
                 .first()
             )
             if not agent:
-                print(f"Agent '{self.agent_name}' not found in the database.")
+                logging.error(f"Agent '{self.agent_name}' not found in the database.")
                 return
 
         if config_key == "commands":

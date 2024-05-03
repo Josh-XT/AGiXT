@@ -25,7 +25,7 @@ def export_conversation(agent_name, conversation_name=None, user=DEFAULT_USER):
         global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
         agent = Agent(name=agent_name, user_id=global_user.id)
         if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
+            logging.info(f"Agent '{agent_name}' not found in the database.")
             return
     if not conversation_name:
         conversation_name = f"{str(datetime.now())} Conversation"
@@ -38,7 +38,7 @@ def export_conversation(agent_name, conversation_name=None, user=DEFAULT_USER):
         .first()
     )
     if not conversation:
-        print(f"No conversation found for agent '{agent_name}'.")
+        logging.info(f"No conversation found for agent '{agent_name}'.")
         return
 
     messages = (
@@ -62,7 +62,7 @@ def export_conversation(agent_name, conversation_name=None, user=DEFAULT_USER):
     with open(history_file, "w") as file:
         yaml.dump(history, file)
 
-    print(f"Exported conversation for agent '{agent_name}' to {history_file}.")
+    logging.info(f"Exported conversation for agent '{agent_name}' to {history_file}.")
 
 
 def get_conversations(agent_name, user=DEFAULT_USER):
@@ -146,7 +146,7 @@ def new_conversation(
         global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
         agent = Agent(name=agent_name, user_id=global_user.id)
         if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
+            logging.info(f"Agent '{agent_name}' not found in the database.")
             return
     if not existing_conversation:
         # Create a new conversation
@@ -162,7 +162,7 @@ def new_conversation(
                     conversation_id=conversation.id,
                 )
                 session.add(new_message)
-        print(
+        logging.info(
             f"Created a new conversation: '{conversation_name}' for agent '{agent_name}'."
         )
     else:
@@ -186,7 +186,7 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
         global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
         agent = Agent(name=agent_name, user_id=global_user.id)
         if not agent:
-            print(f"Agent '{agent_name}' not found in the database.")
+            logging.info(f"Agent '{agent_name}' not found in the database.")
             return
     conversation = (
         session.query(Conversation)
@@ -211,7 +211,7 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
     )
     session.add(new_message)
     session.commit()
-    print(f"Logged interaction: [{timestamp}] {role}: {message}")
+    logging.info(f"Logged interaction: [{timestamp}] {role}: {message}")
 
 
 def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
@@ -229,7 +229,7 @@ def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
         .first()
     )
     if not conversation:
-        print(f"No conversation found for agent '{agent_name}'.")
+        logging.info(f"No conversation found for agent '{agent_name}'.")
         return
 
     session.query(Message).filter(Message.conversation_id == conversation.id).delete()
@@ -238,7 +238,7 @@ def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):
     ).delete()
     session.commit()
 
-    print(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
+    logging.info(f"Deleted conversation '{conversation_name}' for agent '{agent_name}'.")
 
 
 def delete_message(message, conversation_name=None, agent_name=None, user=DEFAULT_USER):
@@ -256,7 +256,7 @@ def delete_message(message, conversation_name=None, agent_name=None, user=DEFAUL
     )
 
     if not conversation:
-        print(f"No conversation found for agent '{agent_name}'.")
+        logging.info(f"No conversation found for agent '{agent_name}'.")
         return
     message_id = (
         session.query(Message)
@@ -277,7 +277,7 @@ def delete_message(message, conversation_name=None, agent_name=None, user=DEFAUL
     )
 
     if not message:
-        print(
+        logging.info(
             f"No message found with ID '{message_id}' in conversation '{conversation_name}'."
         )
         return
@@ -285,7 +285,7 @@ def delete_message(message, conversation_name=None, agent_name=None, user=DEFAUL
     session.delete(message)
     session.commit()
 
-    print(
+    logging.info(
         f"Deleted message with ID '{message_id}' from conversation '{conversation_name}'."
     )
 
@@ -307,7 +307,7 @@ def update_message(
     )
 
     if not conversation:
-        print(f"No conversation found for agent '{agent_name}'.")
+        logging.info(f"No conversation found for agent '{agent_name}'.")
         return
     message_id = (
         session.query(Message)
@@ -328,7 +328,7 @@ def update_message(
     )
 
     if not message:
-        print(
+        logging.info(
             f"No message found with ID '{message_id}' in conversation '{conversation_name}'."
         )
         return
@@ -336,6 +336,6 @@ def update_message(
     message.content = new_message
     session.commit()
 
-    print(
+    logging.info(
         f"Updated message with ID '{message_id}' from conversation '{conversation_name}'."
     )

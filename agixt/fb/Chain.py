@@ -146,7 +146,7 @@ class Chain:
         if not 1 <= new_step_number <= len(
             chain_data["steps"]
         ) or current_step_number not in [step["step"] for step in chain_data["steps"]]:
-            print(f"Error: Invalid step numbers.")
+            logging.info(f"Error: Invalid step numbers.")
             return
         moved_step = None
         for step in chain_data["steps"]:

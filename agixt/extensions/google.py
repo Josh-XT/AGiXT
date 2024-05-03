@@ -11,6 +11,7 @@ import email
 from base64 import urlsafe_b64decode
 from typing import List, Union
 import json
+import logging
 from Extensions import Extensions
 
 try:
@@ -127,7 +128,7 @@ class google(Extensions):
 
             return emails
         except Exception as e:
-            print(f"Error retrieving emails: {str(e)}")
+            logging.info(f"Error retrieving emails: {str(e)}")
             return []
 
     async def send_email(self, recipient, subject, body, attachments=None):
@@ -177,7 +178,7 @@ class google(Extensions):
 
             return "Email sent successfully."
         except Exception as e:
-            print(f"Error sending email: {str(e)}")
+            logging.info(f"Error sending email: {str(e)}")
             return "Failed to send email."
 
     async def move_email_to_folder(self, message_id, folder_name):
@@ -220,7 +221,7 @@ class google(Extensions):
 
             return f"Email moved to {folder_name} folder."
         except Exception as e:
-            print(f"Error moving email: {str(e)}")
+            logging.info(f"Error moving email: {str(e)}")
             return "Failed to move email."
 
     async def create_draft_email(self, recipient, subject, body, attachments=None):
@@ -270,7 +271,7 @@ class google(Extensions):
 
             return "Draft email created successfully."
         except Exception as e:
-            print(f"Error creating draft email: {str(e)}")
+            logging.info(f"Error creating draft email: {str(e)}")
             return "Failed to create draft email."
 
     async def delete_email(self, message_id):
@@ -288,7 +289,7 @@ class google(Extensions):
             service.users().messages().delete(userId="me", id=message_id).execute()
             return "Email deleted successfully."
         except Exception as e:
-            print(f"Error deleting email: {str(e)}")
+            logging.info(f"Error deleting email: {str(e)}")
             return "Failed to delete email."
 
     async def search_emails(self, query, max_emails=10):
@@ -338,7 +339,7 @@ class google(Extensions):
 
             return emails
         except Exception as e:
-            print(f"Error searching emails: {str(e)}")
+            logging.info(f"Error searching emails: {str(e)}")
             return []
 
     async def reply_to_email(self, message_id, body, attachments=None):
@@ -397,7 +398,7 @@ class google(Extensions):
 
             return "Reply sent successfully."
         except Exception as e:
-            print(f"Error replying to email: {str(e)}")
+            logging.info(f"Error replying to email: {str(e)}")
             return "Failed to send reply."
 
     async def process_attachments(self, message_id):
@@ -438,7 +439,7 @@ class google(Extensions):
 
             return saved_attachments
         except Exception as e:
-            print(f"Error processing attachments: {str(e)}")
+            logging.info(f"Error processing attachments: {str(e)}")
             return []
 
     async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
@@ -494,7 +495,7 @@ class google(Extensions):
 
             return calendar_items
         except Exception as e:
-            print(f"Error retrieving calendar items: {str(e)}")
+            logging.info(f"Error retrieving calendar items: {str(e)}")
             return []
 
     async def add_calendar_item(
@@ -536,7 +537,7 @@ class google(Extensions):
 
             return "Calendar item added successfully."
         except Exception as e:
-            print(f"Error adding calendar item: {str(e)}")
+            logging.info(f"Error adding calendar item: {str(e)}")
             return "Failed to add calendar item."
 
     async def remove_calendar_item(self, item_id):
@@ -554,7 +555,7 @@ class google(Extensions):
             service.events().delete(calendarId="primary", eventId=item_id).execute()
             return "Calendar item removed successfully."
         except Exception as e:
-            print(f"Error removing calendar item: {str(e)}")
+            logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."
 
     async def google_official_search(
