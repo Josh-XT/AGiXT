@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from DBConnection import (
     get_session,
     Provider,
@@ -36,7 +37,7 @@ def import_agents(user=DEFAULT_USER):
             commands=config["commands"],
             user=user,
         )
-        print(f"Imported agent: {agent_name}")
+        logging.info(f"Imported agent: {agent_name}")
 
 
 def import_extensions():
@@ -105,7 +106,7 @@ def import_extensions():
                 session.add(command)
                 session.flush()
                 existing_commands.append(command)
-                print(f"Imported command: {command_name}")
+                logging.info(f"Imported command: {command_name}")
 
             # Add command arguments
             if "command_args" in command_data:
@@ -122,7 +123,7 @@ def import_extensions():
                         name=arg,
                     )
                     session.add(command_arg)
-                    print(f"Imported argument: {arg} to command: {command_name}")
+                    logging.info(f"Imported argument: {arg} to command: {command_name}")
 
     session.commit()
 
@@ -134,7 +135,7 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-            print(f"Imported extension: {extension_name}")
+            logging.info(f"Imported extension: {extension_name}")
 
     session.commit()
 
@@ -142,7 +143,7 @@ def import_extensions():
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
         if not extension:
-            print(f"Extension '{extension_name}' not found.")
+            logging.info(f"Extension '{extension_name}' not found.")
             continue
 
         for setting_name, setting_value in settings.items():
@@ -153,7 +154,7 @@ def import_extensions():
             )
             if setting:
                 setting.value = setting_value
-                print(
+                logging.info(
                     f"Updating setting: {setting_name} for extension: {extension_name}"
                 )
             else:
@@ -163,7 +164,7 @@ def import_extensions():
                     value=setting_value,
                 )
                 session.add(setting)
-                print(
+                logging.info(
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
 
@@ -178,7 +179,7 @@ def import_chains(user=DEFAULT_USER):
         if os.path.isfile(os.path.join(chain_dir, file)) and file.endswith(".json")
     ]
     if not chain_files:
-        print(f"No JSON files found in chains directory.")
+        logging.info(f"No JSON files found in chains directory.")
         return
     from db.Chain import Chain
 
@@ -191,11 +192,11 @@ def import_chains(user=DEFAULT_USER):
             try:
                 chain_data = json.load(f)
                 result = chain_importer.import_chain(chain_name, chain_data)
-                print(result)
+                logging.info(result)
             except json.JSONDecodeError as e:
-                print(f"Error importing chain from '{file}': Invalid JSON format.")
+                logging.info(f"Error importing chain from '{file}': Invalid JSON format.")
             except Exception as e:
-                print(f"Error importing chain from '{file}': {str(e)}")
+                logging.info(f"Error importing chain from '{file}': {str(e)}")
 
 
 def import_prompts(user=DEFAULT_USER):
@@ -213,7 +214,7 @@ def import_prompts(user=DEFAULT_USER):
         )
         session.add(default_category)
         session.commit()
-        print("Imported Default prompt category")
+        logging.info("Imported Default prompt category")
 
     # Get all prompt files in the specified folder
     for root, dirs, files in os.walk("prompts"):
@@ -267,7 +268,7 @@ def import_prompts(user=DEFAULT_USER):
                 )
                 session.add(prompt)
                 session.commit()
-                print(f"Imported prompt: {prompt_name}")
+                logging.info(f"Imported prompt: {prompt_name}")
 
             # Populate prompt arguments
             for arg in prompt_args:
@@ -283,7 +284,7 @@ def import_prompts(user=DEFAULT_USER):
                 )
                 session.add(argument)
                 session.commit()
-                print(f"Imported prompt argument: {arg} for {prompt_name}")
+                logging.info(f"Imported prompt argument: {arg} for {prompt_name}")
 
 
 def import_conversations(user=DEFAULT_USER):
@@ -294,7 +295,7 @@ def import_conversations(user=DEFAULT_USER):
     for conversation_name in conversations:
         conversation = get_conversation(conversation_name=conversation_name, user=user)
         if not conversation:
-            print(f"Conversation '{conversation_name}' is empty, skipping.")
+            logging.info(f"Conversation '{conversation_name}' is empty, skipping.")
             continue
         if "interactions" in conversation:
             for interaction in conversation["interactions"]:
@@ -322,7 +323,7 @@ def import_conversations(user=DEFAULT_USER):
                 )
                 session.add(message)
                 session.commit()
-            print(f"Imported conversation: {conversation_name}")
+            logging.info(f"Imported conversation: {conversation_name}")
 
 
 def import_providers():
@@ -340,12 +341,12 @@ def import_providers():
         provider = session.query(Provider).filter_by(name=provider_name).one_or_none()
 
         if provider:
-            print(f"Updating provider: {provider_name}")
+            logging.info(f"Updating provider: {provider_name}")
         else:
             provider = Provider(name=provider_name)
             session.add(provider)
             existing_provider_names.append(provider_name)
-            print(f"Imported provider: {provider_name}")
+            logging.info(f"Imported provider: {provider_name}")
             session.commit()
 
         for option_name, option_value in provider_options.items():
@@ -356,7 +357,7 @@ def import_providers():
             )
             if provider_setting:
                 provider_setting.value = option_value
-                print(
+                logging.info(
                     f"Updating provider setting: {option_name} for provider: {provider_name}"
                 )
             else:
@@ -366,7 +367,7 @@ def import_providers():
                     value=option_value,
                 )
                 session.add(provider_setting)
-                print(
+                logging.info(
                     f"Imported provider setting: {option_name} for provider: {provider_name}"
                 )
     session.commit()
@@ -377,21 +378,21 @@ def import_all_data():
     user_count = session.query(User).count()
     if user_count == 0:
         # Create the default user
-        print("Creating default admin user...")
+        logging.info("Creating default admin user...")
         user = User(email=DEFAULT_USER, role="admin")
         session.add(user)
         session.commit()
-        print("Default user created.")
-        print("Importing providers...")
+        logging.info("Default user created.")
+        logging.info("Importing providers...")
         import_providers()
-        print("Importing extensions...")
+        logging.info("Importing extensions...")
         import_extensions()
-        print("Importing prompts...")
+        logging.info("Importing prompts...")
         import_prompts()
-        print("Importing agents...")
+        logging.info("Importing agents...")
         import_agents()
-        print("Importing chains...")
+        logging.info("Importing chains...")
         import_chains()  # Partially works
-        print("Importing conversations...")
+        logging.info("Importing conversations...")
         import_conversations()
-        print("Imports complete.")
+        logging.info("Imports complete.")

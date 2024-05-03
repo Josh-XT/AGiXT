@@ -1,5 +1,6 @@
 from typing import List, Union
 from requests.compat import urljoin
+import logging
 
 try:
     from bs4 import BeautifulSoup
@@ -118,5 +119,5 @@ class web_playwright(Extensions):
                 await page.screenshot(path=path, full_page=True, type="png")
                 await browser.close()
         except Exception as e:
-            print(e)
+            logging.error(f"Playwright Error: {str(e)}")
             return f"Error: {str(e)}"
