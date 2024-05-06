@@ -1,5 +1,6 @@
-from g4f.client import Client
+from g4f.client import AsyncClient
 import logging
+import asyncio
 
 
 class Gpt4freeProvider:
@@ -22,21 +23,25 @@ class Gpt4freeProvider:
             "mixtral-8x7b",
             "mistral-7b",
         ]
-        client = Client()
+        client = AsyncClient()
         try:
-            response = client.chat.completions.create(
+            task = client.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                stream=False,
             )
+            response = await asyncio.gather(task)
             return response.choices[0].message.content
         except Exception as e:
             logging.warning(f"gpt4free API Error: {e}")
             for model in models:
                 try:
-                    response = client.chat.completions.create(
+                    task = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "user", "content": prompt}],
+                        stream=False,
                     )
+                    response = await asyncio.gather(task)
                     return response.choices[0].message.content
                 except Exception as e:
                     logging.warning(f"gpt4free API Error: {e}")
