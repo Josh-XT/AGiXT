@@ -54,7 +54,7 @@ async def addagent(
                 collection_number=0,
                 ApiClient=ApiClient,
                 user=user,
-            ).write_website_to_memory(url=url.url)
+            ).write_website_to_memory(url=url)
         return {"message": "Agent added and trained."}
     return {"message": "Agent added."}
 
