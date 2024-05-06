@@ -707,8 +707,6 @@ class Interactions:
                     for shot, response in enumerate(responses)
                 ]
             )
-        logging.info(f"{self.user}: {user_input}")
-        logging.info(f"{self.agent_name}: {self.response}")
         return self.response
 
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
@@ -759,7 +757,10 @@ class Interactions:
                         if command_name in command_list:
                             # Check if the command is a valid command in the self.agent.available_commands list
                             try:
-                                if bool(self.agent.AUTONOMOUS_EXECUTION) == True:
+                                if (
+                                    str(self.agent.AUTONOMOUS_EXECUTION).lower()
+                                    == "true"
+                                ):
                                     ext = Extensions(
                                         agent_name=self.agent_name,
                                         agent_config=self.agent.AGENT_CONFIG,

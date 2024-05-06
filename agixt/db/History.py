@@ -218,6 +218,10 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
         )
     session.add(new_message)
     session.commit()
+    if role.lower() == "user":
+        logging.info(f"{user}: {message}")
+    else:
+        logging.info(f"{agent_name}: {message}")
 
 
 def delete_history(agent_name, conversation_name=None, user=DEFAULT_USER):

@@ -227,6 +227,15 @@ class Agent:
                 name="default", ApiClient=ApiClient, **self.PROVIDER_SETTINGS
             ).embedder
         )
+        if "AUTONOMOUS_EXECUTION" in self.PROVIDER_SETTINGS:
+            self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS["AUTONOMOUS_EXECUTION"]
+            if isinstance(self.AUTONOMOUS_EXECUTION, str):
+                self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
+                self.AUTONOMOUS_EXECUTION = (
+                    False if self.AUTONOMOUS_EXECUTION.lower() == "false" else True
+                )
+        else:
+            self.AUTONOMOUS_EXECUTION = True
         if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:

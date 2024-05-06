@@ -1,6 +1,7 @@
 from datetime import datetime
 import yaml
 import os
+import logging
 
 
 def export_conversation(conversation_name=None, agent_name=None, user="USER"):
@@ -67,6 +68,10 @@ def log_interaction(
     )
     with open(history_file, "w") as file:
         yaml.safe_dump(history, file)
+    if role.lower() == "user":
+        logging.info(f"{user}: {message}")
+    else:
+        logging.info(f"{agent_name}: {message}")
 
 
 def delete_history(conversation_name=None, agent_name=None, user="USER"):
