@@ -41,3 +41,4 @@ class Gpt4freeProvider:
                 except Exception as e:
                     logging.warning(f"gpt4free API Error: {e}")
                     continue
+            return "Unable to retrieve a response from the gpt4free provider."
