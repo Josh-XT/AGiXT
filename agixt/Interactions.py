@@ -613,6 +613,7 @@ class Interactions:
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
+                    and agent_settings["tts_provider"] != None
                 ):
                     tts_response = await self.agent.text_to_speech(text=self.response)
                     if not str(tts_response).startswith("http"):

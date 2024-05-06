@@ -326,6 +326,7 @@ async def chat_completion(
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
+                    and agent_settings["tts_provider"] != None
                 ):
                     tts_response = await agent.agent.text_to_speech(text=response)
                     # If tts_response is a not a url starting with http, it is a base64 encoded audio file
@@ -371,6 +372,7 @@ async def chat_completion(
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
+                    and agent_settings["tts_provider"] != None
                 ):
                     tts_response = await agent.agent.text_to_speech(text=response)
                     # If tts_response is a not a url starting with http, it is a base64 encoded audio file
