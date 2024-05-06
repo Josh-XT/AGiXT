@@ -14,25 +14,25 @@ class Gpt4freeProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        self.client = AsyncClient()
+        client = AsyncClient()
         models = ["gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
-            async with self.client as client:  # Use a context manager
-                response = await client.chat.completions.create(
-                    model=self.AI_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return response.choices[0].message.content
+            response = await client.chat.completions.create(
+                model=self.AI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+            )
+            return response.choices[0].message.content
         except Exception as e:
             logging.warning(f"gpt4free API Error: {e}")
             for model in models:
                 try:
-                    async with self.client as client:  # Use a context manager
-                        response = await client.chat.completions.create(
-                            model=model,
-                            messages=[{"role": "user", "content": prompt}],
-                        )
-                        return response.choices[0].message.content
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        stream=False,
+                    )
+                    return response.choices[0].message.content
                 except Exception as e:
                     logging.warning(f"gpt4free API Error: {e}")
                     continue
