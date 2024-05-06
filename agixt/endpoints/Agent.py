@@ -1,6 +1,7 @@
 import logging
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
+from readers.website import WebsiteReader
 from Interactions import Interactions
 from ApiClient import (
     Agent,
@@ -33,9 +34,28 @@ async def addagent(
 ) -> Dict[str, str]:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    return add_agent(
-        agent_name=agent.agent_name, provider_settings=agent.settings, user=user
+    add_agent(
+        agent_name=agent.agent_name,
+        provider_settings=agent.settings,
+        commands=agent.commands,
+        user=user,
     )
+    if agent.training_urls:
+        if len(agent.training_urls) < 1:
+            return {"message": "Agent added."}
+        ApiClient = get_api_client(authorization=authorization)
+        agent_config = Agent(
+            agent_name=agent.agent_name, user=user, ApiClient=ApiClient
+        ).get_agent_config()
+        for url in agent.training_urls:
+            await WebsiteReader(
+                agent_name=agent.agent_name,
+                agent_config=agent_config,
+                collection_number=0,
+                ApiClient=ApiClient,
+                user=user,
+            ).write_website_to_memory(url=url.url)
+        return {"message": "Agent added and trained."}
 
 
 @app.post(
