@@ -40,7 +40,7 @@ async def addagent(
         commands=agent.commands,
         user=user,
     )
-    if agent.training_urls:
+    if agent.training_urls != [] and agent.training_urls != None:
         if len(agent.training_urls) < 1:
             return {"message": "Agent added."}
         ApiClient = get_api_client(authorization=authorization)
