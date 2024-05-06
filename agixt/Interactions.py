@@ -418,6 +418,10 @@ class Interactions:
             shots = 1
         shots = int(shots)
         prompt = "Chat"
+        prompt_category = "Default"
+        if "prompt_category" in kwargs:
+            prompt_category = kwargs["prompt_category"]
+            del kwargs["prompt_category"]
         if "prompt_name" in kwargs:
             prompt = kwargs["prompt_name"]
             del kwargs["prompt_name"]
@@ -538,6 +542,7 @@ class Interactions:
             user_input=user_input,
             top_results=int(context_results),
             prompt=prompt,
+            prompt_category=prompt_category,
             chain_name=chain_name,
             step_number=step_number,
             conversation_name=conversation_name,
@@ -590,11 +595,7 @@ class Interactions:
             }
             return await self.run(
                 prompt_name=prompt,
-                prompt_category=(
-                    "Default"
-                    if "prompt_category" not in kwargs
-                    else kwargs["prompt_category"]
-                ),
+                prompt_category=prompt_category,
                 **prompt_args,
             )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
@@ -695,11 +696,7 @@ class Interactions:
                 shot_response = await self.run(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
-                    prompt_category=(
-                        "Default"
-                        if "prompt_category" not in kwargs
-                        else kwargs["prompt_category"]
-                    ),
+                    prompt_category=prompt_category,
                     **prompt_args,
                 )
                 time.sleep(1)
