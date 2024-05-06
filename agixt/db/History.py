@@ -192,17 +192,30 @@ def log_interaction(agent_name, conversation_name, role, message, user=DEFAULT_U
     )
 
     if not conversation:
-        # Create a new conversation if it doesn't exist
         conversation = new_conversation(
             agent_name=agent_name, conversation_name=conversation_name, user=user
         )
+        session = get_session()
     timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
-    new_message = Message(
-        role=role,
-        content=message,
-        timestamp=timestamp,
-        conversation_id=conversation.id,
-    )
+    try:
+        new_message = Message(
+            role=role,
+            content=message,
+            timestamp=timestamp,
+            conversation_id=conversation.id,
+        )
+    except Exception as e:
+        logging.info(f"Error logging interaction: {e}")
+        conversation = new_conversation(
+            agent_name=agent_name, conversation_name=conversation_name, user=user
+        )
+        session = get_session()
+        new_message = Message(
+            role=role,
+            content=message,
+            timestamp=timestamp,
+            conversation_id=conversation.id,
+        )
     session.add(new_message)
     session.commit()
 
