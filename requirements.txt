@@ -15,4 +15,5 @@ O365==2.0.34
 google-auth==2.29.0
 google-api-python-client==2.125.0
 python-multipart==0.0.9
-g4f==0.3.0.9
+nest_asyncio
+g4f==0.3.0.10
