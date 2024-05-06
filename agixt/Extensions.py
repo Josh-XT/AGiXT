@@ -8,7 +8,10 @@ from Defaults import DEFAULT_USER
 from dotenv import load_dotenv
 
 load_dotenv()
-
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 DISABLED_EXTENSIONS = os.getenv("DISABLED_EXTENSIONS", "").replace(" ", "").split(",")
 
 

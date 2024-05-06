@@ -12,6 +12,12 @@ from DBConnection import (
 )
 from Defaults import DEFAULT_USER
 import logging
+import os
+
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 
 class Chain:

@@ -1,4 +1,5 @@
 import re
+import os
 import json
 import random
 import requests
@@ -9,6 +10,11 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
+
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 
 class Websearch:

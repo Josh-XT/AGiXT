@@ -23,6 +23,11 @@ from ApiClient import (
 )
 from Defaults import DEFAULT_USER
 
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
 
 def get_tokens(text: str) -> int:
     encoding = tiktoken.get_encoding("cl100k_base")

@@ -3,6 +3,11 @@ import yaml
 import os
 import logging
 
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
 
 def export_conversation(conversation_name=None, agent_name=None, user="USER"):
     if not conversation_name:
