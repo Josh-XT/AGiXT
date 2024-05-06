@@ -182,7 +182,7 @@ class CustomPromptModel(BaseModel):
 
 class AgentSettings(BaseModel):
     agent_name: str
-    settings: Dict[str, Any]
+    settings: Optional[Dict[str, Any]] = {}
     commands: Optional[Dict[str, Any]] = {}
     training_urls: Optional[List[str]] = []
 

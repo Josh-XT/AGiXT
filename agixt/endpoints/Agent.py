@@ -56,6 +56,7 @@ async def addagent(
                 user=user,
             ).write_website_to_memory(url=url.url)
         return {"message": "Agent added and trained."}
+    return {"message": "Agent added."}
 
 
 @app.post(
