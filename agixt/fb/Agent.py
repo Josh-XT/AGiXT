@@ -125,11 +125,14 @@ class Agent:
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
             if "tts_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
+            else "None"
         )
-        self.TTS_PROVIDER = Providers(
-            name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
+        if tts_provider != "None" and tts_provider != None and tts_provider != "":
+            self.TTS_PROVIDER = Providers(
+                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            )
+        else:
+            self.TTS_PROVIDER = None
         transcription_provider = (
             self.AGENT_CONFIG["settings"]["transcription_provider"]
             if "transcription_provider" in self.AGENT_CONFIG["settings"]
@@ -223,7 +226,8 @@ class Agent:
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
     async def text_to_speech(self, text: str):
-        return await self.TTS_PROVIDER.text_to_speech(text=text)
+        if self.TTS_PROVIDER is not None:
+            return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def _load_agent_config_keys(self, keys):
         for key in keys:
