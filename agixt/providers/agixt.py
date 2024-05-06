@@ -1,4 +1,5 @@
 import requests
+import logging
 
 
 # This will create a hive agent that will create memories for itself and each agent in the rotation.
@@ -30,7 +31,9 @@ class AgixtProvider:
                     prompt_args={"user_input": prompt},
                 )
             except Exception as e:
-                print(f"[AGiXT] {agent} failed. Error: {e}. Moving on to next agent.")
+                logging.warning(
+                    f"[AGiXT] {agent} failed. Error: {e}. Moving on to next agent."
+                )
                 continue
         return "No agents available"
 
