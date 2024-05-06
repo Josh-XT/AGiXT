@@ -20,6 +20,11 @@ from db.Agent import add_agent
 from fb.History import get_conversation, get_conversations
 from Defaults import DEFAULT_USER
 
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
 
 def import_agents(user=DEFAULT_USER):
     agents = [
@@ -194,7 +199,9 @@ def import_chains(user=DEFAULT_USER):
                 result = chain_importer.import_chain(chain_name, chain_data)
                 logging.info(result)
             except json.JSONDecodeError as e:
-                logging.info(f"Error importing chain from '{file}': Invalid JSON format.")
+                logging.info(
+                    f"Error importing chain from '{file}': Invalid JSON format."
+                )
             except Exception as e:
                 logging.info(f"Error importing chain from '{file}': {str(e)}")
 

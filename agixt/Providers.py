@@ -8,7 +8,10 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 DISABLED_PROVIDERS = os.getenv("DISABLED_PROVIDERS", "").replace(" ", "").split(",")
 
 

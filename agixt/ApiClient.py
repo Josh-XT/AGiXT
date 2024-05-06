@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 from fastapi import Header, HTTPException
 
 load_dotenv()
-
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 WORKERS = int(os.getenv("UVICORN_WORKERS", 10))

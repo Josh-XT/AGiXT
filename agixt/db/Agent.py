@@ -20,7 +20,10 @@ import logging
 import json
 import numpy as np
 import os
-
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     session = get_session()

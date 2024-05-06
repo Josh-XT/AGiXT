@@ -1,6 +1,12 @@
+import os
 import logging
 from ApiClient import Chain, Prompts, log_interaction
 from Extensions import Extensions
+
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 
 class Chains:
