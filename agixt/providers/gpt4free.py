@@ -22,7 +22,7 @@ class Gpt4freeProvider:
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
             )
-            return response.choices[0].message.content
+            return str(response.choices[0].message.content)
         except Exception as e:
             logging.warning(f"gpt4free API Error: {e}")
             for model in models:
@@ -32,7 +32,7 @@ class Gpt4freeProvider:
                         messages=[{"role": "user", "content": prompt}],
                         stream=False,
                     )
-                    return response.choices[0].message.content
+                    return str(response.choices[0].message.content)
                 except Exception as e:
                     logging.warning(f"gpt4free API Error: {e}")
                     continue
