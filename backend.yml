@@ -17,6 +17,7 @@ services:
       - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
+      - LOGLEVEL=${LOGLEVEL:-ERROR}
       - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
