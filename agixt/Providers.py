@@ -103,7 +103,8 @@ class Providers:
             self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
-            raise AttributeError(f"module {__name__} has no attribute {name}") from e
+            if name != None and name != "None":
+                logging.info(f"Error loading provider: {name}")
 
     def __getattr__(self, attr):
         return getattr(self.instance, attr)
