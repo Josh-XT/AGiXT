@@ -1,5 +1,4 @@
 from typing import Dict
-import logging
 from fastapi import APIRouter, Depends, Header, HTTPException
 from Providers import (
     get_provider_options,
@@ -78,7 +77,6 @@ if DB_CONNECTED:
     async def createuser(
         account: User, authorization: str = Header(None), user=Depends(verify_api_key)
     ):
-        logging.info(f"User: {account.model_dump()}")
         if is_admin(email=user, api_key=authorization) != True:
             raise HTTPException(status_code=403, detail="Access Denied")
         ApiClient = get_api_client(authorization=authorization)

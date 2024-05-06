@@ -1,4 +1,3 @@
-import logging
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from readers.website import WebsiteReader
@@ -248,7 +247,6 @@ async def toggle_command(
                 message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
             )
     except Exception as e:
-        logging.info(e)
         raise HTTPException(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
