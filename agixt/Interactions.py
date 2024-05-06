@@ -512,7 +512,12 @@ class Interactions:
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
-            if images != [] and vision_provider != "None" and vision_provider != "":
+            if (
+                images != []
+                and vision_provider != "None"
+                and vision_provider != ""
+                and vision_provider != None
+            ):
                 image_urls = []
                 for image in images:
                     image_url = str(image).replace(
