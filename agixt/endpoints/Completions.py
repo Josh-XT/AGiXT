@@ -168,7 +168,6 @@ async def chat_completion(
                     with open(image_path, "wb") as f:
                         f.write(image)
                     images.append(image_path)
-                    logging.info(f"Images: {images}")
                 if "audio_url" in msg:
                     audio_url = (
                         msg["audio_url"]["url"]
@@ -456,9 +455,6 @@ async def embedding(
         "object": "list",
         "usage": {"prompt_tokens": tokens, "total_tokens": tokens},
     }
-
-
-import logging
 
 
 # Audio Transcription endpoint
