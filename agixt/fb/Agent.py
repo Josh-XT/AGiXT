@@ -189,7 +189,7 @@ class Agent:
             if isinstance(self.AUTONOMOUS_EXECUTION, str):
                 self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
                 self.AUTONOMOUS_EXECUTION = (
-                    False if self.AUTONOMOUS_EXECUTION == "false" else True
+                    False if self.AUTONOMOUS_EXECUTION.lower() == "false" else True
                 )
         else:
             self.AUTONOMOUS_EXECUTION = True
