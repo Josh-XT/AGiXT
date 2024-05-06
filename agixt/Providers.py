@@ -106,7 +106,7 @@ class Providers:
             self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
-            if name != None and name != "None":
+            if name != None and name != "None" and not str(name).startswith("__"):
                 logging.info(f"Error loading provider: {name}")
 
     def __getattr__(self, attr):
