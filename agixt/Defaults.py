@@ -14,6 +14,7 @@ DEFAULT_SETTINGS = {
     "transcription_provider": "default",
     "translation_provider": "default",
     "image_provider": "None",
+    "vision_provider": "None",
     "AI_MODEL": "mixtral-8x7b",
     "AI_TEMPERATURE": "0.7",
     "AI_TOP_P": "1",

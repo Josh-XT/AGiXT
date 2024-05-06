@@ -627,16 +627,21 @@ class Interactions:
                     and agent_settings["tts_provider"] != ""
                     and agent_settings["tts_provider"] != None
                 ):
-                    tts_response = await self.agent.text_to_speech(text=self.response)
-                    if not str(tts_response).startswith("http"):
-                        file_type = "wav"
-                        file_name = f"{uuid.uuid4().hex}.{file_type}"
-                        audio_path = f"./WORKSPACE/{file_name}"
-                        audio_data = base64.b64decode(tts_response)
-                        with open(audio_path, "wb") as f:
-                            f.write(audio_data)
-                        tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
-                    self.response = f"{self.response}\n\n{tts_response}"
+                    try:
+                        tts_response = await self.agent.text_to_speech(
+                            text=self.response
+                        )
+                        if not str(tts_response).startswith("http"):
+                            file_type = "wav"
+                            file_name = f"{uuid.uuid4().hex}.{file_type}"
+                            audio_path = f"./WORKSPACE/{file_name}"
+                            audio_data = base64.b64decode(tts_response)
+                            with open(audio_path, "wb") as f:
+                                f.write(audio_data)
+                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
+                        self.response = f"{self.response}\n\n{tts_response}"
+                    except Exception as e:
+                        logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:
                 try:
                     await self.agent_memory.write_text_to_memory(
