@@ -18,6 +18,10 @@ from sqlalchemy.sql import text
 from dotenv import load_dotenv
 
 load_dotenv()
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
 DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 if DB_CONNECTED:
