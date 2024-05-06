@@ -1,4 +1,5 @@
 from g4f.client import Client
+import logging
 
 
 class Gpt4freeProvider:
@@ -28,7 +29,8 @@ class Gpt4freeProvider:
                 messages=[{"role": "user", "content": prompt}],
             )
             return response.choices[0].message.content
-        except:
+        except Exception as e:
+            logging.warning(f"gpt4free API Error: {e}")
             for model in models:
                 try:
                     response = client.chat.completions.create(
@@ -36,6 +38,6 @@ class Gpt4freeProvider:
                         messages=[{"role": "user", "content": prompt}],
                     )
                     return response.choices[0].message.content
-                except:
+                except Exception as e:
+                    logging.warning(f"gpt4free API Error: {e}")
                     continue
-        return "Unable to retrieve response."
