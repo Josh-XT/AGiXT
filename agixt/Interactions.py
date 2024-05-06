@@ -420,6 +420,7 @@ class Interactions:
         prompt = "Chat"
         if "prompt_name" in kwargs:
             prompt = kwargs["prompt_name"]
+            del kwargs["prompt_name"]
         if "prompt" in kwargs:
             prompt = kwargs["prompt"]
             del kwargs["prompt"]
