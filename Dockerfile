@@ -59,9 +59,6 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
-# Update g4f
-RUN pip install g4f==0.3.0.7 --force-reinstall
-
 COPY . .
 
 WORKDIR /agixt
