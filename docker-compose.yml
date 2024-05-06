@@ -9,6 +9,7 @@ services:
       - AGIXT_URI=${AGIXT_URI-http://agixt:7437}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
+      - LOGLEVEL=${LOGLEVEL:-ERROR}
       - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
