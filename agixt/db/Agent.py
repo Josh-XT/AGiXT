@@ -20,10 +20,12 @@ import logging
 import json
 import numpy as np
 import os
+
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
+
 
 def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     session = get_session()
@@ -186,11 +188,14 @@ class Agent:
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
             if "tts_provider" in self.AGENT_CONFIG["settings"]
-            else "default"
+            else "None"
         )
-        self.TTS_PROVIDER = Providers(
-            name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
-        )
+        if tts_provider != "None" and tts_provider != None and tts_provider != "":
+            self.TTS_PROVIDER = Providers(
+                name=tts_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+            )
+        else:
+            self.TTS_PROVIDER = None
         transcription_provider = (
             self.AGENT_CONFIG["settings"]["transcription_provider"]
             if "transcription_provider" in self.AGENT_CONFIG["settings"]
@@ -332,7 +337,8 @@ class Agent:
         return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
 
     async def text_to_speech(self, text: str):
-        return await self.TTS_PROVIDER.text_to_speech(text=text)
+        if self.TTS_PROVIDER is not None:
+            return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_commands_string(self):
         if len(self.available_commands) == 0:
