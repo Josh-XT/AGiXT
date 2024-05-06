@@ -141,6 +141,15 @@ async def deleteagent(
 ) -> ResponseMessage:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await WebsiteReader(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=0,
+        ApiClient=ApiClient,
+        user=user,
+    ).wipe_memory()
     delete_agent(agent_name=agent_name, user=user)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
