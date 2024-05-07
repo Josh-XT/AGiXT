@@ -540,7 +540,7 @@ async def text_to_speech(
     if audio_data.startswith("http"):
         audio_data = requests.get(audio_data).content
         audio_data = base64.b64encode(audio_data).decode("utf-8")
-        return base64.b64encode(audio_data).decode("utf-8")
+        return audio_data
     return audio_data
 
 
