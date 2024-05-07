@@ -472,7 +472,12 @@ class Interactions:
             links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
             if links is not None and len(links) > 0:
                 for link in links:
-                    if link not in self.websearch.browsed_links:
+                    if (
+                        link not in self.websearch.browsed_links
+                        and link != ""
+                        and link != None
+                        and link != "None"
+                    ):
                         logging.info(f"Browsing link: {link}")
                         self.websearch.browsed_links.append(link)
                         if str(link).startswith("https://www.youtube.com/watch?v="):
@@ -492,16 +497,23 @@ class Interactions:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
                                 for sublink in link_list:
-                                    if sublink[1] not in self.websearch.browsed_links:
-                                        logging.info(f"Browsing link: {sublink[1]}")
-                                        if i <= websearch_depth:
-                                            (
-                                                text_content,
-                                                link_list,
-                                            ) = await self.agent_memory.write_website_to_memory(
-                                                url=sublink[1]
-                                            )
-                                            i = i + 1
+                                    if sublink[1]:
+                                        if (
+                                            sublink[1]
+                                            not in self.websearch.browsed_links
+                                            and sublink[1] != ""
+                                            and sublink[1] != None
+                                            and sublink[1] != "None"
+                                        ):
+                                            logging.info(f"Browsing link: {sublink[1]}")
+                                            if i <= websearch_depth:
+                                                (
+                                                    text_content,
+                                                    link_list,
+                                                ) = await self.agent_memory.write_website_to_memory(
+                                                    url=sublink[1]
+                                                )
+                                                i = i + 1
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
