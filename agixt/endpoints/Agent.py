@@ -50,7 +50,7 @@ async def addagent(
             ApiClient=ApiClient,
         )
         for url in agent.training_urls:
-            agent_interaction.agent_memory.write_website_to_memory(url=url)
+            await agent_interaction.agent_memory.write_website_to_memory(url=url)
         return {"message": "Agent added and trained."}
     return {"message": "Agent added."}
 
