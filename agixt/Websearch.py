@@ -257,7 +257,7 @@ class Websearch:
                             i = 0
                             for sublink in link_list:
                                 if (
-                                    sublink[i] not in self.browsed_links
+                                    sublink[1] not in self.browsed_links
                                     and sublink[1] != ""
                                     and sublink[1] != " "
                                     and sublink[1] != "None"
