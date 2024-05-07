@@ -135,6 +135,9 @@ async def chat_completion(
             )
         if "browse_links" in message:
             browse_links = str(message["browse_links"]).lower() == "true"
+        tts = True
+        if "tts" in message:
+            tts = str(message["tts"]).lower() == "true"
         if "content" not in message:
             continue
         if isinstance(message["content"], str):
@@ -322,7 +325,7 @@ async def chat_completion(
                 command_name=agent_settings["command_name"],
                 command_args=command_args,
             )
-            if "tts_provider" in agent_settings:
+            if "tts_provider" in agent_settings and tts:
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
