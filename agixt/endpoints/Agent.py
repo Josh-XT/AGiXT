@@ -43,17 +43,14 @@ async def addagent(
         if len(agent.training_urls) < 1:
             return {"message": "Agent added."}
         ApiClient = get_api_client(authorization=authorization)
-        agent_config = Agent(
-            agent_name=agent.agent_name, user=user, ApiClient=ApiClient
-        ).get_agent_config()
+        agent_interaction = Interactions(
+            agent_name=agent.agent_name,
+            collection_number=0,
+            user=user,
+            ApiClient=ApiClient,
+        )
         for url in agent.training_urls:
-            await WebsiteReader(
-                agent_name=agent.agent_name,
-                agent_config=agent_config,
-                collection_number=0,
-                ApiClient=ApiClient,
-                user=user,
-            ).write_website_to_memory(url=url)
+            agent_interaction.agent_memory.write_website_to_memory(url=url)
         return {"message": "Agent added and trained."}
     return {"message": "Agent added."}
 
