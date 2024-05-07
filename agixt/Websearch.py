@@ -88,7 +88,8 @@ class Websearch:
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if url in self.browsed_links:
                     continue
-                # Check if url is an actual url
+                if url == "" or url == " " or url == "None" or url is None:
+                    continue
                 if url.startswith("http"):
                     logging.info(f"Scraping: {url}")
                     if url not in self.browsed_links:
@@ -109,7 +110,8 @@ class Websearch:
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if url in self.browsed_links:
                     continue
-                # Check if url is an actual url
+                if url == "" or url == " " or url == "None" or url is None:
+                    continue
                 if url.startswith("http"):
                     logging.info(f"Scraping: {url}")
                     if url not in self.browsed_links:
@@ -237,7 +239,13 @@ class Websearch:
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if links is not None and len(links) > 0:
             for link in links:
-                if link not in self.browsed_links:
+                if (
+                    link not in self.browsed_links
+                    and link != ""
+                    and link != " "
+                    and link != "None"
+                    and link is not None
+                ):
                     logging.info(f"Browsing link: {link}")
                     self.browsed_links.append(link)
                     text_content, link_list = await self.get_web_content(url=link)
@@ -245,7 +253,13 @@ class Websearch:
                         if link_list is not None and len(link_list) > 0:
                             i = 0
                             for sublink in link_list:
-                                if sublink[1] not in self.browsed_links:
+                                if (
+                                    sublink[i] not in self.browsed_links
+                                    and sublink[1] != ""
+                                    and sublink[1] != " "
+                                    and sublink[1] != "None"
+                                    and sublink[1] is not None
+                                ):
                                     logging.info(f"Browsing link: {sublink[1]}")
                                     if i <= search_depth:
                                         (
