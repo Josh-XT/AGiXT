@@ -12,6 +12,7 @@ from readers.file import FileReader
 from readers.website import WebsiteReader
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
+from providers.default import DefaultProvider
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
 from Models import (
@@ -532,7 +533,10 @@ async def text_to_speech(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
-    audio_data = await agent.text_to_speech(text=tts.input)
+    if agent.TTS_PROVIDER != None:
+        audio_data = await agent.text_to_speech(text=tts.input)
+    else:
+        audio_data = DefaultProvider().text_to_speech(text=tts.input)
     return base64.b64encode(audio_data).decode("utf-8")
 
 
