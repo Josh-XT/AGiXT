@@ -621,7 +621,10 @@ class Interactions:
                 self.response = re.sub(
                     r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
                 )
-            if "tts_provider" in agent_settings:
+            tts = True
+            if "tts" in kwargs:
+                tts = str(kwargs["tts"]).lower() == "true"
+            if "tts_provider" in agent_settings and tts:
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
