@@ -536,7 +536,7 @@ async def text_to_speech(
     if agent.TTS_PROVIDER != None:
         audio_data = await agent.text_to_speech(text=tts.input)
     else:
-        audio_data = DefaultProvider().text_to_speech(text=tts.input)
+        audio_data = await DefaultProvider().text_to_speech(text=tts.input)
     if audio_data.startswith("http"):
         audio_data = requests.get(audio_data).content
         audio_data = base64.b64encode(audio_data).decode("utf-8")
