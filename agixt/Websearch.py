@@ -42,7 +42,10 @@ class Websearch:
                 browser = await p.chromium.launch()
                 context = await browser.new_context()
                 page = await context.new_page()
-                await page.goto(url)
+                if url is not None and url != "" and url != " " and url != "None":
+                    await page.goto(url)
+                else:
+                    return None, None
                 content = await page.content()
 
                 # Scrape links and their titles
