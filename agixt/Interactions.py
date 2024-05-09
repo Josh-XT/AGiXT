@@ -780,6 +780,18 @@ class Interactions:
                         command_name = command_name[:-1]
                     if command_name.endswith("'"):
                         command_name = command_name[1:]
+                    if command_name.startswith("`"):
+                        command_name = command_name[:-1]
+                    if command_name.endswith("`"):
+                        command_name = command_name[1:]
+                    if command_name.startswith("'"):
+                        command_name = command_name[:-1]
+                    if command_name.endswith("'"):
+                        command_name = command_name[1:]
+                    if command_name.startswith('"'):
+                        command_name = command_name[:-1]
+                    if command_name.endswith('"'):
+                        command_name = command_name[1:]
                     command_name = command_name.strip()
                     logging.info(f"Command to execute: {command_name}")
                     if (
