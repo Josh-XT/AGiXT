@@ -779,7 +779,18 @@ class Interactions:
                                 command_args = {}
                         logging.info(f"Agent command list: {command_list}")
                         logging.info(f"Command to execute: {command_name}")
-                        if command_name in command_list:
+                        if command_name not in command_list:
+                            # Ask the agent for clarification on which command should be executed.
+                            command_output = self.ApiClient.prompt_agent(
+                                agent_name=self.agent_name,
+                                prompt_name="Command Clarification",
+                                prompt_args={
+                                    "command_name": command_name,
+                                    "command_args": json.dumps(command_args),
+                                    "conversation_name": "AGiXT Terminal",
+                                },
+                            )
+                        else:
                             # Check if the command is a valid command in the self.agent.available_commands list
                             try:
                                 if (
@@ -819,9 +830,9 @@ class Interactions:
                                     f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                                 )
                                 command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-                            reformatted_response = reformatted_response.replace(
-                                f"#execute({command_name}, {command_args})",
-                                command_output,
-                            )
-                            if reformatted_response != self.response:
-                                self.response = reformatted_response
+                        reformatted_response = reformatted_response.replace(
+                            f"#execute({command_name}, {command_args})",
+                            command_output,
+                        )
+                        if reformatted_response != self.response:
+                            self.response = reformatted_response
