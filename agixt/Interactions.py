@@ -773,7 +773,6 @@ class Interactions:
                     if command_name.endswith(" "):
                         command_name = command_name[:-1]
                     command_name = command_name.replace("'", "").replace('"', "")
-                    logging.info(f"Command to execute: {command_name}")
                     if (
                         command_name != ""
                         and command_name != None
@@ -788,7 +787,9 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
+                        command_args = command_args["command_args"]
                         logging.info(f"Command to execute: {command_name}")
+                        logging.info(f"Command Args: {command_args}")
                         if command_name not in command_list:
                             # Ask the agent for clarification on which command should be executed.
                             command_output = self.ApiClient.prompt_agent(
@@ -835,6 +836,9 @@ class Interactions:
                                             command_args=command_args,
                                         )
                                     )
+                                    # TODO: Ask the user if they want to execute the suggested chain of commands.
+                                    command_output = f"{command_output}\n\n**Would you like to execute the command `{command_name}` with the following parameters?**\n```json\n{json.dumps(command_args, indent=4)}\n```"
+                                    # Ask the AI to make the command output more readable and relevant to the conversation and respond with that.
                             except Exception as e:
                                 logging.error(
                                     f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
