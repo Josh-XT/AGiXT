@@ -787,6 +787,8 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
+                        else:
+                            command_args = {}
                         if "command_args" in command_args:
                             command_args = command_args["command_args"]
                         logging.info(f"Command to execute: {command_name}")
