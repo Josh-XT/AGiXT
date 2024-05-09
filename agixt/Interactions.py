@@ -761,12 +761,14 @@ class Interactions:
             for available_command in self.agent.available_commands
             if available_command["enabled"] == True
         ]
+        logging.info(f"Agent command list: {command_list}")
         if len(command_list) > 0:
             commands_to_execute = re.findall(r"#execute\((.*?)\)", self.response)
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
                     command_name = command.split(",")[0]
+                    logging.info(f"Command to execute: {command_name}")
                     if command_name:
                         if len(command.split(",")[1:]) > 0:
                             try:
@@ -777,7 +779,7 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
-                        logging.info(f"Agent command list: {command_list}")
+
                         logging.info(f"Command to execute: {command_name}")
                         if command_name not in command_list:
                             # Ask the agent for clarification on which command should be executed.
