@@ -767,11 +767,26 @@ class Interactions:
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
-                    command_name = (
-                        command.split(",")[0].replace('"', "").replace("'", "")
-                    )
+                    command_name = str(command.split(",")[0])
+                    if command_name.startswith(" "):
+                        command_name = command_name[1:]
+                    if command_name.endswith(" "):
+                        command_name = command_name[:-1]
+                    if command_name.startswith('"'):
+                        command_name = command_name[:-1]
+                    if command_name.endswith('"'):
+                        command_name = command_name[1:]
+                    if command_name.startswith("'"):
+                        command_name = command_name[:-1]
+                    if command_name.endswith("'"):
+                        command_name = command_name[1:]
+                    command_name = command_name.strip()
                     logging.info(f"Command to execute: {command_name}")
-                    if command_name:
+                    if (
+                        command_name != ""
+                        and command_name != None
+                        and command_name != "None"
+                    ):
                         if len(command.split(",")[1:]) > 0:
                             try:
                                 command_args = json.loads(
