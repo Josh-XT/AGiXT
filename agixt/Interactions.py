@@ -767,7 +767,9 @@ class Interactions:
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for command in commands_to_execute:
-                    command_name = command.split(",")[0]
+                    command_name = (
+                        command.split(",")[0].replace('"', "").replace("'", "")
+                    )
                     logging.info(f"Command to execute: {command_name}")
                     if command_name:
                         if len(command.split(",")[1:]) > 0:
@@ -779,7 +781,6 @@ class Interactions:
                                 )
                             except:
                                 command_args = {}
-
                         logging.info(f"Command to execute: {command_name}")
                         if command_name not in command_list:
                             # Ask the agent for clarification on which command should be executed.
