@@ -477,6 +477,7 @@ class Interactions:
                         and link != ""
                         and link != None
                         and link != "None"
+                        and str(link).startswith("http")
                     ):
                         logging.info(f"Browsing link: {link}")
                         self.websearch.browsed_links.append(link)
@@ -504,6 +505,7 @@ class Interactions:
                                             and sublink[1] != ""
                                             and sublink[1] != None
                                             and sublink[1] != "None"
+                                            and str(sublink[1]).startswith("http")
                                         ):
                                             logging.info(f"Browsing link: {sublink[1]}")
                                             if i <= websearch_depth:

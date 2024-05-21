@@ -248,6 +248,7 @@ class Websearch:
                     and link != " "
                     and link != "None"
                     and link is not None
+                    and str(link).startswith("http")
                 ):
                     logging.info(f"Browsing link: {link}")
                     self.browsed_links.append(link)
@@ -262,6 +263,7 @@ class Websearch:
                                     and sublink[1] != " "
                                     and sublink[1] != "None"
                                     and sublink[1] is not None
+                                    and str(sublink[1]).startswith("http")
                                 ):
                                     logging.info(f"Browsing link: {sublink[1]}")
                                     if i <= search_depth:
