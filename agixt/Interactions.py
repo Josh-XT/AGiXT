@@ -158,19 +158,13 @@ class Interactions:
                     if negative_feedback:
                         context += f"Negative Feedback:\n{negative_feedback}\n"
                 if websearch:
-                    context += await WebsiteReader(
-                        agent_name=self.agent_name,
-                        agent_config=self.agent.AGENT_CONFIG,
-                        collection_number=1,
-                        ApiClient=self.ApiClient,
-                        user=self.user,
-                    ).get_memories(
+                    context += await self.websearch.agent_memory.get_memories(
                         user_input=user_input,
                         limit=top_results,
                         min_relevance_score=min_relevance_score,
                     )
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 0:
+                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
                         context += await WebsiteReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
