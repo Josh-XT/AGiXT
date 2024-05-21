@@ -302,13 +302,19 @@ class agixt_actions(Extensions):
         for task in task_list:
             if task and task[0].isdigit():  # Check for task starting with a digit (0-9)
                 if current_task:  # If there's a current task, add it to the list
-                    new_task_list.append(current_task.lstrip("0123456789."))  # Strip leading digits and periods
+                    new_task_list.append(
+                        current_task.lstrip("0123456789.")
+                    )  # Strip leading digits and periods
                 current_task = task  # Start a new current task
             else:
-                current_task += "\n" + task  # If the line doesn't start with a number, it's a subtask - add it to the current task
+                current_task += (
+                    "\n" + task
+                )  # If the line doesn't start with a number, it's a subtask - add it to the current task
 
         if current_task:  # Add the last task if it exists
-            new_task_list.append(current_task.lstrip("0123456789."))  # Strip leading digits and periods
+            new_task_list.append(
+                current_task.lstrip("0123456789.")
+            )  # Strip leading digits and periods
 
         task_list = new_task_list
 
