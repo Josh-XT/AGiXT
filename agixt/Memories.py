@@ -515,7 +515,7 @@ class Memories:
             min_relevance_score=0.7,
         )
         if positive_feedback or negative_feedback:
-            context += f"The users input makes you to remember some feedback from previous interactions:\n"
+            context.append(f"The users input makes you to remember some feedback from previous interactions:\n")
             if positive_feedback:
                 context += f"Positive Feedback:\n{positive_feedback}\n"
             if negative_feedback:
