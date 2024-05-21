@@ -20,6 +20,7 @@ from Models import (
     AgentSettings,
     AgentConfig,
     ResponseMessage,
+    UrlInput,
 )
 
 app = APIRouter()
@@ -248,3 +249,39 @@ async def toggle_command(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
         )
+
+
+# Get agent browsed links
+@app.get(
+    "/api/agent/{agent_name}/browsed_links",
+    tags=["Agent", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_agent_browsed_links(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    return {"links": agent.get_browsed_links()}
+
+
+# Delete browsed link
+@app.delete(
+    "/api/agent/{agent_name}/browsed_links",
+    tags=["Agent", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_browsed_link(
+    agent_name: str,
+    url: UrlInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent.delete_browsed_link(url=url.url)
+    return {"message": "Browsed links deleted."}
