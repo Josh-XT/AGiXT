@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime
 from readers.website import WebsiteReader
 from readers.file import FileReader
-from readers.youtube import YoutubeReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -64,7 +63,6 @@ class Interactions:
             user=user,
         )
         self.stop_running_event = None
-        self.browsed_links = []
         self.failures = 0
         self.user = user
         self.chain = Chain(user=user)
@@ -457,28 +455,9 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
-            if links is not None and len(links) > 0:
-                for link in links:
-                    if self.websearch.verify_link(link=link):
-                        (
-                            text_content,
-                            link_list,
-                        ) = await self.websearch.get_web_content(url=link)
-                        if int(websearch_depth) > 0:
-                            if link_list is not None and len(link_list) > 0:
-                                i = 0
-                                for sublink in link_list:
-                                    if sublink[1]:
-                                        if self.websearch.verify_link(link=sublink[1]):
-                                            if i <= websearch_depth:
-                                                (
-                                                    text_content,
-                                                    link_list,
-                                                ) = await self.websearch.get_web_content(
-                                                    url=sublink[1]
-                                                )
-                                                i = i + 1
+            await self.websearch.browse_links_in_input(
+                user_input=user_input, search_depth=websearch_depth
+            )
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
