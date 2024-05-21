@@ -4,6 +4,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
 from typing import Dict, Any, List
+from Websearch import Websearch
 from readers.github import GithubReader
 from readers.file import FileReader
 from readers.website import WebsiteReader
@@ -188,16 +189,13 @@ async def learn_url(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await Websearch(
         collection_number=url.collection_number,
-        ApiClient=ApiClient,
+        agent=agent,
         user=user,
-    ).write_website_to_memory(url=url.url)
+        ApiClient=ApiClient,
+    ).get_web_content(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
 
@@ -299,9 +297,8 @@ async def agent_reader(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.AGENT_CONFIG
     collection_number = data["collection_number"] if "collection_number" in data else 0
     if reader_name == "file":
         response = await FileReader(
@@ -312,13 +309,12 @@ async def agent_reader(
             user=user,
         ).write_file_to_memory(file_path=data["file_path"])
     elif reader_name == "website":
-        response = await WebsiteReader(
-            agent_name=agent_name,
-            agent_config=agent_config,
+        response = await Websearch(
             collection_number=collection_number,
-            ApiClient=ApiClient,
+            agent=agent,
             user=user,
-        ).write_website_to_memory(url=data["url"])
+            ApiClient=ApiClient,
+        ).get_web_content(url=data["url"])
     elif reader_name == "github":
         response = await GithubReader(
             agent_name=agent_name,

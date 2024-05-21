@@ -2,6 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from readers.website import WebsiteReader
 from Interactions import Interactions
+from Websearch import Websearch
 from ApiClient import (
     Agent,
     add_agent,
@@ -45,16 +46,14 @@ async def addagent(
             return {"message": "Agent added."}
         ApiClient = get_api_client(authorization=authorization)
         _agent = Agent(agent_name=agent.agent_name, user=user, ApiClient=ApiClient)
-        agent_config = _agent.AGENT_CONFIG
-        reader = WebsiteReader(
-            agent_name=agent.agent_name,
-            agent_config=agent_config,
+        reader = Websearch(
             collection_number=0,
-            ApiClient=ApiClient,
+            agent=_agent,
             user=user,
+            ApiClient=ApiClient,
         )
         for url in agent.training_urls:
-            await reader.write_website_to_memory(url=url)
+            await reader.get_web_content(url=url)
         return {"message": "Agent added and trained."}
     return {"message": "Agent added."}
 
