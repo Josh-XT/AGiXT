@@ -153,9 +153,9 @@ class Interactions:
                         f"The users input makes you to remember some feedback from previous interactions:\n"
                     )
                     if positive_feedback:
-                        context += f"Positive Feedback:\n{positive_feedback}\n"
+                        context.append(f"Positive Feedback:\n{positive_feedback}\n")
                     if negative_feedback:
-                        context += f"Negative Feedback:\n{negative_feedback}\n"
+                        context.append(f"Negative Feedback:\n{negative_feedback}\n")
                 if websearch:
                     context.append(
                         await self.websearch.agent_memory.get_memories(
@@ -184,14 +184,16 @@ class Interactions:
             else:
                 context = []
         if "context" in kwargs:
-            context += [kwargs["context"]]
+            context.append([kwargs["context"]])
+        if vision_response != "":
+            context.append(
+                f"{self.agent_name}'s visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
+            )
         if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        if vision_response != "":
-            context += f"{self.agent_name}'s visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
