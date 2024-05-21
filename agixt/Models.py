@@ -193,6 +193,11 @@ class AgentConfig(BaseModel):
     commands: Dict[str, Any]
 
 
+class AgentBrowsedLinks(BaseModel):
+    agent_name: str
+    links: List[Dict[str, Any]]
+
+
 class AgentCommands(BaseModel):
     agent_name: str
     commands: Dict[str, Any]
@@ -203,6 +208,11 @@ class HistoryModel(BaseModel):
     conversation_name: str
     limit: int = 100
     page: int = 1
+
+
+class ExternalSource(BaseModel):
+    external_source: str
+    collection_number: int = 0
 
 
 class ConversationHistoryModel(BaseModel):

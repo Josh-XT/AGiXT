@@ -95,6 +95,14 @@ class AgentProvider(Base):
     settings = relationship("AgentProviderSetting", backref="agent_provider")
 
 
+class AgentBrowsedLink(Base):
+    __tablename__ = "agent_browsed_link"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
+    link = Column(Text, nullable=False)
+    timestamp = Column(DateTime, server_default=text("now()"))
+
+
 class Agent(Base):
     __tablename__ = "agent"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -104,6 +112,7 @@ class Agent(Base):
     )
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     settings = relationship("AgentSetting", backref="agent")  # One-to-many relationship
+    browsed_links = relationship("AgentBrowsedLink", backref="agent")
     user = relationship("User", backref="agent")
 
 

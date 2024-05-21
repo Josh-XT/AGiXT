@@ -8,8 +8,8 @@ from Interactions import Interactions, get_tokens, log_interaction
 from ApiClient import Agent, verify_api_key, get_api_client, AGIXT_URI
 from Extensions import Extensions
 from Chains import Chains
+from Websearch import Websearch
 from readers.file import FileReader
-from readers.website import WebsiteReader
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
 from providers.default import DefaultProvider
@@ -278,14 +278,13 @@ async def chat_completion(
                                 ),
                             )
                         else:
-                            website_reader = WebsiteReader(
-                                agent_name=agent_name,
-                                agent_config=agent_config,
+                            website_reader = Websearch(
                                 collection_number=collection_number,
+                                agent=agent.agent,
                                 ApiClient=ApiClient,
                                 user=user,
                             )
-                            await website_reader.write_website_to_memory(url)
+                            await website_reader.get_web_content(url=file_url)
                     else:
                         file_type = file_url.split(",")[0].split("/")[1].split(";")[0]
                         file_data = base64.b64decode(file_url.split(",")[1])

@@ -8,9 +8,7 @@ import tiktoken
 import base64
 import uuid
 from datetime import datetime
-from readers.website import WebsiteReader
 from readers.file import FileReader
-from readers.youtube import YoutubeReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -39,49 +37,46 @@ class Interactions:
     def __init__(
         self,
         agent_name: str = "",
-        collection_number: int = 0,
         user=DEFAULT_USER,
         ApiClient=None,
     ):
+        self.ApiClient = ApiClient
+        self.user = user
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name, user=user, ApiClient=ApiClient)
+            self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
+                collection_number=1,
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
+            self.agent_memory = self.websearch.agent_memory
+            self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                ApiClient=ApiClient,
-                searxng_instance_url=(
-                    self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
-                    if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
-                    else ""
-                ),
+                collection_number=2,
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
+            self.negative_feedback_memories = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=3,
+                ApiClient=self.ApiClient,
+                user=self.user,
             )
         else:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
-        self.agent_memory = WebsiteReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=int(collection_number),
-            ApiClient=ApiClient,
-            user=user,
-        )
-        self.yt = YoutubeReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=1,
-            ApiClient=ApiClient,
-            user=user,
-        )
-        self.stop_running_event = None
-        self.browsed_links = []
+            self.websearch = None
+            self.agent_memory = None
+        self.response = ""
         self.failures = 0
-        self.user = user
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
-        self.ApiClient = ApiClient
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -132,83 +127,73 @@ class Interactions:
             context = []
         else:
             if user_input:
-                min_relevance_score = 0.0
+                min_relevance_score = 0.3
                 if "min_relevance_score" in kwargs:
                     try:
                         min_relevance_score = float(kwargs["min_relevance_score"])
                     except:
-                        min_relevance_score = 0.0
+                        min_relevance_score = 0.3
                 context = await self.agent_memory.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                positive_feedback = await WebsiteReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=2,
-                    ApiClient=self.ApiClient,
-                    user=self.user,
-                ).get_memories(
+                positive_feedback = self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
                 )
-                negative_feedback = await WebsiteReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=3,
-                    ApiClient=self.ApiClient,
-                    user=self.user,
-                ).get_memories(
+                negative_feedback = self.negative_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
                 )
                 if positive_feedback or negative_feedback:
-                    context += f"The users input makes you to remember some feedback from previous interactions:\n"
-                    if positive_feedback:
-                        context += f"Positive Feedback:\n{positive_feedback}\n"
-                    if negative_feedback:
-                        context += f"Negative Feedback:\n{negative_feedback}\n"
-                if websearch:
-                    context += await WebsiteReader(
-                        agent_name=self.agent_name,
-                        agent_config=self.agent.AGENT_CONFIG,
-                        collection_number=1,
-                        ApiClient=self.ApiClient,
-                        user=self.user,
-                    ).get_memories(
-                        user_input=user_input,
-                        limit=top_results,
-                        min_relevance_score=min_relevance_score,
+                    context.append(
+                        f"The users input makes you to remember some feedback from previous interactions:\n"
                     )
-                if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 0:
-                        context += await WebsiteReader(
-                            agent_name=self.agent_name,
-                            agent_config=self.agent.AGENT_CONFIG,
-                            collection_number=int(
-                                kwargs["inject_memories_from_collection_number"]
-                            ),
-                            ApiClient=self.ApiClient,
-                            user=self.user,
-                        ).get_memories(
+                    if positive_feedback:
+                        context.append(f"Positive Feedback:\n{positive_feedback}\n")
+                    if negative_feedback:
+                        context.append(f"Negative Feedback:\n{negative_feedback}\n")
+                if websearch:
+                    context.append(
+                        await self.websearch.agent_memory.get_memories(
                             user_input=user_input,
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
+                    )
+                if "inject_memories_from_collection_number" in kwargs:
+                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
+                        context.append(
+                            await FileReader(
+                                agent_name=self.agent_name,
+                                agent_config=self.agent.AGENT_CONFIG,
+                                collection_number=int(
+                                    kwargs["inject_memories_from_collection_number"]
+                                ),
+                                ApiClient=self.ApiClient,
+                                user=self.user,
+                            ).get_memories(
+                                user_input=user_input,
+                                limit=top_results,
+                                min_relevance_score=min_relevance_score,
+                            )
+                        )
             else:
                 context = []
         if "context" in kwargs:
-            context += [kwargs["context"]]
+            context.append([kwargs["context"]])
+        if vision_response != "":
+            context.append(
+                f"{self.agent_name}'s visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
+            )
         if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        if vision_response != "":
-            context += f"{self.agent_name}'s visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
@@ -469,51 +454,9 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
-            if links is not None and len(links) > 0:
-                for link in links:
-                    if (
-                        link not in self.websearch.browsed_links
-                        and link != ""
-                        and link != None
-                        and link != "None"
-                    ):
-                        logging.info(f"Browsing link: {link}")
-                        self.websearch.browsed_links.append(link)
-                        if str(link).startswith("https://www.youtube.com/watch?v="):
-                            video_id = link.split("watch?v=")[1]
-                            await self.yt.write_youtube_captions_to_memory(
-                                video_id=video_id
-                            )
-                            link_list = None
-                        else:
-                            (
-                                text_content,
-                                link_list,
-                            ) = await self.agent_memory.write_website_to_memory(
-                                url=link
-                            )
-                        if int(websearch_depth) > 0:
-                            if link_list is not None and len(link_list) > 0:
-                                i = 0
-                                for sublink in link_list:
-                                    if sublink[1]:
-                                        if (
-                                            sublink[1]
-                                            not in self.websearch.browsed_links
-                                            and sublink[1] != ""
-                                            and sublink[1] != None
-                                            and sublink[1] != "None"
-                                        ):
-                                            logging.info(f"Browsing link: {sublink[1]}")
-                                            if i <= websearch_depth:
-                                                (
-                                                    text_content,
-                                                    link_list,
-                                                ) = await self.agent_memory.write_website_to_memory(
-                                                    url=sublink[1]
-                                                )
-                                                i = i + 1
+            await self.websearch.browse_links_in_input(
+                user_input=user_input, search_depth=websearch_depth
+            )
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:

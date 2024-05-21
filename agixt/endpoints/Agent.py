@@ -1,7 +1,7 @@
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
-from readers.website import WebsiteReader
 from Interactions import Interactions
+from Websearch import Websearch
 from ApiClient import (
     Agent,
     add_agent,
@@ -20,6 +20,7 @@ from Models import (
     AgentSettings,
     AgentConfig,
     ResponseMessage,
+    UrlInput,
 )
 
 app = APIRouter()
@@ -43,14 +44,15 @@ async def addagent(
         if len(agent.training_urls) < 1:
             return {"message": "Agent added."}
         ApiClient = get_api_client(authorization=authorization)
-        agent_interaction = Interactions(
-            agent_name=agent.agent_name,
+        _agent = Agent(agent_name=agent.agent_name, user=user, ApiClient=ApiClient)
+        reader = Websearch(
             collection_number=0,
+            agent=_agent,
             user=user,
             ApiClient=ApiClient,
         )
         for url in agent.training_urls:
-            await agent_interaction.agent_memory.write_website_to_memory(url=url)
+            await reader.get_web_content(url=url)
         return {"message": "Agent added and trained."}
     return {"message": "Agent added."}
 
@@ -140,13 +142,12 @@ async def deleteagent(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent.AGENT_CONFIG,
+    await Websearch(
         collection_number=0,
-        ApiClient=ApiClient,
+        agent=agent,
         user=user,
-    ).wipe_memory()
+        ApiClient=ApiClient,
+    ).agent_memory.wipe_memory()
     delete_agent(agent_name=agent_name, user=user)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 
@@ -248,3 +249,46 @@ async def toggle_command(
             status_code=500,
             detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
         )
+
+
+# Get agent browsed links
+@app.get(
+    "/api/agent/{agent_name}/browsed_links",
+    tags=["Agent", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_agent_browsed_links(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    return {"links": agent.get_browsed_links()}
+
+
+# Delete browsed link from memory
+@app.delete(
+    "/api/agent/{agent_name}/browsed_links",
+    tags=["Agent", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_browsed_link(
+    agent_name: str,
+    url: UrlInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    websearch = Websearch(
+        collection_number=url.collection_number,
+        agent=agent,
+        user=user,
+        ApiClient=ApiClient,
+    )
+    websearch.agent_memory.delete_memories_from_external_source(url=url.url)
+    agent.delete_browsed_link(url=url.url)
+    return {"message": "Browsed links deleted."}

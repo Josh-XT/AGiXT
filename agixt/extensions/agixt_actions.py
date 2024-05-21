@@ -11,22 +11,22 @@ import logging
 import docker
 import asyncio
 
-IMAGE_NAME = "joshxt/safeexecute:latest"
-
 
 def install_docker_image():
+    docker_image = "joshxt/safeexecute:latest"
     client = docker.from_env()
     try:
-        client.images.get(IMAGE_NAME)
-        logging.info(f"Image '{IMAGE_NAME}' found locally")
+        client.images.get(docker_image)
+        logging.info(f"Image '{docker_image}' found locally")
     except:
-        logging.info(f"Installing docker image '{IMAGE_NAME}' from Docker Hub")
-        client.images.pull(IMAGE_NAME)
-        logging.info(f"Image '{IMAGE_NAME}' installed")
+        logging.info(f"Installing docker image '{docker_image}' from Docker Hub")
+        client.images.pull(docker_image)
+        logging.info(f"Image '{docker_image}' installed")
     return client
 
 
 def execute_python_code(code: str, working_directory: str = None) -> str:
+    docker_image = "joshxt/safeexecute:latest"
     if working_directory is None:
         working_directory = os.path.join(os.getcwd(), "WORKSPACE")
     docker_working_dir = working_directory
@@ -51,7 +51,7 @@ def execute_python_code(code: str, working_directory: str = None) -> str:
                 try:
                     logging.info(f"Installing package '{package}' in container")
                     client.containers.run(
-                        IMAGE_NAME,
+                        docker_image,
                         f"pip install {package}",
                         volumes={
                             os.path.abspath(docker_working_dir): {
@@ -69,7 +69,7 @@ def execute_python_code(code: str, working_directory: str = None) -> str:
                     return f"Error: {str(e)}"
         # Run the Python code in the container
         container = client.containers.run(
-            IMAGE_NAME,
+            docker_image,
             f"python /workspace/temp.py",
             volumes={
                 os.path.abspath(docker_working_dir): {
@@ -141,9 +141,6 @@ def parse_mindmap(mindmap):
     return root
 
 
-chains = Chain().get_chains()
-
-
 class agixt_actions(Extensions):
     def __init__(self, **kwargs):
         self.commands = {
@@ -166,8 +163,8 @@ class agixt_actions(Extensions):
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
         }
-
-        for chain in chains:
+        user = kwargs["user"] if "user" in kwargs else "USER"
+        for chain in Chain(user=user).get_chains():
             self.commands[chain] = self.run_chain
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -300,15 +297,15 @@ class agixt_actions(Extensions):
         new_task_list = []
         current_task = ""
         for task in task_list:
-            if task and task[0].isdigit():  # Check for task starting with a digit (0-9)
-                if current_task:  # If there's a current task, add it to the list
-                    new_task_list.append(current_task.lstrip("0123456789."))  # Strip leading digits and periods
-                current_task = task  # Start a new current task
+            if task and task[0].isdigit():
+                if current_task:
+                    new_task_list.append(current_task.lstrip("0123456789."))
+                current_task = task
             else:
-                current_task += "\n" + task  # If the line doesn't start with a number, it's a subtask - add it to the current task
+                current_task += "\n" + task
 
-        if current_task:  # Add the last task if it exists
-            new_task_list.append(current_task.lstrip("0123456789."))  # Strip leading digits and periods
+        if current_task:
+            new_task_list.append(current_task.lstrip("0123456789."))
 
         task_list = new_task_list
 
