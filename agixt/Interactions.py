@@ -63,13 +63,6 @@ class Interactions:
             ApiClient=ApiClient,
             user=user,
         )
-        self.yt = YoutubeReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=1,
-            ApiClient=ApiClient,
-            user=user,
-        )
         self.stop_running_event = None
         self.browsed_links = []
         self.failures = 0
@@ -468,21 +461,10 @@ class Interactions:
             if links is not None and len(links) > 0:
                 for link in links:
                     if self.websearch.verify_link(link=link):
-                        if str(link).startswith("https://www.youtube.com/watch?v="):
-                            video_id = link.split("watch?v=")[1]
-                            await self.yt.write_youtube_captions_to_memory(
-                                video_id=video_id
-                            )
-                            link_list = None
-                        else:
-                            (
-                                text_content,
-                                link_list,
-                            ) = await self.agent_memory.write_website_to_memory(
-                                url=link
-                            )
-                        self.websearch.browsed_links.append(link)
-                        self.agent.add_browsed_link(url=link)
+                        (
+                            text_content,
+                            link_list,
+                        ) = await self.websearch.get_web_content(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
@@ -493,13 +475,7 @@ class Interactions:
                                                 (
                                                     text_content,
                                                     link_list,
-                                                ) = await self.agent_memory.write_website_to_memory(
-                                                    url=sublink[1]
-                                                )
-                                                self.websearch.browsed_links.append(
-                                                    sublink[1]
-                                                )
-                                                self.agent.add_browsed_link(
+                                                ) = await self.websearch.get_web_content(
                                                     url=sublink[1]
                                                 )
                                                 i = i + 1

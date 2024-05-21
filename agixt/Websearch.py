@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from typing import List
 from ApiClient import Agent
 from readers.website import WebsiteReader
+from readers.youtube import YoutubeReader
 
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
@@ -47,6 +48,13 @@ class Websearch:
             ApiClient=ApiClient,
             user=user,
         )
+        self.yt = YoutubeReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=1,
+            ApiClient=ApiClient,
+            user=user,
+        )
         self.searx_instance_url = (
             (
                 self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
@@ -69,6 +77,12 @@ class Websearch:
         return False
 
     async def get_web_content(self, url):
+        if str(url).startswith("https://www.youtube.com/watch?v="):
+            video_id = url.split("watch?v=")[1]
+            await self.yt.write_youtube_captions_to_memory(video_id=video_id)
+            self.browsed_links.append(url)
+            self.agent.add_browsed_link(url=url)
+            return None, None
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -119,13 +133,10 @@ class Websearch:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
-                    if url not in self.browsed_links:
-                        (
-                            collected_data,
-                            link_list,
-                        ) = await self.get_web_content(url=url)
-                        self.browsed_links.append(url)
-                        self.agent.add_browsed_link(url=url)
+                    (
+                        collected_data,
+                        link_list,
+                    ) = await self.get_web_content(url=url)
         if links is not None:
             for link in links:
                 if "href" in link:
@@ -141,8 +152,6 @@ class Websearch:
                         collected_data,
                         link_list,
                     ) = await self.get_web_content(url=url)
-                    self.browsed_links.append(url)
-                    self.agent.add_browsed_link(url=url)
                     if link_list is not None:
                         if len(link_list) > 0:
                             if len(link_list) > 5:
@@ -263,7 +272,6 @@ class Websearch:
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
-                    self.browsed_links.append(link)
                     text_content, link_list = await self.get_web_content(url=link)
                     if int(search_depth) > 0:
                         if link_list is not None and len(link_list) > 0:
@@ -275,8 +283,6 @@ class Websearch:
                                             text_content,
                                             link_list,
                                         ) = await self.get_web_content(url=sublink[1])
-                                        self.browsed_links.append(sublink[1])
-                                        self.agent.add_browsed_link(url=sublink[1])
                                         i = i + 1
 
     async def websearch_agent(
