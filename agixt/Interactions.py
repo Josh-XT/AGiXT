@@ -38,7 +38,6 @@ class Interactions:
     def __init__(
         self,
         agent_name: str = "",
-        collection_number: int = 0,
         user=DEFAULT_USER,
         ApiClient=None,
     ):
@@ -51,18 +50,14 @@ class Interactions:
                 user=user,
                 ApiClient=ApiClient,
             )
+            self.agent_memory = self.websearch.agent_memory
         else:
             self.agent_name = ""
             self.agent = None
             self.agent_commands = ""
-        self.agent_memory = WebsiteReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=int(collection_number),
-            ApiClient=ApiClient,
-            user=user,
-        )
-        self.stop_running_event = None
+            self.websearch = None
+            self.agent_memory = None
+        self.response = ""
         self.failures = 0
         self.user = user
         self.chain = Chain(user=user)

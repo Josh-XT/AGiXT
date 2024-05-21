@@ -23,7 +23,6 @@ logging.basicConfig(
 class Websearch:
     def __init__(
         self,
-        collection_number: int = 1,
         agent: Agent = None,
         user: str = None,
         ApiClient=None,
@@ -45,14 +44,14 @@ class Websearch:
         self.agent_memory = WebsiteReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=int(collection_number),
+            collection_number=int(1),
             ApiClient=ApiClient,
             user=user,
         )
         self.yt = YoutubeReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=int(collection_number),
+            collection_number=int(1),
             ApiClient=ApiClient,
             user=user,
         )
