@@ -48,14 +48,9 @@ class Interactions:
             self.agent = Agent(self.agent_name, user=user, ApiClient=ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
+                agent=self.agent,
+                user=user,
                 ApiClient=ApiClient,
-                searxng_instance_url=(
-                    self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
-                    if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
-                    else ""
-                ),
             )
         else:
             self.agent_name = ""
@@ -472,15 +467,7 @@ class Interactions:
             links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
             if links is not None and len(links) > 0:
                 for link in links:
-                    if (
-                        link not in self.websearch.browsed_links
-                        and link != ""
-                        and link != None
-                        and link != "None"
-                        and str(link).startswith("http")
-                    ):
-                        logging.info(f"Browsing link: {link}")
-                        self.websearch.browsed_links.append(link)
+                    if self.websearch.verify_link(link=link):
                         if str(link).startswith("https://www.youtube.com/watch?v="):
                             video_id = link.split("watch?v=")[1]
                             await self.yt.write_youtube_captions_to_memory(
@@ -494,25 +481,25 @@ class Interactions:
                             ) = await self.agent_memory.write_website_to_memory(
                                 url=link
                             )
+                        self.websearch.browsed_links.append(link)
+                        self.agent.add_browsed_link(url=link)
                         if int(websearch_depth) > 0:
                             if link_list is not None and len(link_list) > 0:
                                 i = 0
                                 for sublink in link_list:
                                     if sublink[1]:
-                                        if (
-                                            sublink[1]
-                                            not in self.websearch.browsed_links
-                                            and sublink[1] != ""
-                                            and sublink[1] != None
-                                            and sublink[1] != "None"
-                                            and str(sublink[1]).startswith("http")
-                                        ):
-                                            logging.info(f"Browsing link: {sublink[1]}")
+                                        if self.websearch.verify_link(link=sublink[1]):
                                             if i <= websearch_depth:
                                                 (
                                                     text_content,
                                                     link_list,
                                                 ) = await self.agent_memory.write_website_to_memory(
+                                                    url=sublink[1]
+                                                )
+                                                self.websearch.browsed_links.append(
+                                                    sublink[1]
+                                                )
+                                                self.agent.add_browsed_link(
                                                     url=sublink[1]
                                                 )
                                                 i = i + 1

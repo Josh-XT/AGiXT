@@ -192,7 +192,6 @@ class AgentConfig(BaseModel):
     settings: Dict[str, Any]
     commands: Dict[str, Any]
 
-
 class AgentCommands(BaseModel):
     agent_name: str
     commands: Dict[str, Any]

@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
+from ApiClient import Agent
+from readers.website import WebsiteReader
 
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
@@ -20,21 +22,47 @@ logging.basicConfig(
 class Websearch:
     def __init__(
         self,
-        agent_name: str = "AGiXT",
-        searxng_instance_url: str = "",
-        agent_config: dict = {},
+        agent: Agent = None,
+        user: str = None,
         ApiClient=None,
         **kwargs,
     ):
-        self.agent_name = agent_name
-        self.searx_instance_url = searxng_instance_url
         self.ApiClient = ApiClient
-        self.agent_config = agent_config
+        self.agent = agent
+        self.agent_name = self.agent.agent_name
+        self.agent_config = self.agent.AGENT_CONFIG
         self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
         self.failures = []
-        self.browsed_links = []
+        self.browsed_links = self.agent_config["browsed_links"]
         self.tasks = []
+        self.agent_memory = WebsiteReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=1,
+            ApiClient=ApiClient,
+            user=user,
+        )
+        self.searx_instance_url = (
+            (
+                self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
+                if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
+                else ""
+            ),
+        )
+
+    def verify_link(self, link: str = "") -> bool:
+        if (
+            link not in self.browsed_links
+            and link != ""
+            and link != " "
+            and link != "None"
+            and link is not None
+            and str(link).startswith("http")
+        ):
+            logging.info(f"Browsing link: {link}")
+            return True
+        return False
 
     async def get_web_content(self, url):
         try:
@@ -47,7 +75,6 @@ class Websearch:
                 else:
                     return None, None
                 content = await page.content()
-
                 # Scrape links and their titles
                 links = await page.query_selector_all("a")
                 link_list = []
@@ -58,15 +85,13 @@ class Websearch:
                     title = title.replace("  ", "")
                     href = await page.evaluate("(link) => link.href", link)
                     link_list.append((title, href))
-
                 await browser.close()
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
-                self.ApiClient.learn_url(
-                    agent_name=self.agent_name, url=url, collection_number=1
-                )
+                self.agent_memory.write_website_to_memory(url=url)
                 self.browsed_links.append(url)
+                self.agent.add_browsed_link(url=url)
                 return text_content, link_list
         except:
             return None, None
@@ -89,18 +114,14 @@ class Websearch:
                 else:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
-                if url in self.browsed_links:
-                    continue
-                if url == "" or url == " " or url == "None" or url is None:
-                    continue
-                if url.startswith("http"):
-                    logging.info(f"Scraping: {url}")
+                if self.verify_link(link=url):
                     if url not in self.browsed_links:
-                        self.browsed_links.append(url)
                         (
                             collected_data,
                             link_list,
                         ) = await self.get_web_content(url=url)
+                        self.browsed_links.append(url)
+                        self.agent.add_browsed_link(url=url)
         if links is not None:
             for link in links:
                 if "href" in link:
@@ -111,45 +132,40 @@ class Websearch:
                 else:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
-                if url in self.browsed_links:
-                    continue
-                if url == "" or url == " " or url == "None" or url is None:
-                    continue
-                if url.startswith("http"):
-                    logging.info(f"Scraping: {url}")
-                    if url not in self.browsed_links:
-                        self.browsed_links.append(url)
-                        (
-                            collected_data,
-                            link_list,
-                        ) = await self.get_web_content(url=url)
-                        if link_list is not None:
-                            if len(link_list) > 0:
-                                if len(link_list) > 5:
-                                    link_list = link_list[:3]
-                                try:
-                                    pick_a_link = self.ApiClient.prompt_agent(
-                                        agent_name=self.agent_name,
-                                        prompt_name="Pick-a-Link",
-                                        prompt_args={
-                                            "url": url,
-                                            "links": link_list,
-                                            "visited_links": self.browsed_links,
-                                            "disable_memory": True,
-                                            "browse_links": False,
-                                            "user_input": user_input,
-                                            "context_results": 0,
-                                        },
+                if self.verify_link(link=url):
+                    (
+                        collected_data,
+                        link_list,
+                    ) = await self.get_web_content(url=url)
+                    self.browsed_links.append(url)
+                    self.agent.add_browsed_link(url=url)
+                    if link_list is not None:
+                        if len(link_list) > 0:
+                            if len(link_list) > 5:
+                                link_list = link_list[:3]
+                            try:
+                                pick_a_link = self.ApiClient.prompt_agent(
+                                    agent_name=self.agent_name,
+                                    prompt_name="Pick-a-Link",
+                                    prompt_args={
+                                        "url": url,
+                                        "links": link_list,
+                                        "visited_links": self.browsed_links,
+                                        "disable_memory": True,
+                                        "browse_links": False,
+                                        "user_input": user_input,
+                                        "context_results": 0,
+                                    },
+                                )
+                                if not pick_a_link.startswith("None"):
+                                    logging.info(
+                                        f"AI has decided to click: {pick_a_link}"
                                     )
-                                    if not pick_a_link.startswith("None"):
-                                        logging.info(
-                                            f"AI has decided to click: {pick_a_link}"
-                                        )
-                                        await self.resursive_browsing(
-                                            user_input=user_input, links=pick_a_link
-                                        )
-                                except:
-                                    logging.info(f"Issues reading {url}. Moving on...")
+                                    await self.resursive_browsing(
+                                        user_input=user_input, links=pick_a_link
+                                    )
+                            except:
+                                logging.info(f"Issues reading {url}. Moving on...")
 
     async def ddg_search(self, query: str, proxy=None) -> List[str]:
         async with async_playwright() as p:
@@ -242,35 +258,21 @@ class Websearch:
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if links is not None and len(links) > 0:
             for link in links:
-                if (
-                    link not in self.browsed_links
-                    and link != ""
-                    and link != " "
-                    and link != "None"
-                    and link is not None
-                    and str(link).startswith("http")
-                ):
-                    logging.info(f"Browsing link: {link}")
+                if self.verify_link(link=link):
                     self.browsed_links.append(link)
                     text_content, link_list = await self.get_web_content(url=link)
                     if int(search_depth) > 0:
                         if link_list is not None and len(link_list) > 0:
                             i = 0
                             for sublink in link_list:
-                                if (
-                                    sublink[1] not in self.browsed_links
-                                    and sublink[1] != ""
-                                    and sublink[1] != " "
-                                    and sublink[1] != "None"
-                                    and sublink[1] is not None
-                                    and str(sublink[1]).startswith("http")
-                                ):
-                                    logging.info(f"Browsing link: {sublink[1]}")
+                                if self.verify_link(link=sublink[1]):
                                     if i <= search_depth:
                                         (
                                             text_content,
                                             link_list,
                                         ) = await self.get_web_content(url=sublink[1])
+                                        self.browsed_links.append(sublink[1])
+                                        self.agent.add_browsed_link(url=sublink[1])
                                         i = i + 1
 
     async def websearch_agent(
