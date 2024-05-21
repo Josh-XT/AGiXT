@@ -1,6 +1,5 @@
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
-from readers.website import WebsiteReader
 from Interactions import Interactions
 from Websearch import Websearch
 from ApiClient import (
@@ -143,13 +142,12 @@ async def deleteagent(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent.AGENT_CONFIG,
+    await Websearch(
         collection_number=0,
-        ApiClient=ApiClient,
+        agent=agent,
         user=user,
-    ).wipe_memory()
+        ApiClient=ApiClient,
+    ).agent_memory.wipe_memory()
     delete_agent(agent_name=agent_name, user=user)
     return ResponseMessage(message=f"Agent {agent_name} deleted.")
 

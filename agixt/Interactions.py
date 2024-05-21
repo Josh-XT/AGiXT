@@ -8,7 +8,6 @@ import tiktoken
 import base64
 import uuid
 from datetime import datetime
-from readers.website import WebsiteReader
 from readers.file import FileReader
 from Websearch import Websearch
 from Extensions import Extensions
@@ -54,14 +53,14 @@ class Interactions:
                 ApiClient=self.ApiClient,
             )
             self.agent_memory = self.websearch.agent_memory
-            self.positive_feedback_memories = WebsiteReader(
+            self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number=2,
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.negative_feedback_memories = WebsiteReader(
+            self.negative_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number=3,
@@ -163,7 +162,7 @@ class Interactions:
                     )
                 if "inject_memories_from_collection_number" in kwargs:
                     if int(kwargs["inject_memories_from_collection_number"]) > 3:
-                        context += await WebsiteReader(
+                        context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
                             collection_number=int(

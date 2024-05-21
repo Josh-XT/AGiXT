@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
 from typing import Dict, Any, List
 from Websearch import Websearch
+from Memories import Memories
 from readers.github import GithubReader
 from readers.file import FileReader
-from readers.website import WebsiteReader
 from readers.arxiv import ArxivReader
 from readers.youtube import YoutubeReader
 from Models import (
@@ -46,7 +46,7 @@ async def query_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=collection_number,
@@ -73,7 +73,7 @@ async def export_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).export_collections_to_json()
     return {"memories": memories}
@@ -94,7 +94,7 @@ async def import_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).import_collections_from_json(memories)
     return ResponseMessage(message="Memories imported.")
@@ -115,7 +115,7 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=data.collection_number,
@@ -373,7 +373,7 @@ async def wipe_agent_memories(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=0,
@@ -402,7 +402,7 @@ async def wipe_agent_memories(
     except:
         collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -430,7 +430,7 @@ async def delete_agent_memory(
     except:
         collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -461,7 +461,7 @@ async def create_dataset(
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     asyncio.create_task(
-        await WebsiteReader(
+        await Memories(
             agent_name=agent_name,
             agent_config=agent.AGENT_CONFIG,
             collection_number=0,
