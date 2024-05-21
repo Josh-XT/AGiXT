@@ -41,16 +41,33 @@ class Interactions:
         user=DEFAULT_USER,
         ApiClient=None,
     ):
+        self.ApiClient = ApiClient
+        self.user = user
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name, user=user, ApiClient=ApiClient)
+            self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
+                collection_number=1,
                 agent=self.agent,
-                user=user,
-                ApiClient=ApiClient,
+                user=self.user,
+                ApiClient=self.ApiClient,
             )
             self.agent_memory = self.websearch.agent_memory
+            self.positive_feedback_memories = WebsiteReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=2,
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
+            self.negative_feedback_memories = WebsiteReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=3,
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
         else:
             self.agent_name = ""
             self.agent = None
@@ -59,10 +76,8 @@ class Interactions:
             self.agent_memory = None
         self.response = ""
         self.failures = 0
-        self.user = user
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
-        self.ApiClient = ApiClient
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -124,24 +139,12 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                positive_feedback = await WebsiteReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=2,
-                    ApiClient=self.ApiClient,
-                    user=self.user,
-                ).get_memories(
+                positive_feedback = self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
                 )
-                negative_feedback = await WebsiteReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=3,
-                    ApiClient=self.ApiClient,
-                    user=self.user,
-                ).get_memories(
+                negative_feedback = self.negative_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
