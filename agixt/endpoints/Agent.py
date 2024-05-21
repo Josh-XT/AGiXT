@@ -267,7 +267,7 @@ async def get_agent_browsed_links(
     return {"links": agent.get_browsed_links()}
 
 
-# Delete browsed link
+# Delete browsed link from memory
 @app.delete(
     "/api/agent/{agent_name}/browsed_links",
     tags=["Agent", "Admin"],
