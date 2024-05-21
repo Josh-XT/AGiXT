@@ -283,5 +283,12 @@ async def delete_browsed_link(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    websearch = Websearch(
+        collection_number=url.collection_number,
+        agent=agent,
+        user=user,
+        ApiClient=ApiClient,
+    )
+    websearch.agent_memory.delete_memories_from_external_source(url=url.url)
     agent.delete_browsed_link(url=url.url)
     return {"message": "Browsed links deleted."}

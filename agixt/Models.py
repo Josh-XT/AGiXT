@@ -210,10 +210,6 @@ class HistoryModel(BaseModel):
     page: int = 1
 
 
-class UrlInput(BaseModel):
-    url: str
-
-
 class ExternalSource(BaseModel):
     external_source: str
     collection_number: int = 0
