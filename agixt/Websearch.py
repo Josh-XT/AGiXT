@@ -306,6 +306,7 @@ class Websearch:
                 prompt_args={
                     "user_input": user_input,
                     "disable_memory": True,
+                    "browse_links": False,
                 },
             )
             if len(search_string) > 0:
