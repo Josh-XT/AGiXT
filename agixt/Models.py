@@ -214,6 +214,11 @@ class UrlInput(BaseModel):
     url: str
 
 
+class ExternalSource(BaseModel):
+    external_source: str
+    collection_number: int = 0
+
+
 class ConversationHistoryModel(BaseModel):
     agent_name: str
     conversation_name: str

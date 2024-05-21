@@ -430,6 +430,29 @@ class Memories:
                     response.append(metadata)
         return response
 
+    def delete_memories_from_external_source(self, external_source: str):
+        collection = self.chroma_client.get_collection(name=self.collection_name)
+        if collection:
+            results = collection.query(
+                query_metadatas={"external_source_name": external_source},
+                include=["metadatas"],
+            )
+            ids = results["metadatas"][0]["id"]
+            if ids:
+                collection.delete(ids=ids)
+                return True
+        return False
+
+    def get_external_data_sources(self):
+        collection = self.chroma_client.get_collection(name=self.collection_name)
+        if collection:
+            results = collection.query(
+                include=["metadatas"],
+            )
+            external_sources = results["metadatas"][0]["external_source_name"]
+            return list(set(external_sources))
+        return []
+
     def score_chunk(self, chunk: str, keywords: set) -> int:
         """Score a chunk based on the number of query keywords it contains."""
         chunk_counter = Counter(chunk.split())

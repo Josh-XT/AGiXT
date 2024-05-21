@@ -21,6 +21,7 @@ from Models import (
     ResponseMessage,
     Dataset,
     FinetuneAgentModel,
+    ExternalSource,
 )
 
 app = APIRouter()
@@ -510,3 +511,54 @@ async def fine_tune_model(
     return ResponseMessage(
         message=f"Fine-tuning of model {finetune.model_name} started. The agent's status has is now set to True, it will be set to False once the training is complete."
     )
+
+
+# Delete memories from external source
+@app.delete(
+    "/api/agent/{agent_name}/memory/external_source",
+    tags=["Memory", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_memories_from_external_source(
+    agent_name: str,
+    external_source: ExternalSource,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=external_source.collection_number,
+        ApiClient=ApiClient,
+        user=user,
+    ).delete_memories_from_external_source(
+        external_source=external_source.external_source
+    )
+    return ResponseMessage(
+        message=f"Memories from external source {external_source.external_source} for agent {agent_name} deleted."
+    )
+
+
+# Get unique external sources
+@app.get(
+    "/api/agent/{agent_name}/memory/external_sources",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_unique_external_sources(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+) -> Dict[str, Any]:
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    external_sources = await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=0,
+        ApiClient=ApiClient,
+        user=user,
+    ).get_external_data_sources()
+    return {"external_sources": external_sources}
