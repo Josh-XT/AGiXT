@@ -7,7 +7,7 @@ pdfplumber==0.11.0
 playwright==1.43.0
 pandas==2.1.4
 PyYAML==6.0.1
-requests==2.31.0
+requests==2.32.0
 python-dotenv==1.0.0
 ffmpeg-python==0.2.0
 cryptography==42.0.5
