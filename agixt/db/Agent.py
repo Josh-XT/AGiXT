@@ -1,6 +1,7 @@
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
+    AgentBrowsedLink,
     Command,
     AgentCommand,
     ProviderSetting,
@@ -16,6 +17,7 @@ from DBConnection import (
 from Providers import Providers
 from Extensions import Extensions
 from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
+from datetime import datetime, timezone, timedelta
 import logging
 import json
 import numpy as np
@@ -494,3 +496,102 @@ class Agent:
                 agent_id=agent.id, name=config_key, value=new_config
             )
             self.session.add(agent_setting)
+
+    def get_browsed_links(self):
+        """
+        Get the list of URLs that have been browsed by the agent.
+
+        Returns:
+            list: The list of URLs that have been browsed by the agent.
+        """
+        agent = (
+            self.session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
+        if not agent:
+            return []
+        browsed_links = (
+            self.session.query(AgentBrowsedLink)
+            .filter_by(agent_id=agent.id)
+            .order_by(AgentBrowsedLink.id.desc())
+            .all()
+        )
+        if not browsed_links:
+            return []
+        return browsed_links
+
+    def browsed_recently(self, url) -> bool:
+        """
+        Check if the given URL has been browsed by the agent within the last 24 hours.
+
+        Args:
+            url (str): The URL to check.
+
+        Returns:
+            bool: True if the URL has been browsed within the last 24 hours, False otherwise.
+        """
+        browsed_links = self.get_browsed_links()
+        if not browsed_links:
+            return False
+        for link in browsed_links:
+            if link["url"] == url:
+                if link["timestamp"] >= datetime.now(timezone.utc) - timedelta(days=1):
+                    return True
+        return False
+
+    def add_browsed_link(self, url):
+        """
+        Add a URL to the list of browsed links for the agent.
+
+        Args:
+            url (str): The URL to add.
+
+        Returns:
+            str: The response message.
+        """
+        agent = (
+            self.session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
+        if not agent:
+            return f"Agent {self.agent_name} not found."
+        browsed_link = AgentBrowsedLink(agent_id=agent.id, url=url)
+        self.session.add(browsed_link)
+        self.session.commit()
+        return f"Link {url} added to browsed links."
+
+    def delete_browsed_link(self, url):
+        """
+        Delete a URL from the list of browsed links for the agent.
+
+        Args:
+            url (str): The URL to delete.
+
+        Returns:
+            str: The response message.
+        """
+        agent = (
+            self.session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
+        if not agent:
+            return f"Agent {self.agent_name} not found."
+        browsed_link = (
+            self.session.query(AgentBrowsedLink)
+            .filter_by(agent_id=agent.id, url=url)
+            .first()
+        )
+        if not browsed_link:
+            return f"Link {url} not found."
+        self.session.delete(browsed_link)
+        self.session.commit()
+        return f"Link {url} deleted from browsed links."

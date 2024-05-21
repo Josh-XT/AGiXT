@@ -8,6 +8,7 @@ from inspect import signature, Parameter
 from Providers import Providers
 from Extensions import Extensions
 from Defaults import DEFAULT_SETTINGS
+from datetime import datetime, timezone, timedelta
 
 
 def get_agent_file_paths(agent_name, user="USER"):
@@ -329,3 +330,71 @@ class Agent:
             return f"Agent {self.agent_name} configuration updated."
         else:
             return f"Agent {self.agent_name} configuration not found."
+
+    def get_browsed_links(self):
+        """
+        Get the list of URLs that have been browsed by the agent.
+
+        Returns:
+            list: The list of URLs that have been browsed by the agent.
+        """
+        # They will be stored in the agent's config file as:
+        # "browsed_links": [{"url": "https://example.com", "timestamp": "2021-01-01T00:00:00Z"}]
+        return self.AGENT_CONFIG.get("browsed_links", [])
+
+    def browsed_recently(self, url) -> bool:
+        """
+        Check if the given URL has been browsed by the agent within the last 24 hours.
+
+        Args:
+            url (str): The URL to check.
+
+        Returns:
+            bool: True if the URL has been browsed within the last 24 hours, False otherwise.
+        """
+        browsed_links = self.get_browsed_links()
+        if not browsed_links:
+            return False
+        for link in browsed_links:
+            if link["url"] == url:
+                if link["timestamp"] >= datetime.now(timezone.utc) - timedelta(days=1):
+                    return True
+        return False
+
+    def add_browsed_link(self, url):
+        """
+        Add a URL to the list of browsed links for the agent.
+
+        Args:
+            url (str): The URL to add.
+
+        Returns:
+            str: The response message.
+        """
+        browsed_links = self.get_browsed_links()
+        # check if the URL has already been browsed
+        if self.browsed_recently(url):
+            return "URL has already been browsed recently."
+        browsed_links.append(
+            {"url": url, "timestamp": datetime.now(timezone.utc).isoformat()}
+        )
+        self.update_agent_config(browsed_links, "browsed_links")
+        return "URL added to browsed links."
+
+    def delete_browsed_link(self, url):
+        """
+        Delete a URL from the list of browsed links for the agent.
+
+        Args:
+            url (str): The URL to delete.
+
+        Returns:
+            str: The response message.
+        """
+        browsed_links = self.get_browsed_links()
+        for link in browsed_links:
+            if link["url"] == url:
+                browsed_links.remove(link)
+                self.update_agent_config(browsed_links, "browsed_links")
+                return "URL deleted from browsed links."
+        return "URL not found in browsed links."

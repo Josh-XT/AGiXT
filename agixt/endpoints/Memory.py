@@ -4,9 +4,10 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
 from typing import Dict, Any, List
+from Websearch import Websearch
+from Memories import Memories
 from readers.github import GithubReader
 from readers.file import FileReader
-from readers.website import WebsiteReader
 from readers.arxiv import ArxivReader
 from readers.youtube import YoutubeReader
 from Models import (
@@ -20,6 +21,7 @@ from Models import (
     ResponseMessage,
     Dataset,
     FinetuneAgentModel,
+    ExternalSource,
 )
 
 app = APIRouter()
@@ -45,7 +47,7 @@ async def query_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=collection_number,
@@ -72,7 +74,7 @@ async def export_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).export_collections_to_json()
     return {"memories": memories}
@@ -93,7 +95,7 @@ async def import_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).import_collections_from_json(memories)
     return ResponseMessage(message="Memories imported.")
@@ -114,7 +116,7 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
         collection_number=data.collection_number,
@@ -188,16 +190,13 @@ async def learn_url(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await Websearch(
         collection_number=url.collection_number,
-        ApiClient=ApiClient,
+        agent=agent,
         user=user,
-    ).write_website_to_memory(url=url.url)
+        ApiClient=ApiClient,
+    ).get_web_content(url=url.url)
     return ResponseMessage(message="Agent learned the content from the url.")
 
 
@@ -299,9 +298,8 @@ async def agent_reader(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.AGENT_CONFIG
     collection_number = data["collection_number"] if "collection_number" in data else 0
     if reader_name == "file":
         response = await FileReader(
@@ -312,13 +310,12 @@ async def agent_reader(
             user=user,
         ).write_file_to_memory(file_path=data["file_path"])
     elif reader_name == "website":
-        response = await WebsiteReader(
-            agent_name=agent_name,
-            agent_config=agent_config,
+        response = await Websearch(
             collection_number=collection_number,
-            ApiClient=ApiClient,
+            agent=agent,
             user=user,
-        ).write_website_to_memory(url=data["url"])
+            ApiClient=ApiClient,
+        ).get_web_content(url=data["url"])
     elif reader_name == "github":
         response = await GithubReader(
             agent_name=agent_name,
@@ -377,7 +374,7 @@ async def wipe_agent_memories(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=0,
@@ -406,7 +403,7 @@ async def wipe_agent_memories(
     except:
         collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -434,7 +431,7 @@ async def delete_agent_memory(
     except:
         collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -465,7 +462,7 @@ async def create_dataset(
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     asyncio.create_task(
-        await WebsiteReader(
+        await Memories(
             agent_name=agent_name,
             agent_config=agent.AGENT_CONFIG,
             collection_number=0,
@@ -514,3 +511,54 @@ async def fine_tune_model(
     return ResponseMessage(
         message=f"Fine-tuning of model {finetune.model_name} started. The agent's status has is now set to True, it will be set to False once the training is complete."
     )
+
+
+# Delete memories from external source
+@app.delete(
+    "/api/agent/{agent_name}/memory/external_source",
+    tags=["Memory", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_memories_from_external_source(
+    agent_name: str,
+    external_source: ExternalSource,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=external_source.collection_number,
+        ApiClient=ApiClient,
+        user=user,
+    ).delete_memories_from_external_source(
+        external_source=external_source.external_source
+    )
+    return ResponseMessage(
+        message=f"Memories from external source {external_source.external_source} for agent {agent_name} deleted."
+    )
+
+
+# Get unique external sources
+@app.get(
+    "/api/agent/{agent_name}/memory/external_sources",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_unique_external_sources(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+) -> Dict[str, Any]:
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    external_sources = await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=0,
+        ApiClient=ApiClient,
+        user=user,
+    ).get_external_data_sources()
+    return {"external_sources": external_sources}
