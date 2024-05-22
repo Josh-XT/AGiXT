@@ -1,6 +1,6 @@
 import os
 import logging
-from ApiClient import Chain, Prompts, log_interaction
+from ApiClient import Chain, Prompts, Conversations
 from Extensions import Extensions
 
 logging.basicConfig(
@@ -106,16 +106,17 @@ class Chains:
         chain_data = self.ApiClient.get_chain(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
-        log_interaction(
-            role="USER",
-            message=user_input,
-            agent_name=agent_override if agent_override != "" else "AGiXT",
+        c = Conversations(
             conversation_name=(
                 f"Chain Execution History: {chain_name}"
                 if "conversation_name" not in chain_args
                 else chain_args["conversation_name"]
             ),
             user=self.user,
+        )
+        c.log_interaction(
+            role="USER",
+            message=user_input,
         )
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
@@ -161,16 +162,9 @@ class Chains:
             return responses
         else:
             # Return only the last response in the chain.
-            log_interaction(
+            c.log_interaction(
                 role=agent_override if agent_override != "" else "AGiXT",
                 message=last_response,
-                agent_name=agent_override if agent_override != "" else "AGiXT",
-                conversation_name=(
-                    f"Chain Execution History: {chain_name}"
-                    if "conversation_name" not in chain_args
-                    else chain_args["conversation_name"]
-                ),
-                user=self.user,
             )
             return last_response
 
