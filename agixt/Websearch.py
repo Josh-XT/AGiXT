@@ -11,10 +11,11 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
 from ApiClient import Agent
+from Defaults import getenv
 from readers.youtube import YoutubeReader
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 

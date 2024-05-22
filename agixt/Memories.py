@@ -13,10 +13,10 @@ from Providers import Providers
 from datetime import datetime
 from collections import Counter
 from typing import List
-from Defaults import DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 if sys.platform == "win32":
@@ -107,25 +107,21 @@ def get_chroma_client():
         CHROMA_API_KEY: The API key of the Chroma server
         CHROMA_SSL: Set to "true" if the Chroma server uses SSL
     """
-    chroma_host = os.environ.get("CHROMA_HOST", None)
+    chroma_host = getenv("CHROMA_HOST")
     chroma_settings = Settings(
         anonymized_telemetry=False,
     )
     if chroma_host:
         # Use external Chroma server
         try:
-            chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
+            chroma_api_key = getenv("CHROMA_API_KEY")
             chroma_headers = (
                 {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
             )
             return chromadb.HttpClient(
                 host=chroma_host,
-                port=os.environ.get("CHROMA_PORT", "8000"),
-                ssl=(
-                    False
-                    if os.environ.get("CHROMA_SSL", "false").lower() != "true"
-                    else True
-                ),
+                port=getenv("CHROMA_PORT"),
+                ssl=(False if getenv("CHROMA_SSL").lower() != "true" else True),
                 headers=chroma_headers,
                 settings=chroma_settings,
             )

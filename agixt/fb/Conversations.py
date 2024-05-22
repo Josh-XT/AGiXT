@@ -2,10 +2,10 @@ from datetime import datetime
 import yaml
 import os
 import logging
-from Defaults import DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 

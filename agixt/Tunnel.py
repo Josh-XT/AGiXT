@@ -1,11 +1,12 @@
 import os
 import logging
+from Defaults import getenv
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
-NGROK_TOKEN = os.environ.get("NGROK_TOKEN", "")
+NGROK_TOKEN = getenv("NGROK_TOKEN")
 if NGROK_TOKEN:
     from pyngrok import ngrok
 

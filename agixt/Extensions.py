@@ -4,15 +4,15 @@ import glob
 from inspect import signature, Parameter
 import logging
 import inspect
-from Defaults import DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER
 from dotenv import load_dotenv
 
 load_dotenv()
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
-DISABLED_EXTENSIONS = os.getenv("DISABLED_EXTENSIONS", "").replace(" ", "").split(",")
+DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 
 
 class Extensions:

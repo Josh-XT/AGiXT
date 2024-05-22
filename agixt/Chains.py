@@ -1,10 +1,10 @@
-import os
 import logging
+from Defaults import getenv
 from ApiClient import Chain, Prompts, Conversations
 from Extensions import Extensions
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 

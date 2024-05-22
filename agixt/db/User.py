@@ -1,11 +1,11 @@
 from DBConnection import User, get_session
 from db.Agent import add_agent
-import os
+from Defaults import getenv
 from agixtsdk import AGiXTSDK
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
-    if api_key == os.environ.get("AGIXT_API_KEY", ""):
+    if api_key == getenv("AGIXT_API_KEY"):
         return True
     session = get_session()
     user = session.query(User).filter_by(email=email).first()

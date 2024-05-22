@@ -12,6 +12,7 @@ from endpoints.Extension import app as extension_endpoints
 from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
+from Defaults import getenv
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -20,7 +21,7 @@ with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 

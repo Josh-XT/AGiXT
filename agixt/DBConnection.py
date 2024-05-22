@@ -15,25 +15,20 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
-from dotenv import load_dotenv
+from Defaults import getenv
 
-load_dotenv()
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
-DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
+DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
+DEFAULT_USER = getenv("DEFAULT_USER")
 if DB_CONNECTED:
-    DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
-    DATABASE_PASSWORD = os.getenv(
-        "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
-    )
-    DATABASE_HOST = os.getenv(
-        "DATABASE_HOST", os.getenv("POSTGRES_SERVER", "localhost")
-    )
-    DATABASE_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", "5432"))
-    DATABASE_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", "postgres"))
+    DATABASE_USER = getenv("DATABASE_USER")
+    DATABASE_PASSWORD = getenv("DATABASE_PASSWORD")
+    DATABASE_HOST = getenv("DATABASE_HOST")
+    DATABASE_PORT = getenv("DATABASE_PORT")
+    DATABASE_NAME = getenv("DATABASE_NAME")
     LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
     DATABASE_URL = f"postgresql://{LOGIN_URI}"
     try:

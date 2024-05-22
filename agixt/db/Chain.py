@@ -10,12 +10,12 @@ from DBConnection import (
     Command,
     User,
 )
-from Defaults import DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER
 import logging
 import os
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 

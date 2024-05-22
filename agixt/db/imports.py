@@ -18,10 +18,10 @@ from DBConnection import (
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import add_agent
-from Defaults import DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
+    level=getenv("LOGLEVEL"),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
