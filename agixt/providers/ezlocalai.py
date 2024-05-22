@@ -3,7 +3,7 @@ import random
 import re
 import numpy as np
 import requests
-import os
+from Defaults import getenv
 import uuid
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
@@ -203,7 +203,7 @@ class EzlocalaiProvider:
         url = response.data[0].url
         with open(image_path, "wb") as f:
             f.write(requests.get(url).content)
-        agixt_uri = os.environ.get("AGIXT_URI", "http://localhost:7437")
+        agixt_uri = getenv("AGIXT_URI")
         return f"{agixt_uri}/outputs/{filename}"
 
     def embeddings(self, input) -> np.ndarray:
