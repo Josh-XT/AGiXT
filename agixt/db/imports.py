@@ -1,5 +1,6 @@
 import os
 import json
+import yaml
 import logging
 from DBConnection import (
     get_session,
@@ -17,7 +18,6 @@ from DBConnection import (
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import add_agent
-from fb.Conversations import Conversations
 from Defaults import DEFAULT_USER
 
 logging.basicConfig(
@@ -294,16 +294,33 @@ def import_prompts(user=DEFAULT_USER):
                 logging.info(f"Imported prompt argument: {arg} for {prompt_name}")
 
 
+def get_conversations():
+    conversation_dir = os.path.join("conversations")
+    if os.path.exists(conversation_dir):
+        conversations = os.listdir(conversation_dir)
+        return [conversation.split(".")[0] for conversation in conversations]
+    return []
+
+
+def get_conversation(conversation_name):
+    history = {"interactions": []}
+    try:
+        history_file = os.path.join("conversations", f"{conversation_name}.yaml")
+        if os.path.exists(history_file):
+            with open(history_file, "r") as file:
+                history = yaml.safe_load(file)
+    except:
+        history = {"interactions": []}
+    return history
+
+
 def import_conversations(user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    conversations = Conversations(user=user).get_conversations()
+    conversations = get_conversations()
     for conversation_name in conversations:
-        conversation = Conversations(
-            conversation_name=conversation_name,
-            user=user,
-        ).get_conversation()
+        conversation = get_conversation(conversation_name=conversation_name)
         if not conversation:
             logging.info(f"Conversation '{conversation_name}' is empty, skipping.")
             continue
