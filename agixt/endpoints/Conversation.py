@@ -87,7 +87,7 @@ async def new_conversation_history(
     user=Depends(verify_api_key),
 ):
     Conversations(
-        conversaton_name=history.conversation_name, user=user
+        conversation_name=history.conversation_name, user=user
     ).new_conversation(conversation_content=history.conversation_content)
     return {"conversation_history": history.conversation_content}
 
