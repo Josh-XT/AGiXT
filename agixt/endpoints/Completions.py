@@ -4,8 +4,8 @@ import uuid
 import json
 import requests
 from fastapi import APIRouter, Depends, Header
-from Interactions import Interactions, get_tokens, log_interaction
-from ApiClient import Agent, verify_api_key, get_api_client, AGIXT_URI
+from Interactions import Interactions, get_tokens
+from ApiClient import Agent, Conversations, verify_api_key, get_api_client, AGIXT_URI
 from Extensions import Extensions
 from Chains import Chains
 from Websearch import Websearch
@@ -44,6 +44,7 @@ async def chat_completion(
     ApiClient = get_api_client(authorization=authorization)
     agent_name = prompt.model
     conversation_name = prompt.user
+    c = Conversations(conversation_name=conversation_name, user=user)
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     agent_config = agent.agent.AGENT_CONFIG
     agent_settings = agent_config["settings"] if "settings" in agent_config else {}
@@ -306,13 +307,7 @@ async def chat_completion(
                 else agent_settings["command_args"]
             )
             command_args[agent_settings["command_variable"]] = new_prompt
-            log_interaction(
-                agent_name=agent_name,
-                conversation_name=conversation_name,
-                role="USER",
-                message=new_prompt,
-                user=user,
-            )
+            c.log_interaction(role="USER", message=new_prompt)
             response = await Extensions(
                 agent_name=agent_name,
                 agent_config=agent_config,
@@ -341,13 +336,7 @@ async def chat_completion(
                             f.write(audio_data)
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     response = f"{response}\n\n{tts_response}"
-            log_interaction(
-                agent_name=agent_name,
-                conversation_name=conversation_name,
-                role=agent_name,
-                message=response,
-                user=user,
-            )
+            c.log_interaction(role=agent_name, message=response)
         elif mode == "chain" and chain_name:
             chain_name = agent_settings["chain_name"]
             chain_args = (
@@ -355,13 +344,7 @@ async def chat_completion(
                 if isinstance(agent_settings["chain_args"], str)
                 else agent_settings["chain_args"]
             )
-            log_interaction(
-                agent_name=agent_name,
-                conversation_name=conversation_name,
-                role="USER",
-                message=new_prompt,
-                user=user,
-            )
+            c.log_interaction(role="USER", message=new_prompt)
             response = await Chains(user=user, ApiClient=ApiClient).run_chain(
                 chain_name=chain_name,
                 user_input=new_prompt,
@@ -388,13 +371,7 @@ async def chat_completion(
 
                         tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
                     response = f"{response}\n\n{tts_response}"
-            log_interaction(
-                agent_name=agent_name,
-                conversation_name=conversation_name,
-                role=agent_name,
-                message=response,
-                user=user,
-            )
+            c.log_interaction(role=agent_name, message=response)
         elif mode == "prompt":
             response = await agent.run(
                 user_input=new_prompt,
