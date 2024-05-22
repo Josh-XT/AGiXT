@@ -5,14 +5,13 @@ import glob
 import os
 import inspect
 import logging
-from dotenv import load_dotenv
+from Defaults import getenv
 
-load_dotenv()
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
-DISABLED_PROVIDERS = os.getenv("DISABLED_PROVIDERS", "").replace(" ", "").split(",")
+DISABLED_PROVIDERS = getenv("DISABLED_PROVIDERS").replace(" ", "").split(",")
 
 
 def get_providers():

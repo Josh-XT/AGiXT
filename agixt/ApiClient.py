@@ -2,19 +2,18 @@ import os
 import logging
 import jwt
 from agixtsdk import AGiXTSDK
-from dotenv import load_dotenv
 from fastapi import Header, HTTPException
+from Defaults import getenv
 
-load_dotenv()
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
-USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
-DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-WORKERS = int(os.getenv("UVICORN_WORKERS", 10))
-AGIXT_URI = os.getenv("AGIXT_URI", "http://localhost:7437")
-AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
+USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
+DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
+WORKERS = int(getenv("UVICORN_WORKERS"))
+AGIXT_URI = getenv("AGIXT_URI")
+AGIXT_API_KEY = getenv("AGIXT_API_KEY")
 ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
 
 # Defining these here to be referenced externally.
@@ -31,10 +30,9 @@ else:
 
 
 def verify_api_key(authorization: str = Header(None)):
-    load_dotenv()
-    USING_JWT = True if os.getenv("USING_JWT", "false").lower() == "true" else False
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", None)
-    DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
+    USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    DEFAULT_USER = getenv("DEFAULT_USER")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "USER"
     if AGIXT_API_KEY:
@@ -70,11 +68,8 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
-    load_dotenv()
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
-    DB_CONNECTED = (
-        True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
-    )
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
     if DB_CONNECTED != True:
         return True
     if api_key is None:
@@ -86,7 +81,7 @@ def is_admin(email: str = "USER", api_key: str = None):
         from db.User import is_agixt_admin
 
         if email == "" or email is None or email == "None":
-            email = os.getenv("DEFAULT_USER", "USER")
+            email = getenv("DEFAULT_USER")
             if email == "" or email is None or email == "None":
                 email = "USER"
         return is_agixt_admin(email=email, api_key=api_key)

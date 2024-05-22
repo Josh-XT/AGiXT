@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
+
 
 DEFAULT_SETTINGS = {
     "provider": "gpt4free",
@@ -30,3 +30,34 @@ DEFAULT_SETTINGS = {
     "AUTONOMOUS_EXECUTION": True,
     "PERSONA": "",
 }
+
+
+def getenv(var_name: str):
+    default_values = {
+        "AGIXT_URI": "http://localhost:7437",
+        "AGIXT_API_KEY": None,
+        "ALLOWLIST": "*",
+        "WORKSPACE": os.path.join(os.getcwd(), "WORKSPACE"),
+        "APP_NAME": "AGiXT",
+        "EMAIL_SERVER": "",
+        "LOG_LEVEL": "INFO",
+        "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
+        "UVICORN_WORKERS": 10,
+        "DB_CONNECTED": "false",
+        "DATABASE_NAME": "postgres",
+        "DATABASE_USER": "postgres",
+        "DATABASE_PASSWORD": "postgres",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "5432",
+        "DEFAULT_USER": "USER",
+        "USING_JWT": "false",
+        "CHROMA_PORT": "8000",
+        "CHROMA_SSL": "false",
+        "DISABLED_EXTENSIONS": "",
+        "DISABLED_PROVIDERS": "",
+    }
+    default_value = default_values[var_name] if var_name in default_values else None
+    return os.getenv(var_name, default_value)
+
+
+DEFAULT_USER = getenv("DEFAULT_USER")

@@ -16,7 +16,7 @@ from DBConnection import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
+from Defaults import getenv, DEFAULT_SETTINGS, DEFAULT_USER
 from datetime import datetime, timezone, timedelta
 import logging
 import json
@@ -24,8 +24,8 @@ import numpy as np
 import os
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 
 
