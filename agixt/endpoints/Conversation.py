@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from ApiClient import verify_api_key, Conversations
+from typing import Optional
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
@@ -81,7 +82,9 @@ async def get_conversation_data(
     dependencies=[Depends(verify_api_key)],
 )
 async def new_conversation_history(
-    history: ConversationHistoryModel, user=Depends(verify_api_key)
+    history: ConversationHistoryModel,
+    agent_name: Optional[str] = "",
+    user=Depends(verify_api_key),
 ):
     Conversations(
         conversaton_name=history.conversation_name, user=user
