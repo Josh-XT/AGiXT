@@ -83,7 +83,6 @@ async def get_conversation_data(
 )
 async def new_conversation_history(
     history: ConversationHistoryModel,
-    agent_name: Optional[str] = "",
     user=Depends(verify_api_key),
 ):
     Conversations(
