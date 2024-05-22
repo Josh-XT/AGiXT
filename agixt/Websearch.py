@@ -100,7 +100,7 @@ class Websearch:
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
-                self.agent_memory.write_text_to_memory(
+                await self.agent_memory.write_text_to_memory(
                     user_input=url,
                     text=f"From website: {url}\n\nContent:\n{text_content}",
                     external_source=url,

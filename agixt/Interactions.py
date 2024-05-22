@@ -137,12 +137,12 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                positive_feedback = self.positive_feedback_memories.get_memories(
+                positive_feedback = await self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
                 )
-                negative_feedback = self.negative_feedback_memories.get_memories(
+                negative_feedback = await self.negative_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
