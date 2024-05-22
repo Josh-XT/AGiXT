@@ -6,8 +6,8 @@ from fastapi import Header, HTTPException
 from Defaults import getenv
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
 DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False

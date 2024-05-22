@@ -16,8 +16,8 @@ from typing import List
 from Defaults import getenv, DEFAULT_USER
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())

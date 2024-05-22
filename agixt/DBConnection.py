@@ -18,8 +18,8 @@ from sqlalchemy.sql import text
 from Defaults import getenv
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
 DEFAULT_USER = getenv("DEFAULT_USER")

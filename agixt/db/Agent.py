@@ -24,8 +24,8 @@ import numpy as np
 import os
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 
 

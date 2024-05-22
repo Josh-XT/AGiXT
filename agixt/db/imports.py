@@ -21,8 +21,8 @@ from db.Agent import add_agent
 from Defaults import getenv, DEFAULT_USER
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 
 

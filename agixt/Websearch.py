@@ -15,8 +15,8 @@ from Defaults import getenv
 from readers.youtube import YoutubeReader
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 
 

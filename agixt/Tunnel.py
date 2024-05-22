@@ -3,8 +3,8 @@ import logging
 from Defaults import getenv
 
 logging.basicConfig(
-    level=getenv("LOGLEVEL"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 NGROK_TOKEN = getenv("NGROK_TOKEN")
 if NGROK_TOKEN:
