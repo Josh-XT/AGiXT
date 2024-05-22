@@ -15,8 +15,7 @@ from ApiClient import (
     Agent,
     Prompts,
     Chain,
-    log_interaction,
-    get_conversation,
+    Conversations,
     AGIXT_URI,
 )
 from Defaults import DEFAULT_USER
@@ -138,12 +137,12 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
-                positive_feedback = self.positive_feedback_memories.get_memories(
+                positive_feedback = await self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
                 )
-                negative_feedback = self.negative_feedback_memories.get_memories(
+                negative_feedback = await self.negative_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
                     min_relevance_score=0.7,
@@ -238,11 +237,8 @@ class Interactions:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = f"{str(datetime.now())} Conversation"
-        conversation = get_conversation(
-            agent_name=self.agent_name,
-            conversation_name=conversation_name,
-            user=self.user,
-        )
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation = c.get_conversation()
         if "conversation_results" in kwargs:
             conversation_results = int(kwargs["conversation_results"])
         else:
@@ -326,12 +322,9 @@ class Interactions:
                     if len(file_list) > 1
                     else f"the file {file_list[0]}."
                 )
-                log_interaction(
-                    agent_name=self.agent_name,
-                    conversation_name=conversation_name,
+                c.log_interaction(
                     role=self.agent_name,
                     message=f"I have read the file contents of {the_files}.",
-                    user=self.user,
                 )
             else:
                 the_files = "files."
@@ -516,12 +509,10 @@ class Interactions:
             if user_input != "" and persist_context_in_history == False
             else formatted_prompt
         )
-        log_interaction(
-            agent_name=self.agent_name,
-            conversation_name=conversation_name,
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        c.log_interaction(
             role="USER",
             message=log_message,
-            user=self.user,
         )
         try:
             self.response = await self.agent.inference(
@@ -642,12 +633,9 @@ class Interactions:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
-            log_interaction(
-                agent_name=self.agent_name,
-                conversation_name=conversation_name,
+            c.log_interaction(
                 role=self.agent_name,
                 message=self.response,
-                user=self.user,
             )
         if shots > 1:
             responses = [self.response]
@@ -767,12 +755,12 @@ class Interactions:
                                     )
                                     formatted_output = f"```\n{command_output}\n```"
                                     message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                    log_interaction(
-                                        agent_name=self.agent_name,
+                                    Conversations(
                                         conversation_name=f"{self.agent_name} Command Execution Log",
+                                        user=self.user,
+                                    ).log_interaction(
                                         role=self.agent_name,
                                         message=message,
-                                        user=self.user,
                                     )
                                 else:
                                     command_output = (

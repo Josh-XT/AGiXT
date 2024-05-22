@@ -22,28 +22,12 @@ if DB_CONNECTED:
     from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from db.Chain import Chain
     from db.Prompts import Prompts
-    from db.History import (
-        get_conversation,
-        delete_history,
-        delete_message,
-        get_conversations,
-        new_conversation,
-        log_interaction,
-        update_message,
-    )
+    from db.Conversations import Conversations
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from fb.Chain import Chain
     from fb.Prompts import Prompts
-    from fb.History import (
-        get_conversation,
-        delete_history,
-        delete_message,
-        get_conversations,
-        new_conversation,
-        log_interaction,
-        update_message,
-    )
+    from fb.Conversations import Conversations
 
 
 def verify_api_key(authorization: str = Header(None)):
