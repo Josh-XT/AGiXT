@@ -17,7 +17,7 @@ from DBConnection import (
 )
 from Providers import get_providers, get_provider_options
 from db.Agent import add_agent
-from fb.History import get_conversation, get_conversations
+from fb.Conversations import Conversations
 from Defaults import DEFAULT_USER
 
 logging.basicConfig(
@@ -298,9 +298,12 @@ def import_conversations(user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    conversations = get_conversations(user=user)
+    conversations = Conversations(user=user).get_conversations()
     for conversation_name in conversations:
-        conversation = get_conversation(conversation_name=conversation_name, user=user)
+        conversation = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+        ).get_conversation()
         if not conversation:
             logging.info(f"Conversation '{conversation_name}' is empty, skipping.")
             continue
