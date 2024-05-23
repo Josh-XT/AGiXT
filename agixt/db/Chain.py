@@ -23,8 +23,14 @@ class Chain:
     def __init__(self, user=DEFAULT_USER):
         self.session = get_session()
         self.user = user
-        user_data = self.session.query(User).filter(User.email == self.user).first()
-        self.user_id = user_data.id
+        try:
+            user_data = self.session.query(User).filter(User.email == self.user).first()
+            self.user_id = user_data.id
+        except:
+            user_data = (
+                self.session.query(User).filter(User.email == DEFAULT_USER).first()
+            )
+            self.user_id = user_data.id
 
     def get_chain(self, chain_name):
         chain_name = chain_name.replace("%20", " ")
