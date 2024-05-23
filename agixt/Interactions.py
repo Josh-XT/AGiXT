@@ -152,31 +152,32 @@ class Interactions:
                         f"The users input makes you to remember some feedback from previous interactions:\n"
                     )
                     if positive_feedback:
-                        context.append(f"Positive Feedback:\n{'\n'.join(positive_feedback)}\n")
+                        joined_feedback = "\n".join(positive_feedback)
+                        context.append(f"Positive Feedback:\n{joined_feedback}\n")
                     if negative_feedback:
-                        context.append(f"Negative Feedback:\n{'\n'.join(negative_feedback)}\n")
+                        joined_feedback = "\n".join(negative_feedback)
+                        context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if websearch:
                     context += await self.websearch.agent_memory.get_memories(
+                        user_input=user_input,
+                        limit=top_results,
+                        min_relevance_score=min_relevance_score,
+                    )
+                if "inject_memories_from_collection_number" in kwargs:
+                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
+                        context += await FileReader(
+                            agent_name=self.agent_name,
+                            agent_config=self.agent.AGENT_CONFIG,
+                            collection_number=int(
+                                kwargs["inject_memories_from_collection_number"]
+                            ),
+                            ApiClient=self.ApiClient,
+                            user=self.user,
+                        ).get_memories(
                             user_input=user_input,
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
-                if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
-                        context += await FileReader(
-                                agent_name=self.agent_name,
-                                agent_config=self.agent.AGENT_CONFIG,
-                                collection_number=int(
-                                    kwargs["inject_memories_from_collection_number"]
-                                ),
-                                ApiClient=self.ApiClient,
-                                user=self.user,
-                            ).get_memories(
-                                user_input=user_input,
-                                limit=top_results,
-                                min_relevance_score=min_relevance_score,
-                            )
-                        
             else:
                 context = []
         if "context" in kwargs:
