@@ -8,12 +8,9 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
 DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
 WORKERS = int(getenv("UVICORN_WORKERS"))
 AGIXT_URI = getenv("AGIXT_URI")
-AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-ApiClient = AGiXTSDK(base_uri="http://localhost:7437", api_key=AGIXT_API_KEY)
 
 # Defining these here to be referenced externally.
 if DB_CONNECTED:
