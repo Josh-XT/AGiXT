@@ -12,7 +12,6 @@ from DBConnection import (
 )
 from Defaults import getenv, DEFAULT_USER
 import logging
-import os
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

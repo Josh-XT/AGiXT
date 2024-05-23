@@ -1,4 +1,3 @@
-import os
 import logging
 import jwt
 from agixtsdk import AGiXTSDK
