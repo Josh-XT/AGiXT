@@ -5,9 +5,7 @@ from inspect import signature, Parameter
 import logging
 import inspect
 from Defaults import getenv, DEFAULT_USER
-from dotenv import load_dotenv
 
-load_dotenv()
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
