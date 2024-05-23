@@ -779,7 +779,11 @@ class Interactions:
                         if command_output:
                             reformatted_response = reformatted_response.replace(
                                 f"#execute({command_name}, {command_args})",
-                                command_output,
+                                (
+                                    json.dumps(command_output)
+                                    if isinstance(command_output, dict)
+                                    else command_output
+                                ),
                             )
                         if reformatted_response != self.response:
                             self.response = reformatted_response
