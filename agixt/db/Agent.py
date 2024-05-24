@@ -397,59 +397,22 @@ class Agent:
                         )
                         self.session.add(agent_command)
         else:
-            provider = (
-                self.session.query(ProviderModel)
-                .filter_by(name=self.AI_PROVIDER)
-                .first()
-            )
-            if provider:
-                for setting_name, setting_value in new_config.items():
-                    logging.info(
-                        f"Updating provider setting: {setting_name} = {setting_value}"
+            for setting_name, setting_value in new_config.items():
+                logging.info(
+                    f"Updating agent setting: {setting_name} = {setting_value}"
+                )
+                agent_setting = (
+                    self.session.query(AgentSettingModel)
+                    .filter_by(agent_id=agent.id, name=setting_name)
+                    .first()
+                )
+                if agent_setting:
+                    agent_setting.value = str(setting_value)
+                else:
+                    agent_setting = AgentSettingModel(
+                        agent_id=agent.id, name=setting_name, value=str(setting_value)
                     )
-                    setting = (
-                        self.session.query(ProviderSetting)
-                        .filter_by(provider_id=provider.id, name=setting_name)
-                        .first()
-                    )
-                    if not setting:
-                        setting = ProviderSetting(
-                            provider_id=provider.id, name=setting_name
-                        )
-                        self.session.add(setting)
-                        self.session.flush()
-
-                    agent_provider = (
-                        self.session.query(AgentProvider)
-                        .filter_by(provider_id=provider.id, agent_id=agent.id)
-                        .first()
-                    )
-                    if not agent_provider:
-                        agent_provider = AgentProvider(
-                            provider_id=provider.id, agent_id=agent.id
-                        )
-                        self.session.add(agent_provider)
-                        self.session.flush()
-
-                    agent_provider_setting = (
-                        self.session.query(AgentProviderSetting)
-                        .filter_by(
-                            provider_setting_id=setting.id,
-                            agent_provider_id=agent_provider.id,
-                        )
-                        .first()
-                    )
-
-                    if agent_provider_setting:
-                        agent_provider_setting.value = str(setting_value)
-                    else:
-                        agent_provider_setting = AgentProviderSetting(
-                            provider_setting_id=setting.id,
-                            agent_provider_id=agent_provider.id,
-                            value=str(setting_value),
-                        )
-                        self.session.add(agent_provider_setting)
-
+                    self.session.add(agent_setting)
         try:
             self.session.commit()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
