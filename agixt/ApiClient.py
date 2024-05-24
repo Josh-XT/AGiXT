@@ -3,6 +3,7 @@ import jwt
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
 from Defaults import getenv
+from datetime import datetime
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -28,6 +29,8 @@ else:
 def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    if getenv("AUTH_PROVIDER") == "magicalauth":
+        AGIXT_API_KEY = f"{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}"
     DEFAULT_USER = getenv("DEFAULT_USER")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "USER"
@@ -65,6 +68,8 @@ def get_api_client(authorization: str = Header(None)):
 
 def is_admin(email: str = "USER", api_key: str = None):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    if getenv("AUTH_PROVIDER") == "magicalauth":
+        AGIXT_API_KEY = f"{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}"
     DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
     if DB_CONNECTED != True:
         return True
