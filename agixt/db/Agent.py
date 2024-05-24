@@ -461,25 +461,21 @@ class Agent:
                 setting = ProviderSetting(provider_id=provider.id, name=setting_name)
                 self.session.add(setting)
                 self.session.flush()
-            try:
-                agent_provider_setting = (
-                    self.session.query(AgentProviderSetting)
-                    .filter_by(
-                        provider_setting_id=setting.id,
-                        agent_provider_id=agent_provider.id,
-                    )
-                    .first()
+            agent_provider_setting = (
+                self.session.query(AgentProviderSetting)
+                .filter_by(
+                    provider_setting_id=setting.id,
+                    agent_provider_id=agent_provider.id,
                 )
-            except Exception as e:
-                agent_provider_setting = None
-
+                .first()
+            )
             if agent_provider_setting:
-                agent_provider_setting.value = setting_value
+                agent_provider_setting.value = str(setting_value)
             else:
                 agent_provider_setting = AgentProviderSetting(
                     provider_setting_id=setting.id,
                     agent_provider_id=agent_provider.id,
-                    value=setting_value,
+                    value=str(setting_value),
                 )
                 self.session.add(agent_provider_setting)
 
