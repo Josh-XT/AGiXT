@@ -266,9 +266,14 @@ class Chain:
             responses = {}
 
         if str(step_number) not in responses:
-            responses[str(step_number)] = []
-
-        responses[str(step_number)].append(response)
+            responses[str(step_number)] = response
+        else:
+            if isinstance(responses[str(step_number)], dict):
+                responses[str(step_number)].update(response)
+            elif isinstance(responses[str(step_number)], list):
+                responses[str(step_number)].append(response)
+            else:
+                responses[str(step_number)] = response
 
         with open(file_path, "w") as f:
             json.dump(responses, f)
