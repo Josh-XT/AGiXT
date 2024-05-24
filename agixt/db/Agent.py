@@ -449,8 +449,15 @@ class Agent:
                             value=str(setting_value),
                         )
                         self.session.add(agent_provider_setting)
-        self.session.commit()
-        logging.info(f"Agent {self.agent_name} configuration updated.")
+
+        try:
+            self.session.commit()
+            logging.info(f"Agent {self.agent_name} configuration updated successfully.")
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error updating agent configuration: {str(e)}")
+            raise
+
         return f"Agent {self.agent_name} configuration updated."
 
     def get_browsed_links(self):
