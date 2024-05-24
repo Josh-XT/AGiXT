@@ -630,14 +630,12 @@ class Chain:
         else:
             return prompt_content
 
-    async def update_chain_responses(self, chain_name, responses):
-        for response in responses:
-            step_data = responses[response]
-            chain_step = self.get_step(chain_name, step_data["step"])
-            response_content = {
-                "chain_step_id": chain_step.id,
-                "content": step_data["response"],
-            }
-            chain_step_response = ChainStepResponse(**response_content)
+    async def update_step_response(self, chain_name, step_number, response):
+        chain = self.get_chain(chain_name=chain_name)
+        chain_step = self.get_step(chain_name=chain_name, step_number=step_number)
+        if chain_step:
+            chain_step_response = ChainStepResponse(
+                chain_step_id=chain_step.id, content=response
+            )
             self.session.add(chain_step_response)
             self.session.commit()

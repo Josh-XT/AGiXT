@@ -257,7 +257,18 @@ class Chain:
         else:
             return prompt_content
 
-    async def update_chain_responses(self, chain_name, responses):
+    async def update_step_response(self, chain_name, step_number, response):
         file_path = get_chain_responses_file_path(chain_name=chain_name)
+        try:
+            with open(file_path, "r") as f:
+                responses = json.load(f)
+        except:
+            responses = {}
+
+        if str(step_number) not in responses:
+            responses[str(step_number)] = []
+
+        responses[str(step_number)].append(response)
+
         with open(file_path, "w") as f:
             json.dump(responses, f)
