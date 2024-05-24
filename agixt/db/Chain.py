@@ -150,6 +150,7 @@ class Chain:
             prompt_category = prompt["prompt_category"]
         else:
             prompt_category = "Default"
+        argument_key = None
         if "prompt_name" in prompt:
             argument_key = "prompt_name"
             target_id = (
@@ -183,7 +184,20 @@ class Chain:
                 .id
             )
             target_type = "command"
-
+        else:
+            prompt["prompt_name"] = "User Input"
+            argument_key = "prompt_name"
+            target_id = (
+                self.session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt["prompt_name"],
+                    Prompt.user_id == self.user_id,
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .first()
+                .id
+            )
+            target_type = "prompt"
         argument_value = prompt[argument_key]
         prompt_arguments = prompt.copy()
         del prompt_arguments[argument_key]
