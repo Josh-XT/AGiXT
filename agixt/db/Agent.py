@@ -4,7 +4,6 @@ from DBConnection import (
     AgentBrowsedLink,
     Command,
     AgentCommand,
-    ProviderSetting,
     AgentProvider,
     AgentProviderSetting,
     ChainStep,
