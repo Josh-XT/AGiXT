@@ -268,10 +268,15 @@ class Chain:
         if str(step_number) not in responses:
             responses[str(step_number)] = response
         else:
-            if isinstance(responses[str(step_number)], dict):
+            if isinstance(responses[str(step_number)], dict) and isinstance(
+                response, dict
+            ):
                 responses[str(step_number)].update(response)
             elif isinstance(responses[str(step_number)], list):
-                responses[str(step_number)].append(response)
+                if isinstance(response, list):
+                    responses[str(step_number)].extend(response)
+                else:
+                    responses[str(step_number)].append(response)
             else:
                 responses[str(step_number)] = response
 
