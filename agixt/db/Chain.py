@@ -634,8 +634,32 @@ class Chain:
         chain = self.get_chain(chain_name=chain_name)
         chain_step = self.get_step(chain_name=chain_name, step_number=step_number)
         if chain_step:
-            chain_step_response = ChainStepResponse(
-                chain_step_id=chain_step.id, content=response
+            existing_response = (
+                self.session.query(ChainStepResponse)
+                .filter(ChainStepResponse.chain_step_id == chain_step.id)
+                .order_by(ChainStepResponse.timestamp.desc())
+                .first()
             )
-            self.session.add(chain_step_response)
-            self.session.commit()
+            if existing_response:
+                if isinstance(existing_response.content, dict) and isinstance(
+                    response, dict
+                ):
+                    existing_response.content.update(response)
+                    self.session.commit()
+                elif isinstance(existing_response.content, list) and isinstance(
+                    response, list
+                ):
+                    existing_response.content.extend(response)
+                    self.session.commit()
+                else:
+                    chain_step_response = ChainStepResponse(
+                        chain_step_id=chain_step.id, content=response
+                    )
+                    self.session.add(chain_step_response)
+                    self.session.commit()
+            else:
+                chain_step_response = ChainStepResponse(
+                    chain_step_id=chain_step.id, content=response
+                )
+                self.session.add(chain_step_response)
+                self.session.commit()
