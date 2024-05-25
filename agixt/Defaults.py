@@ -55,8 +55,9 @@ def getenv(var_name: str):
         "CHROMA_SSL": "false",
         "DISABLED_EXTENSIONS": "",
         "DISABLED_PROVIDERS": "",
+        "AUTH_PROVIDER": "",
     }
-    default_value = default_values[var_name] if var_name in default_values else None
+    default_value = default_values[var_name] if var_name in default_values else ""
     return os.getenv(var_name, default_value)
 
 
