@@ -70,8 +70,6 @@ def get_api_client(authorization: str = Header(None)):
 
 def is_admin(email: str = "USER", api_key: str = None):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    if getenv("AUTH_PROVIDER") == "magicalauth":
-        AGIXT_API_KEY = f"{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}"
     DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
     if DB_CONNECTED != True:
         return True
