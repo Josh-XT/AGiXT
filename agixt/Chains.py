@@ -45,7 +45,10 @@ class Chains:
                 if chain_args != {}:
                     for arg, value in chain_args.items():
                         args[arg] = value
-
+                if "chain_name" in args:
+                    args["chain"] = args["chain_name"]
+                if "chain" not in args:
+                    args["chain"] = chain_name
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
                 if "conversation" in args:
