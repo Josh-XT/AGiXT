@@ -41,6 +41,8 @@ def verify_api_key(authorization: str = Header(None)):
                 status_code=401, detail="Authorization header is missing"
             )
         authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        if AGIXT_API_KEY == authorization:
+            return DEFAULT_USER
         if USING_JWT:
             try:
                 token = jwt.decode(
