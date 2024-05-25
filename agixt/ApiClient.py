@@ -30,7 +30,7 @@ def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     if getenv("AUTH_PROVIDER") == "magicalauth":
-        AGIXT_API_KEY = f"{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}"
+        AGIXT_API_KEY = AGIXT_API_KEY + str(datetime.now().strftime("%Y%m%d"))
     DEFAULT_USER = getenv("DEFAULT_USER")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "USER"
