@@ -9,6 +9,8 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
         return True
     session = get_session()
     user = session.query(User).filter_by(email=email).first()
+    if not user:
+        return False
     if user.role == "admin":
         return True
     return False
