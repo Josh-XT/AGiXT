@@ -83,6 +83,8 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
+    return True
+    # Commenting out functionality until testing is complete.
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
     if DB_CONNECTED != True:
