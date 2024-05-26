@@ -1,4 +1,5 @@
 import re
+import os
 import json
 import random
 import requests
@@ -156,10 +157,29 @@ class Websearch:
                     title = title.replace("  ", "")
                     href = await page.evaluate("(link) => link.href", link)
                     link_list.append((title, href))
+                vision_response = ""
+                if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+                    vision_provider = str(
+                        self.agent.AGENT_CONFIG["settings"]["vision_provider"]
+                    ).lower()
+                    if vision_provider != "none" and vision_provider != "":
+                        try:
+                            random_screenshot_name = str(random.randint(100000, 999999))
+                            screenshot_path = f"WORKSPACE/{random_screenshot_name}.png"
+                            await page.screenshot(path=screenshot_path)
+                            vision_response = self.agent.inference(
+                                prompt=f"Provide a detailed visual description of the screenshotted website in the image. The website in the screenshot is from {url}.",
+                                images=[screenshot_path],
+                            )
+                            os.remove(screenshot_path)
+                        except:
+                            vision_response = ""
                 await browser.close()
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
+                if vision_response != "":
+                    text_content = f"{text_content}\n\nVisual description from viewing {url}:\n{vision_response}"
                 if summarize_content:
                     text_content = await self.summarize_web_content(
                         url=url, content=text_content
