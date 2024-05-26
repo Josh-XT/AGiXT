@@ -252,7 +252,7 @@ async def chat_completion(
                             await youtube_reader.write_youtube_captions_to_memory(
                                 file_url
                             )
-                        elif file_url.startswith("https://github.com"):
+                        elif file_url.startswith("https://github.com/"):
                             github_reader = GithubReader(
                                 agent_name=agent_name,
                                 agent_config=agent_config,
