@@ -103,7 +103,7 @@ class AGiXT:
             str: Agents relevant memories from the user input from collections 0-5 and the additional collection number if provided
         """
         formatted_prompt, prompt, tokens = await self.agent_interactions.format_prompt(
-            user_input=user_input,
+            user_input=user_input if user_input else "*",
             top_results=limit_per_collection,
             min_relevance_score=minimum_relevance_score,
             inject_memories_from_collection_number=int(additional_collection_number),
