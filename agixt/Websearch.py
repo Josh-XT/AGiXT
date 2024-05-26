@@ -73,32 +73,19 @@ class Websearch:
         max_tokens = (
             int(self.agent_settings["MAX_TOKENS"])
             if "MAX_TOKENS" in self.agent_settings
-            else 8192
+            else 8000
         )
+        # max_tokens is max input tokens for the model
         max_tokens = int(max_tokens) - 1000
         if max_tokens < 0:
             max_tokens = 5000
-        if get_tokens(text=content) > int(max_tokens):
-            chunks = self.agent_memory.chunk_content(
-                text=content, chunk_size=int(max_tokens)
-            )
-            new_content = []
-            for chunk in chunks:
-                new_content.append(
-                    self.ApiClient.prompt_agent(
-                        agent_name=self.agent_name,
-                        prompt_name="Website Summary",
-                        prompt_args={
-                            "user_input": chunk,
-                            "url": url,
-                            "browse_links": False,
-                            "disable_memory": True,
-                        },
-                    )
-                )
-            return "\n".join(new_content)
-        else:
-            new_content = self.ApiClient.prompt_agent(
+        if max_tokens > 8000:
+            # The reason for this is that most models max output tokens is 4096
+            # It is unlikely to reduce the content by more than half.
+            # We don't want to hit the max tokens limit and risk losing content.
+            max_tokens = 8000
+        if get_tokens(text=content) < int(max_tokens):
+            return self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Website Summary",
                 prompt_args={
@@ -108,7 +95,30 @@ class Websearch:
                     "disable_memory": True,
                 },
             )
+        chunks = await self.agent_memory.chunk_content(
+            text=content, chunk_size=int(max_tokens)
+        )
+        new_content = []
+        for chunk in chunks:
+            new_content.append(
+                self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Website Summary",
+                    prompt_args={
+                        "user_input": chunk,
+                        "url": url,
+                        "browse_links": False,
+                        "disable_memory": True,
+                    },
+                )
+            )
+        new_content = "\n".join(new_content)
+        if get_tokens(text=new_content) > int(max_tokens):
+            # If the content is still too long, we will just send it to be chunked into memory.
             return new_content
+        else:
+            # If the content isn't too long, we will ask AI to resummarize the combined chunks.
+            return await self.summarize_web_content(url=url, content=new_content)
 
     async def get_web_content(self, url, summarize_content=False):
         if str(url).startswith("https://www.youtube.com/watch?v="):
