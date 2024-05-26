@@ -324,19 +324,45 @@ class AGiXT:
             user_input = f"Learn from the information from {url}"
             c.log_interaction(role="USER", message=user_input)
             if str(url).startswith("https://github.com/"):
-                res = await self.agent_interactions.github_memories.write_github_repository_to_memory(
-                    github_repo=url,
-                    github_user=(
-                        self.agent_settings["GITHUB_USER"]
-                        if "GITHUB_USER" in self.agent_settings
-                        else None
-                    ),
-                    github_token=(
-                        self.agent_settings["GITHUB_TOKEN"]
-                        if "GITHUB_TOKEN" in self.agent_settings
-                        else None
-                    ),
-                )
+                do_not_pull_repo = [
+                    "/pull/",
+                    "/issues",
+                    "/discussions",
+                    "/actions/",
+                    "/projects",
+                    "/security",
+                    "/releases",
+                    "/commits",
+                    "/branches",
+                    "/tags",
+                    "/stargazers",
+                    "/watchers",
+                    "/network",
+                    "/settings",
+                    "/compare",
+                    "/archive",
+                ]
+                if any(x in url for x in do_not_pull_repo):
+                    res = False
+                else:
+                    if "/tree/" in url:
+                        branch = url.split("/tree/")[1].split("/")[0]
+                    else:
+                        branch = "main"
+                    res = await self.agent_interactions.github_memories.write_github_repository_to_memory(
+                        github_repo=url,
+                        github_user=(
+                            self.agent_settings["GITHUB_USER"]
+                            if "GITHUB_USER" in self.agent_settings
+                            else None
+                        ),
+                        github_token=(
+                            self.agent_settings["GITHUB_TOKEN"]
+                            if "GITHUB_TOKEN" in self.agent_settings
+                            else None
+                        ),
+                        github_branch=branch,
+                    )
                 if res == True:
                     response = f"I have read the entire content of the Github repository at {url} into my memory."
                 else:
