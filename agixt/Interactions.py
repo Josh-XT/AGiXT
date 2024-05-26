@@ -4,7 +4,6 @@ import regex
 import json
 import time
 import logging
-import tiktoken
 import base64
 import uuid
 from datetime import datetime
@@ -18,18 +17,12 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from Defaults import getenv, DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER, get_tokens
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-
-
-def get_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    num_tokens = len(encoding.encode(text))
-    return num_tokens
 
 
 class Interactions:
@@ -445,7 +438,7 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            await self.websearch.browse_links_in_input(
+            await self.websearch.scrape_website(
                 user_input=user_input, search_depth=websearch_depth
             )
         if websearch:

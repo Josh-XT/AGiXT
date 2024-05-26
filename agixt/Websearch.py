@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
 from ApiClient import Agent
-from Defaults import getenv
+from Defaults import getenv, get_tokens
 from readers.youtube import YoutubeReader
 
 logging.basicConfig(
@@ -69,13 +69,63 @@ class Websearch:
             return True
         return False
 
-    async def get_web_content(self, url):
+    async def summarize_web_content(self, url, content):
+        max_tokens = (
+            int(self.agent_settings["MAX_TOKENS"])
+            if "MAX_TOKENS" in self.agent_settings
+            else 8192
+        )
+        max_tokens = int(max_tokens) - 1000
+        if max_tokens < 0:
+            max_tokens = 5000
+        if get_tokens(text=content) > int(max_tokens):
+            chunks = self.agent_memory.chunk_content(
+                text=content, chunk_size=int(max_tokens)
+            )
+            new_content = []
+            for chunk in chunks:
+                new_content.append(
+                    self.ApiClient.prompt_agent(
+                        agent_name=self.agent_name,
+                        prompt_name="Website Summary",
+                        prompt_args={
+                            "user_input": chunk,
+                            "url": url,
+                            "browse_links": False,
+                            "disable_memory": True,
+                        },
+                    )
+                )
+            return "\n".join(new_content)
+        else:
+            new_content = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Website Summary",
+                prompt_args={
+                    "user_input": content,
+                    "url": url,
+                    "browse_links": False,
+                    "disable_memory": True,
+                },
+            )
+            return new_content
+
+    async def get_web_content(self, url, summarize_content=False):
         if str(url).startswith("https://www.youtube.com/watch?v="):
             video_id = url.split("watch?v=")[1]
-            await self.agent_memory.write_youtube_captions_to_memory(video_id=video_id)
+            if "&" in video_id:
+                video_id = video_id.split("&")[0]
+            content = await self.agent_memory.get_transcription(video_id=video_id)
             self.browsed_links.append(url)
             self.agent.add_browsed_link(url=url)
-            return None, None
+            if summarize_content:
+                content = await self.summarize_web_content(url=url, content=content)
+            await self.agent_memory.write_text_to_memory(
+                user_input=url,
+                text=f"Content from YouTube video: {url}\n\n{content}",
+                external_source=url,
+            )
+            return content, None
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -100,9 +150,13 @@ class Websearch:
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
+                if summarize_content:
+                    text_content = await self.summarize_web_content(
+                        url=url, content=text_content
+                    )
                 await self.agent_memory.write_text_to_memory(
                     user_input=url,
-                    text=f"From website: {url}\n\nContent:\n{text_content}",
+                    text=f"Content from website: {url}\n\n{text_content}",
                     external_source=url,
                 )
                 self.browsed_links.append(url)
@@ -264,12 +318,20 @@ class Websearch:
             self.searx_instance_url = ""
             return await self.search(query=query)
 
-    async def browse_links_in_input(self, user_input: str = "", search_depth: int = 0):
+    async def scrape_website(
+        self,
+        user_input: str = "",
+        search_depth: int = 0,
+        summarize_content: bool = False,
+    ):
+        # user_input = "I am browsing {url} and collecting data from it to learn more."
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
-                    text_content, link_list = await self.get_web_content(url=link)
+                    text_content, link_list = await self.get_web_content(
+                        url=link, summarize_content=summarize_content
+                    )
                     if int(search_depth) > 0:
                         if link_list is not None and len(link_list) > 0:
                             i = 0
@@ -279,7 +341,10 @@ class Websearch:
                                         (
                                             text_content,
                                             link_list,
-                                        ) = await self.get_web_content(url=sublink[1])
+                                        ) = await self.get_web_content(
+                                            url=sublink[1],
+                                            summarize_content=summarize_content,
+                                        )
                                         i = i + 1
 
     async def websearch_agent(
@@ -288,9 +353,7 @@ class Websearch:
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
     ):
-        await self.browse_links_in_input(
-            user_input=user_input, search_depth=websearch_depth
-        )
+        await self.scrape_website(user_input=user_input, search_depth=websearch_depth)
         try:
             websearch_depth = int(websearch_depth)
         except:
@@ -312,7 +375,10 @@ class Websearch:
             if len(search_string) > 0:
                 links = []
                 logging.info(f"Searching for: {search_string}")
-                if self.searx_instance_url != "":
+                if (
+                    self.searx_instance_url != ""
+                    and self.searx_instance_url is not None
+                ):
                     links = await self.search(query=search_string)
                 else:
                     links = await self.ddg_search(query=search_string)

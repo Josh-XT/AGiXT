@@ -1,0 +1,4 @@
+Content of {url} to summarize for the user:
+{user_input}
+
+**Task: Summarize the content in as little text as possible without losing any details, it is important to retain details. If something in the content does not belong, such as a third party ad, do not include it in the summary. Do not summarize anything inside of code blocks, return fully populated code blocks if they exist. Do not mention the URL of the content in the summary.**

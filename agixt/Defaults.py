@@ -1,4 +1,5 @@
 import os
+import tiktoken
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -59,6 +60,12 @@ def getenv(var_name: str):
     }
     default_value = default_values[var_name] if var_name in default_values else ""
     return os.getenv(var_name, default_value)
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
 
 
 DEFAULT_USER = getenv("DEFAULT_USER")
