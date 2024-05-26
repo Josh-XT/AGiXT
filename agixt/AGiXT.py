@@ -252,7 +252,7 @@ class AGiXT:
         for url in urls:
             user_input = f"Learn from the information from {url}"
             c.log_interaction(role="USER", message=user_input)
-            if str(url).startswith("https://github.com"):
+            if str(url).startswith("https://github.com/"):
                 res = await self.agent_interactions.github_memories.write_github_repository_to_memory(
                     github_repo=url,
                     github_user=(
