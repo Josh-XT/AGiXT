@@ -37,6 +37,7 @@ def getenv(var_name: str):
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_API_KEY": None,
+        "ALLOWED_DOMAINS": "*",
         "ALLOWLIST": "*",
         "WORKSPACE": os.path.join(os.getcwd(), "WORKSPACE"),
         "APP_NAME": "AGiXT",

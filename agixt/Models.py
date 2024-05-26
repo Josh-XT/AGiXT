@@ -221,6 +221,10 @@ class ConversationHistoryModel(BaseModel):
     conversation_content: List[dict] = []
 
 
+class TTSInput(BaseModel):
+    text: str
+
+
 class ConversationHistoryMessageModel(BaseModel):
     agent_name: str
     conversation_name: str
