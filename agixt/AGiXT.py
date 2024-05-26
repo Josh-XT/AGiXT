@@ -1,15 +1,13 @@
 from DBConnection import User
 from Interactions import Interactions
 from ApiClient import get_api_client, Conversations
-from readers.youtube import YoutubeReader
-from readers.github import GithubReader
-from Websearch import Websearch
 from readers.file import FileReader
 from Extensions import Extensions
 from Chains import Chains
 from pydub import AudioSegment
 from Defaults import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions
+import os
 import base64
 import uuid
 import requests
@@ -142,7 +140,7 @@ class AGiXT:
         command_args: dict,
         user_input: str = None,
         conversation_name: str = "",
-        tts: bool = False,
+        voice_response: bool = False,
     ):
         """
         Execute a command with arguments
@@ -152,7 +150,7 @@ class AGiXT:
             command_args (dict): Arguments for the command
             user_input (str): Message to add to conversation log pre-execution
             conversation_name (str): Name of the conversation
-            tts (bool): Whether to generate a voice response
+            voice_response (bool): Whether to generate a voice response
 
         Returns:
             str: Response from the command
@@ -172,7 +170,7 @@ class AGiXT:
             command_name=command_name,
             command_args=command_args,
         )
-        if "tts_provider" in self.agent_settings and tts:
+        if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
                 and self.agent_settings["tts_provider"] != ""
@@ -190,6 +188,7 @@ class AGiXT:
         chain_args: dict = {},
         use_current_agent: bool = True,
         conversation_name: str = "",
+        voice_response: bool = False,
     ):
         """
         Execute a chain with arguments
@@ -200,6 +199,7 @@ class AGiXT:
             chain_args (dict): Arguments for the chain
             use_current_agent (bool): Whether to use the current agent
             conversation_name (str): Name of the conversation
+            voice_response (bool): Whether to generate a voice response
 
         Returns:
             str: Response from the chain
@@ -216,27 +216,127 @@ class AGiXT:
             chain_args=chain_args,
             from_step=1,
         )
-        if "tts_provider" in self.agent_settings:
+        if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
                 and self.agent_settings["tts_provider"] != ""
                 and self.agent_settings["tts_provider"] != None
             ):
                 tts_response = await self.text_to_speech(text=response)
-                # If tts_response is a not a url starting with http, it is a base64 encoded audio file
                 response = f'{response}\n\n<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
         c.log_interaction(role=self.agent_name, message=response)
         return response
 
+    async def learn_from_websites(
+        self,
+        urls: list = [],
+        scrape_depth: int = 3,
+        summarize_content: bool = True,
+        conversation_name: str = "",
+    ):
+        """
+        Scrape a website and summarize the content
+
+        Args:
+            urls (list): List of URLs to scrape
+            scrape_depth (int): Depth to scrape each URL
+            summarize_content (bool): Whether to summarize the content
+            conversation_name (str): Name of the conversation
+
+        Returns:
+            str: Agent response with a list of scraped links
+        """
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        if isinstance(urls, str):
+            urls = [urls]
+        for url in urls:
+            user_input = f"Learn from the information from {url}"
+            c.log_interaction(role="USER", message=user_input)
+            if str(url).startswith("https://github.com"):
+                res = await self.agent_interactions.github_memories.write_github_repository_to_memory(
+                    github_repo=url,
+                    github_user=(
+                        self.agent_settings["GITHUB_USER"]
+                        if "GITHUB_USER" in self.agent_settings
+                        else None
+                    ),
+                    github_token=(
+                        self.agent_settings["GITHUB_TOKEN"]
+                        if "GITHUB_TOKEN" in self.agent_settings
+                        else None
+                    ),
+                )
+                if res == True:
+                    response = f"I have read the entire content of the Github repository at {url} into my memory."
+                else:
+                    response = await self.agent_interactions.websearch.scrape_website(
+                        user_input=user_input,
+                        search_depth=scrape_depth,
+                        summarize_content=summarize_content,
+                    )
+            else:
+                response = await self.agent_interactions.websearch.scrape_website(
+                    user_input=user_input,
+                    search_depth=scrape_depth,
+                    summarize_content=summarize_content,
+                )
+            c.log_interaction(role=self.agent_name, message=response)
+        return response
+
+    async def learn_from_file(
+        self,
+        file_path: str,
+        collection_number: int = 1,
+        conversation_name: str = "",
+    ):
+        """
+        Learn from a file
+
+        Args:
+            file_path (str): Path to the file
+            collection_number (int): Collection number to store the file
+            conversation_name (str): Name of the conversation
+
+        Returns:
+            str: Response from the agent
+        """
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        file_name = os.path.basename(file_path)
+        c.log_interaction(
+            role="USER",
+            message=f"Learn from the information in the uploaded file called {file_name}",
+        )
+        file_reader = FileReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=collection_number,
+            ApiClient=self.ApiClient,
+            user=self.user_email,
+        )
+        res = await file_reader.write_file_to_memory(file_path=file_path)
+        if res == True:
+            response = f"I have read the entire content of the file called {file_name} into my memory."
+        else:
+            response = f"I was unable to read the file called {file_name}."
+        c.log_interaction(role=self.agent_name, message=response)
+        return response
+
     async def chat_completions(self, prompt: ChatCompletions):
+        """
+        Generate an OpenAI style chat completion response with a ChatCompletion prompt
+
+        Args:
+            prompt (ChatCompletions): Chat completions prompt
+
+        Returns:
+            dict: Chat completion response
+        """
         agent_name = prompt.model
         conversation_name = prompt.user
-        agent = Interactions(
-            agent_name=agent_name, user=self.user_email, ApiClient=self.ApiClient
-        )
         images = []
         new_prompt = ""
         browse_links = True
+        tts = False
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -290,6 +390,10 @@ class AGiXT:
             )
         else:
             chain_args = {}
+        if "tts_provider" in self.agent_settings:
+            tts_provider = str(self.agent_settings["tts_provider"]).lower()
+            if tts_provider != "none" and tts_provider != "":
+                tts = True
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -326,7 +430,6 @@ class AGiXT:
                 )
             if "browse_links" in message:
                 browse_links = str(message["browse_links"]).lower() == "true"
-            tts = True
             if "tts" in message:
                 tts = str(message["tts"]).lower() == "true"
             if "content" not in message:
@@ -345,7 +448,7 @@ class AGiXT:
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
                     if "image_url" in msg:
-                        url = (
+                        url = str(
                             msg["image_url"]["url"]
                             if "url" in msg["image_url"]
                             else msg["image_url"]
@@ -364,7 +467,7 @@ class AGiXT:
                             f.write(image)
                         images.append(image_path)
                     if "audio_url" in msg:
-                        audio_url = (
+                        audio_url = str(
                             msg["audio_url"]["url"]
                             if "url" in msg["audio_url"]
                             else msg["audio_url"]
@@ -390,7 +493,7 @@ class AGiXT:
                         AudioSegment.from_file(audio_url).set_frame_rate(16000).export(
                             wav_file, format="wav"
                         )
-                        transcribed_audio = await agent.agent.transcribe_audio(
+                        transcribed_audio = await self.transcribe_audio(
                             audio_path=wav_file
                         )
                         new_prompt += transcribed_audio
@@ -400,9 +503,12 @@ class AGiXT:
                             if "url" in msg["video_url"]
                             else msg["video_url"]
                         )
-                        if video_url.startswith("https://www.youtube.com/watch?v="):
-                            await self.agent_interactions.websearch.get_web_content(
-                                url=video_url, summarize_content=True
+                        if video_url.startswith("http"):
+                            await self.learn_from_websites(
+                                url=[video_url],
+                                scrape_depth=0,
+                                summarize_content=True,
+                                conversation_name=conversation_name,
                             )
                     if (
                         "file_url" in msg
@@ -416,40 +522,12 @@ class AGiXT:
                             else msg["file_url"]
                         )
                         if file_url.startswith("http"):
-                            if file_url.startswith("https://www.youtube.com/watch?v="):
-                                await self.agent_interactions.websearch.get_web_content(
-                                    url=file_url, summarize_content=True
-                                )
-                            elif file_url.startswith("https://github.com"):
-                                github_reader = GithubReader(
-                                    agent_name=agent_name,
-                                    agent_config=self.agent.AGENT_CONFIG,
-                                    collection_number=1,
-                                    ApiClient=self.ApiClient,
-                                    user=self.user_email,
-                                )
-                                await github_reader.write_github_repository_to_memory(
-                                    github_repo=file_url,
-                                    github_user=(
-                                        self.agent_settings["GITHUB_USER"]
-                                        if "GITHUB_USER" in self.agent_settings
-                                        else None
-                                    ),
-                                    github_token=(
-                                        self.agent_settings["GITHUB_TOKEN"]
-                                        if "GITHUB_TOKEN" in self.agent_settings
-                                        else None
-                                    ),
-                                    github_branch=(
-                                        "main"
-                                        if "branch" not in message
-                                        else message["branch"]
-                                    ),
-                                )
-                            else:
-                                await self.agent_interactions.websearch.get_web_content(
-                                    url=file_url, summarize_content=True
-                                )
+                            await self.learn_from_websites(
+                                urls=[file_url],
+                                scrape_depth=3,
+                                summarize_content=True,
+                                conversation_name=conversation_name,
+                            )
                         else:
                             file_type = (
                                 file_url.split(",")[0].split("/")[1].split(";")[0]
@@ -458,20 +536,16 @@ class AGiXT:
                             file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
                             with open(file_path, "wb") as f:
                                 f.write(file_data)
-                            file_reader = FileReader(
-                                agent_name=agent_name,
-                                agent_config=self.agent.AGENT_CONFIG,
-                                collection_number=1,
-                                ApiClient=self.ApiClient,
-                                user=self.user_email,
-                            )
-                            await file_reader.write_file_to_memory(file_path)
+                            await self.learn_from_file(file_path=file_path)
             if mode == "command" and command_name and command_variable:
-                command_args = (
-                    json.loads(self.agent_settings["command_args"])
-                    if isinstance(self.agent_settings["command_args"], str)
-                    else self.agent_settings["command_args"]
-                )
+                try:
+                    command_args = (
+                        json.loads(self.agent_settings["command_args"])
+                        if isinstance(self.agent_settings["command_args"], str)
+                        else self.agent_settings["command_args"]
+                    )
+                except Exception as e:
+                    command_args = {}
                 command_args[self.agent_settings["command_variable"]] = new_prompt
                 response = await self.execute_command(
                     command_name=self.agent_settings["command_name"],
@@ -482,11 +556,14 @@ class AGiXT:
                 )
             elif mode == "chain" and chain_name:
                 chain_name = self.agent_settings["chain_name"]
-                chain_args = (
-                    json.loads(self.agent_settings["chain_args"])
-                    if isinstance(self.agent_settings["chain_args"], str)
-                    else self.agent_settings["chain_args"]
-                )
+                try:
+                    chain_args = (
+                        json.loads(self.agent_settings["chain_args"])
+                        if isinstance(self.agent_settings["chain_args"], str)
+                        else self.agent_settings["chain_args"]
+                    )
+                except Exception as e:
+                    chain_args = {}
                 response = await self.execute_chain(
                     chain_name=chain_name,
                     user_input=new_prompt,

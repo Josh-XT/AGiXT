@@ -336,12 +336,14 @@ class Websearch:
     ):
         # user_input = "I am browsing {url} and collecting data from it to learn more."
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
+        scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
                     )
+                    scraped_links.append(link)
                     if int(search_depth) > 0:
                         if link_list is not None and len(link_list) > 0:
                             i = 0
@@ -356,6 +358,9 @@ class Websearch:
                                             summarize_content=summarize_content,
                                         )
                                         i = i + 1
+                                        scraped_links.append(sublink[1])
+        str_links = "\n".join(scraped_links)
+        return f"I have read all of the content from the following links into my long term memory:\n{str_links}"
 
     async def websearch_agent(
         self,

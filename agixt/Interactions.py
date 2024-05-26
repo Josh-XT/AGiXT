@@ -8,6 +8,7 @@ import base64
 import uuid
 from datetime import datetime
 from readers.file import FileReader
+from readers.github import GithubReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -58,6 +59,13 @@ class Interactions:
                 collection_number=3,
                 ApiClient=self.ApiClient,
                 user=self.user,
+            )
+            self.github_memories = GithubReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=7,
+                user=self.user,
+                ApiClient=self.ApiClient,
             )
         else:
             self.agent_name = ""
@@ -130,6 +138,11 @@ class Interactions:
                     min_relevance_score=min_relevance_score,
                 )
                 context += await self.websearch.agent_memory.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
+                context += await self.github_memories.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
