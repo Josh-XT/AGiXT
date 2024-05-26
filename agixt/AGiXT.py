@@ -1,6 +1,6 @@
 from DBConnection import User
 from Interactions import Interactions
-from ApiClient import get_api_client, Conversations
+from ApiClient import get_api_client, Conversations, Prompts, Chain
 from readers.file import FileReader
 from Extensions import Extensions
 from Chains import Chains
@@ -32,6 +32,77 @@ class AGiXT:
             self.agent.AGENT_CONFIG["settings"]
             if "settings" in self.agent.AGENT_CONFIG
             else DEFAULT_SETTINGS
+        )
+
+    async def prompts(self, prompt_category: str = "Default"):
+        """
+        Get a list of available prompts
+
+        Args:
+            prompt_category (str): Category of the prompt
+
+        Returns:
+            list: List of available prompts
+        """
+        return Prompts(user=self.user_email).get_prompts(
+            prompt_category=prompt_category
+        )
+
+    async def chains(self):
+        """
+        Get a list of available chains
+
+        Returns:
+            list: List of available chains
+        """
+        return Chain(user=self.user_email).get_chains()
+
+    async def settings(self):
+        """
+        Get the agent settings
+
+        Returns:
+            dict: Agent settings
+        """
+        return self.agent_settings
+
+    async def commands(self):
+        """
+        Get a list of available commands
+
+        Returns:
+            list: List of available commands
+        """
+        return self.agent.available_commands()
+
+    async def browsed_links(self):
+        """
+        Get a list of browsed links
+
+        Returns:
+            list: List of browsed links
+        """
+        return self.agent.get_browsed_links()
+
+    async def memories(
+        self,
+        collection_number: int = 0,
+        limit: int = 5,
+        min_relevance_score: float = 0.3,
+    ):
+        """
+        Get a list of memories
+
+        Args:
+            collection_number (int): Collection number to retrieve memories from
+
+        Returns:
+            list: List of memories
+        """
+        return await self.agent_interactions.agent_memory.get_memories(
+            collection_number=collection_number,
+            limit=limit,
+            min_relevance_score=min_relevance_score,
         )
 
     async def inference(
@@ -77,6 +148,18 @@ class AGiXT:
             **kwargs,
         )
 
+    async def generate_image(self, prompt: str) -> str:
+        """
+        Generate an image from a prompt
+
+        Args:
+            prompt (str): Prompt for the image generation
+
+        Returns:
+            str: URL of the generated image
+        """
+        return await self.agent.generate_image(prompt=prompt)
+
     async def text_to_speech(self, text: str):
         """
         Generate Text to Speech audio from text
@@ -98,21 +181,9 @@ class AGiXT:
             tts_url = f"{self.outputs}/{file_name}"
         return tts_url
 
-    async def generate_image(self, prompt: str) -> str:
+    async def audio_to_text(self, audio_path: str):
         """
-        Generate an image from a prompt
-
-        Args:
-            prompt (str): Prompt for the image generation
-
-        Returns:
-            str: URL of the generated image
-        """
-        return await self.agent.generate_image(prompt=prompt)
-
-    async def transcribe_audio(self, audio_path: str):
-        """
-        Transcribe an audio file
+        Audio to Text transcription
 
         Args:
             audio_path (str): Path to the audio file
