@@ -168,7 +168,7 @@ class Interactions:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
+                    if int(kwargs["inject_memories_from_collection_number"]) > 5:
                         context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,

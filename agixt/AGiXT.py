@@ -85,24 +85,30 @@ class AGiXT:
 
     async def memories(
         self,
-        collection_number: int = 0,
+        user_input: str = "",
         limit: int = 5,
         min_relevance_score: float = 0.3,
+        additional_collection_number: int = 0,
     ):
         """
         Get a list of memories
 
         Args:
-            collection_number (int): Collection number to retrieve memories from
+            user_input (str): User input to the agent
+            limit (int): Number of memories to return
+            min_relevance_score (float): Minimum relevance score for memories
+            additional_collection_number (int): Additional collection number to pull memories from. Collections 0-5 are injected automatically.
 
         Returns:
             list: List of memories
         """
-        return await self.agent_interactions.agent_memory.get_memories(
-            collection_number=collection_number,
-            limit=limit,
+        formatted_prompt, prompt, tokens = await self.agent_interactions.format_prompt(
+            user_input=user_input,
+            top_results=limit,
             min_relevance_score=min_relevance_score,
+            inject_memories_from_collection_number=int(additional_collection_number),
         )
+        return formatted_prompt
 
     async def inference(
         self,
