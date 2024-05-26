@@ -133,7 +133,7 @@ class AGiXT:
             injected_memories (int): Number of memories to inject into the conversation
             conversation_name (str): Name of the conversation
             browse_links (bool): Whether to browse links in the response
-            images (list): List of image URLs
+            images (list): List of image file paths
             shots (int): Number of responses to generate
             **kwargs: Additional keyword arguments
 
@@ -586,7 +586,7 @@ class AGiXT:
                         AudioSegment.from_file(audio_url).set_frame_rate(16000).export(
                             wav_file, format="wav"
                         )
-                        transcribed_audio = await self.transcribe_audio(
+                        transcribed_audio = await self.audio_to_text(
                             audio_path=wav_file
                         )
                         new_prompt += transcribed_audio
