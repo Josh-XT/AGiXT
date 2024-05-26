@@ -320,9 +320,10 @@ class AGiXT:
         if isinstance(urls, str):
             urls = [urls]
         for url in urls:
+            url = str(url)
             response = None
             user_input = f"Learn from the information from {url}"
-            if str(url).startswith("https://github.com/"):
+            if url.startswith("https://github.com/"):
                 do_not_pull_repo = [
                     "/pull/",
                     "/issues",
