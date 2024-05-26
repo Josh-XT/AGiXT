@@ -327,6 +327,8 @@ class AGiXT:
             urls = [urls]
         for url in urls:
             url = str(url)
+            if "arxiv.org" in url:
+                url = url.replace("arxiv.org", "ar5iv.org")
             response = None
             user_input = f"Learn from the information from {url}"
             if url.startswith("https://github.com/"):
