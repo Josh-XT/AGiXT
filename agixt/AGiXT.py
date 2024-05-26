@@ -1,6 +1,5 @@
-from DBConnection import User
 from Interactions import Interactions
-from ApiClient import get_api_client, Conversations, Prompts, Chain
+from ApiClient import get_api_client, Conversations, Prompts, Chain, User
 from readers.file import FileReader
 from Extensions import Extensions
 from Chains import Chains
@@ -321,8 +320,8 @@ class AGiXT:
         if isinstance(urls, str):
             urls = [urls]
         for url in urls:
+            response = None
             user_input = f"Learn from the information from {url}"
-            c.log_interaction(role="USER", message=user_input)
             if str(url).startswith("https://github.com/"):
                 do_not_pull_repo = [
                     "/pull/",
@@ -365,20 +364,14 @@ class AGiXT:
                     )
                 if res == True:
                     response = f"I have read the entire content of the Github repository at {url} into my memory."
-                else:
-                    response = await self.agent_interactions.websearch.scrape_website(
-                        user_input=user_input,
-                        search_depth=scrape_depth,
-                        summarize_content=summarize_content,
-                    )
-            else:
+            if not response:
                 response = await self.agent_interactions.websearch.scrape_website(
                     user_input=user_input,
                     search_depth=scrape_depth,
                     summarize_content=summarize_content,
                 )
             c.log_interaction(role=self.agent_name, message=response)
-        return response
+        return "I have read the information from the websites into my memory."
 
     async def learn_from_file(
         self,
@@ -399,10 +392,6 @@ class AGiXT:
         """
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         file_name = os.path.basename(file_path)
-        c.log_interaction(
-            role="USER",
-            message=f"Learn from the information in the uploaded file called {file_name}",
-        )
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,

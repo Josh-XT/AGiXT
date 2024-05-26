@@ -19,11 +19,13 @@ if DB_CONNECTED:
     from db.Chain import Chain
     from db.Prompts import Prompts
     from db.Conversations import Conversations
+    from db.User import User
 else:
     from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
     from fb.Chain import Chain
     from fb.Prompts import Prompts
     from fb.Conversations import Conversations
+    from Models import User_fb as User
 
 
 def verify_api_key(authorization: str = Header(None)):
