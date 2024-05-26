@@ -95,7 +95,6 @@ class Interactions:
         step_number=0,
         conversation_name="",
         vision_response: str = "",
-        websearch: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -130,6 +129,11 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                context += await self.websearch.agent_memory.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
                 positive_feedback = await self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
@@ -150,12 +154,6 @@ class Interactions:
                     if negative_feedback:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
-                if websearch:
-                    context += await self.websearch.agent_memory.get_memories(
-                        user_input=user_input,
-                        limit=top_results,
-                        min_relevance_score=min_relevance_score,
-                    )
                 if "inject_memories_from_collection_number" in kwargs:
                     if int(kwargs["inject_memories_from_collection_number"]) > 3:
                         context += await FileReader(
@@ -428,8 +426,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            clean_datetime = re.sub(r"[^a-zA-Z0-9]", "", str(datetime.now()))
-            conversation_name = f"{clean_datetime} Conversation"
+            conversation_name = datetime.now().strftime("%Y-%m-%d")
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
