@@ -176,7 +176,7 @@ class Memories:
             if "settings" in self.agent_config
             else {"embeddings_provider": "default"}
         )
-        self.chroma_client = get_chroma_client()
+        self.chroma_client = None
         self.ApiClient = ApiClient
         self.embedding_provider = Providers(
             name=(
@@ -195,6 +195,8 @@ class Memories:
         self.summarize_content = summarize_content
 
     async def wipe_memory(self):
+        if self.chroma_client == None:
+            self.chroma_client = get_chroma_client()
         try:
             self.chroma_client.delete_collection(name=self.collection_name)
             return True
@@ -256,6 +258,8 @@ class Memories:
 
     # get collections that start with the collection name
     async def get_collections(self):
+        if self.chroma_client == None:
+            self.chroma_client = get_chroma_client()
         collections = self.chroma_client.list_collections()
         if int(self.collection_number) > 0:
             collection_name = snake(self.agent_name)
@@ -269,6 +273,8 @@ class Memories:
         ]
 
     async def get_collection(self):
+        if self.chroma_client == None:
+            self.chroma_client = get_chroma_client()
         try:
             return self.chroma_client.get_collection(
                 name=self.collection_name, embedding_function=self.embedder
@@ -426,6 +432,8 @@ class Memories:
         return response
 
     def delete_memories_from_external_source(self, external_source: str):
+        if self.chroma_client == None:
+            self.chroma_client = get_chroma_client()
         collection = self.chroma_client.get_collection(name=self.collection_name)
         if collection:
             results = collection.query(
@@ -439,6 +447,8 @@ class Memories:
         return False
 
     def get_external_data_sources(self):
+        if self.chroma_client == None:
+            self.chroma_client = get_chroma_client()
         collection = self.chroma_client.get_collection(name=self.collection_name)
         if collection:
             results = collection.query(

@@ -162,6 +162,14 @@ class Websearch:
                     vision_provider = str(
                         self.agent.AGENT_CONFIG["settings"]["vision_provider"]
                     ).lower()
+                    if "use_visual_browsing" in self.agent.AGENT_CONFIG["settings"]:
+                        use_visual_browsing = str(
+                            self.agent.AGENT_CONFIG["settings"]["use_visual_browsing"]
+                        ).lower()
+                        if use_visual_browsing != "true":
+                            vision_provider = "none"
+                    else:
+                        vision_provider = "none"
                     if vision_provider != "none" and vision_provider != "":
                         try:
                             random_screenshot_name = str(random.randint(100000, 999999))
