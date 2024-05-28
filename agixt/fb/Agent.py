@@ -120,9 +120,7 @@ class Agent:
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
-        self._load_agent_config_keys(
-            ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
-        )
+        self._load_agent_config_keys(["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"])
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
             if "tts_provider" in self.AGENT_CONFIG["settings"]
