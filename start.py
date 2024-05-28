@@ -176,8 +176,7 @@ if use_ezlocalai == None:
                 "WAIT_AFTER_FAILURE": 3,
                 "WORKING_DIRECTORY": "./WORKSPACE",
                 "WORKING_DIRECTORY_RESTRICTED": True,
-                "AUTONOMOUS_EXECUTION": True,
-                "PERSONA": "",
+                "persona": "",
             },
         }
         os.makedirs("agixt/agents/AGiXT", exist_ok=True)

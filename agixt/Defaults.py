@@ -28,8 +28,7 @@ DEFAULT_SETTINGS = {
     "WAIT_AFTER_FAILURE": 3,
     "WORKING_DIRECTORY": "./WORKSPACE",
     "WORKING_DIRECTORY_RESTRICTED": True,
-    "AUTONOMOUS_EXECUTION": True,
-    "PERSONA": "",
+    "persona": "",
 }
 
 

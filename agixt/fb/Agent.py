@@ -121,7 +121,7 @@ class Agent:
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         self._load_agent_config_keys(
-            ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS", "AUTONOMOUS_EXECUTION"]
+            ["AI_MODEL", "AI_TEMPERATURE", "MAX_TOKENS"]
         )
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
@@ -188,15 +188,6 @@ class Agent:
             self.MAX_TOKENS = self.PROVIDER_SETTINGS["MAX_TOKENS"]
         else:
             self.MAX_TOKENS = 4000
-        if "AUTONOMOUS_EXECUTION" in self.PROVIDER_SETTINGS:
-            self.AUTONOMOUS_EXECUTION = self.PROVIDER_SETTINGS["AUTONOMOUS_EXECUTION"]
-            if isinstance(self.AUTONOMOUS_EXECUTION, str):
-                self.AUTONOMOUS_EXECUTION = self.AUTONOMOUS_EXECUTION.lower()
-                self.AUTONOMOUS_EXECUTION = (
-                    False if self.AUTONOMOUS_EXECUTION.lower() == "false" else True
-                )
-        else:
-            self.AUTONOMOUS_EXECUTION = True
         self.commands = self.load_commands()
         self.available_commands = Extensions(
             agent_name=self.agent_name,
