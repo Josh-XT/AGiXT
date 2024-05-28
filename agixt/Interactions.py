@@ -449,8 +449,11 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            await self.websearch.scrape_website(
-                user_input=user_input, search_depth=websearch_depth
+            await self.websearch.scrape_websites(
+                user_input=user_input,
+                search_depth=websearch_depth,
+                summarize_content=True,
+                conversation_name=conversation_name,
             )
         if websearch:
             if user_input == "":

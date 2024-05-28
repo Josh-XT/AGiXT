@@ -197,7 +197,7 @@ async def learn_url(
         agent=agent,
         user=user,
         ApiClient=ApiClient,
-    ).scrape_website(
+    ).scrape_websites(
         user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
         search_depth=3,
     )
