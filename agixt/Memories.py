@@ -3,6 +3,7 @@ import os
 import asyncio
 import sys
 import json
+import time
 import spacy
 import chromadb
 from chromadb.config import Settings
@@ -193,6 +194,7 @@ class Memories:
         )
         self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
+        self.failures = 0
 
     async def wipe_memory(self):
         try:
@@ -329,11 +331,32 @@ class Memories:
                         (chunk + datetime.now().isoformat()).encode()
                     ).hexdigest(),
                 }
-                collection.add(
-                    ids=metadata["id"],
-                    metadatas=metadata,
-                    documents=chunk,
-                )
+                try:
+                    collection.add(
+                        ids=metadata["id"],
+                        metadatas=metadata,
+                        documents=chunk,
+                    )
+                except:
+                    logging.warning(f"Error writing to memory: {chunk}")
+                    # Try again 5 times before giving up
+                    self.failures += 1
+                    for i in range(5):
+                        try:
+                            time.sleep(0.1)
+                            collection.add(
+                                ids=metadata["id"],
+                                metadatas=metadata,
+                                documents=chunk,
+                            )
+                            self.failures = 0
+                            break
+                        except:
+                            self.failures += 1
+                            if self.failures > 5:
+                                break
+                            continue
+        return True
 
     async def get_memories_data(
         self,
