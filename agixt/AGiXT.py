@@ -369,7 +369,7 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY_START] Browsing the web... [ACTIVITY_END]",
             )
-        response = await self.agent_interactions.websearch.scrape_website(
+        response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
             search_depth=scrape_depth,
             summarize_content=summarize_content,

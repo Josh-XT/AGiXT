@@ -427,7 +427,7 @@ class Websearch:
             self.searx_instance_url = ""
             return await self.search(query=query)
 
-    async def scrape_website(
+    async def scrape_websites(
         self,
         user_input: str = "",
         search_depth: int = 0,
@@ -437,6 +437,8 @@ class Websearch:
         # user_input = "I am browsing {url} and collecting data from it to learn more."
         c = Conversations(conversation_name=conversation_name, user=self.user)
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
+        if len(links) < 1:
+            return ""
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
@@ -493,7 +495,7 @@ class Websearch:
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
     ):
-        await self.scrape_website(user_input=user_input, search_depth=websearch_depth)
+        await self.scrape_websites(user_input=user_input, search_depth=websearch_depth)
         try:
             websearch_depth = int(websearch_depth)
         except:
