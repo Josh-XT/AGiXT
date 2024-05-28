@@ -276,10 +276,15 @@ class Memories:
                 name=self.collection_name, embedding_function=self.embedder
             )
         except:
-            self.chroma_client.create_collection(
-                name=self.collection_name,
-                embedding_function=self.embedder,
-            )
+            try:
+                return self.chroma_client.create_collection(
+                    name=self.collection_name,
+                    embedding_function=self.embedder,
+                    get_or_create=True,
+                )
+            except:
+                # Collection already exists
+                pass
             return self.chroma_client.get_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
