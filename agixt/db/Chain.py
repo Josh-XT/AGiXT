@@ -150,6 +150,7 @@ class Chain:
             prompt_category = prompt["prompt_category"]
         else:
             prompt_category = "Default"
+        argument_key = None
         if "prompt_name" in prompt:
             argument_key = "prompt_name"
             target_id = (
@@ -183,7 +184,20 @@ class Chain:
                 .id
             )
             target_type = "command"
-
+        else:
+            prompt["prompt_name"] = "User Input"
+            argument_key = "prompt_name"
+            target_id = (
+                self.session.query(Prompt)
+                .filter(
+                    Prompt.name == prompt["prompt_name"],
+                    Prompt.user_id == self.user_id,
+                    Prompt.prompt_category.has(name=prompt_category),
+                )
+                .first()
+                .id
+            )
+            target_type = "prompt"
         argument_value = prompt[argument_key]
         prompt_arguments = prompt.copy()
         del prompt_arguments[argument_key]
@@ -630,14 +644,36 @@ class Chain:
         else:
             return prompt_content
 
-    async def update_chain_responses(self, chain_name, responses):
-        for response in responses:
-            step_data = responses[response]
-            chain_step = self.get_step(chain_name, step_data["step"])
-            response_content = {
-                "chain_step_id": chain_step.id,
-                "content": step_data["response"],
-            }
-            chain_step_response = ChainStepResponse(**response_content)
-            self.session.add(chain_step_response)
-            self.session.commit()
+    async def update_step_response(self, chain_name, step_number, response):
+        chain = self.get_chain(chain_name=chain_name)
+        chain_step = self.get_step(chain_name=chain_name, step_number=step_number)
+        if chain_step:
+            existing_response = (
+                self.session.query(ChainStepResponse)
+                .filter(ChainStepResponse.chain_step_id == chain_step.id)
+                .order_by(ChainStepResponse.timestamp.desc())
+                .first()
+            )
+            if existing_response:
+                if isinstance(existing_response.content, dict) and isinstance(
+                    response, dict
+                ):
+                    existing_response.content.update(response)
+                    self.session.commit()
+                elif isinstance(existing_response.content, list) and isinstance(
+                    response, list
+                ):
+                    existing_response.content.extend(response)
+                    self.session.commit()
+                else:
+                    chain_step_response = ChainStepResponse(
+                        chain_step_id=chain_step.id, content=response
+                    )
+                    self.session.add(chain_step_response)
+                    self.session.commit()
+            else:
+                chain_step_response = ChainStepResponse(
+                    chain_step_id=chain_step.id, content=response
+                )
+                self.session.add(chain_step_response)
+                self.session.commit()

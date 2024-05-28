@@ -101,6 +101,7 @@ jobs:
           SCHEMA: ${{ inputs.auth-schema }}
           LOG_LEVEL: DEBUG
           MFA_VERIFY: authenticator
+          TZ: America/New_York
       service-under-test:
         image: ${{ inputs.image }}
         ports:
@@ -121,6 +122,7 @@ jobs:
           MFA_VERIFY: authenticator
           MODE: development
           STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
+          TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5
         with:

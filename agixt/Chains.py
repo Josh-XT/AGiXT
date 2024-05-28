@@ -45,7 +45,10 @@ class Chains:
                 if chain_args != {}:
                     for arg, value in chain_args.items():
                         args[arg] = value
-
+                if "chain_name" in args:
+                    args["chain"] = args["chain_name"]
+                if "chain" not in args:
+                    args["chain"] = chain_name
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
                 if "conversation" in args:
@@ -155,8 +158,10 @@ class Chains:
                     responses[step_data["step"]] = step  # Store the response.
                     logging.info(f"Step {step_data['step']} response: {step_response}")
                     # Write the response to the chain responses file.
-                    await self.chain.update_chain_responses(
-                        chain_name=chain_name, responses=responses
+                    await self.chain.update_step_response(
+                        chain_name=chain_name,
+                        step_number=step_data["step"],
+                        response=step_response,
                     )
         if all_responses:
             return responses

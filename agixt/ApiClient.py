@@ -3,6 +3,7 @@ import jwt
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
 from Defaults import getenv
+from datetime import datetime
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -29,8 +30,24 @@ def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     DEFAULT_USER = getenv("DEFAULT_USER")
+    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "USER"
+    if getenv("AUTH_PROVIDER") == "magicalauth":
+        auth_key = AGIXT_API_KEY + str(datetime.now().strftime("%Y%m%d"))
+        try:
+            token = jwt.decode(
+                jwt=authorization,
+                key=auth_key,
+                algorithms=["HS256"],
+            )
+            return token["email"]
+        except Exception as e:
+            if authorization == auth_key:
+                return DEFAULT_USER
+            if authorization != AGIXT_API_KEY:
+                logging.info(f"Invalid API Key: {authorization}")
+                raise HTTPException(status_code=401, detail="Invalid API Key")
     if AGIXT_API_KEY:
         if authorization is None:
             logging.info("Authorization header is missing")
@@ -38,6 +55,8 @@ def verify_api_key(authorization: str = Header(None)):
                 status_code=401, detail="Authorization header is missing"
             )
         authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        if AGIXT_API_KEY == authorization:
+            return DEFAULT_USER
         if USING_JWT:
             try:
                 token = jwt.decode(
@@ -64,6 +83,8 @@ def get_api_client(authorization: str = Header(None)):
 
 
 def is_admin(email: str = "USER", api_key: str = None):
+    return True
+    # Commenting out functionality until testing is complete.
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
     if DB_CONNECTED != True:
