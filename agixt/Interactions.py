@@ -688,6 +688,7 @@ class Interactions:
         return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
     async def execution_agent(self, conversation_name):
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         command_list = [
             available_command["friendly_name"]
             for available_command in self.agent.available_commands
@@ -737,49 +738,34 @@ class Interactions:
                                 },
                             )
                         else:
-                            # Check if the command is a valid command in the self.agent.available_commands list
                             try:
-                                if (
-                                    str(self.agent.AUTONOMOUS_EXECUTION).lower()
-                                    == "true"
-                                ):
-                                    ext = Extensions(
-                                        agent_name=self.agent_name,
-                                        agent_config=self.agent.AGENT_CONFIG,
-                                        conversation_name=conversation_name,
-                                        ApiClient=self.ApiClient,
-                                        user=self.user,
-                                    )
-                                    command_output = await ext.execute_command(
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                    )
-                                    formatted_output = f"```\n{command_output}\n```"
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                    Conversations(
-                                        conversation_name=f"{self.agent_name} Command Execution Log",
-                                        user=self.user,
-                                    ).log_interaction(
-                                        role=self.agent_name,
-                                        message=message,
-                                    )
-                                else:
-                                    command_output = (
-                                        self.create_command_suggestion_chain(
-                                            agent_name=self.agent_name,
-                                            command_name=command_name,
-                                            command_args=command_args,
-                                        )
-                                    )
-                                    # TODO: Ask the user if they want to execute the suggested chain of commands.
-                                    command_output = f"{command_output}\n\n**Would you like to execute the command `{command_name}` with the following parameters?**\n```json\n{json.dumps(command_args, indent=4)}\n```"
-                                    # Ask the AI to make the command output more readable and relevant to the conversation and respond with that.
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[ACTIVITY_START] Executing command `{command_name}` with args `{command_args}`. [ACTIVITY_END]",
+                                )
+                                ext = Extensions(
+                                    agent_name=self.agent_name,
+                                    agent_config=self.agent.AGENT_CONFIG,
+                                    conversation_name=conversation_name,
+                                    ApiClient=self.ApiClient,
+                                    user=self.user,
+                                )
+                                command_output = await ext.execute_command(
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                )
+                                formatted_output = f"```\n{command_output}\n```"
+                                command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                             except Exception as e:
                                 logging.error(
                                     f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                                 )
                                 command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
                         if command_output:
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[ACTIVITY_START] {command_output} [ACTIVITY_END]",
+                            )
                             reformatted_response = reformatted_response.replace(
                                 f"#execute({command_name}, {command_args})",
                                 (

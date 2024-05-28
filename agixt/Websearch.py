@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
-from ApiClient import Agent
+from ApiClient import Agent, Conversations
 from Defaults import getenv, get_tokens
 from readers.youtube import YoutubeReader
 
@@ -31,6 +31,7 @@ class Websearch:
     ):
         self.ApiClient = ApiClient
         self.agent = agent
+        self.user = user
         self.agent_name = self.agent.agent_name
         self.agent_config = self.agent.AGENT_CONFIG
         self.agent_settings = self.agent_config["settings"]
@@ -361,13 +362,20 @@ class Websearch:
         user_input: str = "",
         search_depth: int = 0,
         summarize_content: bool = False,
+        conversation_name: str = "",
     ):
         # user_input = "I am browsing {url} and collecting data from it to learn more."
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
+                    if conversation_name != "" and conversation_name is not None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY_START] Browsing {link}... [ACTIVITY_END]",
+                        )
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
                     )
@@ -378,6 +386,14 @@ class Websearch:
                             for sublink in link_list:
                                 if self.verify_link(link=sublink[1]):
                                     if i <= search_depth:
+                                        if (
+                                            conversation_name != ""
+                                            and conversation_name is not None
+                                        ):
+                                            c.log_interaction(
+                                                role=self.agent_name,
+                                                message=f"[ACTIVITY_START] Browsing {sublink[1]}... [ACTIVITY_END]",
+                                            )
                                         (
                                             text_content,
                                             link_list,
@@ -388,7 +404,14 @@ class Websearch:
                                         i = i + 1
                                         scraped_links.append(sublink[1])
         str_links = "\n".join(scraped_links)
-        return f"I have read all of the content from the following links into my long term memory:\n{str_links}"
+        message = f"I have read all of the content from the following links into my memory:\n{str_links}"
+        if conversation_name:
+            c = Conversations(conversation_name=conversation_name, user=self.user)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY_START] {message} [ACTIVITY_END]",
+            )
+        return message
 
     async def websearch_agent(
         self,

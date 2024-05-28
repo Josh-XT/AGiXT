@@ -192,7 +192,7 @@ async def learn_url(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     url.url = url.url.replace(" ", "%20")
-    await Websearch(
+    response = await Websearch(
         collection_number=url.collection_number,
         agent=agent,
         user=user,
@@ -201,7 +201,7 @@ async def learn_url(
         user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
         search_depth=3,
     )
-    return ResponseMessage(message="Agent learned the content from the url.")
+    return ResponseMessage(message=response)
 
 
 @app.post(
