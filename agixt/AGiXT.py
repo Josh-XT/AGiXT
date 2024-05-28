@@ -1,5 +1,5 @@
 from Interactions import Interactions
-from ApiClient import get_api_client, Conversations, Prompts, Chain, User
+from ApiClient import get_api_client, Conversations, Prompts, Chain
 from readers.file import FileReader
 from Extensions import Extensions
 from Chains import Chains
@@ -16,8 +16,6 @@ import time
 
 class AGiXT:
     def __init__(self, user: str, agent_name: str, api_key: str):
-        self.user = user
-        # self.user_email = str(user.email).lower()
         self.user_email = user.lower()
         self.api_key = api_key
         self.agent_name = agent_name
@@ -453,11 +451,12 @@ class AGiXT:
             response = f"I have read the entire content of the file called {file_name} into my memory."
         else:
             response = f"I was unable to read the file called {file_name}."
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        c.log_interaction(
-            role=self.agent_name,
-            message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
-        )
+        if conversation_name != "" and conversation_name != None:
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
+            )
         return response
 
     async def chat_completions(self, prompt: ChatCompletions):
