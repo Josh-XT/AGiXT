@@ -153,7 +153,7 @@ class AGiXT:
             **kwargs,
         )
 
-    async def generate_image(self, prompt: str, log_activity: bool = False):
+    async def generate_image(self, prompt: str, conversation_name: str = ""):
         """
         Generate an image from a prompt
 
@@ -163,7 +163,7 @@ class AGiXT:
         Returns:
             str: URL of the generated image
         """
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
             c = Conversations(
                 conversation_name="Image Generation", user=self.user_email
             )
@@ -173,7 +173,7 @@ class AGiXT:
             )
         return await self.agent.generate_image(prompt=prompt)
 
-    async def text_to_speech(self, text: str, log_activity: bool = False):
+    async def text_to_speech(self, text: str, conversation_name: str = ""):
         """
         Generate Text to Speech audio from text
 
@@ -183,7 +183,7 @@ class AGiXT:
         Returns:
             str: URL of the generated audio
         """
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name="Text to Speech", user=self.user_email)
             c.log_interaction(
                 role="USER",
@@ -200,7 +200,7 @@ class AGiXT:
             tts_url = f"{self.outputs}/{file_name}"
         return tts_url
 
-    async def audio_to_text(self, audio_path: str, log_activity: bool = False):
+    async def audio_to_text(self, audio_path: str, conversation_name: str = ""):
         """
         Audio to Text transcription
 
@@ -211,7 +211,7 @@ class AGiXT:
             str: Transcription of the audio
         """
         response = await self.agent.transcribe_audio(audio_path=audio_path)
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
             c = Conversations(
                 conversation_name="Audio Transcription", user=self.user_email
             )
@@ -220,7 +220,7 @@ class AGiXT:
                 message=f"[ACTIVITY_START] Transcribed audio to text: {response} [ACTIVITY_END]",
             )
 
-    async def translate_audio(self, audio_path: str, log_activity: bool = False):
+    async def translate_audio(self, audio_path: str, conversation_name: str = ""):
         """
         Translate an audio file
 
@@ -231,7 +231,7 @@ class AGiXT:
             str: Translation of the audio
         """
         response = await self.agent.translate_audio(audio_path=audio_path)
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
             c = Conversations(
                 conversation_name="Audio Translation", user=self.user_email
             )
@@ -247,7 +247,6 @@ class AGiXT:
         command_args: dict,
         conversation_name: str = "",
         voice_response: bool = False,
-        log_activity: bool = False,
     ):
         """
         Execute a command with arguments
@@ -257,13 +256,12 @@ class AGiXT:
             command_args (dict): Arguments for the command
             conversation_name (str): Name of the conversation
             voice_response (bool): Whether to generate a voice response
-            log_activity (bool): Whether to log the activity
 
         Returns:
             str: Response from the command
         """
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent,
                 message=f"[ACTIVITY_START] Execute command: {command_name} with args: {command_args} [ACTIVITY_END]",
@@ -287,7 +285,7 @@ class AGiXT:
             ):
                 tts_response = await self.text_to_speech(text=response)
                 response = f"{response}\n\n{tts_response}"
-        if log_activity:
+        if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
@@ -440,7 +438,7 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+
         file_name = os.path.basename(file_path)
         file_reader = FileReader(
             agent_name=self.agent_name,
@@ -454,7 +452,11 @@ class AGiXT:
             response = f"I have read the entire content of the file called {file_name} into my memory."
         else:
             response = f"I was unable to read the file called {file_name}."
-        c.log_interaction(role=self.agent_name, message=response)
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
+        )
         return response
 
     async def chat_completions(self, prompt: ChatCompletions):
@@ -467,7 +469,6 @@ class AGiXT:
         Returns:
             dict: Chat completion response
         """
-        agent_name = prompt.model
         conversation_name = prompt.user
         images = []
         new_prompt = ""
@@ -631,7 +632,7 @@ class AGiXT:
                         )
                         transcribed_audio = await self.audio_to_text(
                             audio_path=wav_file,
-                            log_activity=True,
+                            conversation_name=conversation_name,
                         )
                         new_prompt += transcribed_audio
                     if "video_url" in msg:
@@ -673,7 +674,11 @@ class AGiXT:
                             file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
                             with open(file_path, "wb") as f:
                                 f.write(file_data)
-                            await self.learn_from_file(file_path=file_path)
+                            await self.learn_from_file(
+                                file_path=file_path,
+                                collection_number=1,
+                                conversation_name=conversation_name,
+                            )
             if mode == "command" and command_name and command_variable:
                 try:
                     command_args = (
@@ -689,7 +694,6 @@ class AGiXT:
                     command_args=command_args,
                     conversation_name=conversation_name,
                     voice_response=tts,
-                    log_activity=True,
                 )
             elif mode == "chain" and chain_name:
                 chain_name = self.agent_settings["chain_name"]
@@ -729,7 +733,7 @@ class AGiXT:
             "id": conversation_name,
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": agent_name,
+            "model": self.agent_name,
             "choices": [
                 {
                     "index": 0,
