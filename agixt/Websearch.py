@@ -96,6 +96,8 @@ class Websearch:
                     "url": url,
                     "browse_links": False,
                     "disable_memory": True,
+                    "conversation_name": "AGiXT Terminal",
+                    "tts": "false",
                 },
             )
         chunks = await self.agent_memory.chunk_content(
@@ -112,6 +114,8 @@ class Websearch:
                         "url": url,
                         "browse_links": False,
                         "disable_memory": True,
+                        "conversation_name": "AGiXT Terminal",
+                        "tts": "false",
                     },
                 )
             )
