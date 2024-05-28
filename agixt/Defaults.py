@@ -1,4 +1,5 @@
 import os
+import tiktoken
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,8 +28,7 @@ DEFAULT_SETTINGS = {
     "WAIT_AFTER_FAILURE": 3,
     "WORKING_DIRECTORY": "./WORKSPACE",
     "WORKING_DIRECTORY_RESTRICTED": True,
-    "AUTONOMOUS_EXECUTION": True,
-    "PERSONA": "",
+    "persona": "",
 }
 
 
@@ -36,6 +36,7 @@ def getenv(var_name: str):
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_API_KEY": None,
+        "ALLOWED_DOMAINS": "*",
         "ALLOWLIST": "*",
         "WORKSPACE": os.path.join(os.getcwd(), "WORKSPACE"),
         "APP_NAME": "AGiXT",
@@ -59,6 +60,12 @@ def getenv(var_name: str):
     }
     default_value = default_values[var_name] if var_name in default_values else ""
     return os.getenv(var_name, default_value)
+
+
+def get_tokens(text: str) -> int:
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(text))
+    return num_tokens
 
 
 DEFAULT_USER = getenv("DEFAULT_USER")

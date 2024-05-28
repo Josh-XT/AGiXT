@@ -2,6 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Interactions import Interactions
 from Websearch import Websearch
+from Defaults import getenv
 from ApiClient import (
     Agent,
     add_agent,
@@ -21,7 +22,10 @@ from Models import (
     AgentConfig,
     ResponseMessage,
     UrlInput,
+    TTSInput,
 )
+import base64
+import uuid
 
 app = APIRouter()
 
@@ -190,6 +194,7 @@ async def prompt_agent(
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
+        log_user_input=True,
         **agent_prompt.prompt_args,
     )
     return {"response": str(response)}
@@ -292,3 +297,29 @@ async def delete_browsed_link(
     websearch.agent_memory.delete_memories_from_external_source(url=url.url)
     agent.delete_browsed_link(url=url.url)
     return {"message": "Browsed links deleted."}
+
+
+@app.post(
+    "/api/agent/{agent_name}/text_to_speech",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def text_to_speech(
+    agent_name: str,
+    text: TTSInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    AGIXT_URI = getenv("AGIXT_URI")
+    tts_response = await agent.text_to_speech(text=text.text)
+    if not str(tts_response).startswith("http"):
+        file_type = "wav"
+        file_name = f"{uuid.uuid4().hex}.{file_type}"
+        audio_path = f"./WORKSPACE/{file_name}"
+        audio_data = base64.b64decode(tts_response)
+        with open(audio_path, "wb") as f:
+            f.write(audio_data)
+        tts_response = f"{AGIXT_URI}/outputs/{file_name}"
+    return {"url": tts_response}

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any, Union
+from Defaults import DEFAULT_USER
 
 
 class AgentName(BaseModel):
@@ -221,6 +222,10 @@ class ConversationHistoryModel(BaseModel):
     conversation_content: List[dict] = []
 
 
+class TTSInput(BaseModel):
+    text: str
+
+
 class ConversationHistoryMessageModel(BaseModel):
     agent_name: str
     conversation_name: str
@@ -268,3 +273,7 @@ class User(BaseModel):
     commands: Optional[Dict[str, Any]] = {}
     training_urls: Optional[List[str]] = []
     github_repos: Optional[List[str]] = []
+
+
+class User_fb(BaseModel):
+    email: str = DEFAULT_USER
