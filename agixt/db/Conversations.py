@@ -149,6 +149,7 @@ class Conversations:
 
         if not conversation:
             conversation = self.new_conversation()
+            session.close()
             session = get_session()
         timestamp = datetime.now().strftime("%B %d, %Y %I:%M %p")
         try:
@@ -159,8 +160,8 @@ class Conversations:
                 conversation_id=conversation.id,
             )
         except Exception as e:
-            logging.info(f"Error logging interaction: {e}")
             conversation = self.new_conversation()
+            session.close()
             session = get_session()
             new_message = Message(
                 role=role,
