@@ -4,11 +4,11 @@ import regex
 import json
 import time
 import logging
-import tiktoken
 import base64
 import uuid
 from datetime import datetime
 from readers.file import FileReader
+from readers.github import GithubReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -18,18 +18,12 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from Defaults import getenv, DEFAULT_USER
+from Defaults import getenv, DEFAULT_USER, get_tokens
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-
-
-def get_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    num_tokens = len(encoding.encode(text))
-    return num_tokens
 
 
 class Interactions:
@@ -65,6 +59,13 @@ class Interactions:
                 collection_number=3,
                 ApiClient=self.ApiClient,
                 user=self.user,
+            )
+            self.github_memories = GithubReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=7,
+                user=self.user,
+                ApiClient=self.ApiClient,
             )
         else:
             self.agent_name = ""
@@ -102,7 +103,6 @@ class Interactions:
         step_number=0,
         conversation_name="",
         vision_response: str = "",
-        websearch: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -137,6 +137,16 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                context += await self.websearch.agent_memory.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
+                context += await self.github_memories.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
                 positive_feedback = await self.positive_feedback_memories.get_memories(
                     user_input=user_input,
                     limit=3,
@@ -157,14 +167,8 @@ class Interactions:
                     if negative_feedback:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
-                if websearch:
-                    context += await self.websearch.agent_memory.get_memories(
-                        user_input=user_input,
-                        limit=top_results,
-                        min_relevance_score=min_relevance_score,
-                    )
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 3:
+                    if int(kwargs["inject_memories_from_collection_number"]) > 5:
                         context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
@@ -389,6 +393,7 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
+        log_user_input: bool = True,
         **kwargs,
     ):
         global AGIXT_URI
@@ -435,8 +440,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            clean_datetime = re.sub(r"[^a-zA-Z0-9]", "", str(datetime.now()))
-            conversation_name = f"{clean_datetime} Conversation"
+            conversation_name = datetime.now().strftime("%Y-%m-%d")
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
@@ -445,7 +449,7 @@ class Interactions:
         else:
             websearch_timeout = 0
         if browse_links != False:
-            await self.websearch.browse_links_in_input(
+            await self.websearch.scrape_website(
                 user_input=user_input, search_depth=websearch_depth
             )
         if websearch:
@@ -508,10 +512,11 @@ class Interactions:
             else formatted_prompt
         )
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        c.log_interaction(
-            role="USER",
-            message=log_message,
-        )
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=log_message,
+            )
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
@@ -545,6 +550,7 @@ class Interactions:
             return await self.run(
                 prompt_name=prompt,
                 prompt_category=prompt_category,
+                log_user_input=log_user_input,
                 **prompt_args,
             )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
@@ -565,10 +571,10 @@ class Interactions:
                 self.response = re.sub(
                     r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
                 )
-            tts = True
+            tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
-            if "tts_provider" in agent_settings and tts:
+            if "tts_provider" in agent_settings and tts == True:
                 if (
                     agent_settings["tts_provider"] != "None"
                     and agent_settings["tts_provider"] != ""
@@ -651,6 +657,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
+                    log_user_interaction=False,
                     **prompt_args,
                 )
                 time.sleep(1)
@@ -685,6 +692,7 @@ class Interactions:
         return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
 
     async def execution_agent(self, conversation_name):
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         command_list = [
             available_command["friendly_name"]
             for available_command in self.agent.available_commands
@@ -734,49 +742,34 @@ class Interactions:
                                 },
                             )
                         else:
-                            # Check if the command is a valid command in the self.agent.available_commands list
                             try:
-                                if (
-                                    str(self.agent.AUTONOMOUS_EXECUTION).lower()
-                                    == "true"
-                                ):
-                                    ext = Extensions(
-                                        agent_name=self.agent_name,
-                                        agent_config=self.agent.AGENT_CONFIG,
-                                        conversation_name=conversation_name,
-                                        ApiClient=self.ApiClient,
-                                        user=self.user,
-                                    )
-                                    command_output = await ext.execute_command(
-                                        command_name=command_name,
-                                        command_args=command_args,
-                                    )
-                                    formatted_output = f"```\n{command_output}\n```"
-                                    message = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                                    Conversations(
-                                        conversation_name=f"{self.agent_name} Command Execution Log",
-                                        user=self.user,
-                                    ).log_interaction(
-                                        role=self.agent_name,
-                                        message=message,
-                                    )
-                                else:
-                                    command_output = (
-                                        self.create_command_suggestion_chain(
-                                            agent_name=self.agent_name,
-                                            command_name=command_name,
-                                            command_args=command_args,
-                                        )
-                                    )
-                                    # TODO: Ask the user if they want to execute the suggested chain of commands.
-                                    command_output = f"{command_output}\n\n**Would you like to execute the command `{command_name}` with the following parameters?**\n```json\n{json.dumps(command_args, indent=4)}\n```"
-                                    # Ask the AI to make the command output more readable and relevant to the conversation and respond with that.
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[ACTIVITY_START] Executing command `{command_name}` with args `{command_args}`. [ACTIVITY_END]",
+                                )
+                                ext = Extensions(
+                                    agent_name=self.agent_name,
+                                    agent_config=self.agent.AGENT_CONFIG,
+                                    conversation_name=conversation_name,
+                                    ApiClient=self.ApiClient,
+                                    user=self.user,
+                                )
+                                command_output = await ext.execute_command(
+                                    command_name=command_name,
+                                    command_args=command_args,
+                                )
+                                formatted_output = f"```\n{command_output}\n```"
+                                command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                             except Exception as e:
                                 logging.error(
                                     f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                                 )
                                 command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
                         if command_output:
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[ACTIVITY_START] {command_output} [ACTIVITY_END]",
+                            )
                             reformatted_response = reformatted_response.replace(
                                 f"#execute({command_name}, {command_args})",
                                 (

@@ -191,13 +191,17 @@ async def learn_url(
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await Websearch(
+    url.url = url.url.replace(" ", "%20")
+    response = await Websearch(
         collection_number=url.collection_number,
         agent=agent,
         user=user,
         ApiClient=ApiClient,
-    ).get_web_content(url=url.url)
-    return ResponseMessage(message="Agent learned the content from the url.")
+    ).scrape_website(
+        user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
+        search_depth=3,
+    )
+    return ResponseMessage(message=response)
 
 
 @app.post(

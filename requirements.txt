@@ -1,4 +1,4 @@
-agixtsdk==0.0.37
+agixtsdk==0.0.45
 safeexecute==0.0.9
 google-generativeai==0.4.1
 discord==2.3.2
@@ -16,4 +16,4 @@ google-auth==2.29.0
 google-api-python-client==2.125.0
 python-multipart==0.0.9
 nest_asyncio
-g4f==0.3.1.8
+g4f==0.3.1.9
