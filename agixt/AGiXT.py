@@ -15,9 +15,10 @@ import time
 
 
 class AGiXT:
-    def __init__(self, user: User, agent_name: str, api_key: str):
+    def __init__(self, user: str, agent_name: str, api_key: str):
         self.user = user
-        self.user_email = str(user.email).lower()
+        # self.user_email = str(user.email).lower()
+        self.user_email = user.lower()
         self.api_key = api_key
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
