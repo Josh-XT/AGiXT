@@ -25,7 +25,7 @@ class AGiXT:
         self.outputs = f"{self.uri}/outputs/"
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
-            agent_name=self.agent_name, user=self.user.email, ApiClient=self.ApiClient
+            agent_name=self.agent_name, user=self.user_email, ApiClient=self.ApiClient
         )
         self.agent = self.agent_interactions.agent
         self.agent_settings = (
