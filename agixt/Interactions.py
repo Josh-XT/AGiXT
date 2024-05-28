@@ -393,6 +393,7 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
+        log_user_input: bool = True,
         **kwargs,
     ):
         global AGIXT_URI
@@ -511,10 +512,11 @@ class Interactions:
             else formatted_prompt
         )
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        c.log_interaction(
-            role="USER",
-            message=log_message,
-        )
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=log_message,
+            )
         try:
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
@@ -548,6 +550,7 @@ class Interactions:
             return await self.run(
                 prompt_name=prompt,
                 prompt_category=prompt_category,
+                log_user_input=log_user_input,
                 **prompt_args,
             )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
@@ -654,6 +657,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
+                    log_user_interaction=False,
                     **prompt_args,
                 )
                 time.sleep(1)

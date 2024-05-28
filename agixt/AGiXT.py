@@ -120,6 +120,7 @@ class AGiXT:
         shots: int = 1,
         browse_links: bool = False,
         voice_response: bool = False,
+        log_user_input: bool = True,
         **kwargs,
     ):
         """
@@ -149,6 +150,7 @@ class AGiXT:
             browse_links=browse_links,
             images=images,
             tts=voice_response,
+            log_user_input=log_user_input,
             **kwargs,
         )
 
@@ -356,64 +358,20 @@ class AGiXT:
         Returns:
             str: Agent response with a list of scraped links
         """
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if isinstance(urls, str):
-            urls = [urls]
-        for url in urls:
-            url = str(url)
-            if url.startswith("https://arxiv.org/"):
-                url = url.replace("arxiv.org", "ar5iv.org")
-            response = None
-            user_input = f"Learn from the information from {url}"
-            if url.startswith("https://github.com/"):
-                do_not_pull_repo = [
-                    "/pull/",
-                    "/issues",
-                    "/discussions",
-                    "/actions/",
-                    "/projects",
-                    "/security",
-                    "/releases",
-                    "/commits",
-                    "/branches",
-                    "/tags",
-                    "/stargazers",
-                    "/watchers",
-                    "/network",
-                    "/settings",
-                    "/compare",
-                    "/archive",
-                ]
-                if any(x in url for x in do_not_pull_repo):
-                    res = False
-                else:
-                    if "/tree/" in url:
-                        branch = url.split("/tree/")[1].split("/")[0]
-                    else:
-                        branch = "main"
-                    res = await self.agent_interactions.github_memories.write_github_repository_to_memory(
-                        github_repo=url,
-                        github_user=(
-                            self.agent_settings["GITHUB_USER"]
-                            if "GITHUB_USER" in self.agent_settings
-                            else None
-                        ),
-                        github_token=(
-                            self.agent_settings["GITHUB_TOKEN"]
-                            if "GITHUB_TOKEN" in self.agent_settings
-                            else None
-                        ),
-                        github_branch=branch,
-                    )
-                if res == True:
-                    response = f"I have read the entire content of the Github repository at {url} into my memory."
-            if not response:
-                response = await self.agent_interactions.websearch.scrape_website(
-                    user_input=user_input,
-                    search_depth=scrape_depth,
-                    summarize_content=summarize_content,
-                    conversation_name=conversation_name,
-                )
+            user_input = f"Learn from the information from this website:\n {urls} "
+        else:
+            user_input = f"Learn from the information from these websites:\n {'\n'.join(urls)} "
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        if conversation_name != "" and conversation_name != None:
+            c.log_interaction(role=self.agent_name, message=f"[ACTIVITY_START] Browsing the web... [ACTIVITY_END]")
+        response = await self.agent_interactions.websearch.scrape_website(
+            user_input=user_input,
+            search_depth=scrape_depth,
+            summarize_content=summarize_content,
+            conversation_name=conversation_name,
+        )
+        if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
@@ -474,6 +432,7 @@ class AGiXT:
         new_prompt = ""
         browse_links = True
         tts = False
+        urls = []
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -642,12 +601,7 @@ class AGiXT:
                             else msg["video_url"]
                         )
                         if video_url.startswith("http"):
-                            await self.learn_from_websites(
-                                url=[video_url],
-                                scrape_depth=0,
-                                summarize_content=True,
-                                conversation_name=conversation_name,
-                            )
+                            urls.append(video_url)
                     if (
                         "file_url" in msg
                         or "application_url" in msg
@@ -660,12 +614,7 @@ class AGiXT:
                             else msg["file_url"]
                         )
                         if file_url.startswith("http"):
-                            await self.learn_from_websites(
-                                urls=[file_url],
-                                scrape_depth=3,
-                                summarize_content=True,
-                                conversation_name=conversation_name,
-                            )
+                            urls.append(file_url)
                         else:
                             file_type = (
                                 file_url.split(",")[0].split("/")[1].split(";")[0]
@@ -674,11 +623,17 @@ class AGiXT:
                             file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
                             with open(file_path, "wb") as f:
                                 f.write(file_data)
-                            await self.learn_from_file(
-                                file_path=file_path,
-                                collection_number=1,
-                                conversation_name=conversation_name,
-                            )
+                            file_url = f"{self.outputs}/{os.path.basename(file_path)}"
+                            urls.append(file_url)
+            # Add user input to conversation
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
+            c.log_interaction(role="USER", message=new_prompt)
+            await self.learn_from_websites(
+                urls=urls,
+                scrape_depth=3,
+                summarize_content=True,
+                conversation_name=conversation_name,
+            )
             if mode == "command" and command_name and command_variable:
                 try:
                     command_args = (
@@ -724,6 +679,7 @@ class AGiXT:
                     browse_links=browse_links,
                     voice_response=tts,
                     images=images,
+                    log_user_input=False,
                     **prompt_args,
                 )
         prompt_tokens = get_tokens(new_prompt)

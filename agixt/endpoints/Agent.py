@@ -194,6 +194,7 @@ async def prompt_agent(
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
     response = await agent.run(
         prompt=agent_prompt.prompt_name,
+        log_user_input=True,
         **agent_prompt.prompt_args,
     )
     return {"response": str(response)}

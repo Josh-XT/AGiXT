@@ -13,6 +13,7 @@ from typing import List
 from ApiClient import Agent, Conversations
 from Defaults import getenv, get_tokens
 from readers.youtube import YoutubeReader
+from readers.github import GithubReader
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -122,9 +123,21 @@ class Websearch:
             # If the content isn't too long, we will ask AI to resummarize the combined chunks.
             return await self.summarize_web_content(url=url, content=new_content)
 
-    async def get_web_content(self, url, summarize_content=False):
-        if str(url).startswith("https://www.youtube.com/watch?v="):
-            video_id = url.split("watch?v=")[1]
+    async def get_web_content(self, url: str, summarize_content=False):
+        if url.startswith("https://arxiv.org/") or url.startswith(
+            "https://www.arxiv.org/"
+        ):
+            url = url.replace("arxiv.org", "ar5iv.org")
+        if (
+            url.startswith("https://www.youtube.com/watch?v=")
+            or url.startswith("https://youtube.com/watch?v=")
+            or url.startswith("https://youtu.be/")
+        ):
+            video_id = (
+                url.split("watch?v=")[1]
+                if "watch?v=" in url
+                else url.split("youtu.be/")[1]
+            )
             if "&" in video_id:
                 video_id = video_id.split("&")[0]
             content = await self.agent_memory.get_transcription(video_id=video_id)
@@ -138,6 +151,59 @@ class Websearch:
                 external_source=url,
             )
             return content, None
+        if url.startswith("https://github.com/"):
+            do_not_pull_repo = [
+                "/pull/",
+                "/issues",
+                "/discussions",
+                "/actions/",
+                "/projects",
+                "/security",
+                "/releases",
+                "/commits",
+                "/branches",
+                "/tags",
+                "/stargazers",
+                "/watchers",
+                "/network",
+                "/settings",
+                "/compare",
+                "/archive",
+            ]
+            if any(x in url for x in do_not_pull_repo):
+                res = False
+            else:
+                if "/tree/" in url:
+                    branch = url.split("/tree/")[1].split("/")[0]
+                else:
+                    branch = "main"
+                res = await GithubReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=7,
+                    user=self.user,
+                    ApiClient=self.ApiClient,
+                ).write_github_repository_to_memory(
+                    github_repo=url,
+                    github_user=(
+                        self.agent_settings["GITHUB_USER"]
+                        if "GITHUB_USER" in self.agent_settings
+                        else None
+                    ),
+                    github_token=(
+                        self.agent_settings["GITHUB_TOKEN"]
+                        if "GITHUB_TOKEN" in self.agent_settings
+                        else None
+                    ),
+                    github_branch=branch,
+                )
+            if res:
+                self.browsed_links.append(url)
+                self.agent.add_browsed_link(url=url)
+                return (
+                    f"Content from GitHub repository at {url} has been added to memory.",
+                    None,
+                )
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -380,7 +446,11 @@ class Websearch:
                         url=link, summarize_content=summarize_content
                     )
                     scraped_links.append(link)
-                    if int(search_depth) > 0:
+                    if (
+                        int(search_depth) > 0
+                        and "youtube.com/" not in link
+                        and "youtu.be/" not in link
+                    ):
                         if link_list is not None and len(link_list) > 0:
                             i = 0
                             for sublink in link_list:
