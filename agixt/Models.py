@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any, Union
-from Defaults import DEFAULT_USER
+from Globals import DEFAULT_USER
 
 
 class AgentName(BaseModel):
@@ -266,7 +266,7 @@ class CommandExecution(BaseModel):
     conversation_name: str = "AGiXT Terminal Command Execution"
 
 
-class User(BaseModel):
+class WebhookUser(BaseModel):
     email: str
     agent_name: Optional[str] = ""
     settings: Optional[Dict[str, Any]] = {}
@@ -275,5 +275,26 @@ class User(BaseModel):
     github_repos: Optional[List[str]] = []
 
 
-class User_fb(BaseModel):
-    email: str = DEFAULT_USER
+# Auth user models
+class Login(BaseModel):
+    email: str
+    token: str
+
+
+class Register(BaseModel):
+    email: str
+    first_name: str
+    last_name: str
+    company_name: str
+    job_title: str
+
+
+class UserInfo(BaseModel):
+    first_name: str
+    last_name: str
+    company_name: str
+    job_title: str
+
+
+class Detail(BaseModel):
+    detail: str

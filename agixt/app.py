@@ -12,7 +12,7 @@ from endpoints.Extension import app as extension_endpoints
 from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
-from Defaults import getenv
+from Globals import getenv
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

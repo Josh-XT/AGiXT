@@ -6,7 +6,7 @@ from Providers import (
     get_providers_with_settings,
     get_providers_by_service,
 )
-from ApiClient import verify_api_key, DB_CONNECTED, get_api_client, is_admin
+from ApiClient import verify_api_key, get_api_client, is_admin
 from typing import Any
 
 app = APIRouter()
@@ -67,46 +67,3 @@ async def get_embed_providers(user=Depends(verify_api_key)):
 )
 async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
     return {"embedders": get_providers_by_service(service="embeddings")}
-
-
-if DB_CONNECTED:
-    from db.User import create_user
-    from Models import User
-
-    @app.post("/api/user", tags=["User"])
-    async def createuser(
-        account: User, authorization: str = Header(None), user=Depends(verify_api_key)
-    ):
-        if is_admin(email=user, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
-        ApiClient = get_api_client(authorization=authorization)
-        return create_user(
-            api_key=authorization,
-            email=account.email,
-            role="user",
-            agent_name=account.agent_name,
-            settings=account.settings,
-            commands=account.commands,
-            training_urls=account.training_urls,
-            github_repos=account.github_repos,
-            ApiClient=ApiClient,
-        )
-
-    @app.post("/api/admin", tags=["User"])
-    async def createadmin(
-        account: User, authorization: str = Header(None), user=Depends(verify_api_key)
-    ):
-        if is_admin(email=user, api_key=authorization) != True:
-            raise HTTPException(status_code=403, detail="Access Denied")
-        ApiClient = get_api_client(authorization=authorization)
-        return create_user(
-            api_key=authorization,
-            email=account.email,
-            role="admin",
-            agent_name=account.agent_name,
-            settings=account.settings,
-            commands=account.commands,
-            training_urls=account.training_urls,
-            github_repos=account.github_repos,
-            ApiClient=ApiClient,
-        )

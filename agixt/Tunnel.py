@@ -1,5 +1,5 @@
 import logging
-from Defaults import getenv
+from Globals import getenv
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

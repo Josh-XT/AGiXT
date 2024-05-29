@@ -1,4 +1,4 @@
-from DBConnection import (
+from DB import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
     AgentBrowsedLink,
@@ -15,7 +15,7 @@ from DBConnection import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Defaults import getenv, DEFAULT_SETTINGS, DEFAULT_USER
+from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
 from datetime import datetime, timezone, timedelta
 import logging
 import json
@@ -169,9 +169,14 @@ class Agent:
     def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.session = get_session()
-        self.user = user
-        user_data = self.session.query(User).filter(User.email == self.user).first()
-        self.user_id = user_data.id
+        user = user if user is not None else DEFAULT_USER
+        self.user = user.lower()
+        try:
+            user_data = self.session.query(User).filter(User.email == self.user).first()
+            self.user_id = user_data.id
+        except Exception as e:
+            logging.error(f"User {self.user} not found.")
+            raise
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:

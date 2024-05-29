@@ -2,7 +2,7 @@ import time
 import base64
 import uuid
 from fastapi import APIRouter, Depends, Header
-from Defaults import get_tokens
+from Globals import get_tokens
 from ApiClient import Agent, verify_api_key, get_api_client
 from providers.default import DefaultProvider
 from fastapi import UploadFile, File, Form
