@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
-from Chains import Chains
 from Models import (
     RunChain,
     RunChainStep,
@@ -61,14 +60,13 @@ async def run_chain(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    chain_response = await Chains(user=user, ApiClient=ApiClient).run_chain(
+    chain_response = await Chain(user=user, ApiClient=ApiClient).run_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
-        all_responses=user_input.all_responses,
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
-        log_user_input=True,
+        log_user_input=False,
     )
     try:
         if "Chain failed to complete" in chain_response:
@@ -101,7 +99,7 @@ async def run_chain_step(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
     ApiClient = get_api_client(authorization=authorization)
-    chain_step_response = await Chains(user=user, ApiClient=ApiClient).run_chain_step(
+    chain_step_response = await Chain(user=user, ApiClient=ApiClient).run_chain_step(
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -130,7 +128,7 @@ async def get_chain_args(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    chain_args = Chains(user=user, ApiClient=ApiClient).get_chain_args(
+    chain_args = Chain(user=user, ApiClient=ApiClient).get_chain_args(
         chain_name=chain_name
     )
     return {"chain_args": chain_args}

@@ -4,7 +4,6 @@ from DB import (
     ChainStep,
     ChainStepResponse,
     ChainRun,
-    ChainRunStep,
     Agent,
     Argument,
     ChainStepArgument,
@@ -13,6 +12,8 @@ from DB import (
     User,
 )
 from Globals import getenv, DEFAULT_USER
+from ApiClient import Prompts, Conversations
+from Extensions import Extensions
 import logging
 
 logging.basicConfig(
@@ -22,9 +23,10 @@ logging.basicConfig(
 
 
 class Chain:
-    def __init__(self, user=DEFAULT_USER):
+    def __init__(self, user=DEFAULT_USER, ApiClient=None):
         self.session = get_session()
         self.user = user
+        self.ApiClient = ApiClient
         try:
             user_data = self.session.query(User).filter(User.email == self.user).first()
             self.user_id = user_data.id
@@ -432,12 +434,12 @@ class Chain:
             )
         self.session.commit()
 
-    def get_step_response(self, chain_name, step_number="all"):
-        chain = self.get_chain(chain_name=chain_name)
+    def get_step_response(self, chain_run_id, chain_name, step_number="all"):
+        chain_data = self.get_chain(chain_name=chain_name)
         if step_number == "all":
             chain_steps = (
                 self.session.query(ChainStep)
-                .filter(ChainStep.chain_id == chain["id"])
+                .filter(ChainStep.chain_id == chain_data["id"])
                 .order_by(ChainStep.step_number)
                 .all()
             )
@@ -446,7 +448,10 @@ class Chain:
             for step in chain_steps:
                 chain_step_responses = (
                     self.session.query(ChainStepResponse)
-                    .filter(ChainStepResponse.chain_step_id == step.id)
+                    .filter(
+                        ChainStepResponse.chain_step_id == step.id,
+                        ChainStepResponse.chain_run_id == chain_run_id,
+                    )
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
@@ -458,7 +463,7 @@ class Chain:
             chain_step = (
                 self.session.query(ChainStep)
                 .filter(
-                    ChainStep.chain_id == chain["id"],
+                    ChainStep.chain_id == chain_data["id"],
                     ChainStep.step_number == step_number,
                 )
                 .first()
@@ -467,7 +472,10 @@ class Chain:
             if chain_step:
                 chain_step_responses = (
                     self.session.query(ChainStepResponse)
-                    .filter(ChainStepResponse.chain_step_id == chain_step.id)
+                    .filter(
+                        ChainStepResponse.chain_step_id == chain_step.id,
+                        ChainStepResponse.chain_run_id == chain_run_id,
+                    )
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
@@ -587,7 +595,9 @@ class Chain:
 
         return f"Imported chain: {chain_name}"
 
-    def get_step_content(self, chain_name, prompt_content, user_input, agent_name):
+    def get_step_content(
+        self, chain_run_id, chain_name, prompt_content, user_input, agent_name
+    ):
         if isinstance(prompt_content, dict):
             new_prompt_content = {}
             for arg, value in prompt_content.items():
@@ -601,7 +611,9 @@ class Chain:
                         for i in range(step_count):
                             new_step_number = int(value.split("{STEP")[1].split("}")[0])
                             step_response = self.get_step_response(
-                                chain_name=chain_name, step_number=new_step_number
+                                chain_run_id=chain_run_id,
+                                chain_name=chain_name,
+                                step_number=new_step_number,
                             )
                             if step_response:
                                 resp = (
@@ -631,7 +643,9 @@ class Chain:
                         prompt_content.split("{STEP")[1].split("}")[0]
                     )
                     step_response = self.get_step_response(
-                        chain_name=chain_name, step_number=new_step_number
+                        chain_run_id=chain_run_id,
+                        chain_name=chain_name,
+                        step_number=new_step_number,
                     )
                     if step_response:
                         resp = (
@@ -646,13 +660,17 @@ class Chain:
         else:
             return prompt_content
 
-    async def update_step_response(self, chain_name, step_number, response):
-        chain = self.get_chain(chain_name=chain_name)
+    async def update_step_response(
+        self, chain_run_id, chain_name, step_number, response
+    ):
         chain_step = self.get_step(chain_name=chain_name, step_number=step_number)
         if chain_step:
             existing_response = (
                 self.session.query(ChainStepResponse)
-                .filter(ChainStepResponse.chain_step_id == chain_step.id)
+                .filter(
+                    ChainStepResponse.chain_step_id == chain_step.id,
+                    ChainStepResponse.chain_run_id == chain_run_id,
+                )
                 .order_by(ChainStepResponse.timestamp.desc())
                 .first()
             )
@@ -669,84 +687,246 @@ class Chain:
                     self.session.commit()
                 else:
                     chain_step_response = ChainStepResponse(
-                        chain_step_id=chain_step.id, content=response
+                        chain_step_id=chain_step.id,
+                        chain_run_id=chain_run_id,
+                        content=response,
                     )
                     self.session.add(chain_step_response)
                     self.session.commit()
             else:
                 chain_step_response = ChainStepResponse(
-                    chain_step_id=chain_step.id, content=response
+                    chain_step_id=chain_step.id,
+                    chain_run_id=chain_run_id,
+                    content=response,
                 )
                 self.session.add(chain_step_response)
                 self.session.commit()
 
-    async def new_chain_run(self, chain_name, user_input):
-        chain = self.get_chain(chain_name=chain_name)
-        chain_run = ChainRun(chain_id=chain["id"], user_input=user_input)
+    async def get_chain_run_id(self, chain_name):
+        chain_run = ChainRun(
+            chain_id=self.get_chain(chain_name=chain_name)["id"],
+            user_id=self.user,
+        )
         self.session.add(chain_run)
         self.session.commit()
         return chain_run.id
 
-    async def new_chain_run_step(self, chain_run_id, step_number):
-        chain_run_step = ChainRunStep(
-            chain_run_id=chain_run_id, step_number=step_number
-        )
-        self.session.add(chain_run_step)
-        self.session.commit()
-        return chain_run_step.id
-
-    async def update_chain_run_step_response(self, chain_run_step_id, response):
-        chain_run_step = self.session.query(ChainRunStep).get(chain_run_step_id)
-        chain_run_step.response = response
-        self.session.commit()
-
-    async def get_chain_run_steps(self, chain_run_id):
-        chain_run_steps = (
-            self.session.query(ChainRunStep)
-            .filter(ChainRunStep.chain_run_id == chain_run_id)
-            .order_by(ChainRunStep.step_number)
-            .all()
-        )
-        return chain_run_steps
-
-    async def get_chain_run_step(self, chain_run_id, step_number):
-        chain_run_step = (
-            self.session.query(ChainRunStep)
-            .filter(
-                ChainRunStep.chain_run_id == chain_run_id,
-                ChainRunStep.step_number == step_number,
+    async def run_chain_step(
+        self,
+        chain_run_id=None,
+        step: dict = {},
+        chain_name="",
+        user_input="",
+        agent_override="",
+        chain_args={},
+        conversation_name="",
+    ):
+        if not chain_run_id:
+            chain_run_id = await self.get_chain_run_id(chain_name=chain_name)
+        if step:
+            if "prompt_type" in step:
+                c = None
+                if conversation_name != "":
+                    c = Conversations(
+                        conversation_name=conversation_name,
+                        user=self.user,
+                    )
+                if agent_override != "":
+                    agent_name = agent_override
+                else:
+                    agent_name = step["agent_name"]
+                prompt_type = step["prompt_type"]
+                step_number = step["step"]
+                if "prompt_name" in step["prompt"]:
+                    prompt_name = step["prompt"]["prompt_name"]
+                else:
+                    prompt_name = ""
+                args = self.get_step_content(
+                    chain_run_id=chain_run_id,
+                    chain_name=chain_name,
+                    prompt_content=step["prompt"],
+                    user_input=user_input,
+                    agent_name=step["agent_name"],
+                )
+                if chain_args != {}:
+                    for arg, value in chain_args.items():
+                        args[arg] = value
+                if "chain_name" in args:
+                    args["chain"] = args["chain_name"]
+                if "chain" not in args:
+                    args["chain"] = chain_name
+                if "conversation_name" not in args:
+                    args["conversation_name"] = f"Chain Execution History: {chain_name}"
+                if "conversation" in args:
+                    args["conversation_name"] = args["conversation"]
+                if prompt_type == "Command":
+                    if conversation_name != "":
+                        c.log_interaction(
+                            role=agent_name,
+                            message=f"[ACTIVITY_START] `{agent_name}` is running command `{step['prompt']['command_name']}`... [ACTIVITY_END]",
+                        )
+                    result = self.ApiClient.execute_command(
+                        agent_name=agent_name,
+                        command_name=step["prompt"]["command_name"],
+                        command_args=args,
+                        conversation_name=args["conversation_name"],
+                    )
+                elif prompt_type == "Prompt":
+                    if conversation_name != "":
+                        c.log_interaction(
+                            role=agent_name,
+                            message=f"[ACTIVITY_START] `{agent_name}` is running prompt `{prompt_name}`... [ACTIVITY_END]",
+                        )
+                    result = self.ApiClient.prompt_agent(
+                        agent_name=agent_name,
+                        prompt_name=prompt_name,
+                        prompt_args={
+                            "user_input": user_input,
+                            **args,
+                        },
+                    )
+                elif prompt_type == "Chain":
+                    if conversation_name != "":
+                        c.log_interaction(
+                            role=agent_name,
+                            message=f"[ACTIVITY_START] `{agent_name}` is running chain `{args['chain']}`... [ACTIVITY_END]",
+                        )
+                    result = self.ApiClient.run_chain(
+                        chain_name=args["chain"],
+                        user_input=args["input"],
+                        agent_name=agent_name,
+                        all_responses=(
+                            args["all_responses"] if "all_responses" in args else False
+                        ),
+                        from_step=args["from_step"] if "from_step" in args else 1,
+                        chain_args=(
+                            args["chain_args"]
+                            if "chain_args" in args
+                            else {"conversation_name": args["conversation_name"]}
+                        ),
+                    )
+        if result:
+            if isinstance(result, dict) and "response" in result:
+                result = result["response"]
+            if result == "Unable to retrieve data.":
+                result = None
+            if not isinstance(result, str):
+                result = str(result)
+            await self.update_step_response(
+                chain_run_id=chain_run_id,
+                chain_name=chain_name,
+                step_number=step_number,
+                response=result,
             )
-            .first()
+            return result
+        else:
+            return None
+
+    async def run_chain(
+        self,
+        chain_name,
+        chain_run_id=None,
+        user_input=None,
+        agent_override="",
+        from_step=1,
+        chain_args={},
+        log_user_input=False,
+        conversation_name="",
+    ):
+        chain_data = self.get_chain(chain_name=chain_name)
+        # Create a new ChainRun object to store the chain run data.
+        if not chain_run_id:
+            chain_run = ChainRun(
+                chain_id=chain_data["id"],
+                user_id=self.user,
+            )
+            self.session.add(chain_run)
+            self.session.commit()
+            chain_run_id = chain_run.id
+        if chain_data == {}:
+            return f"Chain `{chain_name}` not found."
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=self.user,
         )
-        return chain_run_step
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=user_input,
+            )
+        agent_name = agent_override if agent_override != "" else "AGiXT"
+        if conversation_name != "":
+            c.log_interaction(
+                role=agent_name,
+                message=f"[ACTIVITY_START] Running chain `{chain_name}`... [ACTIVITY_END]",
+            )
+        last_response = ""
+        for step_data in chain_data["steps"]:
+            if int(step_data["step"]) >= int(from_step):
+                if "prompt" in step_data and "step" in step_data:
+                    step = {}
+                    step["agent_name"] = (
+                        agent_override
+                        if agent_override != ""
+                        else step_data["agent_name"]
+                    )
+                    step["prompt_type"] = step_data["prompt_type"]
+                    step["prompt"] = step_data["prompt"]
+                    step["step"] = step_data["step"]
+                    step_response = await self.run_chain_step(
+                        chain_run_id=chain_run_id,
+                        step=step,
+                        chain_name=chain_name,
+                        user_input=user_input,
+                        agent_override=agent_override,
+                        chain_args=chain_args,
+                        conversation_name=conversation_name,
+                    )
+                    if step_response == None:
+                        return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
+                    last_response = step_response
+                    logging.info(f"Step {step_data['step']} response: {step_response}")
+        if conversation_name != "":
+            c.log_interaction(
+                role=agent_name,
+                message=last_response,
+            )
+        return last_response
 
-    async def get_chain_run_step_response(self, chain_run_step_id):
-        chain_run_step = self.session.query(ChainRunStep).get(chain_run_step_id)
-        return chain_run_step.response
-
-    async def get_chain_run(self, chain_run_id):
-        chain_run = self.session.query(ChainRun).get(chain_run_id)
-        return chain_run
-
-    async def get_chain_runs(self, chain_name):
-        chain = self.get_chain(chain_name=chain_name)
-        chain_runs = (
-            self.session.query(ChainRun)
-            .filter(ChainRun.chain_id == chain["id"])
-            .order_by(ChainRun.timestamp)
-            .all()
-        )
-        return chain_runs
-
-    async def get_chain_run_steps_response(self, chain_run_id):
-        chain_run_steps = await self.get_chain_run_steps(chain_run_id)
-        responses = {}
-        for step in chain_run_steps:
-            chain_run_step_response = await self.get_chain_run_step_response(step.id)
-            responses[str(step.step_number)] = chain_run_step_response
-        return responses
-
-    async def get_chain_run_response(self, chain_run_id):
-        chain_run = await self.get_chain_run(chain_run_id)
-        chain_run_steps = await self.get_chain_run_steps_response(chain_run_id)
-        return {"chain_run": chain_run, "chain_run_steps": chain_run_steps}
+    def get_chain_args(self, chain_name):
+        skip_args = [
+            "command_list",
+            "context",
+            "COMMANDS",
+            "date",
+            "conversation_history",
+            "agent_name",
+            "working_directory",
+            "helper_agent_name",
+        ]
+        chain_data = self.get_chain(chain_name=chain_name)
+        steps = chain_data["steps"]
+        prompt_args = []
+        args = []
+        for step in steps:
+            try:
+                prompt = step["prompt"]
+                if "prompt_name" in prompt:
+                    prompt_text = Prompts(user=self.user).get_prompt(
+                        prompt_name=prompt["prompt_name"]
+                    )
+                    args = Prompts(user=self.user).get_prompt_args(
+                        prompt_text=prompt_text
+                    )
+                elif "command_name" in prompt:
+                    args = Extensions().get_command_args(
+                        command_name=prompt["command_name"]
+                    )
+                elif "chain_name" in prompt:
+                    args = self.get_chain_args(chain_name=prompt["chain_name"])
+                for arg in args:
+                    if arg not in prompt_args and arg not in skip_args:
+                        prompt_args.append(arg)
+            except Exception as e:
+                logging.error(f"Error getting chain args: {e}")
+        return prompt_args

@@ -2,7 +2,6 @@ from Interactions import Interactions
 from ApiClient import get_api_client, Conversations, Prompts, Chain
 from readers.file import FileReader
 from Extensions import Extensions
-from Chains import Chains
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions
@@ -298,7 +297,7 @@ class AGiXT:
         chain_name: str,
         user_input: str,
         chain_args: dict = {},
-        use_current_agent: bool = True,
+        agent_override: str = None,
         conversation_name: str = "",
         voice_response: bool = False,
         log_user_input: bool = True,
@@ -310,7 +309,7 @@ class AGiXT:
             chain_name (str): Name of the chain to execute
             user_input (str): Message to add to conversation log pre-execution
             chain_args (dict): Arguments for the chain
-            use_current_agent (bool): Whether to use the current agent
+            agent_override (str): Agent to override the chain agent
             conversation_name (str): Name of the conversation
             voice_response (bool): Whether to generate a voice response
 
@@ -318,16 +317,18 @@ class AGiXT:
             str: Response from the chain
         """
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        response = await Chains(
+        response = await Chain(
             user=self.user_email, ApiClient=self.ApiClient
         ).run_chain(
             chain_name=chain_name,
             user_input=user_input,
-            agent_override=self.agent_name if use_current_agent else None,
-            all_responses=False,
+            agent_override=(
+                self.agent_name if agent_override == None else agent_override
+            ),
             chain_args=chain_args,
             from_step=1,
             log_user_input=log_user_input,
+            conversation_name=conversation_name,
         )
         if "tts_provider" in self.agent_settings and voice_response:
             if (
@@ -669,7 +670,7 @@ class AGiXT:
                     chain_name=chain_name,
                     user_input=new_prompt,
                     chain_args=chain_args,
-                    use_current_agent=True,
+                    agent_override=self.agent_name,
                     conversation_name=conversation_name,
                     voice_response=tts,
                 )

@@ -397,62 +397,9 @@ class ChainRun(Base):
         nullable=True,
     )
     timestamp = Column(DateTime, server_default=text("now()"))
-    steps = relationship(
-        "ChainStepRun",
-        backref="chain_run",
-        cascade="all, delete",  # Add the cascade option for deleting steps
-        passive_deletes=True,
-        foreign_keys="ChainStepRun.chain_run_id",
+    chain_step_responses = relationship(
+        "ChainStepResponse", backref="chain_run", cascade="all, delete-orphan"
     )
-    user = relationship("User", backref="chain_run")
-
-
-class ChainStepRun(Base):
-    __tablename__ = "chain_step_run"
-    id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        primary_key=True,
-        default=uuid.uuid4 if DATABASE_TYPE != "sqlite" else str(uuid.uuid4()),
-    )
-    chain_step_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("chain_step.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    chain_run_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("chain_run.id"),
-        nullable=True,
-    )
-    agent_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("agent.id"),
-        nullable=False,
-    )
-    prompt_type = Column(Text)
-    prompt = Column(Text)
-    target_chain_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("chain.id", ondelete="SET NULL"),
-    )
-    target_command_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("command.id", ondelete="SET NULL"),
-    )
-    target_prompt_id = Column(
-        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("prompt.id", ondelete="SET NULL"),
-    )
-    step_number = Column(Integer, nullable=False)
-    responses = relationship(
-        "ChainStepResponse", backref="chain_step_run", cascade="all, delete"
-    )
-
-    def add_response(self, content):
-        session = get_session()
-        response = ChainStepResponse(content=content, chain_step_run=self)
-        session.add(response)
-        session.commit()
 
 
 class ChainStepResponse(Base):

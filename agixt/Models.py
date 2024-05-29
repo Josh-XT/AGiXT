@@ -285,15 +285,11 @@ class Register(BaseModel):
     email: str
     first_name: str
     last_name: str
-    company_name: str
-    job_title: str
 
 
 class UserInfo(BaseModel):
     first_name: str
     last_name: str
-    company_name: str
-    job_title: str
 
 
 class Detail(BaseModel):
