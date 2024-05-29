@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
-from MagicalAuth import MagicalAuth, verify_api_key, create_user
+from MagicalAuth import MagicalAuth, verify_api_key, webhook_create_user
 from ApiClient import get_api_client, is_admin
 from Models import WebhookUser
 from Globals import getenv
@@ -97,7 +97,7 @@ async def createuser(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    return create_user(
+    return webhook_create_user(
         api_key=authorization,
         email=account.email,
         role="user",
@@ -119,7 +119,7 @@ async def createadmin(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    return create_user(
+    return webhook_create_user(
         api_key=authorization,
         email=account.email,
         role="admin",

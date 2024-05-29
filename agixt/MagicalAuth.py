@@ -48,7 +48,7 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     return False
 
 
-def create_user(
+def webhook_create_user(
     api_key: str,
     email: str,
     role: str = "user",
