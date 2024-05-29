@@ -68,6 +68,7 @@ async def run_chain(
         all_responses=user_input.all_responses,
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
+        log_user_input=True,
     )
     try:
         if "Chain failed to complete" in chain_response:

@@ -3,6 +3,8 @@ from DB import (
     Chain as ChainDB,
     ChainStep,
     ChainStepResponse,
+    ChainRun,
+    ChainRunStep,
     Agent,
     Argument,
     ChainStepArgument,
@@ -677,3 +679,74 @@ class Chain:
                 )
                 self.session.add(chain_step_response)
                 self.session.commit()
+
+    async def new_chain_run(self, chain_name, user_input):
+        chain = self.get_chain(chain_name=chain_name)
+        chain_run = ChainRun(chain_id=chain["id"], user_input=user_input)
+        self.session.add(chain_run)
+        self.session.commit()
+        return chain_run.id
+
+    async def new_chain_run_step(self, chain_run_id, step_number):
+        chain_run_step = ChainRunStep(
+            chain_run_id=chain_run_id, step_number=step_number
+        )
+        self.session.add(chain_run_step)
+        self.session.commit()
+        return chain_run_step.id
+
+    async def update_chain_run_step_response(self, chain_run_step_id, response):
+        chain_run_step = self.session.query(ChainRunStep).get(chain_run_step_id)
+        chain_run_step.response = response
+        self.session.commit()
+
+    async def get_chain_run_steps(self, chain_run_id):
+        chain_run_steps = (
+            self.session.query(ChainRunStep)
+            .filter(ChainRunStep.chain_run_id == chain_run_id)
+            .order_by(ChainRunStep.step_number)
+            .all()
+        )
+        return chain_run_steps
+
+    async def get_chain_run_step(self, chain_run_id, step_number):
+        chain_run_step = (
+            self.session.query(ChainRunStep)
+            .filter(
+                ChainRunStep.chain_run_id == chain_run_id,
+                ChainRunStep.step_number == step_number,
+            )
+            .first()
+        )
+        return chain_run_step
+
+    async def get_chain_run_step_response(self, chain_run_step_id):
+        chain_run_step = self.session.query(ChainRunStep).get(chain_run_step_id)
+        return chain_run_step.response
+
+    async def get_chain_run(self, chain_run_id):
+        chain_run = self.session.query(ChainRun).get(chain_run_id)
+        return chain_run
+
+    async def get_chain_runs(self, chain_name):
+        chain = self.get_chain(chain_name=chain_name)
+        chain_runs = (
+            self.session.query(ChainRun)
+            .filter(ChainRun.chain_id == chain["id"])
+            .order_by(ChainRun.timestamp)
+            .all()
+        )
+        return chain_runs
+
+    async def get_chain_run_steps_response(self, chain_run_id):
+        chain_run_steps = await self.get_chain_run_steps(chain_run_id)
+        responses = {}
+        for step in chain_run_steps:
+            chain_run_step_response = await self.get_chain_run_step_response(step.id)
+            responses[str(step.step_number)] = chain_run_step_response
+        return responses
+
+    async def get_chain_run_response(self, chain_run_id):
+        chain_run = await self.get_chain_run(chain_run_id)
+        chain_run_steps = await self.get_chain_run_steps_response(chain_run_id)
+        return {"chain_run": chain_run, "chain_run_steps": chain_run_steps}

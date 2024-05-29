@@ -105,8 +105,9 @@ class Chains:
         agent_override="",
         from_step=1,
         chain_args={},
+        log_user_input=False,
     ):
-        chain_data = self.ApiClient.get_chain(chain_name=chain_name)
+        chain_data = self.chain.get_chain(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
         c = Conversations(
@@ -117,10 +118,11 @@ class Chains:
             ),
             user=self.user,
         )
-        c.log_interaction(
-            role="USER",
-            message=user_input,
-        )
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=user_input,
+            )
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""

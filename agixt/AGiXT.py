@@ -301,6 +301,7 @@ class AGiXT:
         use_current_agent: bool = True,
         conversation_name: str = "",
         voice_response: bool = False,
+        log_user_input: bool = True,
     ):
         """
         Execute a chain with arguments
@@ -317,7 +318,6 @@ class AGiXT:
             str: Response from the chain
         """
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        c.log_interaction(role="USER", message=user_input)
         response = await Chains(
             user=self.user_email, ApiClient=self.ApiClient
         ).run_chain(
@@ -327,6 +327,7 @@ class AGiXT:
             all_responses=False,
             chain_args=chain_args,
             from_step=1,
+            log_user_input=log_user_input,
         )
         if "tts_provider" in self.agent_settings and voice_response:
             if (
