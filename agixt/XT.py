@@ -342,6 +342,11 @@ class AGiXT:
                 if "conversation" in args:
                     args["conversation_name"] = args["conversation"]
                 if prompt_type == "Command":
+                    if conversation_name != "" and conversation_name != None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY_START] Executing command: {step['prompt']['command_name']} with args: {args} [ACTIVITY_END]",
+                        )
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
@@ -349,6 +354,11 @@ class AGiXT:
                         voice_response=False,
                     )
                 elif prompt_type == "Prompt":
+                    if conversation_name != "" and conversation_name != None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY_START] Running prompt: {prompt_name} with args: {args} [ACTIVITY_END]",
+                        )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
                     result = await self.inference(
@@ -357,6 +367,11 @@ class AGiXT:
                         **args,
                     )
                 elif prompt_type == "Chain":
+                    if conversation_name != "" and conversation_name != None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY_START] Running chain: {step['prompt']['chain_name']} with args: {args} [ACTIVITY_END]",
+                        )
                     result = await self.execute_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],

@@ -706,7 +706,7 @@ class Chain:
     async def get_chain_run_id(self, chain_name):
         chain_run = ChainRun(
             chain_id=self.get_chain(chain_name=chain_name)["id"],
-            user_id=self.user,
+            user_id=self.user_id,
         )
         self.session.add(chain_run)
         self.session.commit()
