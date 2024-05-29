@@ -10,33 +10,35 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Boolean,
+    func,
 )
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import text
-from Defaults import getenv
+from Globals import getenv
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
 DEFAULT_USER = getenv("DEFAULT_USER")
-if DB_CONNECTED:
-    DATABASE_USER = getenv("DATABASE_USER")
-    DATABASE_PASSWORD = getenv("DATABASE_PASSWORD")
-    DATABASE_HOST = getenv("DATABASE_HOST")
-    DATABASE_PORT = getenv("DATABASE_PORT")
+try:
+    DATABASE_TYPE = getenv("DATABASE_TYPE")
     DATABASE_NAME = getenv("DATABASE_NAME")
-    LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
-    DATABASE_URL = f"postgresql://{LOGIN_URI}"
-    try:
-        engine = create_engine(DATABASE_URL, pool_size=40, max_overflow=-1)
-    except Exception as e:
-        logging.error(f"Error connecting to database: {e}")
+    if DATABASE_TYPE != "sqlite":
+        DATABASE_USER = getenv("DATABASE_USER")
+        DATABASE_PASSWORD = getenv("DATABASE_PASSWORD")
+        DATABASE_HOST = getenv("DATABASE_HOST")
+        DATABASE_PORT = getenv("DATABASE_PORT")
+        LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+        DATABASE_URI = f"postgresql://{LOGIN_URI}"
+    else:
+        DATABASE_URI = f"sqlite:///{DATABASE_NAME}.db"
+    engine = create_engine(DATABASE_URI, pool_size=40, max_overflow=-1)
     connection = engine.connect()
     Base = declarative_base()
-else:
+except Exception as e:
+    logging.error(f"Error connecting to database: {e}")
     Base = None
     engine = None
 
@@ -50,8 +52,23 @@ def get_session():
 class User(Base):
     __tablename__ = "user"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, default=DEFAULT_USER, unique=True)
-    role = Column(String, default="user")
+    email = Column(String, unique=True)
+    first_name = Column(String, default="", nullable=True)
+    last_name = Column(String, default="", nullable=True)
+    admin = Column(Boolean, default=False, nullable=False)
+    mfa_token = Column(String, default="", nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, default=True)
+
+
+class FailedLogins(Base):
+    __tablename__ = "failed_logins"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    user = relationship("User")
+    ip_address = Column(String, default="", nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
 
 
 class Provider(Base):
@@ -276,12 +293,11 @@ class Prompt(Base):
 
 
 if __name__ == "__main__":
-    if DB_CONNECTED:
-        logging.info("Connecting to database...")
-        time.sleep(10)
-        Base.metadata.create_all(engine)
-        logging.info("Connected to database.")
-        # Check if the user table is empty
-        from db.imports import import_all_data
+    logging.info("Connecting to database...")
+    time.sleep(10)
+    Base.metadata.create_all(engine)
+    logging.info("Connected to database.")
+    # Check if the user table is empty
+    from SeedImports import import_all_data
 
-        import_all_data()
+    import_all_data()

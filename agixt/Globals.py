@@ -44,7 +44,6 @@ def getenv(var_name: str):
         "LOG_LEVEL": "INFO",
         "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
         "UVICORN_WORKERS": 10,
-        "DB_CONNECTED": "false",
         "DATABASE_NAME": "postgres",
         "DATABASE_USER": "postgres",
         "DATABASE_PASSWORD": "postgres",

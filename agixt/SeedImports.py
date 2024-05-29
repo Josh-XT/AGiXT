@@ -2,7 +2,7 @@ import os
 import json
 import yaml
 import logging
-from DBConnection import (
+from DB import (
     get_session,
     Provider,
     ProviderSetting,
@@ -17,8 +17,8 @@ from DBConnection import (
     User,
 )
 from Providers import get_providers, get_provider_options
-from db.Agent import add_agent
-from Defaults import getenv, DEFAULT_USER
+from Agent import add_agent
+from Globals import getenv, DEFAULT_USER
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -186,7 +186,7 @@ def import_chains(user=DEFAULT_USER):
     if not chain_files:
         logging.info(f"No JSON files found in chains directory.")
         return
-    from db.Chain import Chain
+    from Chain import Chain
 
     chain_importer = Chain(user=user)
     for file in chain_files:

@@ -18,7 +18,7 @@ from ApiClient import (
     Conversations,
     AGIXT_URI,
 )
-from Defaults import getenv, DEFAULT_USER, get_tokens
+from Globals import getenv, DEFAULT_USER, get_tokens
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

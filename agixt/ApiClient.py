@@ -2,30 +2,21 @@ import logging
 import jwt
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
-from Defaults import getenv
+from Globals import getenv
 from datetime import datetime
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
-DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
 WORKERS = int(getenv("UVICORN_WORKERS"))
 AGIXT_URI = getenv("AGIXT_URI")
 
 # Defining these here to be referenced externally.
-if DB_CONNECTED:
-    from db.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-    from db.Chain import Chain
-    from db.Prompts import Prompts
-    from db.Conversations import Conversations
-    from db.User import User
-else:
-    from fb.Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
-    from fb.Chain import Chain
-    from fb.Prompts import Prompts
-    from fb.Conversations import Conversations
-    from Models import User_fb as User
+from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
+from Chain import Chain
+from Prompts import Prompts
+from Conversations import Conversations
 
 
 def verify_api_key(authorization: str = Header(None)):
@@ -88,20 +79,15 @@ def is_admin(email: str = "USER", api_key: str = None):
     return True
     # Commenting out functionality until testing is complete.
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    DB_CONNECTED = True if getenv("DB_CONNECTED").lower() == "true" else False
-    if DB_CONNECTED != True:
-        return True
     if api_key is None:
         api_key = ""
     api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY == api_key:
         return True
-    if DB_CONNECTED == True:
-        from db.User import is_agixt_admin
 
+    if email == "" or email is None or email == "None":
+        email = getenv("DEFAULT_USER")
         if email == "" or email is None or email == "None":
-            email = getenv("DEFAULT_USER")
-            if email == "" or email is None or email == "None":
-                email = "USER"
-        return is_agixt_admin(email=email, api_key=api_key)
+            email = "USER"
+    return is_agixt_admin(email=email, api_key=api_key)
     return False

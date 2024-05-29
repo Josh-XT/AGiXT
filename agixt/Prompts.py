@@ -1,5 +1,5 @@
-from DBConnection import Prompt, PromptCategory, Argument, User, get_session
-from Defaults import DEFAULT_USER
+from DB import Prompt, PromptCategory, Argument, User, get_session
+from Globals import DEFAULT_USER
 
 
 class Prompts:

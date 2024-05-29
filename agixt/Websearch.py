@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
 from ApiClient import Agent, Conversations
-from Defaults import getenv, get_tokens
+from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
 

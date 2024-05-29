@@ -14,7 +14,7 @@ from Providers import Providers
 from datetime import datetime
 from collections import Counter
 from typing import List
-from Defaults import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

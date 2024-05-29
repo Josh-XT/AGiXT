@@ -1,12 +1,12 @@
 from datetime import datetime
 import logging
-from DBConnection import (
+from DB import (
     Conversation,
     Message,
     User,
     get_session,
 )
-from Defaults import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

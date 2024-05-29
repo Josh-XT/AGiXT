@@ -1,4 +1,4 @@
-from DBConnection import (
+from DB import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
     AgentBrowsedLink,
@@ -15,7 +15,7 @@ from DBConnection import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Defaults import getenv, DEFAULT_SETTINGS, DEFAULT_USER
+from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
 from datetime import datetime, timezone, timedelta
 import logging
 import json
