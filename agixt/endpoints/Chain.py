@@ -32,21 +32,6 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     return {"chain": chain_data}
 
 
-@app.get(
-    "/api/chain/{chain_name}/responses",
-    tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_chain_responses(chain_name: str, user=Depends(verify_api_key)):
-    try:
-        chain_data = Chain(user=user).get_step_response(
-            chain_name=chain_name, step_number="all"
-        )
-        return {"chain": chain_data}
-    except:
-        raise HTTPException(status_code=404, detail="Chain not found")
-
-
 @app.post(
     "/api/chain/{chain_name}/run",
     tags=["Chain", "Admin"],
