@@ -517,10 +517,7 @@ class Websearch:
             if len(search_string) > 0:
                 links = []
                 logging.info(f"Searching for: {search_string}")
-                if (
-                    self.searx_instance_url != ""
-                    and self.searx_instance_url is not None
-                ):
+                if self.searx_instance_url != "":
                     links = await self.search(query=search_string)
                 else:
                     links = await self.ddg_search(query=search_string)
