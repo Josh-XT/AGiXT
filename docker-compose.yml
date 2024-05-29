@@ -27,6 +27,7 @@ services:
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-none}
       - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"

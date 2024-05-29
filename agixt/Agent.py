@@ -171,8 +171,6 @@ class Agent:
         self.session = get_session()
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
-        logging.warning(f"User: {self.user}")
-        logging.warning(f"Default User: {DEFAULT_USER}")
         try:
             user_data = self.session.query(User).filter(User.email == self.user).first()
             self.user_id = user_data.id
