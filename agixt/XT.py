@@ -424,7 +424,7 @@ class AGiXT:
             return f"Chain `{chain_name}` not found."
         c = Conversations(
             conversation_name=conversation_name,
-            user=self.user,
+            user=self.user_email,
         )
         if log_user_input:
             c.log_interaction(
