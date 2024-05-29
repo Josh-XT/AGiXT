@@ -164,51 +164,6 @@ def send_email(
     return None
 
 
-def encrypt(passphrase, data):
-    passphrase = passphrase.encode("utf-8")
-    salt = os.urandom(8)
-    passphrase += salt
-    key = md5(passphrase).digest()
-    final_key = key
-    while len(final_key) < 32 + 16:
-        key = md5(key + passphrase).digest()
-        final_key += key
-    key_iv = final_key[: 32 + 16]
-    key = key_iv[:32]
-    iv = key_iv[32:]
-    aes = AES.new(key, AES.MODE_CBC, iv)
-    padded_data = data.encode("utf-8") + (16 - len(data) % 16) * bytes(
-        [16 - len(data) % 16]
-    )
-    encrypted_data = aes.encrypt(padded_data)
-    encrypted = b"Salted__" + salt + encrypted_data
-    return base64.b64encode(encrypted).decode("utf-8")
-
-
-def decrypt(passphrase, data):
-    try:
-        passphrase = passphrase.encode("utf-8")
-        encrypted = base64.b64decode(data)
-        assert encrypted[0:8] == b"Salted__"
-        salt = encrypted[8:16]
-        assert len(salt) == 8, len(salt)
-        passphrase += salt
-        key = md5(passphrase).digest()
-        final_key = key
-        while len(final_key) < 32 + 16:
-            key = md5(key + passphrase).digest()
-            final_key += key
-        key_iv = final_key[: 32 + 16]
-        key = key_iv[:32]
-        iv = key_iv[32:]
-        aes = AES.new(key, AES.MODE_CBC, iv)
-        data = aes.decrypt(encrypted[16:])
-        decrypted = data[: -(data[-1] if type(data[-1]) == int else ord(data[-1]))]
-        return decrypted.decode("utf-8")
-    except:
-        return data
-
-
 class MagicalAuth:
     def __init__(self, token: str = None):
         encryption_key = getenv("ENCRYPTION_SECRET")
