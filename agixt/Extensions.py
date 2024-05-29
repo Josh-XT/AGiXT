@@ -4,7 +4,7 @@ import glob
 from inspect import signature, Parameter
 import logging
 import inspect
-from Defaults import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

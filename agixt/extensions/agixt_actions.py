@@ -163,7 +163,7 @@ class agixt_actions(Extensions):
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
         }
-        user = kwargs["user"] if "user" in kwargs else "USER"
+        user = kwargs["user"] if "user" in kwargs else "user"
         for chain in Chain(user=user).get_chains():
             self.commands[chain] = self.run_chain
         self.command_name = (

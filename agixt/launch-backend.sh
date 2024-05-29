@@ -1,11 +1,8 @@
 #!/bin/sh
 echo "Starting AGiXT..."
-if [ "$DB_CONNECTED" = "true" ]; then
-    sleep 15
-    echo "Connecting to DB..."
-    python3 DBConnection.py
-    sleep 5
-fi
+sleep 15
+python3 DB.py
+sleep 5
 if [ -n "$NGROK_TOKEN" ]; then
     echo "Starting ngrok..."
     python3 Tunnel.py

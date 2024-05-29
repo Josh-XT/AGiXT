@@ -44,13 +44,12 @@ def getenv(var_name: str):
         "LOG_LEVEL": "INFO",
         "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
         "UVICORN_WORKERS": 10,
-        "DB_CONNECTED": "false",
         "DATABASE_NAME": "postgres",
         "DATABASE_USER": "postgres",
         "DATABASE_PASSWORD": "postgres",
         "DATABASE_HOST": "localhost",
         "DATABASE_PORT": "5432",
-        "DEFAULT_USER": "USER",
+        "DEFAULT_USER": "user",
         "USING_JWT": "false",
         "CHROMA_PORT": "8000",
         "CHROMA_SSL": "false",
@@ -68,4 +67,4 @@ def get_tokens(text: str) -> int:
     return num_tokens
 
 
-DEFAULT_USER = getenv("DEFAULT_USER")
+DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()

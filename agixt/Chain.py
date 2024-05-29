@@ -1,4 +1,4 @@
-from DBConnection import (
+from DB import (
     get_session,
     Chain as ChainDB,
     ChainStep,
@@ -10,7 +10,7 @@ from DBConnection import (
     Command,
     User,
 )
-from Defaults import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER
 import logging
 
 logging.basicConfig(

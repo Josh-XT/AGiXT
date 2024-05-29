@@ -1,5 +1,5 @@
 import logging
-from Defaults import getenv
+from Globals import getenv
 from ApiClient import Chain, Prompts, Conversations
 from Extensions import Extensions
 

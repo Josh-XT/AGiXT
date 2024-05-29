@@ -2,7 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Interactions import Interactions
 from Websearch import Websearch
-from Defaults import getenv
+from Globals import getenv
 from ApiClient import (
     Agent,
     add_agent,

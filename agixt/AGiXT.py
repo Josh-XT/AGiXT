@@ -4,7 +4,7 @@ from readers.file import FileReader
 from Extensions import Extensions
 from Chains import Chains
 from pydub import AudioSegment
-from Defaults import getenv, get_tokens, DEFAULT_SETTINGS
+from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions
 import os
 import base64

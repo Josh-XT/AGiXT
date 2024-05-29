@@ -3,7 +3,7 @@ import random
 import re
 import numpy as np
 import requests
-from Defaults import getenv
+from Globals import getenv
 import uuid
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 

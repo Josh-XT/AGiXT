@@ -1,4 +1,3 @@
-version: "3.7"
 services:
   db:
     image: postgres
@@ -14,7 +13,6 @@ services:
     image: joshxt/agixt:main
     init: true
     environment:
-      - DB_CONNECTED=${DB_CONNECTED:-false}
       - DATABASE_HOST=${DATABASE_HOST:-db}
       - DATABASE_USER=${DATABASE_USER:-postgres}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
@@ -29,6 +27,7 @@ services:
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-none}
       - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"
