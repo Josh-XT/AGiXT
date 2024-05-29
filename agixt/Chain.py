@@ -435,7 +435,9 @@ class Chain:
             )
         self.session.commit()
 
-    def get_step_response(self, chain_run_id, chain_name, step_number="all"):
+    def get_step_response(self, chain_name, chain_run_id=None, step_number="all"):
+        if chain_run_id is None:
+            chain_run_id = self.get_last_chain_run_id(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
         if step_number == "all":
             chain_steps = (
@@ -711,6 +713,19 @@ class Chain:
         self.session.add(chain_run)
         self.session.commit()
         return chain_run.id
+
+    async def get_last_chain_run_id(self, chain_name):
+        chain_data = self.get_chain(chain_name=chain_name)
+        chain_run = (
+            self.session.query(ChainRun)
+            .filter(ChainRun.chain_id == chain_data["id"])
+            .order_by(ChainRun.timestamp.desc())
+            .first()
+        )
+        if chain_run:
+            return chain_run.id
+        else:
+            return await self.get_chain_run_id(chain_name=chain_name)
 
     def get_chain_args(self, chain_name):
         skip_args = [
