@@ -185,6 +185,10 @@ class Agent:
                 user_data = (
                     self.session.query(User).filter(User.email == self.user).first()
                 )
+                self.user_id = user_data.id
+            else:
+                logging.error(f"User {self.user} not found.")
+                raise
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
