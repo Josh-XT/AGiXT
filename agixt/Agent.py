@@ -169,28 +169,16 @@ class Agent:
     def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
         self.session = get_session()
-        self.user = user if user is not None else DEFAULT_USER
+        user = user if user is not None else DEFAULT_USER
+        self.user = user.lower()
         logging.warning(f"User: {self.user}")
         logging.warning(f"Default User: {DEFAULT_USER}")
         try:
             user_data = self.session.query(User).filter(User.email == self.user).first()
             self.user_id = user_data.id
         except Exception as e:
-            if self.user == DEFAULT_USER:
-                logging.warning(
-                    f"Default user {DEFAULT_USER} not found. Creating default user."
-                )
-                # Create the default user if it doesn't exist.
-                user_data = User(email=DEFAULT_USER, admin=True)
-                self.session.add(user_data)
-                self.session.commit()
-                user_data = (
-                    self.session.query(User).filter(User.email == self.user).first()
-                )
-                self.user_id = user_data.id
-            else:
-                logging.error(f"User {self.user} not found.")
-                raise
+            logging.error(f"User {self.user} not found.")
+            raise
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:

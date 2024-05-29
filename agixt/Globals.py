@@ -49,7 +49,7 @@ def getenv(var_name: str):
         "DATABASE_PASSWORD": "postgres",
         "DATABASE_HOST": "localhost",
         "DATABASE_PORT": "5432",
-        "DEFAULT_USER": "USER",
+        "DEFAULT_USER": "user",
         "USING_JWT": "false",
         "CHROMA_PORT": "8000",
         "CHROMA_SSL": "false",
@@ -67,4 +67,4 @@ def get_tokens(text: str) -> int:
     return num_tokens
 
 
-DEFAULT_USER = getenv("DEFAULT_USER")
+DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()

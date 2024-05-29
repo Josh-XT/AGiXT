@@ -25,7 +25,7 @@ def verify_api_key(authorization: str = Header(None)):
     DEFAULT_USER = getenv("DEFAULT_USER")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
-        DEFAULT_USER = "USER"
+        DEFAULT_USER = "user"
     if getenv("AUTH_PROVIDER") == "magicalauth":
         auth_key = AGIXT_API_KEY + str(datetime.now().strftime("%Y%m%d"))
         try:

@@ -154,9 +154,9 @@ class Memories:
         global DEFAULT_USER
         self.agent_name = agent_name
         if not DEFAULT_USER:
-            DEFAULT_USER = "USER"
+            DEFAULT_USER = "user"
         if not user:
-            user = "USER"
+            user = "user"
         if user != DEFAULT_USER:
             self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
