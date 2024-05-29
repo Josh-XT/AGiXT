@@ -470,8 +470,8 @@ class Interactions:
                         websearch_depth=websearch_depth,
                         websearch_timeout=websearch_timeout,
                     )
-                except:
-                    logging.warning("Failed to websearch.")
+                except Exception as e:
+                    logging.warning("Failed to websearch. Error: {e}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
