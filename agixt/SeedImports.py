@@ -406,7 +406,7 @@ def import_all_data():
     if user_count == 0:
         # Create the default user
         logging.info("Creating default admin user...")
-        user = User(email=DEFAULT_USER, role="admin")
+        user = User(email=DEFAULT_USER, admin=True)
         session.add(user)
         session.commit()
         logging.info("Default user created.")
