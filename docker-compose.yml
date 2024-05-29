@@ -1,15 +1,32 @@
-version: "3.7"
 services:
+  db:
+    image: postgres
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - ./data:/var/lib/postgresql/data
   agixt:
     image: joshxt/agixt:latest
     init: true
     environment:
+      - DATABASE_HOST=${DATABASE_HOST:-db}
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-postgres}
+      - DATABASE_PORT=${DATABASE_PORT:-5432}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-10}
+      - USING_JWT=${USING_JWT:-false}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
       - AGIXT_URI=${AGIXT_URI-http://agixt:7437}
+      - DISABLED_EXTENSIONS=${DISABLED_EXTENSIONS:-}
+      - DISABLED_PROVIDERS=${DISABLED_PROVIDERS:-}
       - WORKING_DIRECTORY=${WORKING_DIRECTORY:-/agixt/WORKSPACE}
       - TOKENIZERS_PARALLELISM=False
-      - LOG_LEVEL=${LOG_LEVEL:-ERROR}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ-America/New_York}
     ports:
       - "7437:7437"

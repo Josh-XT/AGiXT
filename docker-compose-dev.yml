@@ -1,4 +1,3 @@
-version: "3.7"
 services:
   db:
     image: postgres
@@ -14,7 +13,6 @@ services:
     image: joshxt/agixt:main
     init: true
     environment:
-      - DB_CONNECTED=${DB_CONNECTED:-false}
       - DATABASE_HOST=${DATABASE_HOST:-db}
       - DATABASE_USER=${DATABASE_USER:-postgres}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
