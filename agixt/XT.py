@@ -30,6 +30,7 @@ class AGiXT:
             if "settings" in self.agent.AGENT_CONFIG
             else DEFAULT_SETTINGS
         )
+        self.chain = Chain(user=self.user_email)
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -52,7 +53,7 @@ class AGiXT:
         Returns:
             list: List of available chains
         """
-        return Chain(user=self.user_email).get_chains()
+        return self.chain.get_chains()
 
     async def settings(self):
         """
@@ -264,7 +265,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent,
-                message=f"[ACTIVITY_START] Execute command: {command_name} with args: {command_args} [ACTIVITY_END]",
+                message=f"[ACTIVITY_START] Executing command: {command_name} with args: {command_args} [ACTIVITY_END]",
             )
         response = await Extensions(
             agent_name=self.agent_name,
@@ -292,44 +293,165 @@ class AGiXT:
             )
         return response
 
+    async def run_chain_step(
+        self,
+        chain_run_id=None,
+        step: dict = {},
+        chain_name="",
+        user_input="",
+        agent_override="",
+        chain_args={},
+        conversation_name="",
+    ):
+        if not chain_run_id:
+            chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
+        if step:
+            if "prompt_type" in step:
+                c = None
+                if conversation_name != "":
+                    c = Conversations(
+                        conversation_name=conversation_name,
+                        user=self.user_email,
+                    )
+                if agent_override != "":
+                    agent_name = agent_override
+                else:
+                    agent_name = step["agent_name"]
+                prompt_type = step["prompt_type"]
+                step_number = step["step"]
+                if "prompt_name" in step["prompt"]:
+                    prompt_name = step["prompt"]["prompt_name"]
+                else:
+                    prompt_name = ""
+                args = self.chain.get_step_content(
+                    chain_run_id=chain_run_id,
+                    chain_name=chain_name,
+                    prompt_content=step["prompt"],
+                    user_input=user_input,
+                    agent_name=agent_name,
+                )
+                if chain_args != {}:
+                    for arg, value in chain_args.items():
+                        args[arg] = value
+                if "chain_name" in args:
+                    args["chain"] = args["chain_name"]
+                if "chain" not in args:
+                    args["chain"] = chain_name
+                if "conversation_name" not in args:
+                    args["conversation_name"] = f"Chain Execution History: {chain_name}"
+                if "conversation" in args:
+                    args["conversation_name"] = args["conversation"]
+                if prompt_type == "Command":
+                    result = await self.execute_command(
+                        command_name=step["prompt"]["command_name"],
+                        command_args=args,
+                        conversation_name=args["conversation_name"],
+                        voice_response=False,
+                    )
+                elif prompt_type == "Prompt":
+                    if "prompt_name" not in args:
+                        args["prompt_name"] = prompt_name
+                    result = await self.inference(
+                        agent_name=agent_name,
+                        log_user_input=False,
+                        **args,
+                    )
+                elif prompt_type == "Chain":
+                    result = await self.execute_chain(
+                        chain_name=args["chain"],
+                        user_input=args["input"],
+                        agent_override=agent_name,
+                        from_step=args["from_step"] if "from_step" in args else 1,
+                        chain_args=(
+                            args["chain_args"]
+                            if "chain_args" in args
+                            else {"conversation_name": args["conversation_name"]}
+                        ),
+                        conversation_name=args["conversation_name"],
+                        log_user_input=False,
+                        voice_response=False,
+                    )
+        if result:
+            if isinstance(result, dict) and "response" in result:
+                result = result["response"]
+            if result == "Unable to retrieve data.":
+                result = None
+            if isinstance(result, dict):
+                result = json.dumps(result)
+            if not isinstance(result, str):
+                result = str(result)
+            await self.chain.update_step_response(
+                chain_run_id=chain_run_id,
+                chain_name=chain_name,
+                step_number=step_number,
+                response=result,
+            )
+            return result
+        else:
+            return None
+
     async def execute_chain(
         self,
-        chain_name: str,
-        user_input: str,
-        chain_args: dict = {},
-        agent_override: str = None,
-        conversation_name: str = "",
-        voice_response: bool = False,
-        log_user_input: bool = True,
+        chain_name,
+        chain_run_id=None,
+        user_input=None,
+        agent_override="",
+        from_step=1,
+        chain_args={},
+        log_user_input=False,
+        conversation_name="",
+        voice_response=False,
     ):
-        """
-        Execute a chain with arguments
-
-        Args:
-            chain_name (str): Name of the chain to execute
-            user_input (str): Message to add to conversation log pre-execution
-            chain_args (dict): Arguments for the chain
-            agent_override (str): Agent to override the chain agent
-            conversation_name (str): Name of the conversation
-            voice_response (bool): Whether to generate a voice response
-
-        Returns:
-            str: Response from the chain
-        """
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        response = await Chain(
-            user=self.user_email, ApiClient=self.ApiClient
-        ).run_chain(
-            chain_name=chain_name,
-            user_input=user_input,
-            agent_override=(
-                self.agent_name if agent_override == None else agent_override
-            ),
-            chain_args=chain_args,
-            from_step=1,
-            log_user_input=log_user_input,
+        chain_data = self.chain.get_chain(chain_name=chain_name)
+        if not chain_run_id:
+            chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
+        if chain_data == {}:
+            return f"Chain `{chain_name}` not found."
+        c = Conversations(
             conversation_name=conversation_name,
+            user=self.user,
         )
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=user_input,
+            )
+        agent_name = agent_override if agent_override != "" else "AGiXT"
+        if conversation_name != "":
+            c.log_interaction(
+                role=agent_name,
+                message=f"[ACTIVITY_START] Running chain `{chain_name}`... [ACTIVITY_END]",
+            )
+        response = ""
+        for step_data in chain_data["steps"]:
+            if int(step_data["step"]) >= int(from_step):
+                if "prompt" in step_data and "step" in step_data:
+                    step = {}
+                    step["agent_name"] = (
+                        agent_override
+                        if agent_override != ""
+                        else step_data["agent_name"]
+                    )
+                    step["prompt_type"] = step_data["prompt_type"]
+                    step["prompt"] = step_data["prompt"]
+                    step["step"] = step_data["step"]
+                    step_response = await self.run_chain_step(
+                        chain_run_id=chain_run_id,
+                        step=step,
+                        chain_name=chain_name,
+                        user_input=user_input,
+                        agent_override=agent_override,
+                        chain_args=chain_args,
+                        conversation_name=conversation_name,
+                    )
+                    if step_response == None:
+                        return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
+                    response = step_response
+        if conversation_name != "":
+            c.log_interaction(
+                role=agent_name,
+                message=response,
+            )
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
@@ -669,8 +791,9 @@ class AGiXT:
                 response = await self.execute_chain(
                     chain_name=chain_name,
                     user_input=new_prompt,
-                    chain_args=chain_args,
                     agent_override=self.agent_name,
+                    chain_args=chain_args,
+                    log_user_input=False,
                     conversation_name=conversation_name,
                     voice_response=tts,
                 )

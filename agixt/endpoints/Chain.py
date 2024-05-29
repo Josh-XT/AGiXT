@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
+from XT import AGiXT
 from Models import (
     RunChain,
     RunChainStep,
@@ -59,8 +60,12 @@ async def run_chain(
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    chain_response = await Chain(user=user, ApiClient=ApiClient).run_chain(
+    agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
+    chain_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).execute_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
@@ -98,8 +103,15 @@ async def run_chain_step(
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    ApiClient = get_api_client(authorization=authorization)
-    chain_step_response = await Chain(user=user, ApiClient=ApiClient).run_chain_step(
+    agent_name = (
+        user_input.agent_override if user_input.agent_override else step["agent"]
+    )
+    chain_step_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).run_chain_step(
+        chain_run_id=user_input.chain_run_id,
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
