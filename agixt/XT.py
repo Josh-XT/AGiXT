@@ -264,7 +264,7 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
-                role=self.agent,
+                role=self.agent_name,
                 message=f"[ACTIVITY_START] Executing command: {command_name} with args: {command_args} [ACTIVITY_END]",
             )
         response = await Extensions(
