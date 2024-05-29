@@ -363,6 +363,7 @@ class AGiXT:
                         args["prompt_name"] = prompt_name
                     result = await self.inference(
                         agent_name=agent_name,
+                        user_input=user_input,
                         log_user_input=False,
                         **args,
                     )
