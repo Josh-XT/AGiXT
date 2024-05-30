@@ -493,6 +493,7 @@ class Websearch:
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
+        search_string: str = "",
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
     ):
@@ -506,15 +507,6 @@ class Websearch:
         except:
             websearch_timeout = 0
         if websearch_depth > 0:
-            search_string = self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="WebSearch",
-                prompt_args={
-                    "user_input": user_input,
-                    "disable_memory": True,
-                    "browse_links": False,
-                },
-            )
             if len(search_string) > 0:
                 links = []
                 logging.info(f"Searching for: {search_string}")
