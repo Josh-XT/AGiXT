@@ -219,6 +219,19 @@ class Interactions:
                 total_results = len(conversation["interactions"])
                 # Get the last conversation_results interactions from the conversation
                 new_conversation_history = []
+                # Strip out any interactions where the message starts with [ACTIVITY_START]
+                activity_history = [
+                    interaction
+                    for interaction in conversation["interactions"]
+                    if interaction["message"].startswith("[ACTIVITY_START]")
+                ]
+                if len(activity_history) > 5:
+                    activity_history = activity_history[-5:]
+                conversation["interactions"] = [
+                    interaction
+                    for interaction in conversation["interactions"]
+                    if not interaction["message"].startswith("[ACTIVITY_START]")
+                ]
                 if total_results > conversation_results:
                     new_conversation_history = conversation["interactions"][
                         total_results - conversation_results : total_results
@@ -235,6 +248,12 @@ class Interactions:
                     # Inject minimal conversation history into the prompt, just enough to give the agent some context.
                     # Strip code blocks out of the message
                     message = regex.sub(r"(```.*?```)", "", message)
+                    conversation_history += f"{timestamp} {role}: {message} \n "
+                conversation_history += "\nThe assistant's recent activities:\n"
+                for activity in activity_history:
+                    timestamp = activity["timestamp"]
+                    role = activity["role"]
+                    message = activity["message"]
                     conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:
@@ -438,14 +457,17 @@ class Interactions:
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
-                    search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+                    user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
                 else:
-                    search_string = ""
-            else:
-                search_string = user_input
+                    user_input = ""
             if search_string != "":
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY_START] Searching the web... [ACTIVITY_END]",
+                )
                 search_string = self.run(
                     user_input=search_string,
+                    prompt_name="WebSearch",
                     context_results=context_results if context_results > 0 else 5,
                     log_user_input=False,
                     browse_links=False,
@@ -457,7 +479,8 @@ class Interactions:
                 )
                 try:
                     await self.websearch.websearch_agent(
-                        user_input=search_string,
+                        user_input=user_input,
+                        search_string=search_string,
                         websearch_depth=websearch_depth,
                         websearch_timeout=websearch_timeout,
                     )
@@ -479,12 +502,25 @@ class Interactions:
                     )
                     image_urls.append(image_url)
                 logging.info(f"Getting vision response for images: {image_urls}")
+                message = (
+                    "Looking at images..."
+                    if len(image_urls) > 1
+                    else "Looking at image..."
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY_START] {message} [ACTIVITY_END]",
+                )
                 try:
                     vision_response = await self.agent.inference(
                         prompt=user_input, images=image_urls
                     )
                     logging.info(f"Vision Response: {vision_response}")
                 except Exception as e:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY_START] Unable to view image. [ACTIVITY_END]",
+                    )
                     logging.error(f"Error getting vision response: {e}")
                     logging.warning("Failed to get vision response.")
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
