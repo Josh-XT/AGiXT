@@ -13,7 +13,7 @@ from Models import (
     TextToSpeech,
     ImageCreation,
 )
-from AGiXT import AGiXT
+from XT import AGiXT
 
 app = APIRouter()
 

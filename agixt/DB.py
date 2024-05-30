@@ -314,6 +314,7 @@ class Chain(Base):
         "ChainStep", backref="target_chain", foreign_keys="ChainStep.target_chain_id"
     )
     user = relationship("User", backref="chain")
+    runs = relationship("ChainRun", backref="chain", cascade="all, delete-orphan")
 
 
 class ChainStep(Base):
@@ -379,6 +380,29 @@ class ChainStepArgument(Base):
     value = Column(Text, nullable=True)
 
 
+class ChainRun(Base):
+    __tablename__ = "chain_run"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=uuid.uuid4 if DATABASE_TYPE != "sqlite" else str(uuid.uuid4()),
+    )
+    chain_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("chain.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+    timestamp = Column(DateTime, server_default=text("now()"))
+    chain_step_responses = relationship(
+        "ChainStepResponse", backref="chain_run", cascade="all, delete-orphan"
+    )
+
+
 class ChainStepResponse(Base):
     __tablename__ = "chain_step_response"
     id = Column(
@@ -390,6 +414,11 @@ class ChainStepResponse(Base):
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("chain_step.id", ondelete="CASCADE"),
         nullable=False,  # Add the ondelete option
+    )
+    chain_run_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("chain_run.id", ondelete="CASCADE"),
+        nullable=True,
     )
     timestamp = Column(DateTime, server_default=text("now()"))
     content = Column(Text, nullable=False)

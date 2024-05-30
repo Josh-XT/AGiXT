@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Chain, verify_api_key, get_api_client, is_admin
-from Chains import Chains
+from XT import AGiXT
 from Models import (
     RunChain,
     RunChainStep,
@@ -32,21 +32,6 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
     return {"chain": chain_data}
 
 
-@app.get(
-    "/api/chain/{chain_name}/responses",
-    tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_chain_responses(chain_name: str, user=Depends(verify_api_key)):
-    try:
-        chain_data = Chain(user=user).get_step_response(
-            chain_name=chain_name, step_number="all"
-        )
-        return {"chain": chain_data}
-    except:
-        raise HTTPException(status_code=404, detail="Chain not found")
-
-
 @app.post(
     "/api/chain/{chain_name}/run",
     tags=["Chain", "Admin"],
@@ -60,14 +45,18 @@ async def run_chain(
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    chain_response = await Chains(user=user, ApiClient=ApiClient).run_chain(
+    agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
+    chain_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).execute_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
-        all_responses=user_input.all_responses,
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
+        log_user_input=False,
     )
     try:
         if "Chain failed to complete" in chain_response:
@@ -99,8 +88,15 @@ async def run_chain_step(
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    ApiClient = get_api_client(authorization=authorization)
-    chain_step_response = await Chains(user=user, ApiClient=ApiClient).run_chain_step(
+    agent_name = (
+        user_input.agent_override if user_input.agent_override else step["agent"]
+    )
+    chain_step_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).run_chain_step(
+        chain_run_id=user_input.chain_run_id,
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -129,7 +125,7 @@ async def get_chain_args(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    chain_args = Chains(user=user, ApiClient=ApiClient).get_chain_args(
+    chain_args = Chain(user=user, ApiClient=ApiClient).get_chain_args(
         chain_name=chain_name
     )
     return {"chain_args": chain_args}

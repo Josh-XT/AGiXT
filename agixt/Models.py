@@ -117,6 +117,7 @@ class RunChainStep(BaseModel):
     prompt: str
     agent_override: Optional[str] = ""
     chain_args: Optional[dict] = {}
+    chain_run_id: Optional[str] = ""
 
 
 class StepInfo(BaseModel):
@@ -285,15 +286,11 @@ class Register(BaseModel):
     email: str
     first_name: str
     last_name: str
-    company_name: str
-    job_title: str
 
 
 class UserInfo(BaseModel):
     first_name: str
     last_name: str
-    company_name: str
-    job_title: str
 
 
 class Detail(BaseModel):

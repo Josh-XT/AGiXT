@@ -99,8 +99,6 @@ class Interactions:
         user_input: str = "",
         top_results: int = 5,
         prompt="",
-        chain_name="",
-        step_number=0,
         conversation_name="",
         vision_response: str = "",
         **kwargs,
@@ -195,36 +193,6 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        if chain_name != "":
-            try:
-                for arg, value in kwargs.items():
-                    if "{STEP" in value:
-                        # get the response from the step number
-                        step_response = self.chain.get_step_response(
-                            chain_name=chain_name, step_number=step_number
-                        )
-                        # replace the {STEPx} with the response
-                        value = value.replace(
-                            f"{{STEP{step_number}}}",
-                            step_response if step_response else "",
-                        )
-                        kwargs[arg] = value
-            except:
-                logging.info("No args to replace.")
-            if "{STEP" in prompt:
-                step_response = self.chain.get_step_response(
-                    chain_name=chain_name, step_number=step_number
-                )
-                prompt = prompt.replace(
-                    f"{{STEP{step_number}}}", step_response if step_response else ""
-                )
-            if "{STEP" in user_input:
-                step_response = self.chain.get_step_response(
-                    chain_name=chain_name, step_number=step_number
-                )
-                user_input = user_input.replace(
-                    f"{{STEP{step_number}}}", step_response if step_response else ""
-                )
         try:
             working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
         except:
@@ -385,8 +353,6 @@ class Interactions:
         self,
         user_input: str = "",
         context_results: int = 5,
-        chain_name: str = "",
-        step_number: int = 0,
         shots: int = 1,
         disable_memory: bool = True,
         conversation_name: str = "",
@@ -501,8 +467,6 @@ class Interactions:
             top_results=int(context_results),
             prompt=prompt,
             prompt_category=prompt_category,
-            chain_name=chain_name,
-            step_number=step_number,
             conversation_name=conversation_name,
             websearch=websearch,
             vision_response=vision_response,
@@ -541,8 +505,6 @@ class Interactions:
             if context_results > 0:
                 context_results = context_results - 1
             prompt_args = {
-                "chain_name": chain_name,
-                "step_number": step_number,
                 "shots": shots,
                 "disable_memory": disable_memory,
                 "user_input": user_input,
@@ -648,8 +610,6 @@ class Interactions:
             responses = [self.response]
             for shot in range(shots - 1):
                 prompt_args = {
-                    "chain_name": chain_name,
-                    "step_number": step_number,
                     "user_input": user_input,
                     "context_results": context_results,
                     "conversation_name": conversation_name,
