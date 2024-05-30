@@ -118,13 +118,18 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await Memories(
+    try:
+        collection_number = int(data.collection_number)
+    except:
+        collection_number = 0
+    memory = Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=data.collection_number,
+        collection_number=collection_number,
         ApiClient=ApiClient,
         user=user,
-    ).write_text_to_memory(
+    )
+    await memory.write_text_to_memory(
         user_input=data.user_input, text=data.text, external_source="user input"
     )
     return ResponseMessage(
