@@ -469,10 +469,7 @@ async def create_dataset(
             agent_name=agent_name,
             user=user,
             api_key=authorization,
-        ).create_dataset_from_memories(
-            dataset_name=dataset.dataset_name,
-            batch_size=batch_size,
-        )
+        ).create_dataset_from_memories(batch_size=batch_size)
     )
     return ResponseMessage(
         message=f"Creation of dataset {dataset.dataset_name} for agent {agent_name} started."

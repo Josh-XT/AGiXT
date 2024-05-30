@@ -23,7 +23,6 @@ class AgentMemoryQuery(BaseModel):
 
 
 class Dataset(BaseModel):
-    dataset_name: str
     batch_size: int = 5
 
 

@@ -929,20 +929,14 @@ class AGiXT:
         return prompt, chosen, rejected
 
     # Creates a synthetic dataset from memories in sharegpt format
-    async def create_dataset_from_memories(
-        self, dataset_name: str = "", batch_size: int = 10
-    ):
+    async def create_dataset_from_memories(self, batch_size: int = 10):
         self.agent_settings["training"] = True
         self.agent_interactions.agent.update_agent_config(
             new_config=self.agent_settings, config_key="settings"
         )
         memories = []
         questions = []
-        if dataset_name == "":
-            dataset_name = f"{datetime.now().isoformat()}-dataset"
-        dataset_name = "".join(
-            [char for char in dataset_name if char not in r"\/:*?\"<>|"]
-        )
+        dataset_name = f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}-DPO-Dataset"
         collections = await self.agent_interactions.agent_memory.get_collections()
         for collection in collections:
             self.collection_name = collection
