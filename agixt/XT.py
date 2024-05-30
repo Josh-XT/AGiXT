@@ -545,18 +545,13 @@ class AGiXT:
             url_str = {"\n".join(urls)}
             user_input = f"Learn from the information from these websites:\n {url_str} "
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if conversation_name != "" and conversation_name != None:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Browsing the web...",
-            )
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
             search_depth=scrape_depth,
             summarize_content=summarize_content,
             conversation_name=conversation_name,
         )
-        if conversation_name != "" and conversation_name != None:
+        if conversation_name != "" and conversation_name != None and response != "":
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] {response}",
