@@ -92,37 +92,12 @@ def delete_user(
 async def createuser(
     account: WebhookUser,
     authorization: str = Header(None),
-    user=Depends(verify_api_key),
 ):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     return webhook_create_user(
         api_key=authorization,
         email=account.email,
         role="user",
-        agent_name=account.agent_name,
-        settings=account.settings,
-        commands=account.commands,
-        training_urls=account.training_urls,
-        github_repos=account.github_repos,
-        ApiClient=ApiClient,
-    )
-
-
-@app.post("/api/admin", tags=["User"])
-async def createadmin(
-    account: WebhookUser,
-    authorization: str = Header(None),
-    user=Depends(verify_api_key),
-):
-    if is_admin(email=user, api_key=authorization) != True:
-        raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    return webhook_create_user(
-        api_key=authorization,
-        email=account.email,
-        role="admin",
         agent_name=account.agent_name,
         settings=account.settings,
         commands=account.commands,
