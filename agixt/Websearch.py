@@ -435,7 +435,9 @@ class Websearch:
         conversation_name: str = "",
     ):
         # user_input = "I am browsing {url} and collecting data from it to learn more."
-        c = Conversations(conversation_name=conversation_name, user=self.user)
+        c = None
+        if conversation_name != "" and conversation_name is not None:
+            c = Conversations(conversation_name=conversation_name, user=self.user)
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if len(links) < 1:
             return ""
@@ -481,8 +483,7 @@ class Websearch:
                                         scraped_links.append(sublink[1])
         str_links = "\n".join(scraped_links)
         message = f"I have read all of the content from the following links into my memory:\n{str_links}"
-        if conversation_name:
-            c = Conversations(conversation_name=conversation_name, user=self.user)
+        if conversation_name != "" and conversation_name is not None:
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY_START] {message} [ACTIVITY_END]",

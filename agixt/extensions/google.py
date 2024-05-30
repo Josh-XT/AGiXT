@@ -9,8 +9,6 @@ import subprocess
 import mimetypes
 import email
 from base64 import urlsafe_b64decode
-from typing import List, Union
-import json
 import logging
 from Extensions import Extensions
 
@@ -29,8 +27,6 @@ except:
     )
     from googleapiclient.discovery import build
 
-from googleapiclient.errors import HttpError
-
 
 class google(Extensions):
     def __init__(
@@ -38,15 +34,11 @@ class google(Extensions):
         GOOGLE_CLIENT_ID: str = "",
         GOOGLE_CLIENT_SECRET: str = "",
         GOOGLE_REFRESH_TOKEN: str = "",
-        GOOGLE_API_KEY: str = "",
-        GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
         self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
         self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
         self.GOOGLE_REFRESH_TOKEN = GOOGLE_REFRESH_TOKEN
-        self.GOOGLE_API_KEY = GOOGLE_API_KEY
-        self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
         self.commands = {
@@ -61,7 +53,6 @@ class google(Extensions):
             "Google - Get Calendar Items": self.get_calendar_items,
             "Google - Add Calendar Item": self.add_calendar_item,
             "Google - Remove Calendar Item": self.remove_calendar_item,
-            "Google Search": self.google_official_search,
         }
 
     def authenticate(self):
@@ -557,37 +548,3 @@ class google(Extensions):
         except Exception as e:
             logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."
-
-    async def google_official_search(
-        self, query: str, num_results: int = 8
-    ) -> Union[str, List[str]]:
-        """
-        Perform a Google search using the official Google API
-
-        Args:
-        query (str): The search query
-        num_results (int): The number of search results to retrieve
-
-        Returns:
-        Union[str, List[str]]: The search results
-        """
-        try:
-            service = build("customsearch", "v1", developerKey=self.GOOGLE_API_KEY)
-            result = (
-                service.cse()
-                .list(q=query, cx=self.GOOGLE_SEARCH_ENGINE_ID, num=num_results)
-                .execute()
-            )
-            search_results = result.get("items", [])
-            search_results_links = [item["link"] for item in search_results]
-        except HttpError as e:
-            error_details = json.loads(e.content.decode())
-            if error_details.get("error", {}).get(
-                "code"
-            ) == 403 and "invalid API key" in error_details.get("error", {}).get(
-                "message", ""
-            ):
-                return "Error: The provided Google API key is invalid or missing."
-            else:
-                return f"Error: {e}"
-        return search_results_links
