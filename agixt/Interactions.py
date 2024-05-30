@@ -438,14 +438,13 @@ class Interactions:
         if websearch:
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
-                    search_string = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
+                    user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
                 else:
-                    search_string = ""
-            else:
-                search_string = user_input
+                    user_input = ""
             if search_string != "":
                 search_string = self.run(
                     user_input=search_string,
+                    prompt_name="WebSearch",
                     context_results=context_results if context_results > 0 else 5,
                     log_user_input=False,
                     browse_links=False,
@@ -457,7 +456,8 @@ class Interactions:
                 )
                 try:
                     await self.websearch.websearch_agent(
-                        user_input=search_string,
+                        user_input=user_input,
+                        search_string=search_string,
                         websearch_depth=websearch_depth,
                         websearch_timeout=websearch_timeout,
                     )
