@@ -23,6 +23,7 @@ from Models import (
     Dataset,
     FinetuneAgentModel,
     ExternalSource,
+    UserInput,
 )
 
 app = APIRouter()
@@ -474,6 +475,29 @@ async def create_dataset(
     return ResponseMessage(
         message=f"Creation of dataset {dataset.dataset_name} for agent {agent_name} started."
     )
+
+
+@app.post(
+    "/api/agent/{agent_name}/dpo",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Gets a DPO response for a question",
+)
+async def get_dpo_response(
+    agent_name: str,
+    user_input: UserInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> Dict[str, Any]:
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    prompt, chosen, rejected = await agixt.dpo(
+        question=user_input, injected_memories=int(user_input.injected_memories)
+    )
+    return {
+        "prompt": prompt,
+        "chosen": chosen,
+        "rejected": rejected,
+    }
 
 
 # Train model

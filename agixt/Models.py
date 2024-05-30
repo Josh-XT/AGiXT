@@ -22,6 +22,11 @@ class AgentMemoryQuery(BaseModel):
     min_relevance_score: float = 0.0
 
 
+class UserInput(BaseModel):
+    user_input: str
+    injected_memories: Optional[int] = 10
+
+
 class Dataset(BaseModel):
     batch_size: int = 5
 
