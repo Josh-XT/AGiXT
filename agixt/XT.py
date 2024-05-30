@@ -423,6 +423,9 @@ class AGiXT:
         voice_response=False,
     ):
         chain_data = self.chain.get_chain(chain_name=chain_name)
+        chain_dependencies = self.chain.get_chain_step_dependencies(
+            chain_name=chain_name
+        )
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
         if chain_data == {}:
@@ -455,6 +458,14 @@ class AGiXT:
                     step["prompt_type"] = step_data["prompt_type"]
                     step["prompt"] = step_data["prompt"]
                     step["step"] = step_data["step"]
+                    step_dependencies = chain_dependencies[step["step"]]
+                    if step_dependencies != []:
+                        await self.chain.check_if_dependencies_met(
+                            chain_run_id=chain_run_id,
+                            chain_name=chain_name,
+                            step_number=step["step"],
+                            dependencies=step_dependencies,
+                        )
                     step_response = await self.run_chain_step(
                         chain_run_id=chain_run_id,
                         step=step,
