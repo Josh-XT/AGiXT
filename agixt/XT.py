@@ -174,7 +174,7 @@ class AGiXT:
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] Generating image... [ACTIVITY_END]",
+                message=f"[ACTIVITY] Generating image...",
             )
         return await self.agent.generate_image(prompt=prompt)
 
@@ -192,7 +192,7 @@ class AGiXT:
             c = Conversations(conversation_name="Text to Speech", user=self.user_email)
             c.log_interaction(
                 role="USER",
-                message=f"[ACTIVITY_START] Generating audio from text: {text} [ACTIVITY_END]",
+                message=f"[ACTIVITY] Generating audio from text: {text}",
             )
         tts_url = await self.agent.text_to_speech(text=text.text)
         if not str(tts_url).startswith("http"):
@@ -222,7 +222,7 @@ class AGiXT:
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] Transcribed audio to text: {response} [ACTIVITY_END]",
+                message=f"[ACTIVITY] Transcribed audio to text: {response}",
             )
 
     async def translate_audio(self, audio_path: str, conversation_name: str = ""):
@@ -242,7 +242,7 @@ class AGiXT:
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] Translated audio: {response} [ACTIVITY_END]",
+                message=f"[ACTIVITY] Translated audio: {response}",
             )
         return response
 
@@ -269,7 +269,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] Executing command: {command_name} with args: {command_args} [ACTIVITY_END]",
+                message=f"[ACTIVITY] Executing command: {command_name} with args: {command_args}",
             )
         response = await Extensions(
             agent_name=self.agent_name,
@@ -293,7 +293,7 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
+                message=f"[ACTIVITY] {response}",
             )
         return response
 
@@ -349,7 +349,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY_START] Executing command: {step['prompt']['command_name']} with args: {args} [ACTIVITY_END]",
+                            message=f"[ACTIVITY] Executing command: {step['prompt']['command_name']} with args: {args}",
                         )
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
@@ -361,7 +361,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY_START] Running prompt: {prompt_name} with args: {args} [ACTIVITY_END]",
+                            message=f"[ACTIVITY] Running prompt: {prompt_name} with args: {args}",
                         )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
@@ -375,7 +375,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY_START] Running chain: {args['chain']} with args: {args} [ACTIVITY_END]",
+                            message=f"[ACTIVITY] Running chain: {args['chain']} with args: {args}",
                         )
                     result = await self.execute_chain(
                         chain_name=args["chain"],
@@ -440,7 +440,7 @@ class AGiXT:
         if conversation_name != "":
             c.log_interaction(
                 role=agent_name,
-                message=f"[ACTIVITY_START] Running chain `{chain_name}`... [ACTIVITY_END]",
+                message=f"[ACTIVITY] Running chain `{chain_name}`...",
             )
         response = ""
         for step_data in chain_data["steps"]:
@@ -511,7 +511,7 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] Browsing the web... [ACTIVITY_END]",
+                message=f"[ACTIVITY] Browsing the web...",
             )
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
@@ -522,7 +522,7 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
+                message=f"[ACTIVITY] {response}",
             )
         return "I have read the information from the websites into my memory."
 
@@ -561,7 +561,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY_START] {response} [ACTIVITY_END]",
+                message=f"[ACTIVITY] {response}",
             )
         return response
 

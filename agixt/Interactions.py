@@ -219,18 +219,18 @@ class Interactions:
                 total_results = len(conversation["interactions"])
                 # Get the last conversation_results interactions from the conversation
                 new_conversation_history = []
-                # Strip out any interactions where the message starts with [ACTIVITY_START]
+                # Strip out any interactions where the message starts with [ACTIVITY]
                 activity_history = [
                     interaction
                     for interaction in conversation["interactions"]
-                    if interaction["message"].startswith("[ACTIVITY_START]")
+                    if interaction["message"].startswith("[ACTIVITY]")
                 ]
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
                 conversation["interactions"] = [
                     interaction
                     for interaction in conversation["interactions"]
-                    if not interaction["message"].startswith("[ACTIVITY_START]")
+                    if not interaction["message"].startswith("[ACTIVITY]")
                 ]
                 if total_results > conversation_results:
                     new_conversation_history = conversation["interactions"][
@@ -463,7 +463,7 @@ class Interactions:
             if search_string != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY_START] Searching the web... [ACTIVITY_END]",
+                    message=f"[ACTIVITY] Searching the web...",
                 )
                 search_string = self.run(
                     user_input=search_string,
@@ -475,7 +475,7 @@ class Interactions:
                 )
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY_START] Searching web for: {search_string} [ACTIVITY_END]",
+                    message=f"[ACTIVITY] Searching web for: {search_string}",
                 )
                 try:
                     await self.websearch.websearch_agent(
@@ -509,7 +509,7 @@ class Interactions:
                 )
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY_START] {message} [ACTIVITY_END]",
+                    message=f"[ACTIVITY] {message}",
                 )
                 try:
                     vision_response = await self.agent.inference(
@@ -519,7 +519,7 @@ class Interactions:
                 except Exception as e:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY_START] Unable to view image. [ACTIVITY_END]",
+                        message=f"[ACTIVITY] Unable to view image.",
                     )
                     logging.error(f"Error getting vision response: {e}")
                     logging.warning("Failed to get vision response.")
@@ -769,7 +769,7 @@ class Interactions:
                             try:
                                 c.log_interaction(
                                     role=self.agent_name,
-                                    message=f"[ACTIVITY_START] Executing command `{command_name}` with args `{command_args}`. [ACTIVITY_END]",
+                                    message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
                                 )
                                 ext = Extensions(
                                     agent_name=self.agent_name,
@@ -792,7 +792,7 @@ class Interactions:
                         if command_output:
                             c.log_interaction(
                                 role=self.agent_name,
-                                message=f"[ACTIVITY_START] {command_output} [ACTIVITY_END]",
+                                message=f"[ACTIVITY] {command_output}",
                             )
                             reformatted_response = reformatted_response.replace(
                                 f"#execute({command_name}, {command_args})",
