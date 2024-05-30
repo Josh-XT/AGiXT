@@ -16,6 +16,7 @@ from Prompts import Prompts
 from Conversations import Conversations
 from Extensions import Extensions
 import logging
+import asyncio
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -463,6 +464,7 @@ class Chain:
 
             return responses
         else:
+            step_number = int(step_number)
             chain_step = (
                 self.session.query(ChainStep)
                 .filter(
@@ -597,6 +599,76 @@ class Chain:
                 self.session.commit()
 
         return f"Imported chain: {chain_name}"
+
+    def get_chain_step_dependencies(self, chain_name):
+        chain_steps = self.get_steps(chain_name=chain_name)
+        prompts = Prompts(user=self.user)
+        chain_dependencies = {}
+        for step in chain_steps:
+            step_dependencies = []
+            prompt = step.prompt
+            if not isinstance(prompt, dict) and not isinstance(prompt, str):
+                prompt = str(prompt)
+            if isinstance(prompt, dict):
+                for key, value in prompt.items():
+                    if "{STEP" in value:
+                        step_count = value.count("{STEP")
+                        for i in range(step_count):
+                            new_step_number = int(value.split("{STEP")[1].split("}")[0])
+                            step_dependencies.append(new_step_number)
+                if "prompt_name" in prompt:
+                    prompt_text = prompts.get_prompt(
+                        prompt_name=prompt["prompt_name"],
+                        prompt_category=(
+                            prompt["prompt_category"]
+                            if "prompt_category" in prompt
+                            else "Default"
+                        ),
+                    )
+                    # See if "{context}" is in the prompt
+                    if "{context}" in prompt_text:
+                        # Add all prior steps in the chain as deps
+                        for i in range(step.step_number):
+                            step_dependencies.append(i)
+            elif isinstance(prompt, str):
+                if "{STEP" in prompt:
+                    step_count = prompt.count("{STEP")
+                    for i in range(step_count):
+                        new_step_number = int(prompt.split("{STEP")[1].split("}")[0])
+                        step_dependencies.append(new_step_number)
+                    if "{context}" in prompt:
+                        # Add all prior steps in the chain as deps
+                        for i in range(step.step_number):
+                            step_dependencies.append(i)
+            chain_dependencies[str(step.step_number)] = step_dependencies
+        return chain_dependencies
+
+    async def check_if_dependencies_met(
+        self, chain_run_id, chain_name, step_number, dependencies=[]
+    ):
+        if dependencies == []:
+            chain_dependencies = self.get_chain_step_dependencies(chain_name=chain_name)
+            dependencies = chain_dependencies[str(step_number)]
+
+        async def check_dependencies_met(dependencies):
+            for dependency in dependencies:
+                try:
+                    step_responses = self.get_step_response(
+                        chain_name=chain_name,
+                        chain_run_id=chain_run_id,
+                        step_number=int(dependency),
+                    )
+                except:
+                    return False
+                if not step_responses:
+                    return False
+            return True
+
+        dependencies_met = await check_dependencies_met(dependencies)
+        while not dependencies_met:
+            await asyncio.sleep(1)
+            dependencies_met = await check_dependencies_met(dependencies)
+        return True
 
     def get_step_content(
         self, chain_run_id, chain_name, prompt_content, user_input, agent_name
