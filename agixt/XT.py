@@ -480,6 +480,7 @@ class AGiXT:
                     step_dependencies = chain_dependencies[str(step["step"])]
                     dependencies_met = await check_dependencies_met(step_dependencies)
                     while not dependencies_met:
+                        await asyncio.sleep(1)
                         if step_responses == []:
                             step_responses = await asyncio.gather(*tasks)
                         else:
