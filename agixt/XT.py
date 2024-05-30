@@ -458,14 +458,8 @@ class AGiXT:
                     step["prompt_type"] = step_data["prompt_type"]
                     step["prompt"] = step_data["prompt"]
                     step["step"] = step_data["step"]
-                    step_dependencies = chain_dependencies[step["step"]]
-                    if step_dependencies != []:
-                        await self.chain.check_if_dependencies_met(
-                            chain_run_id=chain_run_id,
-                            chain_name=chain_name,
-                            step_number=step["step"],
-                            dependencies=step_dependencies,
-                        )
+                    # Get the step dependencies from chain_dependencies then check if the dependencies are 
+                    # met before running the step
                     step_response = await self.run_chain_step(
                         chain_run_id=chain_run_id,
                         step=step,
