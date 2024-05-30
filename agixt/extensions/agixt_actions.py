@@ -148,7 +148,6 @@ class agixt_actions(Extensions):
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Generate Agent Helper Chain": self.generate_helper_chain,
             "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
-            "Create a new command": self.create_command,
             "Execute Python Code": self.execute_python_code_internal,
             "Get Python Code from Response": self.get_python_code_from_response,
             "Get Mindmap for task to break it down": self.get_mindmap,
@@ -644,33 +643,6 @@ class agixt_actions(Extensions):
                 "conversation_name": self.conversation_name,
             },
         )
-
-    async def create_command(
-        self, function_description: str, agent: str = "AGiXT"
-    ) -> List[str]:
-        """
-        Create a new command
-
-        Args:
-        function_description (str): The description of the function
-        agent (str): The agent to create the command for
-
-        Returns:
-        str: The response from the chain
-        """
-        try:
-            return self.ApiClient.run_chain(
-                chain_name="Create New Command",
-                user_input=function_description,
-                agent_name=self.agent_name,
-                all_responses=False,
-                from_step=1,
-                chain_args={
-                    "conversation_name": self.conversation_name,
-                },
-            )
-        except Exception as e:
-            return f"Unable to create command: {e}"
 
     async def ask(self, user_input: str) -> str:
         """
