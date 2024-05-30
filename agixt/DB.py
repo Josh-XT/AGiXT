@@ -388,7 +388,7 @@ class ChainRun(Base):
     )
     chain_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("chain.id"),
+        ForeignKey("chain.id", ondelete="CASCADE"),
         nullable=False,
     )
     user_id = Column(
