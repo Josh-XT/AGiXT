@@ -900,32 +900,32 @@ class AGiXT:
         responses += await asyncio.gather(**tasks)
         return responses
 
-    async def dpo(self, question: str = "", context_results: int = 10):
-        context = await self.memories(
+    async def dpo(
+        self,
+        question: str = "",
+        injected_memories: int = 10,
+    ):
+        context_async = self.memories(
             user_input=question,
-            limit_per_collection=context_results,
+            limit_per_collection=injected_memories,
         )
-        prompt = f"### Context\n{context}\n### Question\n{question}"
-        chosen = await self.inference(
+        chosen_async = self.inference(
             user_input=question,
             prompt_category="Default",
             prompt_name="Answer Question with Memory",
-            injected_memories=context_results,
+            injected_memories=injected_memories,
             log_user_input=False,
         )
-        # Create a memory with question and answer
-        self.collection_number = 0
-        await self.agent_interactions.agent_memory.write_text_to_memory(
-            user_input=question,
-            text=chosen,
-            external_source="Synthetic QA",
-        )
-        rejected = await self.inference(
+        rejected_async = self.inference(
             user_input=question,
             prompt_category="Default",
             prompt_name="Wrong Answers Only",
             log_user_input=False,
         )
+        chosen = await chosen_async
+        rejected = await rejected_async
+        context = await context_async
+        prompt = f"### Context\n{context}\n### Question\n{question}"
         return prompt, chosen, rejected
 
     # Creates a synthetic dataset from memories in sharegpt format
@@ -966,7 +966,8 @@ class AGiXT:
         bad_answers = []
         for question in questions:
             prompt, chosen, rejected = await self.dpo(
-                question=question, context_results=10
+                question=question,
+                injected_memories=10,
             )
             prompts.append(prompt)
             good_answers.append(
