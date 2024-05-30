@@ -371,7 +371,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY_START] Running chain: {step['prompt']['chain_name']} with args: {args} [ACTIVITY_END]",
+                            message=f"[ACTIVITY_START] Running chain: {args['chain']} with args: {args} [ACTIVITY_END]",
                         )
                     result = await self.execute_chain(
                         chain_name=args["chain"],
