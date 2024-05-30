@@ -699,7 +699,17 @@ class AGiXT:
                         )
                         image_path = f"./WORKSPACE/{uuid.uuid4().hex}.jpg"
                         if url.startswith("http"):
-                            image = requests.get(url).content
+                            # Validate if url is an image
+                            if (
+                                url.endswith(
+                                    (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
+                                )
+                                and "localhost" not in url
+                                and "127.0.0.1" not in url
+                            ):
+                                image = requests.get(url).content
+                            else:
+                                image = None
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
@@ -707,9 +717,10 @@ class AGiXT:
                             file_name = f"{uuid.uuid4().hex}.{file_type}"
                             image_path = f"./WORKSPACE/{file_name}"
                             image = base64.b64decode(url.split(",")[1])
-                        with open(image_path, "wb") as f:
-                            f.write(image)
-                        images.append(image_path)
+                        if image:
+                            with open(image_path, "wb") as f:
+                                f.write(image)
+                            images.append(image_path)
                     if "audio_url" in msg:
                         audio_url = str(
                             msg["audio_url"]["url"]
