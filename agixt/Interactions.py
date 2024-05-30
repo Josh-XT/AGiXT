@@ -393,6 +393,19 @@ class Interactions:
             )
             del kwargs["browse_links"]
         websearch = False
+        if "websearch" in self.agent.AGENT_CONFIG["settings"]:
+            websearch = (
+                str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
+            )
+        if "websearch_depth" in self.agent.AGENT_CONFIG["settings"]:
+            websearch_depth = int(
+                self.agent.AGENT_CONFIG["settings"]["websearch_depth"]
+            )
+        if "browse_links" in self.agent.AGENT_CONFIG["settings"]:
+            browse_links = (
+                str(self.agent.AGENT_CONFIG["settings"]["browse_links"]).lower()
+                == "true"
+            )
         if "websearch" in kwargs:
             websearch = True if str(kwargs["websearch"]).lower() == "true" else False
             del kwargs["websearch"]
@@ -407,6 +420,7 @@ class Interactions:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
             conversation_name = datetime.now().strftime("%Y-%m-%d")
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
@@ -414,7 +428,7 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
-        if browse_links != False:
+        if browse_links != False and websearch == False:
             await self.websearch.scrape_websites(
                 user_input=user_input,
                 search_depth=websearch_depth,
@@ -430,6 +444,17 @@ class Interactions:
             else:
                 search_string = user_input
             if search_string != "":
+                search_string = self.run(
+                    user_input=search_string,
+                    context_results=context_results if context_results > 0 else 5,
+                    log_user_input=False,
+                    browse_links=False,
+                    websearch=False,
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY_START] Searching web for: {search_string} [ACTIVITY_END]",
+                )
                 try:
                     await self.websearch.websearch_agent(
                         user_input=search_string,
@@ -437,7 +462,7 @@ class Interactions:
                         websearch_timeout=websearch_timeout,
                     )
                 except Exception as e:
-                    logging.warning("Failed to websearch. Error: {e}")
+                    logging.warning(f"Failed to websearch. Error: {e}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
@@ -478,7 +503,7 @@ class Interactions:
             if user_input != "" and persist_context_in_history == False
             else formatted_prompt
         )
-        c = Conversations(conversation_name=conversation_name, user=self.user)
+
         if log_user_input:
             c.log_interaction(
                 role="USER",
