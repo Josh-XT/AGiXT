@@ -314,6 +314,7 @@ class Chain(Base):
         "ChainStep", backref="target_chain", foreign_keys="ChainStep.target_chain_id"
     )
     user = relationship("User", backref="chain")
+    runs = relationship("ChainRun", backref="chain", cascade="all, delete-orphan")
 
 
 class ChainStep(Base):
@@ -416,7 +417,7 @@ class ChainStepResponse(Base):
     )
     chain_run_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
-        ForeignKey("chain_run.id"),
+        ForeignKey("chain_run.id", ondelete="CASCADE"),
         nullable=True,
     )
     timestamp = Column(DateTime, server_default=text("now()"))
