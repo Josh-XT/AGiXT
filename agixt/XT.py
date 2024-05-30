@@ -462,6 +462,7 @@ class AGiXT:
             )
         response = ""
         tasks = []
+        step_responses = []
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
@@ -479,7 +480,10 @@ class AGiXT:
                     step_dependencies = chain_dependencies[str(step["step"])]
                     dependencies_met = await check_dependencies_met(step_dependencies)
                     while not dependencies_met:
-                        await asyncio.sleep(1)
+                        if step_responses == []:
+                            step_responses = await asyncio.gather(*tasks)
+                        else:
+                            step_responses += await asyncio.gather(*tasks)
                         dependencies_met = await check_dependencies_met(
                             step_dependencies
                         )
@@ -494,7 +498,7 @@ class AGiXT:
                             conversation_name=conversation_name,
                         )
                     )
-                    tasks.append({"step": step_data["step"], "task": task})
+                    tasks.append(task)
         step_responses = await asyncio.gather(*tasks)
         response = step_responses[-1]
         if response == None:
