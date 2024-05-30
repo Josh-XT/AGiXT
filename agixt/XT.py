@@ -581,6 +581,7 @@ class AGiXT:
         browse_links = True
         tts = False
         urls = []
+        base_path = os.path.join(os.getcwd(), "WORKSPACE")
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -697,7 +698,9 @@ class AGiXT:
                             if "url" in msg["image_url"]
                             else msg["image_url"]
                         )
-                        image_path = f"./WORKSPACE/{uuid.uuid4().hex}.jpg"
+                        image_path = os.path.join(
+                            os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
+                        )
                         if url.startswith("http"):
                             # Validate if url is an image
                             if (
@@ -715,12 +718,15 @@ class AGiXT:
                             if file_type == "jpeg":
                                 file_type = "jpg"
                             file_name = f"{uuid.uuid4().hex}.{file_type}"
-                            image_path = f"./WORKSPACE/{file_name}"
+                            image_path = os.path.join(
+                                os.getcwd(), "WORKSPACE", file_name
+                            )
                             image = base64.b64decode(url.split(",")[1])
                         if image:
-                            with open(image_path, "wb") as f:
-                                f.write(image)
-                            images.append(image_path)
+                            if image_path.startswith(base_path):
+                                with open(image_path, "wb") as f:
+                                    f.write(image)
+                                images.append(image_path)
                     if "audio_url" in msg:
                         audio_url = str(
                             msg["audio_url"]["url"]
@@ -733,26 +739,35 @@ class AGiXT:
                                 audio_url.split(",")[0].split("/")[1].split(";")[0]
                             )
                             audio_data = base64.b64decode(audio_url.split(",")[1])
-                            audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                            audio_path = os.path.join(
+                                os.getcwd(),
+                                "WORKSPACE",
+                                f"{uuid.uuid4().hex}.{file_type}",
+                            )
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
                             audio_url = audio_path
                         else:
                             # Download the audio file from the url, get the file type and convert to wav
                             audio_type = audio_url.split(".")[-1]
-                            audio_url = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_type}"
+                            audio_url = os.path.join(
+                                os.getcwd(),
+                                "WORKSPACE",
+                                f"{uuid.uuid4().hex}.{audio_type}",
+                            )
                             audio_data = requests.get(audio_url).content
                             with open(audio_url, "wb") as f:
                                 f.write(audio_data)
-                        wav_file = f"./WORKSPACE/{uuid.uuid4().hex}.wav"
-                        AudioSegment.from_file(audio_url).set_frame_rate(16000).export(
-                            wav_file, format="wav"
-                        )
-                        transcribed_audio = await self.audio_to_text(
-                            audio_path=wav_file,
-                            conversation_name=conversation_name,
-                        )
-                        new_prompt += transcribed_audio
+                        if audio_url.startswith(base_path):
+                            wav_file = f"./WORKSPACE/{uuid.uuid4().hex}.wav"
+                            AudioSegment.from_file(audio_url).set_frame_rate(
+                                16000
+                            ).export(wav_file, format="wav")
+                            transcribed_audio = await self.audio_to_text(
+                                audio_path=wav_file,
+                                conversation_name=conversation_name,
+                            )
+                            new_prompt += transcribed_audio
                     if "video_url" in msg:
                         video_url = str(
                             msg["video_url"]["url"]
@@ -779,11 +794,19 @@ class AGiXT:
                                 file_url.split(",")[0].split("/")[1].split(";")[0]
                             )
                             file_data = base64.b64decode(file_url.split(",")[1])
-                            file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            with open(file_path, "wb") as f:
-                                f.write(file_data)
-                            file_url = f"{self.outputs}/{os.path.basename(file_path)}"
-                            urls.append(file_url)
+                            # file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
+                            file_path = os.path.join(
+                                os.getcwd(),
+                                "WORKSPACE",
+                                f"{uuid.uuid4().hex}.{file_type}",
+                            )
+                            if file_path.startswith(base_path):
+                                with open(file_path, "wb") as f:
+                                    f.write(file_data)
+                                file_url = (
+                                    f"{self.outputs}/{os.path.basename(file_path)}"
+                                )
+                                urls.append(file_url)
             # Add user input to conversation
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(role="USER", message=new_prompt)
