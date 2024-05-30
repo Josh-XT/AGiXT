@@ -464,6 +464,7 @@ class Chain:
 
             return responses
         else:
+            step_number = int(step_number)
             chain_step = (
                 self.session.query(ChainStep)
                 .filter(
@@ -655,7 +656,7 @@ class Chain:
                     step_responses = self.get_step_response(
                         chain_name=chain_name,
                         chain_run_id=chain_run_id,
-                        step_number=dependency,
+                        step_number=int(dependency),
                     )
                 except:
                     return False
@@ -667,6 +668,7 @@ class Chain:
         while not dependencies_met:
             await asyncio.sleep(1)
             dependencies_met = await check_dependencies_met(dependencies)
+        return True
 
     def get_step_content(
         self, chain_run_id, chain_name, prompt_content, user_input, agent_name

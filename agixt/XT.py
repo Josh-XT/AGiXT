@@ -426,6 +426,21 @@ class AGiXT:
         chain_dependencies = self.chain.get_chain_step_dependencies(
             chain_name=chain_name
         )
+
+        async def check_dependencies_met(dependencies):
+            for dependency in dependencies:
+                try:
+                    step_responses = self.chain.get_step_response(
+                        chain_name=chain_name,
+                        chain_run_id=chain_run_id,
+                        step_number=int(dependency),
+                    )
+                except:
+                    return False
+                if not step_responses:
+                    return False
+            return True
+
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
         if chain_data == {}:
@@ -446,6 +461,7 @@ class AGiXT:
                 message=f"[ACTIVITY] Running chain `{chain_name}`...",
             )
         response = ""
+        tasks = []
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
@@ -460,18 +476,29 @@ class AGiXT:
                     step["step"] = step_data["step"]
                     # Get the step dependencies from chain_dependencies then check if the dependencies are
                     # met before running the step
-                    step_response = await self.run_chain_step(
-                        chain_run_id=chain_run_id,
-                        step=step,
-                        chain_name=chain_name,
-                        user_input=user_input,
-                        agent_override=agent_override,
-                        chain_args=chain_args,
-                        conversation_name=conversation_name,
+                    step_dependencies = chain_dependencies[str(step["step"])]
+                    dependencies_met = await check_dependencies_met(step_dependencies)
+                    while not dependencies_met:
+                        await asyncio.sleep(1)
+                        dependencies_met = await check_dependencies_met(
+                            step_dependencies
+                        )
+                    task = asyncio.create_task(
+                        self.run_chain_step(
+                            chain_run_id=chain_run_id,
+                            step=step,
+                            chain_name=chain_name,
+                            user_input=user_input,
+                            agent_override=agent_override,
+                            chain_args=chain_args,
+                            conversation_name=conversation_name,
+                        )
                     )
-                    if step_response == None:
-                        return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
-                    response = step_response
+                    tasks.append({"step": step_data["step"], "task": task})
+        step_responses = await asyncio.gather(*tasks)
+        response = step_responses[-1]
+        if response == None:
+            return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
         if conversation_name != "":
             c.log_interaction(
                 role=agent_name,
