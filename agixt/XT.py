@@ -5,6 +5,10 @@ from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions
+from datetime import datetime
+from typing import List
+import logging
+import asyncio
 import os
 import base64
 import uuid
@@ -853,3 +857,146 @@ class AGiXT:
             },
         }
         return res_model
+
+    async def batch_prompt(
+        self,
+        user_inputs: List[str] = [],
+        prompt_category: str = "Default",
+        prompt_name: str = "Ask Questions",
+        conversation_name: str = "",
+        images: list = [],
+        injected_memories: int = 5,
+        batch_size: int = 10,
+        browse_links: bool = False,
+        voice_response: bool = False,
+        log_user_input: bool = False,
+        **kwargs,
+    ):
+        i = 0
+        tasks = []
+        responses = []
+        if user_inputs == []:
+            return []
+        for user_input in user_inputs:
+            i += 1
+            if i % batch_size == 0:
+                responses += await asyncio.gather(**tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.inference(
+                    user_input=user_input,
+                    prompt_category=prompt_category,
+                    prompt_name=prompt_name,
+                    conversation_name=conversation_name,
+                    images=images,
+                    injected_memories=injected_memories,
+                    browse_links=browse_links,
+                    voice_response=voice_response,
+                    log_user_input=log_user_input,
+                    **kwargs,
+                )
+            )
+            tasks.append(task)
+        responses += await asyncio.gather(**tasks)
+        return responses
+
+    async def agent_dpo_qa(self, question: str = "", context_results: int = 10):
+        context = await self.memories(
+            user_input=question,
+            limit_per_collection=context_results,
+        )
+        prompt = f"### Context\n{context}\n### Question\n{question}"
+        chosen = await self.inference(
+            user_input=question,
+            prompt_category="Default",
+            prompt_name="Answer Question with Memory",
+            injected_memories=context_results,
+            log_user_input=False,
+        )
+        # Create a memory with question and answer
+        self.collection_number = 0
+        await self.agent_interactions.agent_memory.write_text_to_memory(
+            user_input=question,
+            text=chosen,
+            external_source="Synthetic QA",
+        )
+        rejected = await self.inference(
+            user_input=question,
+            prompt_category="Default",
+            prompt_name="Wrong Answers Only",
+            log_user_input=False,
+        )
+        return prompt, chosen, rejected
+
+    # Creates a synthetic dataset from memories in sharegpt format
+    async def create_dataset_from_memories(
+        self, dataset_name: str = "", batch_size: int = 10
+    ):
+        self.agent_settings["training"] = True
+        self.agent_interactions.agent.update_agent_config(
+            new_config=self.agent_settings, config_key="settings"
+        )
+        memories = []
+        questions = []
+        if dataset_name == "":
+            dataset_name = f"{datetime.now().isoformat()}-dataset"
+        dataset_name = "".join(
+            [char for char in dataset_name if char not in r"\/:*?\"<>|"]
+        )
+        collections = await self.agent_interactions.agent_memory.get_collections()
+        for collection in collections:
+            self.collection_name = collection
+            memories += (
+                await self.agent_interactions.agent_memory.export_collection_to_json()
+            )
+        logging.info(f"There are {len(memories)} memories.")
+        memories = [memory["text"] for memory in memories]
+        # Get a list of questions about each memory
+        question_list = self.batch_prompt(
+            user_inputs=memories,
+            batch_size=batch_size,
+        )
+        for question in question_list:
+            # Convert the response to a list of questions
+            question = question.split("\n")
+            question = [
+                item.lstrip("0123456789.*- ") for item in question if item.lstrip()
+            ]
+            question = [item for item in question if item]
+            question = [item.lstrip("0123456789.*- ") for item in question]
+            questions += question
+        prompts = []
+        good_answers = []
+        bad_answers = []
+        for question in questions:
+            prompt, chosen, rejected = await self.agent_dpo_qa(
+                question=question, context_results=10
+            )
+            prompts.append(prompt)
+            good_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": chosen, "role": "assistant"},
+                ]
+            )
+            bad_answers.append(
+                [
+                    {"content": prompt, "role": "user"},
+                    {"content": rejected, "role": "assistant"},
+                ]
+            )
+        dpo_dataset = {
+            "prompt": questions,
+            "chosen": good_answers,
+            "rejected": bad_answers,
+        }
+        # Save messages to a json file to be used as a dataset
+        agent_id = self.agent_interactions.agent.get_agent_id()
+        os.makedirs(f"./WORKSPACE/{agent_id}/datasets", exist_ok=True)
+        with open(f"./WORKSPACE/{agent_id}/datasets/{dataset_name}.json", "w") as f:
+            f.write(json.dumps(dpo_dataset))
+        self.agent_settings["training"] = False
+        self.agent_interactions.agent.update_agent_config(
+            new_config=self.agent_settings, config_key="settings"
+        )
+        return dpo_dataset

@@ -515,3 +515,15 @@ class Agent:
         self.session.delete(browsed_link)
         self.session.commit()
         return f"Link {url} deleted from browsed links."
+
+    def get_agent_id(self):
+        agent = (
+            self.session.query(AgentModel)
+            .filter(
+                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+            )
+            .first()
+        )
+        if not agent:
+            return None
+        return agent.id

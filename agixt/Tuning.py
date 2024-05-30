@@ -54,8 +54,7 @@ except ImportError:
 
 from peft import PeftModel
 from bitsandbytes.functional import dequantize_4bit
-from agixtsdk import AGiXTSDK
-from Memories import Memories
+from XT import AGiXT
 
 
 def fine_tune_llm(
@@ -65,31 +64,31 @@ def fine_tune_llm(
     max_seq_length: int = 16384,
     huggingface_output_path: str = "JoshXT/finetuned-mistral-7b-v0.2",
     private_repo: bool = True,
-    ApiClient=AGiXTSDK(),
+    user: str = "user",
+    api_key: str = "",
 ):
     output_path = "./models"
     # Step 1: Build AGiXT dataset
-    agent_config = ApiClient.get_agentconfig(agent_name)
-    if not agent_config:
-        agent_config = {}
+    agixt = AGiXT(user=user, api_key=api_key, agent_name=agent_name)
+    agent_settings = agixt.agent_settings
+    if not agent_settings:
+        agent_settings = {}
     huggingface_api_key = (
-        agent_config["settings"]["HUGGINGFACE_API_KEY"]
-        if "HUGGINGFACE_API_KEY" in agent_config["settings"]
+        agent_settings["HUGGINGFACE_API_KEY"]
+        if "HUGGINGFACE_API_KEY" in agent_settings
         else None
     )
-    response = Memories(
+    response = AGiXT(
         agent_name=agent_name,
-        agent_config=agent_config,
-        collection_number=0,
-        ApiClient=ApiClient,
+        api_key=api_key,
     ).create_dataset_from_memories(dataset_name=dataset_name, batch_size=5)
     dataset_name = (
         response["message"].split("Creation of dataset ")[1].split(" for agent")[0]
     )
     dataset_path = f"./WORKSPACE/{agent_name}/datasets/{dataset_name}.json"
-    agent_config["settings"]["training"] = True
-    ApiClient.update_agent_settings(
-        agent_name=agent_name, settings=agent_config["settings"]
+    agent_settings["training"] = True
+    agixt.agent_interactions.agent.update_agent_config(
+        new_config=agent_settings, config_key="settings"
     )
     # Step 2: Create qLora adapter
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -169,9 +168,9 @@ def fine_tune_llm(
         tokenizer.push_to_hub(
             huggingface_output_path, use_temp_dir=False, private=private_repo
         )
-    agent_config["settings"]["training"] = False
-    ApiClient.update_agent_settings(
-        agent_name=agent_name, settings=agent_config["settings"]
+    agent_settings["training"] = False
+    agixt.agent_interactions.agent.update_agent_config(
+        new_config=agent_settings, config_key="settings"
     )
 
 
@@ -180,11 +179,10 @@ if __name__ == "__main__":
     fine_tune_llm(
         agent_name="AGiXT",
         dataset_name="dataset",
-        base_uri="http://localhost:7437",
-        api_key="Your AGiXT API Key",
-        model_name="unsloth/mistral-7b-v0.2",
+        model_name="unsloth/llama-3-8b-Instruct-bnb-4bit",
         max_seq_length=16384,
-        output_path="./WORKSPACE/merged_model",
-        huggingface_output_path="JoshXT/finetuned-mistral-7b-v0.2",
+        huggingface_output_path="JoshXT/finetuned-llama-3-8b",
         private_repo=True,
+        user="user",
+        api_key="Your AGiXT API Key",
     )

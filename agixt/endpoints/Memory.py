@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
 from typing import Dict, Any, List
 from Websearch import Websearch
+from XT import AGiXT
 from Memories import Memories
 from readers.github import GithubReader
 from readers.file import FileReader
@@ -462,16 +463,12 @@ async def create_dataset(
 ) -> ResponseMessage:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     asyncio.create_task(
-        await Memories(
+        await AGiXT(
             agent_name=agent_name,
-            agent_config=agent.AGENT_CONFIG,
-            collection_number=0,
-            ApiClient=ApiClient,
             user=user,
+            api_key=authorization,
         ).create_dataset_from_memories(
             dataset_name=dataset.dataset_name,
             batch_size=batch_size,
