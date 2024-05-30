@@ -858,7 +858,7 @@ class AGiXT:
         }
         return res_model
 
-    async def batch_prompt(
+    async def batch_inference(
         self,
         user_inputs: List[str] = [],
         prompt_category: str = "Default",
@@ -900,7 +900,7 @@ class AGiXT:
         responses += await asyncio.gather(**tasks)
         return responses
 
-    async def agent_dpo_qa(self, question: str = "", context_results: int = 10):
+    async def dpo(self, question: str = "", context_results: int = 10):
         context = await self.memories(
             user_input=question,
             limit_per_collection=context_results,
@@ -952,9 +952,11 @@ class AGiXT:
         logging.info(f"There are {len(memories)} memories.")
         memories = [memory["text"] for memory in memories]
         # Get a list of questions about each memory
-        question_list = self.batch_prompt(
+        question_list = self.batch_inference(
             user_inputs=memories,
             batch_size=batch_size,
+            prompt_category="Default",
+            prompt_name="Ask Questions",
         )
         for question in question_list:
             # Convert the response to a list of questions
@@ -969,7 +971,7 @@ class AGiXT:
         good_answers = []
         bad_answers = []
         for question in questions:
-            prompt, chosen, rejected = await self.agent_dpo_qa(
+            prompt, chosen, rejected = await self.dpo(
                 question=question, context_results=10
             )
             prompts.append(prompt)
