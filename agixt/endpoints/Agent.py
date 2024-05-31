@@ -192,8 +192,17 @@ async def prompt_agent(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    if (
+        "prompt" in agent_prompt.prompt_args
+        and "prompt_name" not in agent_prompt.prompt_args
+    ):
+        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_args["prompt"]
+    if "prompt_name" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["prompt_name"] = "Chat"
+    if "prompt_category" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["prompt_category"] = "Default"
+    agent_prompt.prompt_args = {k: v for k, v in agent_prompt.prompt_args.items()}
     response = await agent.run(
-        prompt=agent_prompt.prompt_name,
         log_user_input=True,
         **agent_prompt.prompt_args,
     )
