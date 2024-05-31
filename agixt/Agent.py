@@ -392,9 +392,6 @@ class Agent:
                         self.session.add(agent_command)
         else:
             for setting_name, setting_value in new_config.items():
-                logging.info(
-                    f"Updating agent setting: {setting_name} = {setting_value}"
-                )
                 agent_setting = (
                     self.session.query(AgentSettingModel)
                     .filter_by(agent_id=agent.id, name=setting_name)
