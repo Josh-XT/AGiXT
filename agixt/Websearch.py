@@ -558,7 +558,7 @@ class Websearch:
         except:
             websearch_timeout = 0
         if websearch_depth > 0:
-            if len(search_string) > 0:
+            if len(user_input) > 0:
                 search_string = self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name="WebSearch",
