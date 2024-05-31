@@ -393,22 +393,6 @@ class Websearch:
         self.websearch_endpoint = websearch_endpoint
         return websearch_endpoint
 
-    async def web_search(self, query: str) -> List[str]:
-        endpoint = self.agent_settings["websearch_endpoint"]
-        if endpoint.endswith("/"):
-            endpoint = endpoint[:-1]
-        if endpoint.endswith("search"):
-            endpoint = endpoint[:-6]
-        query = urllib.parse.quote(query)
-        text_content, link_list = await self.get_web_content(
-            url=f"{endpoint}/search?q={query}"
-        )
-        if len(link_list) < 5:
-            self.failures.append(endpoint)
-            await self.update_search_provider()
-            return await self.web_search(query=query)
-        return link_list
-
     async def scrape_websites(
         self,
         user_input: str = "",
@@ -471,6 +455,22 @@ class Websearch:
                 message=f"[ACTIVITY] {message}",
             )
         return message
+
+    async def web_search(self, query: str) -> List[str]:
+        endpoint = self.websearch_endpoint
+        if endpoint.endswith("/"):
+            endpoint = endpoint[:-1]
+        if endpoint.endswith("search"):
+            endpoint = endpoint[:-6]
+        query = urllib.parse.quote(query)
+        text_content, link_list = await self.get_web_content(
+            url=f"{endpoint}/search?q={query}"
+        )
+        if len(link_list) < 5:
+            self.failures.append(endpoint)
+            await self.update_search_provider()
+            return await self.web_search(query=query)
+        return link_list
 
     async def websearch_agent(
         self,
