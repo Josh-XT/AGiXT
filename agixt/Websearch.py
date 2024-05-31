@@ -354,6 +354,10 @@ class Websearch:
             page = await context.new_page()
             url = f"https://lite.duckduckgo.com/lite/?q={query}"
             await page.goto(url)
+            page_content = await page.content()
+            soup = BeautifulSoup(page_content, "html.parser")
+            # print the page content
+            logging.info(f"Page content from DDG search: {soup.get_text()}")
             links = await page.query_selector_all("a")
             results = []
             for link in links:
@@ -417,8 +421,8 @@ class Websearch:
             return summaries
         except:
             self.failures.append(self.searx_instance_url)
-            if len(self.failures) > 5:
-                logging.info("Failed 5 times. Trying DDG...")
+            if len(self.failures) > 25:
+                logging.info("Failed 25 times. Trying DDG...")
                 self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
                 self.ApiClient.update_agent_settings(
                     agent_name=self.agent_name, settings=self.agent_settings
