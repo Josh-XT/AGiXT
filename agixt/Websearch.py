@@ -521,6 +521,7 @@ class Websearch:
             websearch_timeout = 0
         if websearch_depth > 0:
             if len(search_string) > 0:
+                search_string = str(search_string)
                 links = []
                 if self.searx_instance_url != "":
                     links = await self.search(query=search_string)
