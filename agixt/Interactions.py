@@ -477,15 +477,15 @@ class Interactions:
                     role=self.agent_name,
                     message=f"[ACTIVITY] Searching web for: {search_string}",
                 )
-                try:
-                    await self.websearch.websearch_agent(
-                        user_input=user_input,
-                        search_string=search_string,
-                        websearch_depth=websearch_depth,
-                        websearch_timeout=websearch_timeout,
-                    )
-                except Exception as e:
-                    logging.warning(f"Failed to websearch. Error: {e}")
+                # try:
+                await self.websearch.websearch_agent(
+                    user_input=user_input,
+                    search_string=search_string,
+                    websearch_depth=websearch_depth,
+                    websearch_timeout=websearch_timeout,
+                )
+                # except Exception as e:
+                # logging.warning(f"Failed to websearch. Error: {e}")
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
