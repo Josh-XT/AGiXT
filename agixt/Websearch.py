@@ -14,7 +14,6 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
-import undetected_chromedriver as uc
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -281,7 +280,7 @@ class Websearch:
         except:
             return None, None
 
-    async def resursive_browsing(self, user_input, links):
+    async def recursive_browsing(self, user_input, links):
         try:
             words = links.split()
             links = [
@@ -344,47 +343,11 @@ class Websearch:
                                     logging.info(
                                         f"AI has decided to click: {pick_a_link}"
                                     )
-                                    await self.resursive_browsing(
+                                    await self.recursive_browsing(
                                         user_input=user_input, links=pick_a_link
                                     )
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
-
-    async def ddg_search(query: str) -> List[str]:
-        driver = uc.Chrome(headless=True)
-        driver.get(f"https://lite.duckduckgo.com/lite/?q={query}")
-        page_content = driver.page_source
-        soup = BeautifulSoup(page_content, "html.parser")
-        links = soup.find_all("a")
-        parsed_links = []
-        for link in links:
-            new_link = str(link)
-            new_link = new_link.split("?uddg=")[1].split("&amp;rut=")[0]
-            new_link = urllib.parse.unquote(new_link)
-            summary = str(link).split(">")[1].split("</a>")[0].replace("</a", "")
-            parsed_links.append(f"{new_link} - {summary}")
-        driver.quit()
-        return parsed_links
-
-    async def brave_search(query: str) -> List[str]:
-        driver = uc.Chrome(headless=True)
-        url = f"https://search.brave.com/search?q={query}&source=web"
-        driver.get(url)
-        page_content = driver.page_source
-        soup = BeautifulSoup(page_content, "html.parser")
-        links = soup.find_all("a")
-        links = [link for link in links if "h svelte-fgmafh" in str(link)]
-        parsed_links = []
-        for link in links:
-            new_link = str(link)
-            new_link = new_link.split('href="')[1].split('"')[0]
-            new_link = urllib.parse.unquote(new_link)
-            summary = (
-                str(link).split('class="title svelte-fgmafh">')[1].split("</div>")[0]
-            )
-            parsed_links.append(f"{new_link} - {summary}")
-        driver.quit()
-        return parsed_links
 
     async def update_search_provider(self):
         # SearXNG - List of these at https://searx.space/
@@ -431,53 +394,20 @@ class Websearch:
         return websearch_endpoint
 
     async def web_search(self, query: str) -> List[str]:
-        driver = uc.Chrome(headless=True, use_subprocess=False)
-        query = urllib.parse.quote(query)
         endpoint = self.agent_settings["websearch_endpoint"]
         if endpoint.endswith("/"):
             endpoint = endpoint[:-1]
         if endpoint.endswith("search"):
             endpoint = endpoint[:-6]
-        url = f"{endpoint}/search?q={query}&language=en&safesearch=1"
-        driver.get(url)
-        page_content = driver.page_source
-        soup = BeautifulSoup(page_content, "html.parser")
-        links = soup.find_all("a")
-        if len(links) < 5:
+        query = urllib.parse.quote(query)
+        text_content, link_list = await self.get_web_content(
+            url=f"{endpoint}/search?q={query}"
+        )
+        if len(link_list) < 5:
             self.failures.append(endpoint)
             await self.update_search_provider()
             return await self.web_search(query=query)
-        str_links = str(links)
-        fields = SearchResponse.__annotations__
-        field_descriptions = []
-        for field, field_type in fields.items():
-            description = f"{field}: {field_type}"
-            field_descriptions.append(description)
-        schema = "\n".join(field_descriptions)
-        response = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Convert to Pydantic Model",
-            prompt_args={
-                "user_input": f"The user is searching for: {query}\nResults: {str_links}",
-                "schema": schema,
-                "prompt_category": "Default",
-                "browse_links": "false",
-                "websearch": "false",
-            },
-        )
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[1].strip()
-        links_with_summary = []
-        try:
-            search_response = json.loads(response)
-            for result in search_response:
-                links_with_summary.append(f"{result['href']} - {result['summary']}")
-        except:
-            links_with_summary = str(response).split("\n")
-        driver.quit()
-        return links_with_summary
+        return link_list
 
     async def scrape_websites(
         self,
@@ -575,7 +505,7 @@ class Websearch:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
                     task = asyncio.create_task(
-                        self.resursive_browsing(user_input=user_input, links=links)
+                        self.recursive_browsing(user_input=user_input, links=links)
                     )
                     self.tasks.append(task)
 
