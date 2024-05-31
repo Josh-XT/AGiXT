@@ -373,6 +373,8 @@ class Websearch:
             page = await context.new_page()
             url = f"https://lite.duckduckgo.com/lite/?q={query}"
             await page.goto(url)
+            # wait for page to load
+            await page.wait_for_load_state("load")
             page_content = await page.content()
             # print the page content
             logging.info(f"Page content from DDG search: {page_content}")
