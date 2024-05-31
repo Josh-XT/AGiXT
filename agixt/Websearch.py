@@ -465,9 +465,14 @@ class Websearch:
         if endpoint.endswith("search"):
             endpoint = endpoint[:-6]
         query = urllib.parse.quote(query)
+        logging.info(f"Websearching for {query} on {endpoint}")
         text_content, link_list = await self.get_web_content(
             url=f"{endpoint}/search?q={query}"
         )
+        logging.info(f"Found {len(link_list)} results for {query}")
+        logging.info(f"Content: {text_content}")
+        logging.info(f"Links: {link_list}")
+
         if link_list is None:
             link_list = []
         if len(link_list) < 5:
