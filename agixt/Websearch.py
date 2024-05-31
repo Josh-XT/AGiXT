@@ -466,6 +466,8 @@ class Websearch:
         text_content, link_list = await self.get_web_content(
             url=f"{endpoint}/search?q={query}"
         )
+        if link_list is None:
+            link_list = []
         if len(link_list) < 5:
             self.failures.append(endpoint)
             await self.update_search_provider()
