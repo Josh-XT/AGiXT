@@ -465,7 +465,7 @@ class Interactions:
                     role=self.agent_name,
                     message=f"[ACTIVITY] Searching the web...",
                 )
-                search_string = self.run(
+                search_string = await self.run(
                     user_input=user_input,
                     prompt_name="WebSearch",
                     context_results=context_results if context_results > 0 else 5,
