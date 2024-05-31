@@ -343,10 +343,9 @@ class Websearch:
                                 logging.info(f"Issues reading {url}. Moving on...")
 
     async def ddg_search(query: str) -> List[str]:
-        driver = uc.Chrome(headless=True, use_subpress=False)
+        driver = uc.Chrome(headless=True)
         driver.get(f"https://lite.duckduckgo.com/lite/?q={query}")
         page_content = driver.page_source
-        logging.info(f"DDG Page Content: {page_content}...")
         soup = BeautifulSoup(page_content, "html.parser")
         links = soup.find_all("a")
         parsed_links = []
@@ -355,6 +354,26 @@ class Websearch:
             new_link = new_link.split("?uddg=")[1].split("&amp;rut=")[0]
             new_link = urllib.parse.unquote(new_link)
             summary = str(link).split(">")[1].split("</a>")[0].replace("</a", "")
+            parsed_links.append(f"{new_link} - {summary}")
+        driver.quit()
+        return parsed_links
+
+    async def brave_search(query: str) -> List[str]:
+        driver = uc.Chrome(headless=True)
+        url = f"https://search.brave.com/search?q={query}&source=web"
+        driver.get(url)
+        page_content = driver.page_source
+        soup = BeautifulSoup(page_content, "html.parser")
+        links = soup.find_all("a")
+        links = [link for link in links if "h svelte-fgmafh" in str(link)]
+        parsed_links = []
+        for link in links:
+            new_link = str(link)
+            new_link = new_link.split('href="')[1].split('"')[0]
+            new_link = urllib.parse.unquote(new_link)
+            summary = (
+                str(link).split('class="title svelte-fgmafh">')[1].split("</div>")[0]
+            )
             parsed_links.append(f"{new_link} - {summary}")
         driver.quit()
         return parsed_links
@@ -503,11 +522,12 @@ class Websearch:
         if websearch_depth > 0:
             if len(search_string) > 0:
                 links = []
-                logging.info(f"Searching for: {search_string}")
                 if self.searx_instance_url != "":
                     links = await self.search(query=search_string)
                 else:
                     links = await self.ddg_search(query=search_string)
+                if not links:
+                    links = await self.brave_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
