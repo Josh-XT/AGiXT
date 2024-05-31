@@ -14,7 +14,6 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
-from duckduckgo_search import DDGS
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -53,11 +52,9 @@ class Websearch:
             user=user,
         )
         self.searx_instance_url = (
-            (
-                self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
-                if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
-                else ""
-            ),
+            self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
+            if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
+            else ""
         )
 
     def verify_link(self, link: str = "") -> bool:
@@ -345,10 +342,51 @@ class Websearch:
                                 logging.info(f"Issues reading {url}. Moving on...")
 
     async def ddg_search(self, query: str, proxy=None) -> List[str]:
-        search_results = DDGS(proxy=proxy).text(query, max_results=10)
-        results = []
-        for result in search_results:
-            results.append(f"{result['title']} - {result['href']}")
+        async with async_playwright() as p:
+            launch_options = {}
+            if proxy:
+                launch_options["proxy"] = {"server": proxy}
+            launch_options["headless"] = True
+            browser = await p.chromium.launch(**launch_options)
+            query = urllib.parse.quote(query)
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "max-age=0",
+                "Priority": "u=0, i",
+                "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            }
+            context = await browser.new_context(extra_http_headers=headers)
+            page = await context.new_page()
+            url = f"https://lite.duckduckgo.com/lite/?q={query}"
+            await page.goto(url)
+            page_content = await page.content()
+            soup = BeautifulSoup(page_content, "html.parser")
+            # print the page content
+            logging.info(f"Page content from DDG search: {soup.get_text()}")
+            links = await page.query_selector_all("a")
+            results = []
+            for link in links:
+                summary = await page.evaluate("(link) => link.textContent", link)
+                summary = summary.replace("\n", "").replace("\t", "").replace("  ", "")
+                href = await page.evaluate("(link) => link.href", link)
+                parsed_url = urllib.parse.urlparse(href)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                uddg = query_params.get("uddg", [None])[0]
+                if uddg:
+                    href = urllib.parse.unquote(uddg)
+                if summary:
+                    results.append(f"{summary} - {href}")
+            await browser.close()
         return results
 
     async def search(self, query: str) -> List[str]:
@@ -398,8 +436,8 @@ class Websearch:
             return summaries
         except:
             self.failures.append(self.searx_instance_url)
-            if len(self.failures) > 10:
-                logging.info("Failed 10 times. Trying DDG...")
+            if len(self.failures) > 5:
+                logging.info("Failed 5 times. Trying DDG...")
                 self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
                 self.ApiClient.update_agent_settings(
                     agent_name=self.agent_name, settings=self.agent_settings
