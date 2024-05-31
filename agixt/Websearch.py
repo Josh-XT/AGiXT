@@ -325,12 +325,15 @@ class Websearch:
                                         "links": link_list,
                                         "visited_links": self.browsed_links,
                                         "disable_memory": True,
+                                        "websearch": False,
                                         "browse_links": False,
                                         "user_input": user_input,
                                         "context_results": 0,
+                                        "tts": False,
+                                        "conversation_name": "Link selection",
                                     },
                                 )
-                                if not pick_a_link.startswith("None"):
+                                if not str(pick_a_link).lower().startswith("none"):
                                     logging.info(
                                         f"AI has decided to click: {pick_a_link}"
                                     )
@@ -345,6 +348,7 @@ class Websearch:
             launch_options = {}
             if proxy:
                 launch_options["proxy"] = {"server": proxy}
+            launch_options["headless"] = True
             browser = await p.chromium.launch(**launch_options)
             context = await browser.new_context()
             page = await context.new_page()
@@ -384,12 +388,13 @@ class Websearch:
             self.ApiClient.update_agent_settings(
                 agent_name=self.agent_name, settings=self.agent_settings
             )
-        server = self.searx_instance_url.rstrip("/")
-        self.agent_settings["SEARXNG_INSTANCE_URL"] = server
+        self.searx_instance_url = str(self.searx_instance_url).rstrip("/")
+        logging.info(f"Using {self.searx_instance_url}")
+        self.agent_settings["SEARXNG_INSTANCE_URL"] = self.searx_instance_url
         self.ApiClient.update_agent_settings(
             agent_name=self.agent_name, settings=self.agent_settings
         )
-        endpoint = f"{server}/search"
+        endpoint = f"{self.searx_instance_url}/search"
         try:
             logging.info(f"Trying to connect to SearXNG Search at {endpoint}...")
             response = requests.get(
@@ -510,10 +515,10 @@ class Websearch:
             if len(search_string) > 0:
                 links = []
                 logging.info(f"Searching for: {search_string}")
-                # if self.searx_instance_url != "":
-                #    links = await self.search(query=search_string)
-                # else:
-                links = await self.ddg_search(query=search_string)
+                if self.searx_instance_url != "":
+                    links = await self.search(query=search_string)
+                else:
+                    links = await self.ddg_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
