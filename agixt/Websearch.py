@@ -398,8 +398,8 @@ class Websearch:
             return summaries
         except:
             self.failures.append(self.searx_instance_url)
-            if len(self.failures) > 25:
-                logging.info("Failed 25 times. Trying DDG...")
+            if len(self.failures) > 10:
+                logging.info("Failed 10 times. Trying DDG...")
                 self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
                 self.ApiClient.update_agent_settings(
                     agent_name=self.agent_name, settings=self.agent_settings
