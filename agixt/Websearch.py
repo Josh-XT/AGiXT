@@ -431,7 +431,7 @@ class Websearch:
         return websearch_endpoint
 
     async def web_search(self, query: str) -> List[str]:
-        driver = uc.Chrome(headless=True)
+        driver = uc.Chrome(headless=True, use_subprocess=False)
         query = urllib.parse.quote(query)
         endpoint = self.agent_settings["websearch_endpoint"]
         if endpoint.endswith("/"):
