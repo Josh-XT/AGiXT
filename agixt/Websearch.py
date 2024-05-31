@@ -349,50 +349,6 @@ class Websearch:
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
 
-    async def update_search_provider(self):
-        # SearXNG - List of these at https://searx.space/
-        # Check if the instances-todays date.json file exists
-        instances_file = (
-            f"./WORKSPACE/instances-{datetime.now().strftime('%Y-%m-%d')}.json"
-        )
-        if os.path.exists(instances_file):
-            with open(instances_file, "r") as f:
-                data = json.load(f)
-        else:
-            response = requests.get("https://searx.space/data/instances.json")
-            data = json.loads(response.text)
-            with open(instances_file, "w") as f:
-                json.dump(data, f)
-        servers = list(data["instances"].keys())
-        servers.append("https://search.brave.com")
-        servers.append("https://lite.duckduckgo.com/lite")
-        websearch_endpoint = self.websearch_endpoint
-        if "websearch_endpoint" not in self.agent_settings:
-            self.ApiClient.update_agent_settings(
-                agent_name=self.agent_name,
-                settings={"websearch_endpoint": websearch_endpoint},
-            )
-            return websearch_endpoint
-        if (
-            self.agent_settings["websearch_endpoint"] == ""
-            or self.agent_settings["websearch_endpoint"] is None
-        ):
-            self.ApiClient.update_agent_settings(
-                agent_name=self.agent_name,
-                settings={"websearch_endpoint": websearch_endpoint},
-            )
-            return websearch_endpoint
-        random_index = random.randint(0, len(servers) - 1)
-        websearch_endpoint = servers[random_index]
-        self.agent_settings["websearch_endpoint"] = websearch_endpoint
-        websearch_endpoint = str(websearch_endpoint).rstrip("/")
-        self.ApiClient.update_agent_settings(
-            agent_name=self.agent_name,
-            settings={"websearch_endpoint": websearch_endpoint},
-        )
-        self.websearch_endpoint = websearch_endpoint
-        return websearch_endpoint
-
     async def scrape_websites(
         self,
         user_input: str = "",
@@ -456,6 +412,52 @@ class Websearch:
             )
         return message
 
+    async def update_search_provider(self):
+        # SearXNG - List of these at https://searx.space/
+        # Check if the instances-todays date.json file exists
+        instances_file = (
+            f"./WORKSPACE/instances-{datetime.now().strftime('%Y-%m-%d')}.json"
+        )
+        if os.path.exists(instances_file):
+            with open(instances_file, "r") as f:
+                data = json.load(f)
+        else:
+            response = requests.get("https://searx.space/data/instances.json")
+            data = json.loads(response.text)
+            with open(instances_file, "w") as f:
+                json.dump(data, f)
+        servers = list(data["instances"].keys())
+        servers.append("https://search.brave.com")
+        servers.append("https://lite.duckduckgo.com/lite")
+        websearch_endpoint = self.websearch_endpoint
+        if "websearch_endpoint" not in self.agent_settings:
+            self.ApiClient.update_agent_settings(
+                agent_name=self.agent_name,
+                settings={"websearch_endpoint": websearch_endpoint},
+            )
+            return websearch_endpoint
+        if (
+            self.agent_settings["websearch_endpoint"] == ""
+            or self.agent_settings["websearch_endpoint"] is None
+        ):
+            self.ApiClient.update_agent_settings(
+                agent_name=self.agent_name,
+                settings={"websearch_endpoint": websearch_endpoint},
+            )
+            return websearch_endpoint
+        random_index = random.randint(0, len(servers) - 1)
+        websearch_endpoint = servers[random_index]
+        while websearch_endpoint in self.failures:
+            random_index = random.randint(0, len(servers) - 1)
+            websearch_endpoint = servers[random_index]
+        self.agent_settings["websearch_endpoint"] = websearch_endpoint
+        self.ApiClient.update_agent_settings(
+            agent_name=self.agent_name,
+            settings={"websearch_endpoint": websearch_endpoint},
+        )
+        self.websearch_endpoint = websearch_endpoint
+        return websearch_endpoint
+
     async def web_search(self, query: str) -> List[str]:
         endpoint = self.websearch_endpoint
         if endpoint.endswith("/"):
@@ -469,10 +471,10 @@ class Websearch:
         if link_list is None:
             link_list = []
         if len(link_list) < 5:
-            self.failures.append(endpoint)
+            self.failures.append(self.websearch_endpoint)
             await self.update_search_provider()
             return await self.web_search(query=query)
-        return link_list
+        return text_content, link_list
 
     async def websearch_agent(
         self,
@@ -501,7 +503,7 @@ class Websearch:
                     },
                 )
                 links = []
-                links = await self.web_search(query=search_string)
+                content, links = await self.web_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
