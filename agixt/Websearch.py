@@ -96,7 +96,7 @@ class Websearch:
         if get_tokens(text=content) < int(max_tokens):
             return self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                prompt_name="Website Summary",
+                prompt_name="Web Summary",
                 prompt_args={
                     "user_input": content,
                     "url": url,
@@ -114,7 +114,7 @@ class Websearch:
             new_content.append(
                 self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
-                    prompt_name="Website Summary",
+                    prompt_name="Web Summary",
                     prompt_args={
                         "user_input": chunk,
                         "url": url,
