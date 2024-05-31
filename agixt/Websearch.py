@@ -346,7 +346,8 @@ class Websearch:
             launch_options = {}
             if proxy:
                 launch_options["proxy"] = {"server": proxy}
-            browser = await p.chromium.launch(**launch_options)
+            launch_options["headless"] = True
+            browser = await p.firefox.launch(**launch_options)
             query = urllib.parse.quote(query)
             headers = {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
