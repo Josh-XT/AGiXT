@@ -369,9 +369,6 @@ class Agent:
         if not agent:
             logging.error(f"Agent '{self.agent_name}' not found in the database.")
             return
-        logging.info(
-            f"Updating agent config for '{self.agent_name}'. Config key: {config_key}, New config: {new_config}"
-        )
         if config_key == "commands":
             for command_name, enabled in new_config.items():
                 command = (
