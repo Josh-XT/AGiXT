@@ -346,7 +346,6 @@ class Websearch:
             launch_options = {}
             if proxy:
                 launch_options["proxy"] = {"server": proxy}
-            launch_options["headless"] = True
             browser = await p.chromium.launch(**launch_options)
             query = urllib.parse.quote(query)
             headers = {
@@ -370,9 +369,8 @@ class Websearch:
             url = f"https://lite.duckduckgo.com/lite/?q={query}"
             await page.goto(url)
             page_content = await page.content()
-            soup = BeautifulSoup(page_content, "html.parser")
             # print the page content
-            logging.info(f"Page content from DDG search: {soup.get_text()}")
+            logging.info(f"Page content from DDG search: {page_content}")
             links = await page.query_selector_all("a")
             results = []
             for link in links:
