@@ -510,10 +510,10 @@ class Websearch:
             if len(search_string) > 0:
                 links = []
                 logging.info(f"Searching for: {search_string}")
-                if self.searx_instance_url != "":
-                    links = await self.search(query=search_string)
-                else:
-                    links = await self.ddg_search(query=search_string)
+                # if self.searx_instance_url != "":
+                #    links = await self.search(query=search_string)
+                # else:
+                links = await self.ddg_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
