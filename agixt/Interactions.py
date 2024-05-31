@@ -460,13 +460,13 @@ class Interactions:
                     user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
                 else:
                     user_input = ""
-            if search_string != "":
+            if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
                     message=f"[ACTIVITY] Searching the web...",
                 )
                 search_string = self.run(
-                    user_input=search_string,
+                    user_input=user_input,
                     prompt_name="WebSearch",
                     context_results=context_results if context_results > 0 else 5,
                     log_user_input=False,
