@@ -465,22 +465,9 @@ class Interactions:
                     role=self.agent_name,
                     message=f"[ACTIVITY] Searching the web...",
                 )
-                search_string = await self.run(
-                    user_input=user_input,
-                    prompt_name="WebSearch",
-                    context_results=context_results if context_results > 0 else 5,
-                    log_user_input=False,
-                    browse_links=False,
-                    websearch=False,
-                )
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Searching web for: {search_string}",
-                )
                 # try:
                 await self.websearch.websearch_agent(
                     user_input=user_input,
-                    search_string=search_string,
                     websearch_depth=websearch_depth,
                     websearch_timeout=websearch_timeout,
                 )
