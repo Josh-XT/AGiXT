@@ -365,7 +365,11 @@ class Websearch:
                 "Upgrade-Insecure-Requests": "1",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             }
-            context = await browser.new_context(extra_http_headers=headers)
+            context = await browser.new_context(
+                extra_http_headers=headers,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                ignore_https_errors=True,
+            )
             page = await context.new_page()
             url = f"https://lite.duckduckgo.com/lite/?q={query}"
             await page.goto(url)
