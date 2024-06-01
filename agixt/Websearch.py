@@ -431,6 +431,7 @@ class Websearch:
         servers.append("https://lite.duckduckgo.com/lite")
         websearch_endpoint = self.websearch_endpoint
         if "websearch_endpoint" not in self.agent_settings:
+            self.agent_settings["websearch_endpoint"] = websearch_endpoint
             self.agent.update_agent_config(
                 new_config={"websearch_endpoint": websearch_endpoint},
                 config_key="settings",
@@ -440,6 +441,7 @@ class Websearch:
             self.agent_settings["websearch_endpoint"] == ""
             or self.agent_settings["websearch_endpoint"] is None
         ):
+            self.agent_settings["websearch_endpoint"] = websearch_endpoint
             self.agent.update_agent_config(
                 new_config={"websearch_endpoint": websearch_endpoint},
                 config_key="settings",
@@ -506,7 +508,6 @@ class Websearch:
                     },
                 )
                 links = []
-                search_string = urllib.parse.quote(search_string)
                 content, links = await self.web_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
