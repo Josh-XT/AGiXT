@@ -431,18 +431,18 @@ class Websearch:
         servers.append("https://lite.duckduckgo.com/lite")
         websearch_endpoint = self.websearch_endpoint
         if "websearch_endpoint" not in self.agent_settings:
-            self.ApiClient.update_agent_settings(
-                agent_name=self.agent_name,
-                settings={"websearch_endpoint": websearch_endpoint},
+            self.agent.update_agent_config(
+                new_config={"websearch_endpoint": websearch_endpoint},
+                config_key="settings",
             )
             return websearch_endpoint
         if (
             self.agent_settings["websearch_endpoint"] == ""
             or self.agent_settings["websearch_endpoint"] is None
         ):
-            self.ApiClient.update_agent_settings(
-                agent_name=self.agent_name,
-                settings={"websearch_endpoint": websearch_endpoint},
+            self.agent.update_agent_config(
+                new_config={"websearch_endpoint": websearch_endpoint},
+                config_key="settings",
             )
             return websearch_endpoint
         random_index = random.randint(0, len(servers) - 1)
@@ -451,9 +451,9 @@ class Websearch:
             random_index = random.randint(0, len(servers) - 1)
             websearch_endpoint = servers[random_index]
         self.agent_settings["websearch_endpoint"] = websearch_endpoint
-        self.ApiClient.update_agent_settings(
-            agent_name=self.agent_name,
-            settings={"websearch_endpoint": websearch_endpoint},
+        self.agent.update_agent_config(
+            new_config={"websearch_endpoint": websearch_endpoint},
+            config_key="settings",
         )
         self.websearch_endpoint = websearch_endpoint
         return websearch_endpoint
