@@ -16,6 +16,7 @@ from readers.youtube import YoutubeReader
 from readers.github import GithubReader
 from pydantic import BaseModel
 from datetime import datetime
+from Memories import extract_keywords
 
 
 class SearchResponse(BaseModel):
@@ -507,6 +508,11 @@ class Websearch:
                         "websearch": "false",
                     },
                 )
+                keywords = extract_keywords(text=user_input, limit=5)
+                if keywords:
+                    search_string = " ".join(keywords)
+                    # add month and year to the end of the search string
+                    search_string += f" {datetime.now().strftime('%B %Y')}"
                 links = []
                 content, links = await self.web_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")

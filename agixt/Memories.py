@@ -15,6 +15,7 @@ from datetime import datetime
 from collections import Counter
 from typing import List
 from Globals import getenv, DEFAULT_USER
+from textacy.extract.keyterms import textrank
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -32,6 +33,12 @@ def nlp(text):
         sp = spacy.load("en_core_web_sm")
     sp.max_length = 99999999999999999999999
     return sp(text)
+
+
+def extract_keywords(doc=None, text="", limit=10):
+    if not doc:
+        doc = nlp(text)
+    return [k for k, s in textrank(doc, topn=limit)]
 
 
 def snake(old_str: str = ""):
@@ -488,9 +495,7 @@ class Memories:
         content_chunks = []
         chunk = []
         chunk_len = 0
-        keywords = [
-            token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
-        ]
+        keywords = set(extract_keywords(doc=doc, limit=10))
         for sentence in sentences:
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > chunk_size and chunk:
