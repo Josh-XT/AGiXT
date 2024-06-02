@@ -14,14 +14,8 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
-from pydantic import BaseModel
 from datetime import datetime
 from Memories import extract_keywords
-
-
-class SearchResponse(BaseModel):
-    href: str
-    summary: str
 
 
 logging.basicConfig(
@@ -499,9 +493,6 @@ class Websearch:
         )
         if link_list is None:
             link_list = []
-        logging.info(f"Found {len(link_list)} results for {query}")
-        logging.info(f"Content: {text_content}")
-        logging.info(f"Links: {link_list}")
         if len(link_list) < 5:
             self.failures.append(self.websearch_endpoint)
             await self.update_search_provider()
@@ -543,7 +534,9 @@ class Websearch:
                 if links == [] or links is None:
                     links = []
                     content, links = await self.web_search(query=search_string)
-                logging.info(f"Found {len(links)} results for {search_string}")
+                logging.info(
+                    f"Found {len(links)} results for {search_string} using DDG."
+                )
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
