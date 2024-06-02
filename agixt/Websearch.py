@@ -539,7 +539,7 @@ class Websearch:
                     search_string = " ".join(keywords)
                     # add month and year to the end of the search string
                     search_string += f" {datetime.now().strftime('%B %Y')}"
-                links = self.ddg_search(query=search_string)
+                links = await self.ddg_search(query=search_string)
                 if links == [] or links is None:
                     links = []
                     content, links = await self.web_search(query=search_string)
