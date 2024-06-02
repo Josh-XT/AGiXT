@@ -451,7 +451,7 @@ class Interactions:
             await self.websearch.scrape_websites(
                 user_input=user_input,
                 search_depth=websearch_depth,
-                summarize_content=True,
+                summarize_content=False,
                 conversation_name=conversation_name,
             )
         if websearch:

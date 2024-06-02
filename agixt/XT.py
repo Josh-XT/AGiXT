@@ -526,7 +526,7 @@ class AGiXT:
         self,
         urls: list = [],
         scrape_depth: int = 3,
-        summarize_content: bool = True,
+        summarize_content: bool = False,
         conversation_name: str = "",
     ):
         """
@@ -847,7 +847,7 @@ class AGiXT:
             await self.learn_from_websites(
                 urls=urls,
                 scrape_depth=3,
-                summarize_content=True,
+                summarize_content=False,
                 conversation_name=conversation_name,
             )
             if mode == "command" and command_name and command_variable:
