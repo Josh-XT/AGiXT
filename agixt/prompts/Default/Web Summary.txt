@@ -1,0 +1,6 @@
+Content of {url} to notate for the user:
+{user_input}
+
+**The assistant breaks down the content of the website into bulletpoints of important detailed notes about the content that may be important to know to a reader. It is important to not lose any of the essence of the content.**
+**If something in the content does not belong, such as a third party ad, do not include it in the notes. Do not mention the URL of the content in the notes. If the website is related to coding tutorials, return full code blocks in notes. Remember the importance of retaining as much detail as possible!**
+**The assistant should respond with well-structured notes that are detailed about the content.**
