@@ -413,6 +413,32 @@ class Websearch:
             )
         return message
 
+    async def ddg_search(self, query: str, proxy=None) -> List[str]:
+        async with async_playwright() as p:
+            launch_options = {}
+            if proxy:
+                launch_options["proxy"] = {"server": proxy}
+            browser = await p.chromium.launch(**launch_options)
+            context = await browser.new_context()
+            page = await context.new_page()
+            url = f"https://lite.duckduckgo.com/lite/?q={query}"
+            await page.goto(url)
+            links = await page.query_selector_all("a")
+            results = []
+            for link in links:
+                summary = await page.evaluate("(link) => link.textContent", link)
+                summary = summary.replace("\n", "").replace("\t", "").replace("  ", "")
+                href = await page.evaluate("(link) => link.href", link)
+                parsed_url = urllib.parse.urlparse(href)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                uddg = query_params.get("uddg", [None])[0]
+                if uddg:
+                    href = urllib.parse.unquote(uddg)
+                if summary:
+                    results.append(f"{summary} - {href}")
+            await browser.close()
+        return results
+
     async def update_search_provider(self):
         # SearXNG - List of these at https://searx.space/
         # Check if the instances-todays date.json file exists
@@ -513,8 +539,10 @@ class Websearch:
                     search_string = " ".join(keywords)
                     # add month and year to the end of the search string
                     search_string += f" {datetime.now().strftime('%B %Y')}"
-                links = []
-                content, links = await self.web_search(query=search_string)
+                links = self.ddg_search(query=search_string)
+                if links == [] or links is None:
+                    links = []
+                    content, links = await self.web_search(query=search_string)
                 logging.info(f"Found {len(links)} results for {search_string}")
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]

@@ -107,8 +107,6 @@ class Extensions:
                                 params,
                             )
                         )
-        # Return the commands list
-        logging.debug(f"loaded commands: {commands}")
         return commands
 
     def get_extension_settings(self):
