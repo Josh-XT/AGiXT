@@ -14,7 +14,9 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from readers.github import GithubReader
-import undetected_chromedriver as uc
+from datetime import datetime
+from Memories import extract_keywords
+
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -52,10 +54,10 @@ class Websearch:
             ApiClient=ApiClient,
             user=user,
         )
-        self.searx_instance_url = (
-            self.agent.AGENT_CONFIG["settings"]["SEARXNG_INSTANCE_URL"]
-            if "SEARXNG_INSTANCE_URL" in self.agent.AGENT_CONFIG["settings"]
-            else ""
+        self.websearch_endpoint = (
+            self.agent_settings["websearch_endpoint"]
+            if "websearch_endpoint" in self.agent_settings
+            else "https://search.brave.com"
         )
 
     def verify_link(self, link: str = "") -> bool:
@@ -89,7 +91,7 @@ class Websearch:
         if get_tokens(text=content) < int(max_tokens):
             return self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                prompt_name="Website Summary",
+                prompt_name="Web Summary",
                 prompt_args={
                     "user_input": content,
                     "url": url,
@@ -107,7 +109,7 @@ class Websearch:
             new_content.append(
                 self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
-                    prompt_name="Website Summary",
+                    prompt_name="Web Summary",
                     prompt_args={
                         "user_input": chunk,
                         "url": url,
@@ -273,7 +275,7 @@ class Websearch:
         except:
             return None, None
 
-    async def resursive_browsing(self, user_input, links):
+    async def recursive_browsing(self, user_input, links):
         try:
             words = links.split()
             links = [
@@ -336,90 +338,11 @@ class Websearch:
                                     logging.info(
                                         f"AI has decided to click: {pick_a_link}"
                                     )
-                                    await self.resursive_browsing(
+                                    await self.recursive_browsing(
                                         user_input=user_input, links=pick_a_link
                                     )
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
-
-    async def ddg_search(query: str) -> List[str]:
-        driver = uc.Chrome(headless=True, use_subpress=False)
-        driver.get(f"https://lite.duckduckgo.com/lite/?q={query}")
-        page_content = driver.page_source
-        logging.info(f"DDG Page Content: {page_content}...")
-        soup = BeautifulSoup(page_content, "html.parser")
-        links = soup.find_all("a")
-        parsed_links = []
-        for link in links:
-            new_link = str(link)
-            new_link = new_link.split("?uddg=")[1].split("&amp;rut=")[0]
-            new_link = urllib.parse.unquote(new_link)
-            summary = str(link).split(">")[1].split("</a>")[0].replace("</a", "")
-            parsed_links.append(f"{new_link} - {summary}")
-        driver.quit()
-        return parsed_links
-
-    async def search(self, query: str) -> List[str]:
-        if self.searx_instance_url == "":
-            try:  # SearXNG - List of these at https://searx.space/
-                response = requests.get("https://searx.space/data/instances.json")
-                data = json.loads(response.text)
-                if self.failures != []:
-                    for failure in self.failures:
-                        if failure in data["instances"]:
-                            del data["instances"][failure]
-                servers = list(data["instances"].keys())
-                random_index = random.randint(0, len(servers) - 1)
-                self.searx_instance_url = servers[random_index]
-            except:  # Select default remote server that typically works if unable to get list.
-                self.searx_instance_url = "https://search.us.projectsegfau.lt"
-            self.agent_settings["SEARXNG_INSTANCE_URL"] = self.searx_instance_url
-            self.ApiClient.update_agent_settings(
-                agent_name=self.agent_name, settings=self.agent_settings
-            )
-        self.searx_instance_url = str(self.searx_instance_url).rstrip("/")
-        logging.info(f"Using {self.searx_instance_url}")
-        self.agent_settings["SEARXNG_INSTANCE_URL"] = self.searx_instance_url
-        self.ApiClient.update_agent_settings(
-            agent_name=self.agent_name, settings=self.agent_settings
-        )
-        endpoint = f"{self.searx_instance_url}/search"
-        try:
-            logging.info(f"Trying to connect to SearXNG Search at {endpoint}...")
-            response = requests.get(
-                endpoint,
-                params={
-                    "q": query,
-                    "language": "en",
-                    "safesearch": 1,
-                    "format": "json",
-                },
-            )
-            results = response.json()
-            summaries = [
-                result["title"] + " - " + result["url"] for result in results["results"]
-            ]
-            if len(summaries) < 1:
-                self.failures.append(self.searx_instance_url)
-                self.searx_instance_url = ""
-                return await self.search(query=query)
-            return summaries
-        except:
-            self.failures.append(self.searx_instance_url)
-            if len(self.failures) > 5:
-                logging.info("Failed 5 times. Trying DDG...")
-                self.agent_settings["SEARXNG_INSTANCE_URL"] = ""
-                self.ApiClient.update_agent_settings(
-                    agent_name=self.agent_name, settings=self.agent_settings
-                )
-                return await self.ddg_search(query=query)
-            times = "times" if len(self.failures) != 1 else "time"
-            logging.info(
-                f"Failed to find a working SearXNG server {len(self.failures)} {times}. Trying again..."
-            )
-            # The SearXNG server is down or refusing connection, so we will use the default one.
-            self.searx_instance_url = ""
-            return await self.search(query=query)
 
     async def scrape_websites(
         self,
@@ -484,10 +407,101 @@ class Websearch:
             )
         return message
 
+    async def ddg_search(self, query: str, proxy=None) -> List[str]:
+        async with async_playwright() as p:
+            launch_options = {}
+            if proxy:
+                launch_options["proxy"] = {"server": proxy}
+            browser = await p.chromium.launch(**launch_options)
+            context = await browser.new_context()
+            page = await context.new_page()
+            url = f"https://lite.duckduckgo.com/lite/?q={query}"
+            await page.goto(url)
+            links = await page.query_selector_all("a")
+            results = []
+            for link in links:
+                summary = await page.evaluate("(link) => link.textContent", link)
+                summary = summary.replace("\n", "").replace("\t", "").replace("  ", "")
+                href = await page.evaluate("(link) => link.href", link)
+                parsed_url = urllib.parse.urlparse(href)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                uddg = query_params.get("uddg", [None])[0]
+                if uddg:
+                    href = urllib.parse.unquote(uddg)
+                if summary:
+                    results.append(f"{summary} - {href}")
+            await browser.close()
+        return results
+
+    async def update_search_provider(self):
+        # SearXNG - List of these at https://searx.space/
+        # Check if the instances-todays date.json file exists
+        instances_file = (
+            f"./WORKSPACE/instances-{datetime.now().strftime('%Y-%m-%d')}.json"
+        )
+        if os.path.exists(instances_file):
+            with open(instances_file, "r") as f:
+                data = json.load(f)
+        else:
+            response = requests.get("https://searx.space/data/instances.json")
+            data = json.loads(response.text)
+            with open(instances_file, "w") as f:
+                json.dump(data, f)
+        servers = list(data["instances"].keys())
+        servers.append("https://search.brave.com")
+        servers.append("https://lite.duckduckgo.com/lite")
+        websearch_endpoint = self.websearch_endpoint
+        if "websearch_endpoint" not in self.agent_settings:
+            self.agent_settings["websearch_endpoint"] = websearch_endpoint
+            self.agent.update_agent_config(
+                new_config={"websearch_endpoint": websearch_endpoint},
+                config_key="settings",
+            )
+            return websearch_endpoint
+        if (
+            self.agent_settings["websearch_endpoint"] == ""
+            or self.agent_settings["websearch_endpoint"] is None
+        ):
+            self.agent_settings["websearch_endpoint"] = websearch_endpoint
+            self.agent.update_agent_config(
+                new_config={"websearch_endpoint": websearch_endpoint},
+                config_key="settings",
+            )
+            return websearch_endpoint
+        random_index = random.randint(0, len(servers) - 1)
+        websearch_endpoint = servers[random_index]
+        while websearch_endpoint in self.failures:
+            random_index = random.randint(0, len(servers) - 1)
+            websearch_endpoint = servers[random_index]
+        self.agent_settings["websearch_endpoint"] = websearch_endpoint
+        self.agent.update_agent_config(
+            new_config={"websearch_endpoint": websearch_endpoint},
+            config_key="settings",
+        )
+        self.websearch_endpoint = websearch_endpoint
+        return websearch_endpoint
+
+    async def web_search(self, query: str) -> List[str]:
+        endpoint = self.websearch_endpoint
+        if endpoint.endswith("/"):
+            endpoint = endpoint[:-1]
+        if endpoint.endswith("search"):
+            endpoint = endpoint[:-6]
+        logging.info(f"Websearching for {query} on {endpoint}")
+        text_content, link_list = await self.get_web_content(
+            url=f"{endpoint}/search?q={query}"
+        )
+        if link_list is None:
+            link_list = []
+        if len(link_list) < 5:
+            self.failures.append(self.websearch_endpoint)
+            await self.update_search_provider()
+            return await self.web_search(query=query)
+        return text_content, link_list
+
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
-        search_string: str = "",
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
     ):
@@ -501,19 +515,33 @@ class Websearch:
         except:
             websearch_timeout = 0
         if websearch_depth > 0:
-            if len(search_string) > 0:
-                links = []
-                logging.info(f"Searching for: {search_string}")
-                if self.searx_instance_url != "":
-                    links = await self.search(query=search_string)
-                else:
-                    links = await self.ddg_search(query=search_string)
-                logging.info(f"Found {len(links)} results for {search_string}")
+            if len(user_input) > 0:
+                search_string = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="WebSearch",
+                    prompt_args={
+                        "user_input": user_input,
+                        "browse_links": "false",
+                        "websearch": "false",
+                    },
+                )
+                keywords = extract_keywords(text=user_input, limit=5)
+                if keywords:
+                    search_string = " ".join(keywords)
+                    # add month and year to the end of the search string
+                    search_string += f" {datetime.now().strftime('%B %Y')}"
+                links = await self.ddg_search(query=search_string)
+                if links == [] or links is None:
+                    links = []
+                    content, links = await self.web_search(query=search_string)
+                logging.info(
+                    f"Found {len(links)} results for {search_string} using DDG."
+                )
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
                     task = asyncio.create_task(
-                        self.resursive_browsing(user_input=user_input, links=links)
+                        self.recursive_browsing(user_input=user_input, links=links)
                     )
                     self.tasks.append(task)
 

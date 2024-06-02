@@ -6,7 +6,9 @@ from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions
 from datetime import datetime
-from typing import List
+from typing import Type, get_args, get_origin, Union, List
+from enum import Enum
+from pydantic import BaseModel
 import logging
 import asyncio
 import os
@@ -524,7 +526,7 @@ class AGiXT:
         self,
         urls: list = [],
         scrape_depth: int = 3,
-        summarize_content: bool = True,
+        summarize_content: bool = False,
         conversation_name: str = "",
     ):
         """
@@ -845,7 +847,7 @@ class AGiXT:
             await self.learn_from_websites(
                 urls=urls,
                 scrape_depth=3,
-                summarize_content=True,
+                summarize_content=False,
                 conversation_name=conversation_name,
             )
             if mode == "command" and command_name and command_variable:
@@ -1063,3 +1065,65 @@ class AGiXT:
             new_config=self.agent_settings, config_key="settings"
         )
         return dpo_dataset
+
+    def convert_to_pydantic_model(
+        self,
+        input_string: str,
+        model: Type[BaseModel],
+        max_failures: int = 3,
+        response_type: str = None,
+        **kwargs,
+    ):
+        input_string = str(input_string)
+        fields = model.__annotations__
+        field_descriptions = []
+        for field, field_type in fields.items():
+            description = f"{field}: {field_type}"
+            if get_origin(field_type) == Union:
+                field_type = get_args(field_type)[0]
+            if isinstance(field_type, type) and issubclass(field_type, Enum):
+                enum_values = ", ".join([f"{e.name} = {e.value}" for e in field_type])
+                description += f" (Enum values: {enum_values})"
+            field_descriptions.append(description)
+        schema = "\n".join(field_descriptions)
+        response = self.inference(
+            user_input=input_string,
+            schema=schema,
+            prompt_category="Default",
+            prompt_name="Convert to Pydantic Model",
+            log_user_input=False,
+        )
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].strip()
+        try:
+            response = json.loads(response)
+            if response_type == "json":
+                return response
+            else:
+                return model(**response)
+        except Exception as e:
+            if "failures" in kwargs:
+                failures = int(kwargs["failures"]) + 1
+                if failures > max_failures:
+                    logging.error(
+                        f"Error: {e} . Failed to convert the response to the model after 3 attempts. Response: {response}"
+                    )
+                    return (
+                        response
+                        if response
+                        else "Failed to convert the response to the model."
+                    )
+            else:
+                failures = 1
+            logging.warning(
+                f"Error: {e} . Failed to convert the response to the model, trying again. {failures}/3 failures. Response: {response}"
+            )
+            return self.convert_to_pydantic_model(
+                input_string=input_string,
+                model=model,
+                max_failures=max_failures,
+                response_type=response_type,
+                failures=failures,
+            )
