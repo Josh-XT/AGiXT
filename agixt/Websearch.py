@@ -16,6 +16,8 @@ from readers.youtube import YoutubeReader
 from readers.github import GithubReader
 from datetime import datetime
 from Memories import extract_keywords
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 logging.basicConfig(
@@ -433,6 +435,29 @@ class Websearch:
             await browser.close()
         return results
 
+    async def google_search(
+        self,
+        query: str,
+        depth: int = 5,
+        google_api_key: str = "",
+        google_search_engine_id: str = "",
+    ) -> List[str]:
+        if google_api_key == "" or google_search_engine_id == "":
+            return []
+        try:
+            service = build("customsearch", "v1", developerKey=google_api_key)
+            result = (
+                service.cse()
+                .list(q=query, cx=google_search_engine_id, num=depth)
+                .execute()
+            )
+            search_results = result.get("items", [])
+            search_results_links = [item["link"] for item in search_results]
+        except Exception as e:
+            logging.error(f"Google Search Error: {e}")
+            search_results_links = []
+        return search_results_links
+
     async def update_search_provider(self):
         # SearXNG - List of these at https://searx.space/
         # Check if the instances-todays date.json file exists
@@ -530,7 +555,31 @@ class Websearch:
                     search_string = " ".join(keywords)
                     # add month and year to the end of the search string
                     search_string += f" {datetime.now().strftime('%B %Y')}"
-                links = await self.ddg_search(query=search_string)
+                google_api_key = (
+                    self.agent_settings["GOOGLE_API_KEY"]
+                    if "GOOGLE_API_KEY" in self.agent_settings
+                    else ""
+                )
+                google_search_engine_id = (
+                    self.agent_settings["GOOGLE_SEARCH_ENGINE_ID"]
+                    if "GOOGLE_SEARCH_ENGINE_ID" in self.agent_settings
+                    else ""
+                )
+                links = []
+                if (
+                    google_api_key != ""
+                    and google_search_engine_id != ""
+                    and google_api_key is not None
+                    and google_search_engine_id is not None
+                ):
+                    links = await self.google_search(
+                        query=search_string,
+                        depth=websearch_depth,
+                        google_api_key=google_api_key,
+                        google_search_engine_id=google_search_engine_id,
+                    )
+                if links == [] or links is None:
+                    links = await self.ddg_search(query=search_string)
                 if links == [] or links is None:
                     links = []
                     content, links = await self.web_search(query=search_string)
