@@ -34,11 +34,15 @@ class google(Extensions):
         GOOGLE_CLIENT_ID: str = "",
         GOOGLE_CLIENT_SECRET: str = "",
         GOOGLE_REFRESH_TOKEN: str = "",
+        GOOGLE_API_KEY: str = "",
+        GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
         self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
         self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
         self.GOOGLE_REFRESH_TOKEN = GOOGLE_REFRESH_TOKEN
+        self.GOOGLE_API_KEY = GOOGLE_API_KEY
+        self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
         self.commands = {
