@@ -443,6 +443,9 @@ class Websearch:
         google_search_engine_id: str = "",
     ) -> List[str]:
         if google_api_key == "" or google_search_engine_id == "":
+            google_api_key = getenv("GOOGLE_API_KEY")
+            google_search_engine_id = getenv("GOOGLE_SEARCH_ENGINE_ID")
+        if google_api_key == "" or google_search_engine_id == "":
             return []
         try:
             service = build("customsearch", "v1", developerKey=google_api_key)
