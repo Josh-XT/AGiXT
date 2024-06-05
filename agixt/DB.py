@@ -474,6 +474,54 @@ class PromptCategory(Base):
     user = relationship("User", backref="prompt_category")
 
 
+class TaskCategory(Base):
+    __tablename__ = "task_category"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=uuid.uuid4 if DATABASE_TYPE != "sqlite" else str(uuid.uuid4()),
+    )
+    name = Column(String)
+    description = Column(String)
+    memory_collection = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    category_id = Column(
+        UUID(as_uuid=True), ForeignKey("task_category.id"), nullable=True
+    )
+    parent_category = relationship("TaskCategory", remote_side=[id])
+
+
+class TaskItem(Base):
+    __tablename__ = "task_item"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=uuid.uuid4 if DATABASE_TYPE != "sqlite" else str(uuid.uuid4()),
+    )
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    category_id = Column(UUID(as_uuid=True), ForeignKey("task_category.id"))
+    category = relationship("TaskCategory")
+    title = Column(String)
+    description = Column(String)
+    memory_collection = Column(Integer, default=0)
+    # agent_id is the action item owner. If it is null, it is an item for the user
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )
+    estimated_hours = Column(Integer)
+    scheduled = Column(Boolean, default=False)
+    completed = Column(Boolean, default=False)
+    due_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime, nullable=True)
+    priority = Column(Integer)
+    user = relationship("User", backref="task_item")
+
+
 class Prompt(Base):
     __tablename__ = "prompt"
     id = Column(
