@@ -226,6 +226,7 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Transcribed audio to text: {response}",
             )
+        return response
 
     async def translate_audio(self, audio_path: str, conversation_name: str = ""):
         """
