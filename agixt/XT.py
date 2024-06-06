@@ -736,17 +736,7 @@ class AGiXT:
                             os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
                         )
                         if url.startswith("http"):
-                            # Validate if url is an image
-                            if (
-                                url.endswith(
-                                    (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
-                                )
-                                and "localhost" not in url
-                                and "127.0.0.1" not in url
-                            ):
-                                image = requests.get(url).content
-                            else:
-                                image = None
+                            image = requests.get(url).content
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
