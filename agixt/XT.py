@@ -547,7 +547,7 @@ class AGiXT:
             url_str = {"\n".join(urls)}
             user_input = f"Learn from the information from these websites:\n {url_str} "
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if conversation_name != "" and conversation_name != None and response != "":
+        if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Learning from websites..",
