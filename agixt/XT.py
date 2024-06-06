@@ -550,7 +550,7 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Learning from websites..",
+                message=f"[ACTIVITY] Researching online.",
             )
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
@@ -577,7 +577,12 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
-
+        if conversation_name != "" and conversation_name != None:
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Reading file.",
+            )
         file_name = os.path.basename(file_path)
         file_reader = FileReader(
             agent_name=self.agent_name,
@@ -592,7 +597,6 @@ class AGiXT:
         else:
             response = f"I was unable to read the file called {file_name}."
         if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] {response}",
