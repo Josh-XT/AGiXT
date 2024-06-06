@@ -27,20 +27,28 @@ except:
     )
     from googleapiclient.discovery import build
 
+try:
+    from google_auth_oauthlib.flow import InstalledAppFlow
+except:
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "google-auth-oauthlib"]
+    )
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
 
 class google(Extensions):
     def __init__(
         self,
         GOOGLE_CLIENT_ID: str = "",
         GOOGLE_CLIENT_SECRET: str = "",
-        GOOGLE_REFRESH_TOKEN: str = "",
+        GOOGLE_PROJECT_ID: str = "",
         GOOGLE_API_KEY: str = "",
         GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
         self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
         self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
-        self.GOOGLE_REFRESH_TOKEN = GOOGLE_REFRESH_TOKEN
+        self.GOOGLE_PROJECT_ID = GOOGLE_PROJECT_ID
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
@@ -61,19 +69,24 @@ class google(Extensions):
 
     def authenticate(self):
         try:
-            creds = Credentials.from_authorized_user_info(
-                info={
-                    "client_id": self.GOOGLE_CLIENT_ID,
-                    "client_secret": self.GOOGLE_CLIENT_SECRET,
-                    "refresh_token": self.GOOGLE_REFRESH_TOKEN,
-                }
+            flow = InstalledAppFlow.from_client_config(
+                {
+                    "installed": {
+                        "client_id": self.GOOGLE_CLIENT_ID,
+                        "project_id": self.GOOGLE_PROJECT_ID,
+                        "client_secret": self.GOOGLE_CLIENT_SECRET,
+                        "redirect_uris": ["http://localhost"],
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    }
+                },
+                scopes=["https://www.googleapis.com/auth/gmail.readonly"],
             )
-
-            if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-
+            creds = flow.run_local_server(port=0)
             return creds
         except Exception as e:
+            print(f"Error authenticating: {str(e)}")
             return None
 
     async def get_emails(self, query=None, max_emails=10):
