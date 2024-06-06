@@ -172,11 +172,12 @@ class AGiXT:
         """
         if conversation_name != "" and conversation_name != None:
             c = Conversations(
-                conversation_name="Image Generation", user=self.user_email
+                conversation_name=conversation_name,
+                user=self.user_email,
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Generating image...",
+                message=f"[ACTIVITY] Generating image.",
             )
         return await self.agent.generate_image(prompt=prompt)
 
@@ -191,10 +192,10 @@ class AGiXT:
             str: URL of the generated audio
         """
         if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name="Text to Speech", user=self.user_email)
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
-                role="USER",
-                message=f"[ACTIVITY] Generating audio from text: {text}",
+                role=self.agent_name,
+                message=f"[ACTIVITY] Generating audio.",
             )
         tts_url = await self.agent.text_to_speech(text=text.text)
         if not str(tts_url).startswith("http"):
@@ -289,11 +290,6 @@ class AGiXT:
             ):
                 tts_response = await self.text_to_speech(text=response)
                 response = f"{response}\n\n{tts_response}"
-        if conversation_name != "" and conversation_name != None:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] {response}",
-            )
         return response
 
     async def run_chain_step(
