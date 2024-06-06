@@ -217,15 +217,13 @@ class AGiXT:
         Returns
             str: Transcription of the audio
         """
-        response = await self.agent.transcribe_audio(audio_path=audio_path)
         if conversation_name != "" and conversation_name != None:
-            c = Conversations(
-                conversation_name="Audio Transcription", user=self.user_email
-            )
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Transcribed audio to text: {response}",
+                message=f"[ACTIVITY] Transcribing audio.",
             )
+        response = await self.agent.transcribe_audio(audio_path=audio_path)
         return response
 
     async def translate_audio(self, audio_path: str, conversation_name: str = ""):
@@ -238,15 +236,13 @@ class AGiXT:
         Returns
             str: Translation of the audio
         """
-        response = await self.agent.translate_audio(audio_path=audio_path)
         if conversation_name != "" and conversation_name != None:
-            c = Conversations(
-                conversation_name="Audio Translation", user=self.user_email
-            )
+            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Translated audio: {response}",
+                message=f"[ACTIVITY] Translating audio.",
             )
+        response = await self.agent.translate_audio(audio_path=audio_path)
         return response
 
     async def execute_command(
