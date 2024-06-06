@@ -577,13 +577,14 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+
+        file_name = os.path.basename(file_path)
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading file.",
+                message=f"[ACTIVITY] Reading file {file_name} into memory.",
             )
-        file_name = os.path.basename(file_path)
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
