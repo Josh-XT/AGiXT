@@ -13,13 +13,6 @@ import logging
 from Extensions import Extensions
 
 try:
-    from google.oauth2.credentials import Credentials
-except:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-auth"])
-    from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-
-try:
     from googleapiclient.discovery import build
 except:
     subprocess.check_call(
@@ -70,7 +63,7 @@ class google(Extensions):
     def authenticate(self):
         try:
             flow = InstalledAppFlow.from_client_config(
-                {
+                client_config={
                     "installed": {
                         "client_id": self.GOOGLE_CLIENT_ID,
                         "project_id": self.GOOGLE_PROJECT_ID,
@@ -81,7 +74,11 @@ class google(Extensions):
                         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
                     }
                 },
-                scopes=["https://www.googleapis.com/auth/gmail.readonly"],
+                scopes=[
+                    "https://www.googleapis.com/auth/gmail.send",
+                    "https://www.googleapis.com/auth/calendar",
+                    "https://www.googleapis.com/auth/calendar.events",
+                ],
             )
             creds = flow.run_local_server(port=0)
             return creds
