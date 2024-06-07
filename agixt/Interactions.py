@@ -463,7 +463,7 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Searching the web...",
+                    message=f"[ACTIVITY] Searching the web.",
                 )
                 # try:
                 await self.websearch.websearch_agent(
@@ -490,9 +490,7 @@ class Interactions:
                     image_urls.append(image_url)
                 logging.info(f"Getting vision response for images: {image_urls}")
                 message = (
-                    "Looking at images..."
-                    if len(image_urls) > 1
-                    else "Looking at image..."
+                    "Looking at images." if len(image_urls) > 1 else "Looking at image."
                 )
                 c.log_interaction(
                     role=self.agent_name,
