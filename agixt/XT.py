@@ -539,12 +539,6 @@ class AGiXT:
         else:
             url_str = {"\n".join(urls)}
             user_input = f"Learn from the information from these websites:\n {url_str} "
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if conversation_name != "" and conversation_name != None:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Researching online.",
-            )
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
             search_depth=scrape_depth,
@@ -557,6 +551,7 @@ class AGiXT:
         self,
         file_url: str = "",
         file_name: str = "",
+        user_input: str = "",
         collection_number: int = 1,
         conversation_name: str = "",
     ):
@@ -586,6 +581,9 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Reading file {file_name} into memory.",
             )
+        if user_input == "":
+            user_input = "Describe each stage of this image."
+        file_type = file_name.split(".")[-1]
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
@@ -593,11 +591,73 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        res = await file_reader.write_file_to_memory(file_path=file_path)
-        if res == True:
-            response = f"I have read the entire content of the file called {file_name} into my memory."
+        if (
+            file_type == "wav"
+            or file_type == "mp3"
+            or file_type == "ogg"
+            or file_type == "m4a"
+            or file_type == "flac"
+            or file_type == "wma"
+            or file_type == "aac"
+        ):
+            audio = AudioSegment.from_file(file_path)
+            audio.export(file_path, format="wav")
+            if conversation_name != "" and conversation_name != None:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Transcribing audio file `{file_name}` into memory.",
+                )
+            audio_response = await self.audio_to_text(audio_path=file_path)
+            await file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
+                external_source=f"Audio file called `{file_name}`",
+            )
+            response = (
+                f"I have transcribed the audio from `{file_name}` into my memory."
+            )
+        # If it is an image, generate a description then save to memory
+        elif file_type in ["jpg", "jpeg", "png", "gif"]:
+            if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+                vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
+                if (
+                    vision_provider != "None"
+                    and vision_provider != ""
+                    and vision_provider != None
+                ):
+                    if conversation_name != "" and conversation_name != None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] Viewing image `{file_name}`.",
+                        )
+                    try:
+                        vision_response = await self.agent.inference(
+                            prompt=user_input, images=[file_url]
+                        )
+                        await file_reader.write_text_to_memory(
+                            user_input=user_input,
+                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
+                            external_source=f"Image called `{file_name}`",
+                        )
+                        response = f"I have generated a description of the image called `{file_name}` into my memory."
+                    except Exception as e:
+                        logging.error(f"Error getting vision response: {e}")
+                        response = (
+                            f"I was unable to view the image called `{file_name}`."
+                        )
+                else:
+                    response = f"I was unable to view the image called `{file_name}`."
         else:
-            response = f"I was unable to read the file called {file_name}."
+            if conversation_name != "" and conversation_name != None:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
+                )
+            res = await file_reader.write_file_to_memory(file_path=file_path)
+            if res == True:
+                response = f"I have read the entire content of the file called {file_name} into my memory."
+            else:
+                response = f"I was unable to read the file called {file_name}."
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
@@ -616,7 +676,6 @@ class AGiXT:
             dict: Chat completion response
         """
         conversation_name = prompt.user
-        images = []
         urls = []
         files = []
         new_prompt = ""
@@ -742,8 +801,22 @@ class AGiXT:
                         image_path = os.path.join(
                             os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
                         )
+                        if "file_name" in msg:
+                            file_name = str(msg["file_name"])
+                            if file_name == "":
+                                file_name = f"{uuid.uuid4().hex}.jpg"
+                            file_name = "".join(
+                                c if c.isalnum() else "_" for c in file_name
+                            )
+                        else:
+                            file_name = f"{uuid.uuid4().hex}.jpg"
                         if url.startswith("http"):
-                            images.append(url)
+                            files.append(
+                                {
+                                    "file_name": file_name,
+                                    "file_url": url,
+                                }
+                            )
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
@@ -763,7 +836,12 @@ class AGiXT:
                             image = base64.b64decode(url.split(",")[1])
                             with open(image_path, "wb") as f:
                                 f.write(image)
-                            images.append(f"{self.outputs}/{file_name}")
+                            files.append(
+                                {
+                                    "file_name": file_name,
+                                    "file_url": f"{self.outputs}/{file_name}",
+                                }
+                            )
                     if "audio_url" in msg:
                         audio_url = str(
                             msg["audio_url"]["url"]
@@ -840,14 +918,7 @@ class AGiXT:
                             )
                         file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
                         if file_url.startswith("http"):
-                            if "." in file_url[-5:]:
-                                file_type = file_url.split(".")[-1]
-                                if file_type in ["jpg", "jpeg", "png"]:
-                                    images.append(file_url)
-                                else:
-                                    files.append(file_url)
-                            else:
-                                urls.append(file_url)
+                            files.append({"file_name": file_name, "file_url": file_url})
                         else:
                             file_type = (
                                 file_url.split(",")[0].split("/")[1].split(";")[0]
@@ -857,13 +928,15 @@ class AGiXT:
                                 with open(file_path, "wb") as f:
                                     f.write(file_data)
                             file_url = f"{self.outputs}/{file_name}"
-                            files.append(file_url)
+                            files.append({"file_name": file_name, "file_url": file_url})
             # Add user input to conversation
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(role="USER", message=new_prompt)
             for file in files:
                 await self.learn_from_file(
-                    file_path=file,
+                    file_url=file["file_url"],
+                    file_name=file["file_name"],
+                    user_input=new_prompt,
                     collection_number=1,
                     conversation_name=conversation_name,
                 )
@@ -918,7 +991,6 @@ class AGiXT:
                     shots=prompt.n,
                     browse_links=browse_links,
                     voice_response=tts,
-                    images=images,
                     log_user_input=False,
                     **prompt_args,
                 )
