@@ -642,11 +642,11 @@ class AGiXT:
                         response = f"I have generated a description of the image called `{file_name}` into my memory."
                     except Exception as e:
                         logging.error(f"Error getting vision response: {e}")
-                        response = (
-                            f"I was unable to view the image called `{file_name}`."
-                        )
+                        response = f"[ERROR] I was unable to view the image called `{file_name}`."
                 else:
-                    response = f"I was unable to view the image called `{file_name}`."
+                    response = (
+                        f"[ERROR] I was unable to view the image called `{file_name}`."
+                    )
         else:
             if conversation_name != "" and conversation_name != None:
                 c.log_interaction(
@@ -661,7 +661,11 @@ class AGiXT:
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] {response}",
+                message=(
+                    f"[ACTIVITY] {response}"
+                    if "[ERROR]" not in response
+                    else f"[ACTIVITY]{response}"
+                ),
             )
         return response
 
