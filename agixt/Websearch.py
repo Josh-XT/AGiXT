@@ -367,7 +367,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Browsing {link}...",
+                            message=f"[ACTIVITY] Browsing {link} ",
                         )
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
@@ -389,7 +389,7 @@ class Websearch:
                                         ):
                                             c.log_interaction(
                                                 role=self.agent_name,
-                                                message=f"[ACTIVITY] Browsing {sublink[1]}...",
+                                                message=f"[ACTIVITY] Browsing {sublink[1]} ",
                                             )
                                         (
                                             text_content,
