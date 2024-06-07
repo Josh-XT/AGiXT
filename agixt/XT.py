@@ -617,7 +617,16 @@ class AGiXT:
                 f"I have transcribed the audio from `{file_name}` into my memory."
             )
         # If it is an image, generate a description then save to memory
-        elif file_type in ["jpg", "jpeg", "png", "gif"]:
+        elif file_type in [
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "tiff",
+            "bmp",
+            "svg",
+        ]:
             if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
                 vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
                 if (
