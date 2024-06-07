@@ -482,15 +482,9 @@ class Interactions:
                 and vision_provider != ""
                 and vision_provider != None
             ):
-                image_urls = []
-                for image in images:
-                    image_url = str(image).replace(
-                        "./WORKSPACE/", f"{AGIXT_URI}/outputs/"
-                    )
-                    image_urls.append(image_url)
-                logging.info(f"Getting vision response for images: {image_urls}")
+                logging.info(f"Getting vision response for images: {images}")
                 message = (
-                    "Looking at images." if len(image_urls) > 1 else "Looking at image."
+                    "Looking at images." if len(images) > 1 else "Looking at image."
                 )
                 c.log_interaction(
                     role=self.agent_name,
@@ -498,7 +492,7 @@ class Interactions:
                 )
                 try:
                     vision_response = await self.agent.inference(
-                        prompt=user_input, images=image_urls
+                        prompt=user_input, images=images
                     )
                     logging.info(f"Vision Response: {vision_response}")
                 except Exception as e:
