@@ -808,9 +808,10 @@ class AGiXT:
                             file_name = "".join(
                                 c if c.isalnum() else "_" for c in file_name
                             )
-                            file_name = file_name.replace("_jpg", ".jpg")
-                            if "." not in file_name:
-                                file_name = f"{file_name}.jpg"
+                            file_extension = file_name.split("_")[-1]
+                            file_name = file_name.replace(
+                                f"_{file_extension}", f".{file_extension}"
+                            )
                         else:
                             file_name = f"{uuid.uuid4().hex}.jpg"
                         if url.startswith("http"):
@@ -830,6 +831,10 @@ class AGiXT:
                                     file_name = f"{uuid.uuid4().hex}.{file_type}"
                                 file_name = "".join(
                                     c if c.isalnum() else "_" for c in file_name
+                                )
+                                file_extension = file_name.split("_")[-1]
+                                file_name = file_name.replace(
+                                    f"_{file_extension}", f".{file_extension}"
                                 )
                             else:
                                 file_name = f"{uuid.uuid4().hex}.{file_type}"
