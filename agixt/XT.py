@@ -222,7 +222,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"Transcribing audio...",
+                message=f"Transcribing audio.",
             )
         response = await self.agent.transcribe_audio(audio_path=audio_path)
         return response
@@ -241,7 +241,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"Translating audio...",
+                message=f"Translating audio.",
             )
         response = await self.agent.translate_audio(audio_path=audio_path)
         return response
@@ -453,7 +453,7 @@ class AGiXT:
         if conversation_name != "":
             c.log_interaction(
                 role=agent_name,
-                message=f"[ACTIVITY] Running chain `{chain_name}`...",
+                message=f"[ACTIVITY] Running chain `{chain_name}`.",
             )
         response = ""
         tasks = []
