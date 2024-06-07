@@ -25,7 +25,6 @@ class AGiXT:
         self.api_key = api_key
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
-
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name, user=self.user_email, ApiClient=self.ApiClient
@@ -37,7 +36,7 @@ class AGiXT:
             else DEFAULT_SETTINGS
         )
         self.chain = Chain(user=self.user_email)
-        self.agent_id = self.agent.get_agent_id()
+        self.agent_id = str(self.agent.get_agent_id())
         self.agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.agent_workspace, exist_ok=True)
         self.outputs = f"{self.uri}/outputs/{self.agent_id}"
