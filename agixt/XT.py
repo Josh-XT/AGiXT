@@ -717,6 +717,7 @@ class AGiXT:
         else:
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
             file_data = base64.b64decode(url.split(",")[1])
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
             if not full_path.startswith(self.agent_workspace):
                 raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
