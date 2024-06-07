@@ -734,21 +734,28 @@ class AGiXT:
                             os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
                         )
                         if url.startswith("http"):
-                            image = requests.get(url).content
+                            # image = requests.get(url).content
+                            images.append(url)
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
                             if file_type == "jpeg":
                                 file_type = "jpg"
-                            file_name = f"{uuid.uuid4().hex}.{file_type}"
+                            if "file_name" in msg:
+                                file_name = str(msg["file_name"])
+                                if file_name == "":
+                                    file_name = f"{uuid.uuid4().hex}.{file_type}"
+                                file_name = "".join(
+                                    c if c.isalnum() else "_" for c in file_name
+                                )
+                            else:
+                                file_name = f"{uuid.uuid4().hex}.{file_type}"
                             image_path = os.path.join(
                                 os.getcwd(), "WORKSPACE", file_name
                             )
                             image = base64.b64decode(url.split(",")[1])
-                        if image:
-                            if image_path.startswith(base_path):
-                                with open(image_path, "wb") as f:
-                                    f.write(image)
-                                images.append(image_path)
+                            with open(image_path, "wb") as f:
+                                f.write(image)
+                            images.append(f"{self.outputs}/{file_name}")
                     if "audio_url" in msg:
                         audio_url = str(
                             msg["audio_url"]["url"]
