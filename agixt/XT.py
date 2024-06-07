@@ -555,7 +555,8 @@ class AGiXT:
 
     async def learn_from_file(
         self,
-        file_path: str,
+        file_url: str = "",
+        file_name: str = "",
         collection_number: int = 1,
         conversation_name: str = "",
     ):
@@ -563,6 +564,7 @@ class AGiXT:
         Learn from a file
 
         Args:
+            file_url (str): URL of the file
             file_path (str): Path to the file
             collection_number (int): Collection number to store the file
             conversation_name (str): Name of the conversation
@@ -570,8 +572,14 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
-
-        file_name = os.path.basename(file_path)
+        if file_name == "":
+            file_name = file_url.split("/")[-1]
+        if file_url.startswith(self.outputs):
+            file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
+        else:
+            file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
+            with open(file_path, "wb") as f:
+                f.write(requests.get(file_url).content)
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
@@ -609,10 +617,11 @@ class AGiXT:
         """
         conversation_name = prompt.user
         images = []
+        urls = []
+        files = []
         new_prompt = ""
         browse_links = True
         tts = False
-        urls = []
         base_path = os.path.join(os.getcwd(), "WORKSPACE")
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
@@ -734,7 +743,6 @@ class AGiXT:
                             os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
                         )
                         if url.startswith("http"):
-                            # image = requests.get(url).content
                             images.append(url)
                         else:
                             file_type = url.split(",")[0].split("/")[1].split(";")[0]
@@ -816,29 +824,49 @@ class AGiXT:
                             if "url" in msg["file_url"]
                             else msg["file_url"]
                         )
+                        if file_url.startswith("data:"):
+                            file_type = (
+                                file_url.split(",")[0].split("/")[1].split(";")[0]
+                            )
+                        else:
+                            file_type = file_url.split(".")[-1]
+                        file_name = f"{uuid.uuid4().hex}.{file_type}"
+                        if "file_name" in msg:
+                            file_name = str(msg["file_name"])
+                            if file_name == "":
+                                file_name = f"{uuid.uuid4().hex}.{file_type}"
+                            file_name = "".join(
+                                c if c.isalnum() else "_" for c in file_name
+                            )
+                        file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
                         if file_url.startswith("http"):
-                            urls.append(file_url)
+                            if "." in file_url[-5:]:
+                                file_type = file_url.split(".")[-1]
+                                if file_type in ["jpg", "jpeg", "png"]:
+                                    images.append(file_url)
+                                else:
+                                    files.append(file_url)
+                            else:
+                                urls.append(file_url)
                         else:
                             file_type = (
                                 file_url.split(",")[0].split("/")[1].split(";")[0]
                             )
                             file_data = base64.b64decode(file_url.split(",")[1])
-                            # file_path = f"./WORKSPACE/{uuid.uuid4().hex}.{file_type}"
-                            file_path = os.path.join(
-                                os.getcwd(),
-                                "WORKSPACE",
-                                f"{uuid.uuid4().hex}.{file_type}",
-                            )
                             if file_path.startswith(base_path):
                                 with open(file_path, "wb") as f:
                                     f.write(file_data)
-                                file_url = (
-                                    f"{self.outputs}/{os.path.basename(file_path)}"
-                                )
-                                urls.append(file_url)
+                            file_url = f"{self.outputs}/{file_name}"
+                            files.append(file_url)
             # Add user input to conversation
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(role="USER", message=new_prompt)
+            for file in files:
+                await self.learn_from_file(
+                    file_path=file,
+                    collection_number=1,
+                    conversation_name=conversation_name,
+                )
             await self.learn_from_websites(
                 urls=urls,
                 scrape_depth=3,
