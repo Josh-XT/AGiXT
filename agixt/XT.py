@@ -811,9 +811,6 @@ class AGiXT:
                             if "url" in msg["image_url"]
                             else msg["image_url"]
                         )
-                        image_path = os.path.join(
-                            os.getcwd(), "WORKSPACE", f"{uuid.uuid4().hex}.jpg"
-                        )
                         if "file_name" in msg:
                             file_name = str(msg["file_name"])
                             if file_name == "":
