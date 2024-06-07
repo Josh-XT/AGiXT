@@ -628,7 +628,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Viewing image `{file_name}`.",
+                            message=f"[ACTIVITY] Viewing image at {file_url}.",
                         )
                     try:
                         vision_response = await self.agent.inference(
@@ -808,6 +808,9 @@ class AGiXT:
                             file_name = "".join(
                                 c if c.isalnum() else "_" for c in file_name
                             )
+                            file_name = file_name.replace("_jpg", ".jpg")
+                            if "." not in file_name:
+                                file_name = f"{file_name}.jpg"
                         else:
                             file_name = f"{uuid.uuid4().hex}.jpg"
                         if url.startswith("http"):
