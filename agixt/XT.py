@@ -205,6 +205,9 @@ class AGiXT:
             file_type = "wav"
             file_name = f"{uuid.uuid4().hex}.{file_type}"
             audio_path = os.path.join(self.agent_workspace, file_name)
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
             audio_data = base64.b64decode(tts_url)
             with open(audio_path, "wb") as f:
                 f.write(audio_data)
@@ -576,6 +579,9 @@ class AGiXT:
             file_path = os.path.join(self.agent_workspace, file_name)
         else:
             file_path = os.path.join(self.agent_workspace, file_name)
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
                 f.write(requests.get(file_url).content)
         if conversation_name != "" and conversation_name != None:
@@ -703,14 +709,18 @@ class AGiXT:
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
         file_path = os.path.join(self.agent_workspace, file_name)
+        full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+        if not full_path.startswith(self.agent_workspace):
+            raise Exception("Path given not allowed")
         if url.startswith("http"):
             return {"file_name": file_name, "file_url": url}
         else:
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
             file_data = base64.b64decode(url.split(",")[1])
-            if file_path.startswith(self.agent_workspace):
-                with open(file_path, "wb") as f:
-                    f.write(file_data)
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
+            with open(file_path, "wb") as f:
+                f.write(file_data)
             url = f"{self.outputs}/{file_name}"
             return {"file_name": file_name, "file_url": url}
 
@@ -860,6 +870,14 @@ class AGiXT:
                                     audio_file_info = (
                                         await self.download_file_to_workspace(url=url)
                                     )
+                                    full_path = os.path.normpath(
+                                        os.path.join(
+                                            self.agent_workspace,
+                                            audio_file_info["file_name"],
+                                        )
+                                    )
+                                    if not full_path.startswith(self.agent_workspace):
+                                        raise Exception("Path given not allowed")
                                     audio_file_path = os.path.join(
                                         self.agent_workspace,
                                         audio_file_info["file_name"],
@@ -1103,11 +1121,17 @@ class AGiXT:
         # Save messages to a json file to be used as a dataset
         agent_id = self.agent_interactions.agent.get_agent_id()
         dataset_dir = os.path.join(self.agent_workspace, "datasets")
+
         os.makedirs(dataset_dir, exist_ok=True)
         dataset_name = "".join(
             [c for c in dataset_name if c.isalpha() or c.isdigit() or c == " "]
         )
         dataset_filename = f"{dataset_name}.json"
+        full_path = os.path.normpath(
+            os.path.join(self.agent_workspace, dataset_filename)
+        )
+        if not full_path.startswith(self.agent_workspace):
+            raise Exception("Path given not allowed")
         with open(os.path.join(dataset_dir, dataset_filename), "w") as f:
             f.write(json.dumps(dpo_dataset))
         self.agent_settings["training"] = False
