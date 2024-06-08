@@ -277,7 +277,9 @@ class Websearch:
         except:
             return None, None
 
-    async def recursive_browsing(self, user_input, links):
+    async def recursive_browsing(self, user_input, links, conversation_name: str = ""):
+        if conversation_name != "" and conversation_name is not None:
+            c = Conversations(conversation_name=conversation_name, user=self.user)
         try:
             words = links.split()
             links = [
@@ -311,6 +313,11 @@ class Websearch:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
+                    if conversation_name != "" and conversation_name is not None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] Browsing link: {url}",
+                        )
                     (
                         collected_data,
                         link_list,
@@ -319,6 +326,14 @@ class Websearch:
                         if len(link_list) > 0:
                             if len(link_list) > 5:
                                 link_list = link_list[:3]
+                            if (
+                                conversation_name != ""
+                                and conversation_name is not None
+                            ):
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[ACTIVITY] Found {len(link_list)} links on {url} . Choosing one to browse next.",
+                                )
                             try:
                                 pick_a_link = self.ApiClient.prompt_agent(
                                     agent_name=self.agent_name,
@@ -341,10 +356,20 @@ class Websearch:
                                         f"AI has decided to click: {pick_a_link}"
                                     )
                                     await self.recursive_browsing(
-                                        user_input=user_input, links=pick_a_link
+                                        user_input=user_input,
+                                        links=pick_a_link,
+                                        conversation_name=conversation_name,
                                     )
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
+                                if (
+                                    conversation_name != ""
+                                    and conversation_name is not None
+                                ):
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[ACTIVITY] Issues reading {url}. Moving on...",
+                                    )
 
     async def scrape_websites(
         self,
@@ -534,10 +559,11 @@ class Websearch:
     async def websearch_agent(
         self,
         user_input: str = "What are the latest breakthroughs in AI?",
+        search_string: str = "",
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
+        conversation_name: str = "",
     ):
-        await self.scrape_websites(user_input=user_input, search_depth=websearch_depth)
         try:
             websearch_depth = int(websearch_depth)
         except:
@@ -548,33 +574,19 @@ class Websearch:
             websearch_timeout = 0
         if websearch_depth > 0:
             if len(user_input) > 0:
-                to_search_or_not = self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="WebSearch Decision",
-                    prompt_args={
-                        "user_input": user_input,
-                        "websearch": "false",
-                        "browse_links": "false",
-                        "tts": "false",
-                    },
-                )
-                if not str(to_search_or_not).lower().startswith("y"):
-                    return
-                search_string = self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name="WebSearch",
-                    prompt_args={
-                        "user_input": user_input,
-                        "browse_links": "false",
-                        "websearch": "false",
-                        "tts": "false",
-                    },
-                )
-                keywords = extract_keywords(text=user_input, limit=5)
+                keywords = extract_keywords(text=search_string, limit=5)
                 if keywords:
                     search_string = " ".join(keywords)
                     # add month and year to the end of the search string
                     search_string += f" {datetime.now().strftime('%B %Y')}"
+                if conversation_name != "" and conversation_name is not None:
+                    c = Conversations(
+                        conversation_name=conversation_name, user=self.user
+                    )
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Searching for `{search_string}`.",
+                    )
                 google_api_key = (
                     self.agent_settings["GOOGLE_API_KEY"]
                     if "GOOGLE_API_KEY" in self.agent_settings
@@ -610,10 +622,13 @@ class Websearch:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
                     task = asyncio.create_task(
-                        self.recursive_browsing(user_input=user_input, links=links)
+                        self.recursive_browsing(
+                            user_input=user_input,
+                            links=links,
+                            conversation_name=conversation_name,
+                        )
                     )
                     self.tasks.append(task)
-
                 if int(websearch_timeout) == 0:
                     await asyncio.gather(*self.tasks)
                 else:

@@ -162,7 +162,7 @@ class AgentBrowsedLink(Base):
         nullable=False,
     )
     link = Column(Text, nullable=False)
-    timestamp = Column(DateTime, server_default=text("now()"))
+    timestamp = Column(DateTime, server_default=func.now())
 
 
 class Agent(Base):
@@ -250,7 +250,7 @@ class Message(Base):
     )
     role = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime, server_default=text("now()"))
+    timestamp = Column(DateTime, server_default=func.now())
     conversation_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("conversation.id"),
@@ -397,7 +397,7 @@ class ChainRun(Base):
         ForeignKey("user.id"),
         nullable=True,
     )
-    timestamp = Column(DateTime, server_default=text("now()"))
+    timestamp = Column(DateTime, server_default=func.now())
     chain_step_responses = relationship(
         "ChainStepResponse", backref="chain_run", cascade="all, delete-orphan"
     )
@@ -420,7 +420,7 @@ class ChainStepResponse(Base):
         ForeignKey("chain_run.id", ondelete="CASCADE"),
         nullable=True,
     )
-    timestamp = Column(DateTime, server_default=text("now()"))
+    timestamp = Column(DateTime, server_default=func.now())
     content = Column(Text, nullable=False)
 
 
