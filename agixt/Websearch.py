@@ -355,11 +355,15 @@ class Websearch:
     ):
         # user_input = "I am browsing {url} and collecting data from it to learn more."
         c = None
-        if conversation_name != "" and conversation_name is not None:
-            c = Conversations(conversation_name=conversation_name, user=self.user)
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if len(links) < 1:
             return ""
+        if conversation_name != "" and conversation_name is not None:
+            c = Conversations(conversation_name=conversation_name, user=self.user)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Researching online.",
+            )
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:

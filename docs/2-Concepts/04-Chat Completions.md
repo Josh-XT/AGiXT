@@ -62,12 +62,14 @@ response = openai.chat.completions.create(
                 {"type": "text", "text": "YOUR USER INPUT TO THE AGENT GOES HERE"},
                 {
                     "type": "image_url",
+                    "file_name": "funny_cat.jpg",  # Optional field, defaults to a random name.
                     "image_url": {  # Will download the image and send it to the vision model
                         "url": f"https://www.visualwatermark.com/images/add-text-to-photos/add-text-to-image-3.webp"
                     },
                 },
                 {
                     "type": "text_url",  # Or just "url"
+                    "file_name": "agixt_com_website_text.txt",  # Optional field, defaults to a random name.
                     "text_url": {  # Content of the text or URL for it to be scraped
                         "url": "https://agixt.com"
                     },
@@ -75,6 +77,7 @@ response = openai.chat.completions.create(
                 },
                 {
                     "type": "application_url",
+                    "file_name": "important_document.pdf",  # Optional field, defaults to a random name.
                     "application_url": {  # Will scrape mime type `application` into the agent's memory
                         "url": "data:application/pdf;base64,base64_encoded_pdf_here"
                     },
