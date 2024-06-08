@@ -578,13 +578,11 @@ class AGiXT:
         if file_url.startswith(self.outputs):
             file_path = os.path.join(self.agent_workspace, file_name)
         else:
+            file_data = await self.download_file_to_workspace(
+                url=file_url, file_name=file_name
+            )
+            file_name = file_data["file_name"]
             file_path = os.path.join(self.agent_workspace, file_name)
-            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
-            if not full_path.startswith(self.agent_workspace):
-                raise Exception("Path given not allowed")
-            if file_url.startswith("http"):
-                with open(full_path, "wb") as f:
-                    f.write(requests.get(file_url).content)
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
