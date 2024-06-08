@@ -490,8 +490,10 @@ class Interactions:
                     websearch=False,
                     tts=False,
                 )
-                logging.info(f"Search Decision: {to_search_or_not_to_search[:10]}")
-                if str(to_search_or_not_to_search).lower().startswith("y"):
+                to_search = re.search(
+                    r"\byes\b", str(to_search_or_not_to_search).lower()
+                )
+                if to_search:
                     c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] Searching the web.",
@@ -667,7 +669,8 @@ class Interactions:
                     create_img = await self.agent.inference(prompt=img_gen_prompt)
                     create_img = str(create_img).lower()
                     logging.info(f"Image Generation Decision Response: {create_img}")
-                    if "yes" in create_img or "es," in create_img:
+                    to_create_image = re.search(r"\byes\b", str(create_img).lower())
+                    if to_create_image:
                         img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
                         image_generation_prompt = await self.agent.inference(
                             prompt=img_prompt
