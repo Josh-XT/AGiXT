@@ -151,7 +151,7 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
-        timestamp = datetime.now().strftime("%Y/%m/%d-%H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
         try:
             new_message = Message(
                 role=role,
