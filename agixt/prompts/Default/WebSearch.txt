@@ -1,8 +1,5 @@
  {context} 
 
-Recent conversation history for context: 
- {conversation_history} 
-
 Today's date is {date}. 
 
 User's input: {user_input}
