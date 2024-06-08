@@ -25,7 +25,6 @@ class AGiXT:
         self.api_key = api_key
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
-        self.outputs = f"{self.uri}/outputs/"
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name, user=self.user_email, ApiClient=self.ApiClient
@@ -37,6 +36,10 @@ class AGiXT:
             else DEFAULT_SETTINGS
         )
         self.chain = Chain(user=self.user_email)
+        self.agent_id = str(self.agent.get_agent_id())
+        self.agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
+        os.makedirs(self.agent_workspace, exist_ok=True)
+        self.outputs = f"{self.uri}/outputs/{self.agent_id}"
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -201,7 +204,10 @@ class AGiXT:
         if not str(tts_url).startswith("http"):
             file_type = "wav"
             file_name = f"{uuid.uuid4().hex}.{file_type}"
-            audio_path = f"./WORKSPACE/{file_name}"
+            audio_path = os.path.join(self.agent_workspace, file_name)
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
             audio_data = base64.b64decode(tts_url)
             with open(audio_path, "wb") as f:
                 f.write(audio_data)
@@ -570,9 +576,12 @@ class AGiXT:
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
-            file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
+            file_path = os.path.join(self.agent_workspace, file_name)
         else:
-            file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
+            file_path = os.path.join(self.agent_workspace, file_name)
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
                 f.write(requests.get(file_url).content)
         if conversation_name != "" and conversation_name != None:
@@ -678,6 +687,44 @@ class AGiXT:
             )
         return response
 
+    async def download_file_to_workspace(self, url: str, file_name: str = ""):
+        """
+        Download a file from a URL to the workspace
+
+        Args:
+            url (str): URL of the file
+            file_name (str): Name of the file
+
+        Returns:
+            str: URL of the downloaded file
+        """
+        if url.startswith("data:"):
+            file_type = url.split(",")[0].split("/")[1].split(";")[0]
+        else:
+            file_type = url.split(".")[-1]
+        if not file_type:
+            file_type = "txt"
+        file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
+        file_name = "".join(c if c.isalnum() else "_" for c in file_name)
+        file_extension = file_name.split("_")[-1]
+        file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
+        file_path = os.path.join(self.agent_workspace, file_name)
+        full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+        if not full_path.startswith(self.agent_workspace):
+            raise Exception("Path given not allowed")
+        if url.startswith("http"):
+            return {"file_name": file_name, "file_url": url}
+        else:
+            file_type = url.split(",")[0].split("/")[1].split(";")[0]
+            file_data = base64.b64decode(url.split(",")[1])
+            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            if not full_path.startswith(self.agent_workspace):
+                raise Exception("Path given not allowed")
+            with open(file_path, "wb") as f:
+                f.write(file_data)
+            url = f"{self.outputs}/{file_name}"
+            return {"file_name": file_name, "file_url": url}
+
     async def chat_completions(self, prompt: ChatCompletions):
         """
         Generate an OpenAI style chat completion response with a ChatCompletion prompt
@@ -694,7 +741,6 @@ class AGiXT:
         new_prompt = ""
         browse_links = True
         tts = False
-        base_path = os.path.join(os.getcwd(), "WORKSPACE")
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -805,148 +851,53 @@ class AGiXT:
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
-                    if "image_url" in msg:
-                        url = str(
-                            msg["image_url"]["url"]
-                            if "url" in msg["image_url"]
-                            else msg["image_url"]
-                        )
-                        if "file_name" in msg:
-                            file_name = str(msg["file_name"])
-                            if file_name == "":
-                                file_name = f"{uuid.uuid4().hex}.jpg"
-                            file_name = "".join(
-                                c if c.isalnum() else "_" for c in file_name
-                            )
-                            file_extension = file_name.split("_")[-1]
-                            file_name = file_name.replace(
-                                f"_{file_extension}", f".{file_extension}"
-                            )
-                        else:
-                            file_name = f"{uuid.uuid4().hex}.jpg"
-                        if url.startswith("http"):
-                            files.append(
-                                {
-                                    "file_name": file_name,
-                                    "file_url": url,
-                                }
-                            )
-                        else:
-                            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-                            if file_type == "jpeg":
-                                file_type = "jpg"
-                            if "file_name" in msg:
-                                file_name = str(msg["file_name"])
-                                if file_name == "":
-                                    file_name = f"{uuid.uuid4().hex}.{file_type}"
-                                file_name = "".join(
-                                    c if c.isalnum() else "_" for c in file_name
-                                )
-                                file_extension = file_name.split("_")[-1]
-                                file_name = file_name.replace(
-                                    f"_{file_extension}", f".{file_extension}"
-                                )
-                            else:
-                                file_name = f"{uuid.uuid4().hex}.{file_type}"
-                            image_path = os.path.join(
-                                os.getcwd(), "WORKSPACE", file_name
-                            )
-                            image = base64.b64decode(url.split(",")[1])
-                            with open(image_path, "wb") as f:
-                                f.write(image)
-                            files.append(
-                                {
-                                    "file_name": file_name,
-                                    "file_url": f"{self.outputs}/{file_name}",
-                                }
-                            )
-                    if "audio_url" in msg:
-                        audio_url = str(
-                            msg["audio_url"]["url"]
-                            if "url" in msg["audio_url"]
-                            else msg["audio_url"]
-                        )
-                        # If it is not a url, we need to find the file type and convert with pydub
-                        if not audio_url.startswith("http"):
-                            file_type = (
-                                audio_url.split(",")[0].split("/")[1].split(";")[0]
-                            )
-                            audio_data = base64.b64decode(audio_url.split(",")[1])
-                            audio_path = os.path.join(
-                                os.getcwd(),
-                                "WORKSPACE",
-                                f"{uuid.uuid4().hex}.{file_type}",
-                            )
-                            with open(audio_path, "wb") as f:
-                                f.write(audio_data)
-                            audio_url = audio_path
-                        else:
-                            # Download the audio file from the url, get the file type and convert to wav
-                            audio_type = audio_url.split(".")[-1]
-                            audio_url = os.path.join(
-                                os.getcwd(),
-                                "WORKSPACE",
-                                f"{uuid.uuid4().hex}.{audio_type}",
-                            )
-                            audio_data = requests.get(audio_url).content
-                            with open(audio_url, "wb") as f:
-                                f.write(audio_data)
-                        if audio_url.startswith(base_path):
-                            wav_file = f"./WORKSPACE/{uuid.uuid4().hex}.wav"
-                            AudioSegment.from_file(audio_url).set_frame_rate(
-                                16000
-                            ).export(wav_file, format="wav")
-                            transcribed_audio = await self.audio_to_text(
-                                audio_path=wav_file,
-                                conversation_name=conversation_name,
-                            )
-                            new_prompt += transcribed_audio
-                    if "video_url" in msg:
-                        video_url = str(
-                            msg["video_url"]["url"]
-                            if "url" in msg["video_url"]
-                            else msg["video_url"]
-                        )
-                        if video_url.startswith("http"):
-                            urls.append(video_url)
-                    if (
-                        "file_url" in msg
-                        or "application_url" in msg
-                        or "text_url" in msg
-                        or "url" in msg
-                    ):
-                        file_url = str(
-                            msg["file_url"]["url"]
-                            if "url" in msg["file_url"]
-                            else msg["file_url"]
-                        )
-                        if file_url.startswith("data:"):
-                            file_type = (
-                                file_url.split(",")[0].split("/")[1].split(";")[0]
-                            )
-                        else:
-                            file_type = file_url.split(".")[-1]
-                        file_name = f"{uuid.uuid4().hex}.{file_type}"
-                        if "file_name" in msg:
-                            file_name = str(msg["file_name"])
-                            if file_name == "":
-                                file_name = f"{uuid.uuid4().hex}.{file_type}"
-                            file_name = "".join(
-                                c if c.isalnum() else "_" for c in file_name
-                            )
-                        file_path = os.path.join(os.getcwd(), "WORKSPACE", file_name)
-                        if file_url.startswith("http"):
-                            files.append({"file_name": file_name, "file_url": file_url})
-                        else:
-                            file_type = (
-                                file_url.split(",")[0].split("/")[1].split(";")[0]
-                            )
-                            file_data = base64.b64decode(file_url.split(",")[1])
-                            if file_path.startswith(base_path):
-                                with open(file_path, "wb") as f:
-                                    f.write(file_data)
-                            file_url = f"{self.outputs}/{file_name}"
-                            files.append({"file_name": file_name, "file_url": file_url})
+                    # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
+                    if isinstance(msg, dict):
+                        for key, value in msg.items():
+                            if "_url" in key:
+                                url = str(value["url"] if "url" in value else value)
+                                if "file_name" in msg:
+                                    file_name = str(msg["file_name"])
+                                else:
+                                    file_name = ""
+                                if key != "audio_url":
+                                    files.append(
+                                        await self.download_file_to_workspace(
+                                            url=url, file_name=file_name
+                                        )
+                                    )
+                                else:
+                                    # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
+                                    audio_file_info = (
+                                        await self.download_file_to_workspace(url=url)
+                                    )
+                                    full_path = os.path.normpath(
+                                        os.path.join(
+                                            self.agent_workspace,
+                                            audio_file_info["file_name"],
+                                        )
+                                    )
+                                    if not full_path.startswith(self.agent_workspace):
+                                        raise Exception("Path given not allowed")
+                                    audio_file_path = os.path.join(
+                                        self.agent_workspace,
+                                        audio_file_info["file_name"],
+                                    )
+                                    if url.startswith(self.agent_workspace):
+                                        wav_file = os.path.join(
+                                            self.agent_workspace,
+                                            f"{uuid.uuid4().hex}.wav",
+                                        )
+                                        AudioSegment.from_file(
+                                            audio_file_path
+                                        ).set_frame_rate(16000).export(
+                                            wav_file, format="wav"
+                                        )
+                                        transcribed_audio = await self.audio_to_text(
+                                            audio_path=wav_file,
+                                            conversation_name=conversation_name,
+                                        )
+                                        new_prompt += transcribed_audio
             # Add user input to conversation
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(role="USER", message=new_prompt)
@@ -1170,8 +1121,19 @@ class AGiXT:
         }
         # Save messages to a json file to be used as a dataset
         agent_id = self.agent_interactions.agent.get_agent_id()
-        os.makedirs(f"./WORKSPACE/{agent_id}/datasets", exist_ok=True)
-        with open(f"./WORKSPACE/{agent_id}/datasets/{dataset_name}.json", "w") as f:
+        dataset_dir = os.path.join(self.agent_workspace, "datasets")
+
+        os.makedirs(dataset_dir, exist_ok=True)
+        dataset_name = "".join(
+            [c for c in dataset_name if c.isalpha() or c.isdigit() or c == " "]
+        )
+        dataset_filename = f"{dataset_name}.json"
+        full_path = os.path.normpath(
+            os.path.join(self.agent_workspace, dataset_filename)
+        )
+        if not full_path.startswith(self.agent_workspace):
+            raise Exception("Path given not allowed")
+        with open(os.path.join(dataset_dir, dataset_filename), "w") as f:
             f.write(json.dumps(dpo_dataset))
         self.agent_settings["training"] = False
         self.agent_interactions.agent.update_agent_config(
