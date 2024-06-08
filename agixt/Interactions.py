@@ -320,7 +320,12 @@ class Interactions:
             tokens_used = get_tokens(
                 f"{prompt}{user_input}{all_files_content}{context}"
             )
-            if tokens_used > int(self.agent.MAX_TOKENS) or files == []:
+            agent_max_tokens = int(
+                self.agent.AGENT_CONFIG["settings"]["MAX_TOKENS"]
+                if "MAX_TOKENS" in self.agent.AGENT_CONFIG["settings"]
+                else 8192
+            )
+            if tokens_used > agent_max_tokens or files == []:
                 fragmented_content = await file_reader.get_memories(
                     user_input=f"{user_input} {file_list}",
                     min_relevance_score=0.3,
@@ -379,6 +384,7 @@ class Interactions:
         persist_context_in_history: bool = False,
         images: list = [],
         log_user_input: bool = True,
+        log_output: bool = True,
         **kwargs,
     ):
         global AGIXT_URI
@@ -455,6 +461,13 @@ class Interactions:
                 conversation_name=conversation_name,
             )
         if websearch:
+            if browse_links != False:
+                await self.websearch.scrape_websites(
+                    user_input=user_input,
+                    search_depth=websearch_depth,
+                    summarize_content=False,
+                    conversation_name=conversation_name,
+                )
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
                     user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
@@ -463,16 +476,50 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Searching the web.",
+                    message=f"[ACTIVITY] Searching for information.",
                 )
-                # try:
-                await self.websearch.websearch_agent(
+                to_search_or_not_to_search = await self.run(
+                    prompt_name="Websearch Decision",
+                    prompt_category="Default",
                     user_input=user_input,
-                    websearch_depth=websearch_depth,
-                    websearch_timeout=websearch_timeout,
+                    context_results=context_results,
+                    conversation_name=conversation_name,
+                    log_user_input=False,
+                    log_output=False,
+                    browse_links=False,
+                    websearch=False,
+                    tts=False,
                 )
-                # except Exception as e:
-                # logging.warning(f"Failed to websearch. Error: {e}")
+                logging.info(f"Search Decision: {to_search_or_not_to_search[:10]}")
+                if str(to_search_or_not_to_search).lower().startswith("y"):
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Searching the web.",
+                    )
+                    search_string = await self.run(
+                        prompt_name="WebSearch",
+                        prompt_category="Default",
+                        user_input=user_input,
+                        context_results=context_results,
+                        conversation_name=conversation_name,
+                        log_user_input=False,
+                        log_output=False,
+                        browse_links=False,
+                        websearch=False,
+                        tts=False,
+                    )
+                    await self.websearch.websearch_agent(
+                        user_input=user_input,
+                        search_string=search_string,
+                        websearch_depth=websearch_depth,
+                        websearch_timeout=websearch_timeout,
+                        conversation_name=conversation_name,
+                    )
+                else:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Decided searching the web is not necessary.",
+                    )
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
@@ -642,10 +689,11 @@ class Interactions:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
-            c.log_interaction(
-                role=self.agent_name,
-                message=self.response,
-            )
+            if log_output:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=self.response,
+                )
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
