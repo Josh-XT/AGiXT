@@ -126,7 +126,6 @@ class Conversations:
                     new_message = Message(
                         role=interaction["role"],
                         content=interaction["message"],
-                        timestamp=interaction["timestamp"],
                         conversation_id=conversation.id,
                     )
                     session.add(new_message)
@@ -151,12 +150,10 @@ class Conversations:
             conversation = self.new_conversation()
             session.close()
             session = get_session()
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             new_message = Message(
                 role=role,
                 content=message,
-                timestamp=timestamp,
                 conversation_id=conversation.id,
             )
         except Exception as e:
@@ -166,7 +163,6 @@ class Conversations:
             new_message = Message(
                 role=role,
                 content=message,
-                timestamp=timestamp,
                 conversation_id=conversation.id,
             )
         session.add(new_message)
