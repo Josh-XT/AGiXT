@@ -548,6 +548,18 @@ class Websearch:
             websearch_timeout = 0
         if websearch_depth > 0:
             if len(user_input) > 0:
+                to_search_or_not = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="WebSearch Decision",
+                    prompt_args={
+                        "user_input": user_input,
+                        "websearch": "false",
+                        "browse_links": "false",
+                        "tts": "false",
+                    },
+                )
+                if not str(to_search_or_not).lower().startswith("y"):
+                    return
                 search_string = self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name="WebSearch",
@@ -555,6 +567,7 @@ class Websearch:
                         "user_input": user_input,
                         "browse_links": "false",
                         "websearch": "false",
+                        "tts": "false",
                     },
                 )
                 keywords = extract_keywords(text=user_input, limit=5)

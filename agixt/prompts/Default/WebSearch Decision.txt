@@ -1,0 +1,11 @@
+ {context} 
+
+Today's date is {date}. 
+
+User's input: {user_input}
+
+The assistant needs to decide if the user's input merits searching the web to assist them before responding, or if the assistant can respond directly.
+
+If the assistant decides to search the web, say `Yes`. If the assistant decides not to search the web, say `No`.
+
+**The assistant responds only with Yes or No.**
