@@ -479,7 +479,7 @@ class Interactions:
                     message=f"[ACTIVITY] Searching for information.",
                 )
                 to_search_or_not_to_search = await self.run(
-                    prompt_name="Websearch Decision",
+                    prompt_name="WebSearch Decision",
                     prompt_category="Default",
                     user_input=user_input,
                     context_results=context_results,
