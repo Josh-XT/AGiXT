@@ -45,7 +45,13 @@ class Interactions:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
-            self.agent_memory = self.websearch.agent_memory
+            self.agent_memory = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=0,
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
             self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
