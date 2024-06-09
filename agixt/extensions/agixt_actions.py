@@ -756,7 +756,9 @@ class agixt_actions(Extensions):
         Returns:
         str: The CSV code block
         """
-        return f"```csv\n{data}\n```"
+        if "," in data or "\n" in data:
+            return f"```csv\n{data}\n```"
+        return data
 
     async def get_csv_preview(self, filename: str):
         """
