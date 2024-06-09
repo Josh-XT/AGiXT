@@ -510,6 +510,7 @@ class Chain:
 
         steps = steps["steps"] if "steps" in steps else steps
         for step_data in steps:
+            logging.info(f"chain step: {step_data}")
             agent_name = step_data["agent_name"]
             agent = (
                 self.session.query(Agent)
