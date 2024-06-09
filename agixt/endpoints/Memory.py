@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from Websearch import Websearch
 from XT import AGiXT
 from Memories import Memories
+from Conversations import Conversations
 from readers.github import GithubReader
 from readers.file import FileReader
 from readers.arxiv import ArxivReader
@@ -24,6 +25,7 @@ from Models import (
     FinetuneAgentModel,
     ExternalSource,
     UserInput,
+    FeedbackInput,
 )
 
 app = APIRouter()
@@ -589,3 +591,44 @@ async def get_unique_external_sources(
         user=user,
     ).get_external_data_sources()
     return {"external_sources": external_sources}
+
+
+# RLHF endpoint
+@app.post(
+    "/api/agent/{agent_name}/feedback",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def rlhf(
+    agent_name: str,
+    data: FeedbackInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
+    if data.positive == True:
+        collection_number = 2
+    else:
+        collection_number = 3
+    if data.conversation_name != "" and data.conversation_name != None:
+        c = Conversations(conversation_name=data.conversation_name, user=user)
+        c.log_interaction(
+            role=agent_name,
+            message=f"[ACTIVITY] Added {'positive' if data.positive == True else 'negative'} feedback to memory.",
+        )
+
+    memory = Memories(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=collection_number,
+        ApiClient=ApiClient,
+        user=user,
+    )
+    await memory.write_text_to_memory(
+        user_input=data.user_input, text=data.feedback, external_source="user feedback"
+    )
+    response_message = f"{'Positive' if data.positive == True else 'Negative'} feedback received for agent {agent_name}."
+    return ResponseMessage(message=response_message)

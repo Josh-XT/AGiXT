@@ -171,6 +171,13 @@ class TextMemoryInput(BaseModel):
     collection_number: int = 0
 
 
+class FeedbackInput(BaseModel):
+    user_input: str
+    feedback: str
+    positive: Optional[bool] = True
+    conversation_name: Optional[str] = ""
+
+
 class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
