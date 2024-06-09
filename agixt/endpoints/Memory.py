@@ -605,11 +605,11 @@ async def rlhf(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     if data.positive == True:
         memory = agixt.agent_interactions.positive_feedback_memories
     else:
         memory = agixt.agent_interactions.negative_feedback_memories
-    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     reflection = await agixt.inference(
         user_input=data.user_input,
         input_kind="positive" if data.positive == True else "negative",
