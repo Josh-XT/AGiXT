@@ -189,6 +189,7 @@ def import_chains(user=DEFAULT_USER):
     from Chain import Chain
 
     chain_importer = Chain(user=user)
+    failures = []
     for file in chain_files:
         chain_name = os.path.splitext(file)[0]
         file_path = os.path.join(chain_dir, file)
@@ -199,10 +200,51 @@ def import_chains(user=DEFAULT_USER):
                 logging.info(result)
             except json.JSONDecodeError as e:
                 logging.info(
-                    f"Error importing chain from '{file}': Invalid JSON format."
+                    f"(1/3) Error importing chain from '{file}': Invalid JSON format."
                 )
             except Exception as e:
-                logging.info(f"Error importing chain from '{file}': {str(e)}")
+                logging.info(f"(1/3) Error importing chain from '{file}': {str(e)}")
+                failures.append(file)
+    if failures:
+        # Try each that failed again just in case it had a dependency on another chain
+        for file in failures:
+            chain_name = os.path.splitext(file)[0]
+            file_path = os.path.join(chain_dir, file)
+            with open(file_path, "r") as f:
+                try:
+                    chain_data = json.load(f)
+                    result = chain_importer.import_chain(chain_name, chain_data)
+                    logging.info(result)
+                    failures.remove(file)
+                except json.JSONDecodeError as e:
+                    logging.info(
+                        f"(2/3) Error importing chain from '{file}': Invalid JSON format."
+                    )
+                except Exception as e:
+                    logging.info(f"(2/3) Error importing chain from '{file}': {str(e)}")
+        if failures:
+            # Try one more time.
+            for file in failures:
+                chain_name = os.path.splitext(file)[0]
+                file_path = os.path.join(chain_dir, file)
+                with open(file_path, "r") as f:
+                    try:
+                        chain_data = json.load(f)
+                        result = chain_importer.import_chain(chain_name, chain_data)
+                        logging.info(result)
+                        failures.remove(file)
+                    except json.JSONDecodeError as e:
+                        logging.info(
+                            f"(3/3) Error importing chain from '{file}': Invalid JSON format."
+                        )
+                    except Exception as e:
+                        logging.info(
+                            f"(3/3) Error importing chain from '{file}': {str(e)}"
+                        )
+    if failures:
+        logging.info(
+            f"Failed to import the following chains: {', '.join([os.path.splitext(file)[0] for file in failures])}"
+        )
 
 
 def import_prompts(user=DEFAULT_USER):
