@@ -1,6 +1,6 @@
 The date today is {date} .
 
-You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it. CSV file preview:
+You are working the with file at {import_file} . Use this exact file path in any code that will analyze it. CSV file preview:
 ```csv
 {file_preview}
 ```

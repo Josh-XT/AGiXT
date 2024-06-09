@@ -24,7 +24,7 @@ If the user's input doesn't request any specific analysis or asks to surprise th
 
 **Make sure the final output of the code is a visualization. The functions final return should be a print of base64 image markdown string that can be displayed on a website parsing markdown code. Example `print('![Generated Image](data:image/png;base64,IMAGE_CONTENT)')`**
 
-You are working the with file at `{import_file}`, use this exact file path in any code that will analyze it. CSV file preview:
+You are working the with file at {import_file} . Use this exact file path in any code that will analyze it. CSV file preview:
 ```csv
 {file_preview}
 ```
