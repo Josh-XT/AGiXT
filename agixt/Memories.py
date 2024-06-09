@@ -170,8 +170,7 @@ class Memories:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
         self.user = user
         self.collection_number = collection_number
-        if collection_number > 0:
-            self.collection_name = f"{self.collection_name}_{collection_number}"
+        self.collection_name = f"{self.collection_name}_{collection_number}"
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
@@ -251,8 +250,7 @@ class Memories:
                     collection_number = 0
                 self.collection_number = collection_number
                 self.collection_name = snake(self.agent_name)
-                if collection_number > 0:
-                    self.collection_name = f"{self.collection_name}_{collection_number}"
+                self.collection_name = f"{self.collection_name}_{collection_number}"
                 for val in value[self.collection_name]:
                     try:
                         await self.write_text_to_memory(
@@ -422,7 +420,6 @@ class Memories:
         default_collection_name = self.collection_name
         if self.user != DEFAULT_USER:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
-            # if self.collection_number > 0:
             self.collection_name = f"{self.collection_name}_{self.collection_number}"
         try:
             default_results = await self.get_memories_data(
