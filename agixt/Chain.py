@@ -520,9 +520,11 @@ class Chain:
                 # Handle the case where agent not found based on agent_name
                 # You can choose to skip this step or raise an exception
                 continue
-
             prompt = step_data["prompt"]
-            if "prompt_name" in prompt:
+            if "prompt_type" not in prompt:
+                prompt["prompt_type"] = "prompt"
+            prompt_type = prompt["prompt_type"].lower()
+            if prompt_type == "prompt":
                 argument_key = "prompt_name"
                 prompt_category = prompt.get("prompt_category", "Default")
                 target_id = (
@@ -536,7 +538,7 @@ class Chain:
                     .id
                 )
                 target_type = "prompt"
-            elif "chain_name" in prompt:
+            elif prompt_type == "chain":
                 argument_key = "chain_name"
                 target_id = (
                     self.session.query(Chain)
@@ -548,7 +550,7 @@ class Chain:
                     .id
                 )
                 target_type = "chain"
-            elif "command_name" in prompt:
+            elif prompt_type == "command":
                 argument_key = "command_name"
                 target_id = (
                     self.session.query(Command)
@@ -561,11 +563,9 @@ class Chain:
                 # Handle the case where the argument key is not found
                 # You can choose to skip this step or raise an exception
                 continue
-
             argument_value = prompt[argument_key]
             prompt_arguments = prompt.copy()
             del prompt_arguments[argument_key]
-
             chain_step = ChainStep(
                 chain_id=chain.id,
                 step_number=step_data["step"],
@@ -578,7 +578,6 @@ class Chain:
             )
             self.session.add(chain_step)
             self.session.commit()
-
             for argument_name, argument_value in prompt_arguments.items():
                 argument = (
                     self.session.query(Argument)
@@ -597,7 +596,6 @@ class Chain:
                 )
                 self.session.add(chain_step_argument)
                 self.session.commit()
-
         return f"Imported chain: {chain_name}"
 
     def get_chain_step_dependencies(self, chain_name):
