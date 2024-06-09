@@ -510,7 +510,6 @@ class Chain:
 
         steps = steps["steps"] if "steps" in steps else steps
         for step_data in steps:
-            logging.info(f"chain step: {step_data}")
             agent_name = step_data["agent_name"]
             agent = (
                 self.session.query(Agent)
@@ -518,13 +517,16 @@ class Chain:
                 .first()
             )
             if not agent:
-                # Handle the case where agent not found based on agent_name
-                # You can choose to skip this step or raise an exception
-                continue
+                # Use the first agent in the database
+                agent = (
+                    self.session.query(Agent)
+                    .filter(Agent.user_id == self.user_id)
+                    .first()
+                )
             prompt = step_data["prompt"]
-            if "prompt_type" not in prompt:
-                prompt["prompt_type"] = "prompt"
-            prompt_type = prompt["prompt_type"].lower()
+            if "prompt_type" not in step_data:
+                step_data["prompt_type"] = "prompt"
+            prompt_type = step_data["prompt_type"].lower()
             if prompt_type == "prompt":
                 argument_key = "prompt_name"
                 prompt_category = prompt.get("prompt_category", "Default")
