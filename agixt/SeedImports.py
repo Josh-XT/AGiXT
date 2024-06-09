@@ -194,16 +194,16 @@ def import_chains(user=DEFAULT_USER):
         file_path = os.path.join(chain_dir, file)
 
         with open(file_path, "r") as f:
-            try:
-                chain_data = json.load(f)
-                result = chain_importer.import_chain(chain_name, chain_data)
-                logging.info(result)
-            except json.JSONDecodeError as e:
-                logging.info(
-                    f"Error importing chain from '{file}': Invalid JSON format."
-                )
-            except Exception as e:
-                logging.info(f"Error importing chain from '{file}': {str(e)}")
+            # try:
+            chain_data = json.load(f)
+            result = chain_importer.import_chain(chain_name, chain_data)
+            logging.info(result)
+            # except json.JSONDecodeError as e:
+            #    logging.info(
+            #        f"Error importing chain from '{file}': Invalid JSON format."
+            #    )
+            # except Exception as e:
+            #    logging.info(f"Error importing chain from '{file}': {str(e)}")
 
 
 def import_prompts(user=DEFAULT_USER):
