@@ -28,51 +28,42 @@ def install_docker_image():
 def execute_python_code(code: str) -> str:
     docker_image = "joshxt/safeexecute:latest"
     docker_working_dir = "/agixt/WORKSPACE"
+    host_working_dir = os.path.abspath("WORKSPACE")
+    # Ensure the host working directory exists
+    os.makedirs(host_working_dir, exist_ok=True)
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-    temp_file = "/agixt/WORKSPACE/temp.py"
+    temp_file = os.path.join(host_working_dir, "temp.py")
     logging.info(f"Writing Python code to temporary file: {temp_file}")
     with open(temp_file, "w") as f:
         f.write(code)
-    os.chmod(temp_file, 0o755)  # Set executable permissions
     try:
         client = install_docker_image()
-        if package_requirements:
-            # Install the required packages in the container
-            for package in package_requirements:
-                try:
-                    logging.info(f"Installing package '{package}' in container")
-                    client.containers.run(
-                        docker_image,
-                        f"pip install {package}",
-                        volumes={
-                            os.path.abspath(docker_working_dir): {
-                                "bind": "/WORKSPACE",
-                                "mode": "rw",
-                            }
-                        },
-                        working_dir="/WORKSPACE",
-                        stderr=True,
-                        stdout=True,
-                        detach=True,
-                    )
-                except Exception as e:
-                    logging.error(f"Error installing package '{package}': {str(e)}")
-                    return f"Error: {str(e)}"
-        # Run the Python code in the container
+        for package in package_requirements:
+            try:
+                logging.info(f"Installing package '{package}' in container")
+                client.containers.run(
+                    docker_image,
+                    f"pip install {package}",
+                    volumes={
+                        host_working_dir: {"bind": docker_working_dir, "mode": "rw"}
+                    },
+                    working_dir=docker_working_dir,
+                    stderr=True,
+                    stdout=True,
+                    remove=True,
+                )
+            except Exception as e:
+                logging.error(f"Error installing package '{package}': {str(e)}")
+                return f"Error: {str(e)}"
         container = client.containers.run(
             docker_image,
-            f"python /WORKSPACE/temp.py",
-            volumes={
-                os.path.abspath(docker_working_dir): {
-                    "bind": "/WORKSPACE",
-                    "mode": "rw",
-                }
-            },
-            working_dir="/WORKSPACE",
+            f"python {os.path.join(docker_working_dir, 'temp.py')}",
+            volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
+            working_dir=docker_working_dir,
             stderr=True,
             stdout=True,
             detach=True,
