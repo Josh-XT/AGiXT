@@ -837,7 +837,7 @@ class agixt_actions(Extensions):
                 await asyncio.gather(*tasks)
                 tasks = []
             task = asyncio.create_task(
-                await self.ApiClient.prompt_agent(
+                self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name="Basic With Memory",
                     prompt_args={
