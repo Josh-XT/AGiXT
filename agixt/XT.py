@@ -36,10 +36,9 @@ class AGiXT:
             else DEFAULT_SETTINGS
         )
         self.chain = Chain(user=self.user_email)
-        self.agent_id = str(self.agent.get_agent_id())
-        self.agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
+        self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
-        self.outputs = f"{self.uri}/outputs/{self.agent_id}"
+        self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -1101,7 +1100,6 @@ class AGiXT:
             "rejected": bad_answers,
         }
         # Save messages to a json file to be used as a dataset
-        agent_id = self.agent_interactions.agent.get_agent_id()
         dataset_dir = os.path.join(self.agent_workspace, "datasets")
 
         os.makedirs(dataset_dir, exist_ok=True)

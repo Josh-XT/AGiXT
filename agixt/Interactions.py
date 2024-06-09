@@ -202,10 +202,7 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        try:
-            working_directory = self.agent.AGENT_CONFIG["settings"]["WORKING_DIRECTORY"]
-        except:
-            working_directory = "./WORKSPACE"
+        working_directory = self.agent.working_directory
         helper_agent_name = self.agent_name
         if "helper_agent_name" not in kwargs:
             if "helper_agent_name" in self.agent.AGENT_CONFIG["settings"]:
@@ -294,7 +291,7 @@ class Interactions:
                 file_name = file["file_name"]
                 file_list.append(file_name)
                 file_name = regex.sub(r"(\[.*?\])", "", file_name)
-                file_path = os.path.normpath(os.getcwd(), working_directory, file_name)
+                file_path = os.path.normpath(working_directory, file_name)
                 if not file_path.startswith(os.getcwd()):
                     pass
                 if not os.path.exists(file_path):
@@ -628,11 +625,13 @@ class Interactions:
                         if not str(tts_response).startswith("http"):
                             file_type = "wav"
                             file_name = f"{uuid.uuid4().hex}.{file_type}"
-                            audio_path = f"./WORKSPACE/{file_name}"
+                            audio_path = os.path.join(
+                                self.agent.working_directory, file_name
+                            )
                             audio_data = base64.b64decode(tts_response)
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
-                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{file_name}" type="audio/wav"></audio>'
+                            tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
                         self.response = f"{self.response}\n\n{tts_response}"
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")

@@ -251,6 +251,9 @@ class Agent:
             ApiClient=ApiClient,
             user=self.user,
         ).get_available_commands()
+        self.agent_id = str(self.get_agent_id())
+        self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
+        os.makedirs(self.working_directory, exist_ok=True)
 
     def load_config_keys(self):
         config_keys = [
