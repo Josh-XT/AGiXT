@@ -83,6 +83,9 @@ def execute_python_code(code: str, agent_id: str = "") -> str:
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
         logging.info(f"Python code executed successfully. Logs: {logs}")
+        logs = str(logs)
+        if logs.endswith("\n"):
+            logs = logs[:-1]
         return logs
     except Exception as e:
         logging.error(f"Error executing Python code: {str(e)}")
