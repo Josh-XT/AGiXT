@@ -61,8 +61,13 @@ async def run_command(
     ).execute_command(
         command_name=command.command_name, command_args=command.command_args
     )
-    c = Conversations(conversation_name=command.conversation_name, user=user)
-    c.log_interaction(role=agent_name, message=command_output)
+    if (
+        command.conversation_name != ""
+        and command.conversation_name != None
+        and command_output != None
+    ):
+        c = Conversations(conversation_name=command.conversation_name, user=user)
+        c.log_interaction(role=agent_name, message=command_output)
     return {
         "response": command_output,
     }
