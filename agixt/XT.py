@@ -879,71 +879,71 @@ class AGiXT:
                                             conversation_name=conversation_name,
                                         )
                                         new_prompt += transcribed_audio
-            # Add user input to conversation
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
-            c.log_interaction(role="USER", message=new_prompt)
-            for file in files:
-                await self.learn_from_file(
-                    file_url=file["file_url"],
-                    file_name=file["file_name"],
-                    user_input=new_prompt,
-                    collection_number=1,
-                    conversation_name=conversation_name,
-                )
-            await self.learn_from_websites(
-                urls=urls,
-                scrape_depth=3,
-                summarize_content=False,
+        # Add user input to conversation
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        c.log_interaction(role="USER", message=new_prompt)
+        for file in files:
+            await self.learn_from_file(
+                file_url=file["file_url"],
+                file_name=file["file_name"],
+                user_input=new_prompt,
+                collection_number=1,
                 conversation_name=conversation_name,
             )
-            if mode == "command" and command_name and command_variable:
-                try:
-                    command_args = (
-                        json.loads(self.agent_settings["command_args"])
-                        if isinstance(self.agent_settings["command_args"], str)
-                        else self.agent_settings["command_args"]
-                    )
-                except Exception as e:
-                    command_args = {}
-                command_args[self.agent_settings["command_variable"]] = new_prompt
-                response = await self.execute_command(
-                    command_name=self.agent_settings["command_name"],
-                    command_args=command_args,
-                    conversation_name=conversation_name,
-                    voice_response=tts,
+        await self.learn_from_websites(
+            urls=urls,
+            scrape_depth=3,
+            summarize_content=False,
+            conversation_name=conversation_name,
+        )
+        if mode == "command" and command_name and command_variable:
+            try:
+                command_args = (
+                    json.loads(self.agent_settings["command_args"])
+                    if isinstance(self.agent_settings["command_args"], str)
+                    else self.agent_settings["command_args"]
                 )
-            elif mode == "chain" and chain_name:
-                chain_name = self.agent_settings["chain_name"]
-                try:
-                    chain_args = (
-                        json.loads(self.agent_settings["chain_args"])
-                        if isinstance(self.agent_settings["chain_args"], str)
-                        else self.agent_settings["chain_args"]
-                    )
-                except Exception as e:
-                    chain_args = {}
-                response = await self.execute_chain(
-                    chain_name=chain_name,
-                    user_input=new_prompt,
-                    agent_override=self.agent_name,
-                    chain_args=chain_args,
-                    log_user_input=False,
-                    conversation_name=conversation_name,
-                    voice_response=tts,
+            except Exception as e:
+                command_args = {}
+            command_args[self.agent_settings["command_variable"]] = new_prompt
+            response = await self.execute_command(
+                command_name=self.agent_settings["command_name"],
+                command_args=command_args,
+                conversation_name=conversation_name,
+                voice_response=tts,
+            )
+        elif mode == "chain" and chain_name:
+            chain_name = self.agent_settings["chain_name"]
+            try:
+                chain_args = (
+                    json.loads(self.agent_settings["chain_args"])
+                    if isinstance(self.agent_settings["chain_args"], str)
+                    else self.agent_settings["chain_args"]
                 )
-            elif mode == "prompt":
-                response = await self.inference(
-                    user_input=new_prompt,
-                    prompt_name=prompt_name,
-                    prompt_category=prompt_category,
-                    conversation_name=conversation_name,
-                    injected_memories=context_results,
-                    shots=prompt.n,
-                    browse_links=browse_links,
-                    voice_response=tts,
-                    log_user_input=False,
-                    **prompt_args,
-                )
+            except Exception as e:
+                chain_args = {}
+            response = await self.execute_chain(
+                chain_name=chain_name,
+                user_input=new_prompt,
+                agent_override=self.agent_name,
+                chain_args=chain_args,
+                log_user_input=False,
+                conversation_name=conversation_name,
+                voice_response=tts,
+            )
+        elif mode == "prompt":
+            response = await self.inference(
+                user_input=new_prompt,
+                prompt_name=prompt_name,
+                prompt_category=prompt_category,
+                conversation_name=conversation_name,
+                injected_memories=context_results,
+                shots=prompt.n,
+                browse_links=browse_links,
+                voice_response=tts,
+                log_user_input=False,
+                **prompt_args,
+            )
         prompt_tokens = get_tokens(new_prompt)
         completion_tokens = get_tokens(response)
         total_tokens = int(prompt_tokens) + int(completion_tokens)
