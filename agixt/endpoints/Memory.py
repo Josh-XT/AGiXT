@@ -471,7 +471,7 @@ async def create_dataset(
         raise HTTPException(status_code=403, detail="Access Denied")
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     asyncio.create_task(
-        await AGiXT(
+        AGiXT(
             agent_name=agent_name,
             user=user,
             api_key=authorization,
