@@ -366,6 +366,9 @@ class AGiXT:
                         )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
+                    if "user_input" in args:
+                        user_input = args["user_input"]
+                        del args["user_input"]
                     if prompt_name != "":
                         result = await self.inference(
                             agent_name=agent_name,
