@@ -26,6 +26,7 @@ from Models import (
 )
 import base64
 import uuid
+import os
 
 app = APIRouter()
 
@@ -326,9 +327,9 @@ async def text_to_speech(
     if not str(tts_response).startswith("http"):
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
-        audio_path = f"./WORKSPACE/{file_name}"
+        audio_path = os.path.join(agent.working_directory, file_name)
         audio_data = base64.b64decode(tts_response)
         with open(audio_path, "wb") as f:
             f.write(audio_data)
-        tts_response = f"{AGIXT_URI}/outputs/{file_name}"
+        tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
     return {"url": tts_response}

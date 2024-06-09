@@ -29,6 +29,7 @@ def install_docker_image():
 def execute_python_code(code: str, agent_id: str = "") -> str:
     docker_image = "joshxt/safeexecute:latest"
     docker_working_dir = f"/agixt/WORKSPACE/{agent_id}"
+    os.makedirs(docker_working_dir, exist_ok=True)
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
     host_working_dir = os.path.join(host_working_dir, agent_id)
     # Check if there are any package requirements in the code to install
@@ -84,7 +85,6 @@ def execute_python_code(code: str, agent_id: str = "") -> str:
         if result["StatusCode"] != 0:
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
-
         logging.info(f"Python code executed successfully. Logs: {logs}")
         return logs
     except Exception as e:
