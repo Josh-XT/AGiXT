@@ -617,7 +617,7 @@ async def rlhf(
         c = Conversations(conversation_name=data.conversation_name, user=user)
         c.log_interaction(
             role=agent_name,
-            message=f"[ACTIVITY] Added {'positive' if data.positive == True else 'negative'} feedback to memory.",
+            message=f"Added {'positive' if data.positive == True else 'negative'} feedback to memory.",
         )
 
     memory = Memories(
