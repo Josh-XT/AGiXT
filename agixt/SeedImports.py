@@ -192,18 +192,17 @@ def import_chains(user=DEFAULT_USER):
     for file in chain_files:
         chain_name = os.path.splitext(file)[0]
         file_path = os.path.join(chain_dir, file)
-
         with open(file_path, "r") as f:
-            # try:
-            chain_data = json.load(f)
-            result = chain_importer.import_chain(chain_name, chain_data)
-            logging.info(result)
-            # except json.JSONDecodeError as e:
-            #    logging.info(
-            #        f"Error importing chain from '{file}': Invalid JSON format."
-            #    )
-            # except Exception as e:
-            #    logging.info(f"Error importing chain from '{file}': {str(e)}")
+            try:
+                chain_data = json.load(f)
+                result = chain_importer.import_chain(chain_name, chain_data)
+                logging.info(result)
+            except json.JSONDecodeError as e:
+                logging.info(
+                    f"Error importing chain from '{file}': Invalid JSON format."
+                )
+            except Exception as e:
+                logging.info(f"Error importing chain from '{file}': {str(e)}")
 
 
 def import_prompts(user=DEFAULT_USER):
@@ -419,7 +418,7 @@ def import_all_data():
         logging.info("Importing agents...")
         import_agents()
         logging.info("Importing chains...")
-        import_chains()  # Partially works
+        import_chains()
         logging.info("Importing conversations...")
         import_conversations()
         logging.info("Imports complete.")
