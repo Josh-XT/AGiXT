@@ -1,5 +1,6 @@
 import datetime
 import json
+import uuid
 import requests
 import os
 import re
@@ -25,30 +26,26 @@ def install_docker_image():
     return client
 
 
-def execute_python_code(code: str) -> str:
+def execute_python_code(code: str, agent_id: str = "") -> str:
     docker_image = "joshxt/safeexecute:latest"
-    docker_working_dir = "/agixt/WORKSPACE"
+    docker_working_dir = f"/agixt/WORKSPACE/{agent_id}"
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
+    host_working_dir = os.path.join(host_working_dir, agent_id)
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
-
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-
-    temp_file = os.path.join(docker_working_dir, "temp.py")
+    temp_file_name = f"{str(uuid.uuid4())}.py"
+    temp_file = os.path.join(docker_working_dir, temp_file_name)
     logging.info(f"Writing Python code to temporary file: {temp_file}")
-
     with open(temp_file, "w") as f:
         f.write(code)
-
     logging.info(
         f"Temporary file written. Checking if the file exists: {os.path.exists(temp_file)}"
     )
-
     try:
         client = install_docker_image()
-
         # Install the required packages in the container
         for package in package_requirements:
             try:
@@ -67,46 +64,23 @@ def execute_python_code(code: str) -> str:
             except Exception as e:
                 logging.error(f"Error installing package '{package}': {str(e)}")
                 return f"Error: {str(e)}"
-
-        # Debugging: List files in the container's working directory
-        logging.info(
-            "Listing files in the container's working directory before executing code"
-        )
-        list_files_cmd = f"ls -la {docker_working_dir}"
-        output = client.containers.run(
-            docker_image,
-            list_files_cmd,
-            volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
-            working_dir=docker_working_dir,
-            stderr=True,
-            stdout=True,
-            remove=True,
-        )
-        logging.info(
-            f"Files in container's working directory:\n{output.decode('utf-8')}"
-        )
-
-        logging.info(f"Running the Python code in the container")
         # Run the Python code in the container
         container = client.containers.run(
             docker_image,
-            f"python {os.path.join(docker_working_dir, 'temp.py')}",
+            f"python {os.path.join(docker_working_dir, temp_file_name)}",
             volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
             working_dir=docker_working_dir,
             stderr=True,
             stdout=True,
             detach=True,
         )
-
         # Wait for the container to finish and capture the logs
         result = container.wait()
         logs = container.logs().decode("utf-8")
         container.remove()
-
         # Clean up the temporary file
         os.remove(temp_file)
         logging.info(f"Temporary file removed")
-
         if result["StatusCode"] != 0:
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
@@ -748,7 +722,12 @@ class agixt_actions(Extensions):
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
             with open(filepath, "w") as f:
                 f.write(text)
-        return execute_python_code(code=code)
+        agents = self.ApiClient.get_agents()
+        agent_id = ""
+        for agent in agents:
+            if agent["name"] == self.agent_name:
+                agent_id = agent["id"]
+        return execute_python_code(code=code, agent_id=agent_id)
 
     async def get_mindmap(self, task: str):
         """
