@@ -66,6 +66,8 @@ class postgres_database(Extensions):
         query = query.strip()
         logging.info(f"Executing SQL Query: {query}")
         connection = self.get_connection()
+        if not connection:
+            return "Error connecting to Postgres Database"
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         try:
             cursor.execute(query)
@@ -119,6 +121,8 @@ class postgres_database(Extensions):
 
         logging.info(f"Getting schema for database '{self.POSTGRES_DATABASE_NAME}'")
         connection = self.get_connection()
+        if not connection:
+            return "Error connecting to Postgres Database"
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cursor.execute(
             f"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema');"
