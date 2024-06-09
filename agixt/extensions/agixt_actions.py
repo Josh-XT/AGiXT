@@ -25,15 +25,9 @@ def install_docker_image():
     return client
 
 
-def execute_python_code(code: str, working_directory: str = None) -> str:
+def execute_python_code(code: str) -> str:
     docker_image = "joshxt/safeexecute:latest"
-    if working_directory is None:
-        working_directory = os.path.join(os.getcwd(), "WORKSPACE")
-    docker_working_dir = working_directory
-    if os.environ.get("DOCKER_CONTAINER", False):
-        docker_working_dir = os.environ.get("WORKING_DIRECTORY", working_directory)
-    if not os.path.exists(working_directory):
-        os.makedirs(working_directory)
+    docker_working_dir = "WORKSPACE"
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
     # Strip out python code blocks if they exist in the code
@@ -724,7 +718,7 @@ class agixt_actions(Extensions):
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
             with open(filepath, "w") as f:
                 f.write(text)
-        return execute_python_code(code=code, working_directory=working_dir)
+        return execute_python_code(code=code)
 
     async def get_mindmap(self, task: str):
         """
