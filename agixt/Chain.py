@@ -507,7 +507,6 @@ class Chain:
         chain = ChainDB(name=chain_name, user_id=self.user_id)
         self.session.add(chain)
         self.session.commit()
-
         steps = steps["steps"] if "steps" in steps else steps
         for step_data in steps:
             agent_name = step_data["agent_name"]
