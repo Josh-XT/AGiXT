@@ -280,7 +280,7 @@ class AGiXT:
         response = await Extensions(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            conversation_name=conversation_name,
+            conversation_name=f"{command_name} Execution History",
             ApiClient=self.ApiClient,
             api_key=self.api_key,
             user=self.user_email,
@@ -355,7 +355,7 @@ class AGiXT:
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
-                        conversation_name=args["conversation_name"],
+                        conversation_name=conversation_name,
                         voice_response=False,
                     )
                 elif prompt_type == "prompt":
