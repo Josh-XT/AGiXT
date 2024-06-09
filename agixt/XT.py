@@ -322,7 +322,7 @@ class AGiXT:
                     agent_name = agent_override
                 else:
                     agent_name = step["agent_name"]
-                prompt_type = step["prompt_type"]
+                prompt_type = str(step["prompt_type"]).lower()
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
                     prompt_name = step["prompt"]["prompt_name"]
@@ -346,7 +346,7 @@ class AGiXT:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
                 if "conversation" in args:
                     args["conversation_name"] = args["conversation"]
-                if prompt_type == "Command":
+                if prompt_type == "command":
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
@@ -358,7 +358,7 @@ class AGiXT:
                         conversation_name=args["conversation_name"],
                         voice_response=False,
                     )
-                elif prompt_type == "Prompt":
+                elif prompt_type == "prompt":
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
@@ -366,18 +366,23 @@ class AGiXT:
                         )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
-                    result = await self.inference(
-                        agent_name=agent_name,
-                        user_input=user_input,
-                        log_user_input=False,
-                        **args,
-                    )
-                elif prompt_type == "Chain":
+                    if prompt_name != "":
+                        result = await self.inference(
+                            agent_name=agent_name,
+                            user_input=user_input,
+                            log_user_input=False,
+                            **args,
+                        )
+                elif prompt_type == "chain":
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
                             message=f"[ACTIVITY] Running chain: {args['chain']} with args: {args}",
                         )
+                    if "chain_name" in args:
+                        args["chain"] = args["chain_name"]
+                    if "user_input" in args:
+                        args["input"] = args["user_input"]
                     result = await self.execute_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
@@ -447,6 +452,10 @@ class AGiXT:
         tasks = []
         step_responses = []
         logging.info(f"Chain data: {chain_data}")
+        if "steps" not in chain_data:
+            return f"Chain `{chain_name}` has no steps."
+        if len(chain_data["steps"]) == 0:
+            return f"Chain `{chain_name}` has no steps."
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:

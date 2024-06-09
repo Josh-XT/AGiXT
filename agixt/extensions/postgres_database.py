@@ -64,6 +64,7 @@ class postgres_database(Extensions):
             query = query.split("```sql")[1].split("```")[0]
         query = query.replace("\n", " ")
         query = query.strip()
+        query = query.replace("```", "")
         logging.info(f"Executing SQL Query: {query}")
         connection = self.get_connection()
         if not connection:
