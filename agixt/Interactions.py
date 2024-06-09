@@ -590,29 +590,7 @@ class Interactions:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
             logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
-            self.failures += 1
-            if self.failures == 5:
-                self.failures == 0
-                logging.warning("Failed to get a response 5 times in a row.")
-                return None
-            logging.warning(f"Retrying in 10 seconds...")
-            time.sleep(10)
-            if context_results > 0:
-                context_results = context_results - 1
-            prompt_args = {
-                "shots": shots,
-                "disable_memory": disable_memory,
-                "user_input": user_input,
-                "context_results": context_results,
-                "conversation_name": conversation_name,
-                **kwargs,
-            }
-            return await self.run(
-                prompt_name=prompt,
-                prompt_category=prompt_category,
-                log_user_input=log_user_input,
-                **prompt_args,
-            )
+            return f"Unable to retrieve response."
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
