@@ -161,7 +161,7 @@ def get_agents(user=DEFAULT_USER):
         # Check if the agent is in the output already
         if agent.name in [a["name"] for a in output]:
             continue
-        output.append({"name": agent.name, "status": False})
+        output.append({"name": agent.name, "id": agent.id, "status": False})
     return output
 
 
