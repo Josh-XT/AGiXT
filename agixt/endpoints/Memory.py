@@ -605,30 +605,39 @@ async def rlhf(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
     if data.positive == True:
-        collection_number = 2
+        memory = agixt.agent_interactions.positive_feedback_memories
     else:
-        collection_number = 3
+        memory = agixt.agent_interactions.negative_feedback_memories
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    reflection = await agixt.inference(
+        user_input=data.user_input,
+        input_kind="positive" if data.positive == True else "negative",
+        assistant_response=data.message,
+        feedback=data.feedback,
+        conversation_name=data.conversation_name,
+        log_user_input=False,
+        log_output=False,
+    )
+    memory_message = f"""
+# Feedback received from a similar interaction in the past:
+User Input: {data.user_input}
+Assistant Response: {data.message}
+Feedback: {data.feedback}
+Reflection on the feedback: {reflection}
+"""
+    await memory.write_text_to_memory(
+        user_input=data.user_input,
+        text=memory_message,
+        external_source="reflection from user feedback",
+    )
+    response_message = (
+        f"{'Positive' if data.positive == True else 'Negative'} feedback received."
+    )
     if data.conversation_name != "" and data.conversation_name != None:
         c = Conversations(conversation_name=data.conversation_name, user=user)
         c.log_interaction(
             role=agent_name,
-            message=f"Added {'positive' if data.positive == True else 'negative'} feedback to memory.",
+            message=response_message,
         )
-
-    memory = Memories(
-        agent_name=agent_name,
-        agent_config=agent_config,
-        collection_number=collection_number,
-        ApiClient=ApiClient,
-        user=user,
-    )
-    await memory.write_text_to_memory(
-        user_input=data.user_input, text=data.feedback, external_source="user feedback"
-    )
-    response_message = f"{'Positive' if data.positive == True else 'Negative'} feedback received for agent {agent_name}."
     return ResponseMessage(message=response_message)
