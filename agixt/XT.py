@@ -275,7 +275,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Executing command: {command_name} with args: {command_args}",
+                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
             )
         response = await Extensions(
             agent_name=self.agent_name,
@@ -350,7 +350,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Executing command: {step['prompt']['command_name']} with args: {args}",
+                            message=f"[ACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                         )
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
