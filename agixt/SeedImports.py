@@ -54,20 +54,6 @@ def import_extensions():
     # Get the existing extensions and commands from the database
     existing_extensions = session.query(Extension).all()
     existing_commands = session.query(Command).all()
-
-    # Delete commands that don't exist in the extensions data
-    for command in existing_commands:
-        command_exists = any(
-            extension_data["extension_name"] == command.extension.name
-            and any(
-                cmd["friendly_name"] == command.name
-                for cmd in extension_data["commands"]
-            )
-            for extension_data in extensions_data
-        )
-        if not command_exists:
-            session.delete(command)
-
     # Add new extensions and commands, and update existing commands
     for extension_data in extensions_data:
         extension_name = extension_data["extension_name"]
@@ -85,15 +71,11 @@ def import_extensions():
             session.add(extension)
             session.flush()
             existing_extensions.append(extension)
-
         commands = extension_data["commands"]
-
         for command_data in commands:
             if "friendly_name" not in command_data:
                 continue
-
             command_name = command_data["friendly_name"]
-
             # Find the existing command or create a new one
             command = next(
                 (
@@ -112,7 +94,6 @@ def import_extensions():
                 session.flush()
                 existing_commands.append(command)
                 logging.info(f"Imported command: {command_name}")
-
             # Add command arguments
             if "command_args" in command_data:
                 command_args = command_data["command_args"]
@@ -129,7 +110,6 @@ def import_extensions():
                     )
                     session.add(command_arg)
                     logging.info(f"Imported argument: {arg} to command: {command_name}")
-
     session.commit()
 
     # Add extensions to the database if they don't exist
@@ -197,11 +177,8 @@ def import_chains(user=DEFAULT_USER):
             try:
                 chain_data = json.load(f)
                 result = chain_importer.import_chain(chain_name, chain_data)
-                logging.info(result)
-            except json.JSONDecodeError as e:
-                logging.info(
-                    f"(1/3) Error importing chain from '{file}': Invalid JSON format."
-                )
+                if result:
+                    logging.info(result)
             except Exception as e:
                 logging.info(f"(1/3) Error importing chain from '{file}': {str(e)}")
                 failures.append(file)
@@ -216,10 +193,6 @@ def import_chains(user=DEFAULT_USER):
                     result = chain_importer.import_chain(chain_name, chain_data)
                     logging.info(result)
                     failures.remove(file)
-                except json.JSONDecodeError as e:
-                    logging.info(
-                        f"(2/3) Error importing chain from '{file}': Invalid JSON format."
-                    )
                 except Exception as e:
                     logging.info(f"(2/3) Error importing chain from '{file}': {str(e)}")
         if failures:
@@ -233,10 +206,6 @@ def import_chains(user=DEFAULT_USER):
                         result = chain_importer.import_chain(chain_name, chain_data)
                         logging.info(result)
                         failures.remove(file)
-                    except json.JSONDecodeError as e:
-                        logging.info(
-                            f"(3/3) Error importing chain from '{file}': Invalid JSON format."
-                        )
                     except Exception as e:
                         logging.info(
                             f"(3/3) Error importing chain from '{file}': {str(e)}"
@@ -397,23 +366,14 @@ def import_conversations(user=DEFAULT_USER):
 def import_providers():
     session = get_session()
     providers = get_providers()
-    existing_providers = session.query(Provider).all()
-    existing_provider_names = [provider.name for provider in existing_providers]
-    for provider in existing_providers:
-        if provider.name not in providers:
-            session.delete(provider)
-
     for provider_name in providers:
         provider_options = get_provider_options(provider_name)
-
         provider = session.query(Provider).filter_by(name=provider_name).one_or_none()
-
         if provider:
             logging.info(f"Updating provider: {provider_name}")
         else:
             provider = Provider(name=provider_name)
             session.add(provider)
-            existing_provider_names.append(provider_name)
             logging.info(f"Imported provider: {provider_name}")
             session.commit()
 

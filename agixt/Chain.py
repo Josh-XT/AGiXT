@@ -503,6 +503,13 @@ class Chain:
         return responses
 
     def import_chain(self, chain_name: str, steps: dict):
+        chain = (
+            self.session.query(ChainDB)
+            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+            .first()
+        )
+        if chain:
+            return None
         chain = ChainDB(name=chain_name, user_id=self.user_id)
         self.session.add(chain)
         self.session.commit()
