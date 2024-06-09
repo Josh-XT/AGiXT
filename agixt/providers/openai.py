@@ -21,9 +21,9 @@ class OpenaiProvider:
     def __init__(
         self,
         OPENAI_API_KEY: str = "",
-        AI_MODEL: str = "gpt-3.5-turbo-16k-0613",
+        AI_MODEL: str = "gpt-4o",
         API_URI: str = "https://api.openai.com/v1",
-        MAX_TOKENS: int = 16000,
+        MAX_TOKENS: int = 4096,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         WAIT_BETWEEN_REQUESTS: int = 1,
@@ -34,10 +34,10 @@ class OpenaiProvider:
         **kwargs,
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo-16k-0613"
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-4o"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 16000
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
         self.API_URI = API_URI if API_URI else "https://api.openai.com/v1"
         self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
         self.WAIT_BETWEEN_REQUESTS = (
@@ -84,8 +84,8 @@ class OpenaiProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         if images != []:
-            if "vision" not in self.AI_MODEL:
-                self.AI_MODEL = "gpt-4-vision-preview"
+            if "vision" not in self.AI_MODEL and self.AI_MODEL != "gpt-4o":
+                self.AI_MODEL = "gpt-4o"
         if not self.API_URI.endswith("/"):
             self.API_URI += "/"
         openai.base_url = self.API_URI if self.API_URI else "https://api.openai.com/v1/"
