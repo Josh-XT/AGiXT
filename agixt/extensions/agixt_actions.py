@@ -73,6 +73,24 @@ def execute_python_code(code: str) -> str:
                 logging.error(f"Error installing package '{package}': {str(e)}")
                 return f"Error: {str(e)}"
 
+        # Debugging: List files in the container's working directory
+        logging.info(
+            "Listing files in the container's working directory before executing code"
+        )
+        list_files_cmd = f"ls -la {docker_working_dir}"
+        output = client.containers.run(
+            docker_image,
+            list_files_cmd,
+            volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
+            working_dir=docker_working_dir,
+            stderr=True,
+            stdout=True,
+            remove=True,
+        )
+        logging.info(
+            f"Files in container's working directory:\n{output.decode('utf-8')}"
+        )
+
         logging.info(f"Running the Python code in the container")
         # Run the Python code in the container
         container = client.containers.run(
