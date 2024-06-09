@@ -543,10 +543,10 @@ class Chain:
             elif prompt_type == "chain":
                 argument_key = "chain_name"
                 target_id = (
-                    self.session.query(Chain)
+                    self.session.query(ChainDB)
                     .filter(
-                        Chain.name == prompt["chain_name"],
-                        Chain.user_id == self.user_id,
+                        ChainDB.name == prompt["chain_name"],
+                        ChainDB.user_id == self.user_id,
                     )
                     .first()
                     .id
