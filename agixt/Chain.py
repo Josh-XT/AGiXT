@@ -541,6 +541,8 @@ class Chain:
                 target_type = "prompt"
             elif prompt_type == "chain":
                 argument_key = "chain_name"
+                if "chain" in prompt:
+                    argument_key = "chain"
                 target_id = (
                     self.session.query(ChainDB)
                     .filter(
