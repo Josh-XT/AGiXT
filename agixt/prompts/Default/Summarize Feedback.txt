@@ -20,4 +20,4 @@ The user felt this was {input_kind} and provided the following feedback:
 
 This message is not to the user, it is to store into the assitants long term training data and reflect back on for future interactions.
 
-
+Based on the interaction, what should the assistant do differently to improve the user experience?

@@ -619,12 +619,18 @@ async def rlhf(
         log_user_input=False,
         log_output=False,
     )
-    memory_message = f"""
-# Feedback received from a similar interaction in the past:
-User Input: {data.user_input}
-Assistant Response: {data.message}
-Feedback: {data.feedback}
-Reflection on the feedback: {reflection}
+    memory_message = f"""## Feedback received from a similar interaction in the past:
+### User
+{data.user_input}
+
+### Assistant
+{data.message}
+
+### Feedback from User
+{data.feedback}
+
+### Reflection on the feedback
+{reflection}
 """
     await memory.write_text_to_memory(
         user_input=data.user_input,
