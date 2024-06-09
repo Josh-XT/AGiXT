@@ -449,7 +449,6 @@ class AGiXT:
                 message=f"[ACTIVITY] Running chain `{chain_name}`.",
             )
         response = ""
-        tasks = []
         step_responses = []
         logging.info(f"Chain data: {chain_data}")
         if "steps" not in chain_data:
@@ -477,7 +476,7 @@ class AGiXT:
                         chain_args=chain_args,
                         conversation_name=conversation_name,
                     )
-                    tasks.append(task)
+                    step_responses.append(task)
         logging.info(f"Step responses: {step_responses}")
         if step_responses:
             response = step_responses[-1]
