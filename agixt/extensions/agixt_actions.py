@@ -79,9 +79,6 @@ def execute_python_code(code: str, agent_id: str = "") -> str:
         result = container.wait()
         logs = container.logs().decode("utf-8")
         container.remove()
-        # Clean up the temporary file
-        os.remove(temp_file)
-        logging.info(f"Temporary file removed")
         if result["StatusCode"] != 0:
             logging.error(f"Error executing Python code: {logs}")
             return f"Error: {logs}"
