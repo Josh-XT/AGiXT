@@ -79,6 +79,9 @@ class Interactions:
             self.agent_commands = ""
             self.websearch = None
             self.agent_memory = None
+            self.positive_feedback_memories = None
+            self.negative_feedback_memories = None
+            self.github_memories = None
         self.response = ""
         self.failures = 0
         self.chain = Chain(user=user)

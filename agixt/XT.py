@@ -130,6 +130,7 @@ class AGiXT:
         browse_links: bool = False,
         voice_response: bool = False,
         log_user_input: bool = True,
+        log_output: bool = True,
         **kwargs,
     ):
         """
@@ -160,6 +161,7 @@ class AGiXT:
             images=images,
             tts=voice_response,
             log_user_input=log_user_input,
+            log_output=log_output,
             **kwargs,
         )
 

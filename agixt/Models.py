@@ -173,6 +173,7 @@ class TextMemoryInput(BaseModel):
 
 class FeedbackInput(BaseModel):
     user_input: str
+    message: str
     feedback: str
     positive: Optional[bool] = True
     conversation_name: Optional[str] = ""
