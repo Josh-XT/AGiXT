@@ -502,7 +502,9 @@ class AGiXT:
                     )
                     tasks.append(task)
         step_responses = await asyncio.gather(*tasks)
-        response = step_responses[-1]
+        logging.info(f"Step responses: {step_responses}")
+        if step_responses:
+            response = step_responses[-1]
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
         if conversation_name != "":
