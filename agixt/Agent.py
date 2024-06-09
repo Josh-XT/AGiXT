@@ -152,7 +152,7 @@ def get_agents(user=DEFAULT_USER):
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
     for agent in agents:
-        output.append({"name": agent.name, "status": False})
+        output.append({"name": agent.name, "id": agent.id, "status": False})
     # Get global agents that belong to DEFAULT_USER
     global_agents = (
         session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
