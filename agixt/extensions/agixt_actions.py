@@ -41,7 +41,7 @@ def execute_python_code(code: str) -> str:
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
 
-    temp_file = os.path.join(host_working_dir, "temp.py")
+    temp_file = os.path.join(docker_working_dir, "temp.py")
     logging.info(f"Writing Python code to temporary file: {temp_file}")
 
     with open(temp_file, "w") as f:
