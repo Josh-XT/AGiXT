@@ -13,7 +13,6 @@ from DB import (
 )
 from Globals import getenv, DEFAULT_USER
 from Prompts import Prompts
-from Conversations import Conversations
 from Extensions import Extensions
 import logging
 import asyncio
@@ -532,7 +531,7 @@ class Chain:
                 target_id = (
                     self.session.query(Prompt)
                     .filter(
-                        Prompt.name == prompt["prompt_name"],
+                        Prompt.name == prompt[argument_key],
                         Prompt.user_id == self.user_id,
                         Prompt.prompt_category.has(name=prompt_category),
                     )
@@ -545,7 +544,7 @@ class Chain:
                 target_id = (
                     self.session.query(ChainDB)
                     .filter(
-                        ChainDB.name == prompt["chain_name"],
+                        ChainDB.name == prompt[argument_key],
                         ChainDB.user_id == self.user_id,
                     )
                     .first()
@@ -556,7 +555,7 @@ class Chain:
                 argument_key = "command_name"
                 target_id = (
                     self.session.query(Command)
-                    .filter(Command.name == prompt["command_name"])
+                    .filter(Command.name == prompt[argument_key])
                     .first()
                     .id
                 )
