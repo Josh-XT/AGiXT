@@ -725,16 +725,9 @@ class agixt_actions(Extensions):
             if agent["name"] == self.agent_name:
                 agent_id = agent["id"]
         execution_response = execute_python_code(code=code, agent_id=agent_id)
-        if "Error:" in execution_response:
-            # Ask the LLM for clarification on the code it wrote, show it the error.
-            clarification = await self.ApiClient.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Clarify Code",
-                prompt_args={
-                    "user_input": execution_response,
-                    "conversation_name": self.conversation_name,
-                },
-            )
+        if str(execution_response).endswith("\n"):
+            execution_response = execution_response[:-1]
+        return execution_response
 
     async def get_mindmap(self, task: str):
         """
