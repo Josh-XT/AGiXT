@@ -725,8 +725,6 @@ class agixt_actions(Extensions):
             if agent["name"] == self.agent_name:
                 agent_id = str(agent["id"])
         execution_response = execute_python_code(code=code, agent_id=agent_id)
-        if str(execution_response).endswith("\n"):
-            execution_response = execution_response[:-1]
         return execution_response
 
     async def get_mindmap(self, task: str):
