@@ -32,6 +32,7 @@ def execute_python_code(code: str) -> str:
 
     # Ensure the host working directory exists
     os.makedirs(host_working_dir, exist_ok=True)
+    logging.info(f"Host working directory: {host_working_dir}")
 
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
@@ -45,6 +46,10 @@ def execute_python_code(code: str) -> str:
 
     with open(temp_file, "w") as f:
         f.write(code)
+
+    logging.info(
+        f"Temporary file written. Checking if the file exists: {os.path.exists(temp_file)}"
+    )
 
     try:
         client = install_docker_image()
@@ -68,6 +73,7 @@ def execute_python_code(code: str) -> str:
                 logging.error(f"Error installing package '{package}': {str(e)}")
                 return f"Error: {str(e)}"
 
+        logging.info(f"Running the Python code in the container")
         # Run the Python code in the container
         container = client.containers.run(
             docker_image,
@@ -86,6 +92,7 @@ def execute_python_code(code: str) -> str:
 
         # Clean up the temporary file
         os.remove(temp_file)
+        logging.info(f"Temporary file removed")
 
         if result["StatusCode"] != 0:
             logging.error(f"Error executing Python code: {logs}")
@@ -718,7 +725,6 @@ class agixt_actions(Extensions):
         Returns:
         str: The result of the Python code
         """
-        working_dir = os.environ.get("WORKING_DIRECTORY", self.WORKING_DIRECTORY)
         if text:
             csv_content_header = text.split("\n")[0]
             # Remove any trailing spaces from any headers
