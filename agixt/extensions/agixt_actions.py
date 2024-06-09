@@ -29,11 +29,6 @@ def execute_python_code(code: str) -> str:
     docker_image = "joshxt/safeexecute:latest"
     docker_working_dir = "/agixt/WORKSPACE"
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
-
-    # Ensure the host working directory exists
-    os.makedirs(host_working_dir, exist_ok=True)
-    logging.info(f"Host working directory: {host_working_dir}")
-
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
 
