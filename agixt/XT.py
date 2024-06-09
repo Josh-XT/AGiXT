@@ -446,6 +446,7 @@ class AGiXT:
         response = ""
         tasks = []
         step_responses = []
+        logging.info(f"Chain data: {chain_data}")
         for step_data in chain_data["steps"]:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
