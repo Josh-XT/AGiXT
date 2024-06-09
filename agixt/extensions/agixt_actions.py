@@ -27,13 +27,14 @@ def install_docker_image():
 
 def execute_python_code(code: str) -> str:
     docker_image = "joshxt/safeexecute:latest"
-    docker_working_dir = "WORKSPACE"
+    docker_working_dir = "/agixt/WORKSPACE"
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-    temp_file = os.path.join(os.getcwd(), "WORKSPACE", "temp.py")
+    temp_file = "/agixt/WORKSPACE/temp.py"
+    logging.info(f"Writing Python code to temporary file: {temp_file}")
     with open(temp_file, "w") as f:
         f.write(code)
     os.chmod(temp_file, 0o755)  # Set executable permissions
@@ -49,11 +50,11 @@ def execute_python_code(code: str) -> str:
                         f"pip install {package}",
                         volumes={
                             os.path.abspath(docker_working_dir): {
-                                "bind": "/workspace",
+                                "bind": "/WORKSPACE",
                                 "mode": "rw",
                             }
                         },
-                        working_dir="/workspace",
+                        working_dir="/WORKSPACE",
                         stderr=True,
                         stdout=True,
                         detach=True,
@@ -64,14 +65,14 @@ def execute_python_code(code: str) -> str:
         # Run the Python code in the container
         container = client.containers.run(
             docker_image,
-            f"python /workspace/temp.py",
+            f"python /WORKSPACE/temp.py",
             volumes={
                 os.path.abspath(docker_working_dir): {
-                    "bind": "/workspace",
+                    "bind": "/WORKSPACE",
                     "mode": "rw",
                 }
             },
-            working_dir="/workspace",
+            working_dir="/WORKSPACE",
             stderr=True,
             stdout=True,
             detach=True,
