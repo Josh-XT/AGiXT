@@ -422,10 +422,8 @@ class Memories:
         default_collection_name = self.collection_name
         if self.user != DEFAULT_USER:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
-            if self.collection_number > 0:
-                self.collection_name = (
-                    f"{self.collection_name}_{self.collection_number}"
-                )
+            # if self.collection_number > 0:
+            self.collection_name = f"{self.collection_name}_{self.collection_number}"
         try:
             default_results = await self.get_memories_data(
                 user_input=user_input,
