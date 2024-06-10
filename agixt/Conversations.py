@@ -96,9 +96,12 @@ class Conversations:
         return_messages = []
         for message in messages:
             msg = {
+                "id": message.id,
                 "role": message.role,
                 "message": message.content,
                 "timestamp": message.timestamp,
+                "updated_at": message.updated_at,
+                "updated_by": message.updated_by,
             }
             return_messages.append(msg)
         return {"interactions": return_messages}

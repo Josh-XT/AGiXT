@@ -256,6 +256,12 @@ class Message(Base):
         ForeignKey("conversation.id"),
         nullable=False,
     )
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
 
 
 class Setting(Base):
