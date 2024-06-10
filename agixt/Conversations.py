@@ -102,6 +102,7 @@ class Conversations:
                 "timestamp": message.timestamp,
                 "updated_at": message.updated_at,
                 "updated_by": message.updated_by,
+                "feedback_received": message.feedback_received,
             }
             return_messages.append(msg)
         return {"interactions": return_messages}
@@ -244,6 +245,93 @@ class Conversations:
 
         session.delete(message)
         session.commit()
+
+    def toggle_feedback_received(self, message):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            logging.info(f"No conversation found.")
+            return
+        message_id = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content == message,
+            )
+            .first()
+        ).id
+
+        message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+
+        if not message:
+            logging.info(
+                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
+            )
+            return
+
+        message.feedback_received = not message.feedback_received
+        session.commit()
+
+    def has_received_feedback(self, message):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            logging.info(f"No conversation found.")
+            return
+        message_id = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content == message,
+            )
+            .first()
+        ).id
+
+        message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+
+        if not message:
+            logging.info(
+                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
+            )
+            return
+
+        return message.feedback_received
 
     def update_message(self, message, new_message):
         session = get_session()
