@@ -605,6 +605,11 @@ async def rlhf(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    c = Conversations(conversation_name=data.conversation_name, user=user)
+    if c.has_received_feedback(message=data.message):
+        return ResponseMessage(
+            message="Feedback already received for this interaction."
+        )
     agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     if data.positive == True:
         memory = agixt.agent_interactions.positive_feedback_memories
@@ -640,10 +645,9 @@ async def rlhf(
     response_message = (
         f"{'Positive' if data.positive == True else 'Negative'} feedback received."
     )
-    if data.conversation_name != "" and data.conversation_name != None:
-        c = Conversations(conversation_name=data.conversation_name, user=user)
-        c.log_interaction(
-            role=agent_name,
-            message=response_message,
-        )
+    c.log_interaction(
+        role=agent_name,
+        message=response_message,
+    )
+    c.toggle_feedback_received(message=data.message)
     return ResponseMessage(message=response_message)

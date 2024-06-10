@@ -262,6 +262,7 @@ class Message(Base):
         ForeignKey("user.id"),
         nullable=True,
     )
+    feedback_received = Column(Boolean, default=False)
 
 
 class Setting(Base):
