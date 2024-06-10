@@ -389,7 +389,6 @@ class Memories:
         )
         embedding_array = array(results["embeddings"][0])
         if len(embedding_array) == 0:
-            logging.warning("Embedding collection is empty.")
             return []
         embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
         if len(embedding.shape) == 2:
