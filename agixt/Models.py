@@ -156,19 +156,19 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class FileInput(BaseModel):
     file_name: str
     file_content: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class TextMemoryInput(BaseModel):
     user_input: str
     text: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class FeedbackInput(BaseModel):
@@ -226,7 +226,7 @@ class HistoryModel(BaseModel):
 
 class ExternalSource(BaseModel):
     external_source: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class ConversationHistoryModel(BaseModel):
@@ -288,7 +288,7 @@ class ArxivInput(BaseModel):
 
 class YoutubeInput(BaseModel):
     video_id: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class CommandExecution(BaseModel):

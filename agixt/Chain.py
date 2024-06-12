@@ -10,6 +10,8 @@ from DB import (
     Prompt,
     Command,
     User,
+    TaskCategory,
+    TaskItem,
 )
 from Globals import getenv, DEFAULT_USER
 from Prompts import Prompts
@@ -865,3 +867,34 @@ class Chain:
             except Exception as e:
                 logging.error(f"Error getting chain args: {e}")
         return prompt_args
+
+    def new_task(
+        self,
+        conversation_id,
+        chain_name,
+        task_category,
+        task_description,
+        estimated_hours,
+    ):
+        task_category = (
+            self.session.query(TaskCategory)
+            .filter(
+                TaskCategory.name == task_category, TaskCategory.user_id == self.user_id
+            )
+            .first()
+        )
+        if not task_category:
+            task_category = TaskCategory(name=task_category, user_id=self.user_id)
+            self.session.add(task_category)
+            self.session.commit()
+        task = TaskItem(
+            user_id=self.user_id,
+            category_id=task_category.id,
+            title=chain_name,
+            description=task_description,
+            estimated_hours=estimated_hours,
+            memory_collection=str(conversation_id),
+        )
+        self.session.add(task)
+        self.session.commit()
+        return task.id

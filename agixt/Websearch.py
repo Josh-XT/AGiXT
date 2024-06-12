@@ -29,7 +29,7 @@ logging.basicConfig(
 class Websearch:
     def __init__(
         self,
-        collection_number: int = 1,
+        collection_number: str = "1",
         agent: Agent = None,
         user: str = None,
         ApiClient=None,
@@ -52,7 +52,7 @@ class Websearch:
         self.agent_memory = YoutubeReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=int(collection_number),
+            collection_number=str(collection_number),
             ApiClient=ApiClient,
             user=user,
         )
@@ -187,7 +187,7 @@ class Websearch:
                 res = await GithubReader(
                     agent_name=self.agent_name,
                     agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=7,
+                    collection_number="7",
                     user=self.user,
                     ApiClient=self.ApiClient,
                 ).write_github_repository_to_memory(
@@ -385,6 +385,14 @@ class Websearch:
             return ""
         if conversation_name != "" and conversation_name is not None:
             c = Conversations(conversation_name=conversation_name, user=self.user)
+            conversation_id = c.get_conversation_id()
+            self.agent_memory = YoutubeReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=conversation_id,
+                ApiClient=self.ApiClient,
+                user=self.user,
+            )
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Researching online.",

@@ -40,7 +40,7 @@ class Interactions:
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                collection_number=1,
+                collection_number="1",
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -48,28 +48,28 @@ class Interactions:
             self.agent_memory = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=0,
+                collection_number="0",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=2,
+                collection_number="2",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.negative_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=3,
+                collection_number="3",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.github_memories = GithubReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=7,
+                collection_number="7",
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
@@ -175,13 +175,12 @@ class Interactions:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 5:
+                    collection_id = kwargs["inject_memories_from_collection_number"]
+                    if collection_id not in ["0", "1", "2", "3", "4", "5", "6", "7"]:
                         context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
-                            collection_number=int(
-                                kwargs["inject_memories_from_collection_number"]
-                            ),
+                            collection_number=collection_id,
                             ApiClient=self.ApiClient,
                             user=self.user,
                         ).get_memories(

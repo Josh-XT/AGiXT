@@ -53,7 +53,7 @@ async def addagent(
         ApiClient = get_api_client(authorization=authorization)
         _agent = Agent(agent_name=agent.agent_name, user=user, ApiClient=ApiClient)
         reader = Websearch(
-            collection_number=0,
+            collection_number="0",
             agent=_agent,
             user=user,
             ApiClient=ApiClient,
@@ -150,7 +150,7 @@ async def deleteagent(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await Websearch(
-        collection_number=0,
+        collection_number="0",
         agent=agent,
         user=user,
         ApiClient=ApiClient,
@@ -301,7 +301,7 @@ async def delete_browsed_link(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     websearch = Websearch(
-        collection_number=url.collection_number,
+        collection_number=str(url.collection_number),
         agent=agent,
         user=user,
         ApiClient=ApiClient,

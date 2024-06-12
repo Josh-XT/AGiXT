@@ -95,7 +95,7 @@ class AGiXT:
         user_input: str = "",
         limit_per_collection: int = 5,
         minimum_relevance_score: float = 0.3,
-        additional_collection_number: int = 0,
+        additional_collection: str = "0",
     ):
         """
         Get a list of memories
@@ -104,7 +104,7 @@ class AGiXT:
             user_input (str): User input to the agent
             limit_per_collection (int): Number of memories to return per collection
             minimum_relevance_score (float): Minimum relevance score for memories
-            additional_collection_number (int): Additional collection number to pull memories from. Collections 0-5 are injected automatically.
+            additional_collection (int): Additional collection number to pull memories from. Collections 0-5 are injected automatically.
 
         Returns:
             str: Agents relevant memories from the user input from collections 0-5 and the additional collection number if provided
@@ -113,7 +113,7 @@ class AGiXT:
             user_input=user_input if user_input else "*",
             top_results=limit_per_collection,
             min_relevance_score=minimum_relevance_score,
-            inject_memories_from_collection_number=int(additional_collection_number),
+            inject_memories_from_collection_number=additional_collection,
         )
         return formatted_prompt
 
@@ -539,7 +539,7 @@ class AGiXT:
         file_url: str = "",
         file_name: str = "",
         user_input: str = "",
-        collection_number: int = 1,
+        collection_id: str = "1",
         conversation_name: str = "",
     ):
         """
@@ -548,7 +548,7 @@ class AGiXT:
         Args:
             file_url (str): URL of the file
             file_path (str): Path to the file
-            collection_number (int): Collection number to store the file
+            collection_id (str): Collection ID to save the file to
             conversation_name (str): Name of the conversation
 
         Returns:
@@ -576,7 +576,7 @@ class AGiXT:
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=collection_number,
+            collection_number=collection_id,
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
@@ -862,7 +862,7 @@ class AGiXT:
             "tasks": list_of_tasks,
         }
 
-    async def update_plan_task(
+    async def update_planned_task(
         self,
         chain_name: str,
         user_input: str,
@@ -1074,12 +1074,13 @@ class AGiXT:
         # Add user input to conversation
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         c.log_interaction(role="USER", message=new_prompt)
+        conversation_id = c.get_conversation_id()
         for file in files:
             await self.learn_from_file(
                 file_url=file["file_url"],
                 file_name=file["file_name"],
                 user_input=new_prompt,
-                collection_number=1,
+                collection_id=conversation_id,
                 conversation_name=conversation_name,
             )
         await self.learn_from_websites(

@@ -195,7 +195,7 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             file_name=filename,
             file_content=file_content,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def write_website_to_memory(self, url: str):
@@ -211,7 +211,7 @@ class agixt_actions(Extensions):
         return self.ApiClient.learn_url(
             agent_name=self.agent_name,
             url=url,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def store_long_term_memory(
@@ -248,7 +248,7 @@ class agixt_actions(Extensions):
             query=query,
             article_ids=None,
             max_articles=max_articles,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def read_github_repository(self, repository_url: str):
@@ -265,7 +265,7 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             github_repo=repository_url,
             use_agent_settings=True,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def disable_command(self, command_name: str):

@@ -13,7 +13,7 @@ class FileReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
-        collection_number: int = 0,
+        collection_number: str = "0",
         ApiClient=None,
         user=None,
         **kwargs,
@@ -21,7 +21,7 @@ class FileReader(Memories):
         super().__init__(
             agent_name=agent_name,
             agent_config=agent_config,
-            collection_number=collection_number,
+            collection_number=str(collection_number),
             ApiClient=ApiClient,
             user=user,
         )
