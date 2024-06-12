@@ -203,7 +203,8 @@ async def add_step(
 ) -> ResponseMessage:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    Chain(user=user).add_chain_step(
+    ApiClient = get_api_client(authorization=authorization)
+    Chain(user=user, ApiClient=ApiClient).add_chain_step(
         chain_name=chain_name,
         step_number=step_info.step_number,
         prompt_type=step_info.prompt_type,

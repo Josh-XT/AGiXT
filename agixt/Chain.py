@@ -191,6 +191,13 @@ class Chain:
             target_type = "command"
         else:
             prompt["prompt_name"] = "User Input"
+            prompt["prompt_category"] = "Default"
+            prompt["prompt_type"] = "Prompt"
+            prompt["user_input"] = (
+                prompt["input"]
+                if "input" in prompt
+                else prompt["user_input"] if "user_input" in prompt else ""
+            )
             argument_key = "prompt_name"
             target_id = (
                 self.session.query(Prompt)
