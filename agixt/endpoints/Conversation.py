@@ -13,27 +13,20 @@ app = APIRouter()
 
 
 @app.get(
-    "/api/{agent_name}/conversations",
-    tags=["Conversation"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_conversations_list(user=Depends(verify_api_key)):
-    conversations = Conversations(user=user).get_conversations()
-    if conversations is None:
-        conversations = []
-    return {"conversations": conversations}
-
-
-@app.get(
     "/api/conversations",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(user=Depends(verify_api_key)):
-    conversations = Conversations(user=user).get_conversations()
+    c = Conversations(user=user)
+    conversations = c.get_conversations()
     if conversations is None:
         conversations = []
-    return {"conversations": conversations}
+    conversations_with_ids = c.get_conversations_with_ids()
+    return {
+        "conversations": conversations,
+        "conversations_with_ids": conversations_with_ids,
+    }
 
 
 @app.get(

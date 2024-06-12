@@ -63,6 +63,21 @@ class Conversations:
         )
         return [conversation.name for conversation in conversations]
 
+    def get_conversations_with_ids(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversations = (
+            session.query(Conversation)
+            .filter(
+                Conversation.user_id == user_id,
+            )
+            .all()
+        )
+        return {
+            str(conversation.id): conversation.name for conversation in conversations
+        }
+
     def get_conversation(self, limit=100, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
