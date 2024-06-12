@@ -270,18 +270,21 @@ async def toggle_command(
 
 # Get agent browsed links
 @app.get(
-    "/api/agent/{agent_name}/browsed_links",
+    "/api/agent/{agent_name}/browsed_links/{collection_number}",
     tags=["Agent", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_agent_browsed_links(
-    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+    agent_name: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    return {"links": agent.get_browsed_links()}
+    return {"links": agent.get_browsed_links(conversation_id=collection_number)}
 
 
 # Delete browsed link from memory
@@ -307,7 +310,7 @@ async def delete_browsed_link(
         ApiClient=ApiClient,
     )
     websearch.agent_memory.delete_memories_from_external_source(url=url.url)
-    agent.delete_browsed_link(url=url.url)
+    agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
     return {"message": "Browsed links deleted."}
 
 

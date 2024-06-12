@@ -161,6 +161,11 @@ class AgentBrowsedLink(Base):
         ForeignKey("agent.id"),
         nullable=False,
     )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
+    )
     link = Column(Text, nullable=False)
     timestamp = Column(DateTime, server_default=func.now())
 

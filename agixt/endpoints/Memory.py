@@ -560,19 +560,22 @@ async def delete_memories_from_external_source(
 
 # Get unique external sources
 @app.get(
-    "/api/agent/{agent_name}/memory/external_sources",
+    "/api/agent/{agent_name}/memory/external_sources/{collection_number}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_unique_external_sources(
-    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+    agent_name: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     external_sources = await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
-        collection_number="0",
+        collection_number=collection_number,
         ApiClient=ApiClient,
         user=user,
     ).get_external_data_sources()

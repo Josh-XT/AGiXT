@@ -130,7 +130,9 @@ class Websearch:
             # If the content isn't too long, we will ask AI to resummarize the combined chunks.
             return await self.summarize_web_content(url=url, content=new_content)
 
-    async def get_web_content(self, url: str, summarize_content=False):
+    async def get_web_content(
+        self, url: str, summarize_content=False, conversation_id="1"
+    ):
         if url.startswith("https://arxiv.org/") or url.startswith(
             "https://www.arxiv.org/"
         ):
@@ -149,7 +151,9 @@ class Websearch:
                 video_id = video_id.split("&")[0]
             content = await self.agent_memory.get_transcription(video_id=video_id)
             self.browsed_links.append(url)
-            self.agent.add_browsed_link(url=url)
+            self.agent.add_browsed_link(
+                url=url, conversation_id=conversation_id
+            )  # add conversation ID
             if summarize_content:
                 content = await self.summarize_web_content(url=url, content=content)
             await self.agent_memory.write_text_to_memory(
@@ -206,7 +210,7 @@ class Websearch:
                 )
             if res:
                 self.browsed_links.append(url)
-                self.agent.add_browsed_link(url=url)
+                self.agent.add_browsed_link(url=url, conversation_id=conversation_id)
                 return (
                     f"Content from GitHub repository at {url} has been added to memory.",
                     None,
@@ -272,14 +276,15 @@ class Websearch:
                     external_source=url,
                 )
                 self.browsed_links.append(url)
-                self.agent.add_browsed_link(url=url)
+                self.agent.add_browsed_link(url=url, conversation_id=conversation_id)
                 return text_content, link_list
         except:
             return None, None
 
-    async def recursive_browsing(self, user_input, links, conversation_name: str = ""):
-        if conversation_name != "" and conversation_name is not None:
-            c = Conversations(conversation_name=conversation_name, user=self.user)
+    async def recursive_browsing(
+        self, user_input, links, conversation_name: str = "", conversation_id="1"
+    ):
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         try:
             words = links.split()
             links = [
@@ -301,7 +306,9 @@ class Websearch:
                     (
                         collected_data,
                         link_list,
-                    ) = await self.get_web_content(url=url)
+                    ) = await self.get_web_content(
+                        url=url, conversation_id=conversation_id
+                    )
         if links is not None:
             for link in links:
                 if "href" in link:
@@ -321,7 +328,9 @@ class Websearch:
                     (
                         collected_data,
                         link_list,
-                    ) = await self.get_web_content(url=url)
+                    ) = await self.get_web_content(
+                        url=url, conversation_id=conversation_id
+                    )
                     if link_list is not None:
                         if len(link_list) > 0:
                             if len(link_list) > 5:
@@ -359,6 +368,7 @@ class Websearch:
                                         user_input=user_input,
                                         links=pick_a_link,
                                         conversation_name=conversation_name,
+                                        conversation_id=conversation_id,
                                     )
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
@@ -546,7 +556,7 @@ class Websearch:
         self.websearch_endpoint = websearch_endpoint
         return websearch_endpoint
 
-    async def web_search(self, query: str) -> List[str]:
+    async def web_search(self, query: str, conversation_id: str = "1") -> List[str]:
         endpoint = self.websearch_endpoint
         if endpoint.endswith("/"):
             endpoint = endpoint[:-1]
@@ -554,14 +564,14 @@ class Websearch:
             endpoint = endpoint[:-6]
         logging.info(f"Websearching for {query} on {endpoint}")
         text_content, link_list = await self.get_web_content(
-            url=f"{endpoint}/search?q={query}"
+            url=f"{endpoint}/search?q={query}", conversation_id=conversation_id
         )
         if link_list is None:
             link_list = []
         if len(link_list) < 5:
             self.failures.append(self.websearch_endpoint)
             await self.update_search_provider()
-            return await self.web_search(query=query)
+            return await self.web_search(query=query, conversation_id=conversation_id)
         return text_content, link_list
 
     async def websearch_agent(
@@ -587,10 +597,9 @@ class Websearch:
                     search_string = " ".join(keywords)
                     # add month and year to the end of the search string
                     search_string += f" {datetime.now().strftime('%B %Y')}"
+                c = Conversations(conversation_name=conversation_name, user=self.user)
+                conversation_id = c.get_conversation_id()
                 if conversation_name != "" and conversation_name is not None:
-                    c = Conversations(
-                        conversation_name=conversation_name, user=self.user
-                    )
                     c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] Searching for `{search_string}`.",
@@ -622,7 +631,9 @@ class Websearch:
                     links = await self.ddg_search(query=search_string)
                 if links == [] or links is None:
                     links = []
-                    content, links = await self.web_search(query=search_string)
+                    content, links = await self.web_search(
+                        query=search_string, conversation_id=conversation_id
+                    )
                 logging.info(
                     f"Found {len(links)} results for {search_string} using DDG."
                 )
@@ -634,6 +645,7 @@ class Websearch:
                             user_input=user_input,
                             links=links,
                             conversation_name=conversation_name,
+                            conversation_id=conversation_id,
                         )
                     )
                     self.tasks.append(task)
