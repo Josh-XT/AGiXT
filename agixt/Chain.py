@@ -190,9 +190,12 @@ class Chain:
             )
             target_type = "command"
         else:
+            logging.warning(
+                f"Invalid prompt {prompt} with prompt type {prompt_type}. Using default prompt."
+            )
             prompt["prompt_name"] = "User Input"
             prompt["prompt_category"] = "Default"
-            prompt["prompt_type"] = "Prompt"
+            prompt_type = "Prompt"
             prompt["user_input"] = (
                 prompt["input"]
                 if "input" in prompt
