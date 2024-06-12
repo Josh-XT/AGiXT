@@ -792,6 +792,21 @@ class AGiXT:
         i = 1
         total_tasks = len(task_list.tasks)
         x = 1
+        # First step in the chain should be to disable the command so that the agent doesn't try to execute it while executing it
+        self.chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Disable Command",
+                "command_args": {
+                    "agent_name": self.agent_name,
+                    "command_name": chain_name,
+                },
+            },
+        )
+        i += 1
         for task in task_list.tasks:
             c.log_interaction(
                 role=self.agent_name,
@@ -833,17 +848,55 @@ class AGiXT:
             self.agent.update_agent_config(
                 new_config={chain_name: True}, config_key="commands"
             )
-        if log_output and enable_new_command:
+            message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nWould you like me to execute `{chain_name}` now?"
+        else:
+            message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nIf you are able to enable the command, I can execute it for you. Alternatively, you can execute the command manually."
+        if log_output:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nWould you like me to execute `{chain_name}` now?",
+                message=message,
             )
-        if log_output and not enable_new_command:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nIf you are able to enable the command, I can execute it for you. Alternatively, you can execute the command manually.",
-            )
-        return chain_name
+        return {
+            "chain_name": chain_name,
+            "message": message,
+            "tasks": list_of_tasks,
+        }
+
+    async def update_plan_task(
+        self,
+        chain_name: str,
+        user_input: str,
+        conversation_name: str = "",
+        log_user_input: bool = True,
+        log_output: bool = True,
+        enable_new_command: bool = True,
+    ):
+        """
+        Modify the chain based on user input
+
+        Args:
+        chain_name (str): Name of the chain to update
+        user_input (str): User input to the agent
+        conversation_name (str): Name of the conversation
+        log_user_input (bool): Whether to log the user input
+        log_output (bool): Whether to log the output
+
+        Returns:
+        str: Response from the agent
+        """
+        # Basically just delete the old chain after we extract the tasks and then run the plan_task function with more input from the user.
+        current_chain = self.chain.get_chain(chain_name=chain_name)
+        # This function is still a work in progress
+        # Need to
+
+        self.chain.delete_chain(chain_name=chain_name)
+        return await self.plan_task(
+            user_input=user_input,
+            conversation_name=conversation_name,
+            log_user_input=log_user_input,
+            log_output=log_output,
+            enable_new_command=enable_new_command,
+        )
 
     async def chat_completions(self, prompt: ChatCompletions):
         """

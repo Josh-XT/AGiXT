@@ -339,7 +339,7 @@ async def text_to_speech(
 
 # Plan task
 @app.post(
-    "/api/agent/{agent_name}/plan",
+    "/api/agent/{agent_name}/plan/task",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -348,9 +348,9 @@ async def plan_task(
     task: TaskPlanInput,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
-):
+) -> ResponseMessage:
     agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
-    return await agent.plan_task(
+    planned_task = await agent.plan_task(
         user_input=task.user_input,
         websearch=task.websearch,
         websearch_depth=task.websearch_depth,
@@ -359,3 +359,4 @@ async def plan_task(
         log_output=task.log_output,
         enable_new_command=task.enable_new_command,
     )
+    return {"response": planned_task}

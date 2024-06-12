@@ -160,6 +160,8 @@ class agixt_actions(Extensions):
             "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
+            "Disable Command": self.disable_command,
+            "Plan Multistep Task": self.plan_multistep_task,
         }
         user = kwargs["user"] if "user" in kwargs else "user"
         for chain in Chain(user=user).get_chains():
@@ -265,6 +267,43 @@ class agixt_actions(Extensions):
             use_agent_settings=True,
             collection_number=0,
         )
+
+    async def disable_command(self, command_name: str):
+        """
+        Disable a command
+
+        Args:
+        command_name (str): The name of the command to disable
+
+        Returns:
+        str: Success message
+        """
+        return self.ApiClient.toggle_command(
+            agent_name=self.agent_name, commands_name=command_name, enable=False
+        )
+
+    async def plan_multistep_task(self, assumed_scope_of_work: str):
+        """
+        Plan a multi-step task
+
+        Args:
+        assumed_scope_of_work (str): The assumed scope of work
+
+        Returns:
+        str: The name of the new chain
+        """
+        user_input = assumed_scope_of_work
+        new_chain = self.ApiClient.plan_task(
+            agent_name=self.agent_name,
+            user_input=user_input,
+            websearch=True,
+            websearch_depth=3,
+            conversation_name=self.conversation_name,
+            log_user_input=False,
+            log_output=False,
+            enable_new_command=True,
+        )
+        return new_chain["message"]
 
     async def create_task_chain(
         self,
