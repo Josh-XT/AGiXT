@@ -19,3 +19,4 @@ python-multipart==0.0.9
 nest_asyncio
 g4f==0.3.1.9
 pyotp
+pyserial
