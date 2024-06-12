@@ -252,6 +252,24 @@ class UpdateConversationHistoryMessageModel(BaseModel):
     new_message: str
 
 
+class TaskPlanInput(BaseModel):
+    user_input: str
+    websearch: Optional[bool] = False
+    websearch_depth: Optional[int] = 3
+    conversation_name: Optional[str] = "AGiXT Task Planning"
+    log_user_input: Optional[bool] = True
+    log_output: Optional[bool] = True
+    enable_new_command: Optional[bool] = True
+
+
+class TasksToDo(BaseModel):
+    tasks: List[str]
+
+
+class ChainCommandName(BaseModel):
+    command_name: str
+
+
 class GitHubInput(BaseModel):
     github_repo: str
     github_user: Optional[str] = None

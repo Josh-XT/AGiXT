@@ -1,6 +1,7 @@
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Interactions import Interactions
+from XT import AGiXT
 from Websearch import Websearch
 from Globals import getenv
 from ApiClient import (
@@ -23,6 +24,7 @@ from Models import (
     ResponseMessage,
     UrlInput,
     TTSInput,
+    TaskPlanInput,
 )
 import base64
 import uuid
@@ -333,3 +335,27 @@ async def text_to_speech(
             f.write(audio_data)
         tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
     return {"url": tts_response}
+
+
+# Plan task
+@app.post(
+    "/api/agent/{agent_name}/plan",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def plan_task(
+    agent_name: str,
+    task: TaskPlanInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    return await agent.plan_task(
+        user_input=task.user_input,
+        websearch=task.websearch,
+        websearch_depth=task.websearch_depth,
+        conversation_name=task.conversation_name,
+        log_user_input=task.log_user_input,
+        log_output=task.log_output,
+        enable_new_command=task.enable_new_command,
+    )
