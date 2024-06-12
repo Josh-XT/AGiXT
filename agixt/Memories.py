@@ -417,6 +417,7 @@ class Memories:
     ) -> List[str]:
         global DEFAULT_USER
         default_collection_name = self.collection_name
+        default_results = []
         if self.user != DEFAULT_USER:
             # Get global memories for the agent first
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
