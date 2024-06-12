@@ -129,6 +129,12 @@ class Interactions:
             )
             prompt = prompt_name
             prompt_args = []
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = f"{str(datetime.now())} Conversation"
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation = c.get_conversation()
         if top_results == 0:
             context = []
         else:
@@ -188,6 +194,17 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
+                context += await FileReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=c.get_conversation_id(),
+                    ApiClient=self.ApiClient,
+                    user=self.user,
+                ).get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
             else:
                 context = []
         if "context" in kwargs:
@@ -208,12 +225,7 @@ class Interactions:
                 helper_agent_name = self.agent.AGENT_CONFIG["settings"][
                     "helper_agent_name"
                 ]
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation = c.get_conversation()
+
         if "conversation_results" in kwargs:
             conversation_results = int(kwargs["conversation_results"])
         else:
