@@ -198,6 +198,8 @@ class Chain:
                 if "input" in prompt
                 else prompt["user_input"] if "user_input" in prompt else ""
             )
+            if "input" in prompt:
+                del prompt["input"]
             argument_key = "prompt_name"
             target_id = (
                 self.session.query(Prompt)
