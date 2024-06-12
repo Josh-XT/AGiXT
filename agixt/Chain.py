@@ -140,7 +140,14 @@ class Chain:
             chain.name = new_name
             self.session.commit()
 
-    def add_chain_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
+    def add_chain_step(
+        self,
+        chain_name: str,
+        step_number: int,
+        agent_name: str,
+        prompt_type: str,
+        prompt: dict,
+    ):
         chain = (
             self.session.query(ChainDB)
             .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
@@ -156,7 +163,7 @@ class Chain:
         else:
             prompt_category = "Default"
         argument_key = None
-        if "prompt_name" in prompt:
+        if prompt_type.lower() == "prompt":
             argument_key = "prompt_name"
             target_id = (
                 self.session.query(Prompt)
@@ -169,8 +176,10 @@ class Chain:
                 .id
             )
             target_type = "prompt"
-        elif "chain_name" in prompt:
+        elif prompt_type.lower() == "chain":
             argument_key = "chain_name"
+            if argument_key not in prompt:
+                argument_key = "chain"
             target_id = (
                 self.session.query(Chain)
                 .filter(
@@ -180,7 +189,7 @@ class Chain:
                 .id
             )
             target_type = "chain"
-        elif "command_name" in prompt:
+        elif prompt_type.lower() == "command":
             argument_key = "command_name"
             target_id = (
                 self.session.query(Command)

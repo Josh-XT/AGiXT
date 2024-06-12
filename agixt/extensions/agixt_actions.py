@@ -317,7 +317,7 @@ class agixt_actions(Extensions):
                 step_number=i,
                 prompt_type="Chain",
                 prompt={
-                    "chain": "Smart Prompt",
+                    "chain_name": "Smart Prompt",
                     "input": f"Primary Objective to keep in mind while working on the task: {primary_objective} \nThe only task to complete to move towards the objective: {task}",
                 },
             )
