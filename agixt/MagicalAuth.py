@@ -1,4 +1,5 @@
-from DB import User, FailedLogins, get_session
+from DB import User, FailedLogins, UserOAuth, OAuthProvider, get_session
+from OAuth2Providers import get_sso_provider
 from Models import UserInfo, Register, Login
 from fastapi import Header, HTTPException
 from Globals import getenv
@@ -243,7 +244,13 @@ class MagicalAuth:
         session.close()
         return failed_logins
 
-    def send_magic_link(self, ip_address, login: Login, referrer=None):
+    def send_magic_link(
+        self,
+        ip_address,
+        login: Login,
+        referrer=None,
+        send_link: bool = True,
+    ):
         self.email = login.email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
@@ -302,6 +309,7 @@ class MagicalAuth:
             and str(getenv("SENDGRID_API_KEY")).lower() != "none"
             and getenv("SENDGRID_FROM_EMAIL") != ""
             and str(getenv("SENDGRID_FROM_EMAIL")).lower() != "none"
+            and send_link
         ):
             send_email(
                 email=self.email,
@@ -423,3 +431,80 @@ class MagicalAuth:
         session.commit()
         session.close()
         return "User deleted successfully"
+
+    def sso(
+        self,
+        provider,
+        code,
+        ip_address,
+        referrer=None,
+    ):
+        if not referrer:
+            referrer = getenv("MAGIC_LINK_URL")
+        provider = str(provider).lower()
+        sso_data = None
+        sso_data = get_sso_provider(provider=provider, code=code, redirect_uri=referrer)
+        if not sso_data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to get user data from {provider.capitalize()}.",
+            )
+        if not sso_data.access_token:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to get access token from {provider.capitalize()}.",
+            )
+        user_data = sso_data.user_info
+        access_token = sso_data.access_token
+        refresh_token = sso_data.refresh_token
+        self.email = str(user_data["email"]).lower()
+        if not user_data:
+            logging.warning(f"Error on {provider.capitalize()}: {user_data}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to get user data from {provider.capitalize()}.",
+            )
+        session = get_session()
+        user = session.query(User).filter(User.email == self.email).first()
+        if not user:
+            register = Register(
+                email=self.email,
+                first_name=user_data["first_name"] if "first_name" in user_data else "",
+                last_name=user_data["last_name"] if "last_name" in user_data else "",
+            )
+            mfa_token = self.register(new_user=register)
+            # Create the UserOAuth record
+            user = session.query(User).filter(User.email == self.email).first()
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider)
+                .first()
+            )
+            if not provider:
+                provider = OAuthProvider(name=provider)
+                session.add(provider)
+            user_oauth = UserOAuth(
+                user_id=user.id,
+                provider_id=provider.id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
+            session.add(user_oauth)
+        else:
+            mfa_token = user.mfa_token
+            user_oauth = (
+                session.query(UserOAuth).filter(UserOAuth.user_id == user.id).first()
+            )
+            if user_oauth:
+                user_oauth.access_token = access_token
+                user_oauth.refresh_token = refresh_token
+        session.commit()
+        session.close()
+        totp = pyotp.TOTP(mfa_token)
+        login = Login(email=self.email, token=totp.now())
+        return self.send_magic_link(
+            ip_address=ip_address,
+            login=login,
+            referrer=referrer,
+            send_link=False,
+        )

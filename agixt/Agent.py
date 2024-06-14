@@ -415,7 +415,7 @@ class Agent:
 
         return f"Agent {self.agent_name} configuration updated."
 
-    def get_browsed_links(self):
+    def get_browsed_links(self, conversation_id=None):
         """
         Get the list of URLs that have been browsed by the agent.
 
@@ -433,7 +433,7 @@ class Agent:
             return []
         browsed_links = (
             self.session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id)
+            .filter_by(agent_id=agent.id, conversation_id=conversation_id)
             .order_by(AgentBrowsedLink.id.desc())
             .all()
         )
@@ -441,7 +441,7 @@ class Agent:
             return []
         return browsed_links
 
-    def browsed_recently(self, url) -> bool:
+    def browsed_recently(self, url, conversation_id=None) -> bool:
         """
         Check if the given URL has been browsed by the agent within the last 24 hours.
 
@@ -451,7 +451,7 @@ class Agent:
         Returns:
             bool: True if the URL has been browsed within the last 24 hours, False otherwise.
         """
-        browsed_links = self.get_browsed_links()
+        browsed_links = self.get_browsed_links(conversation_id=conversation_id)
         if not browsed_links:
             return False
         for link in browsed_links:
@@ -460,7 +460,7 @@ class Agent:
                     return True
         return False
 
-    def add_browsed_link(self, url):
+    def add_browsed_link(self, url, conversation_id=None):
         """
         Add a URL to the list of browsed links for the agent.
 
@@ -479,12 +479,14 @@ class Agent:
         )
         if not agent:
             return f"Agent {self.agent_name} not found."
-        browsed_link = AgentBrowsedLink(agent_id=agent.id, url=url)
+        browsed_link = AgentBrowsedLink(
+            agent_id=agent.id, url=url, conversation_id=conversation_id
+        )
         self.session.add(browsed_link)
         self.session.commit()
         return f"Link {url} added to browsed links."
 
-    def delete_browsed_link(self, url):
+    def delete_browsed_link(self, url, conversation_id=None):
         """
         Delete a URL from the list of browsed links for the agent.
 
@@ -497,7 +499,8 @@ class Agent:
         agent = (
             self.session.query(AgentModel)
             .filter(
-                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+                AgentModel.name == self.agent_name,
+                AgentModel.user_id == self.user_id,
             )
             .first()
         )
@@ -505,7 +508,7 @@ class Agent:
             return f"Agent {self.agent_name} not found."
         browsed_link = (
             self.session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id, url=url)
+            .filter_by(agent_id=agent.id, url=url, conversation_id=conversation_id)
             .first()
         )
         if not browsed_link:

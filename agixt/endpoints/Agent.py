@@ -1,6 +1,7 @@
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Interactions import Interactions
+from XT import AGiXT
 from Websearch import Websearch
 from Globals import getenv
 from ApiClient import (
@@ -23,6 +24,7 @@ from Models import (
     ResponseMessage,
     UrlInput,
     TTSInput,
+    TaskPlanInput,
 )
 import base64
 import uuid
@@ -51,7 +53,7 @@ async def addagent(
         ApiClient = get_api_client(authorization=authorization)
         _agent = Agent(agent_name=agent.agent_name, user=user, ApiClient=ApiClient)
         reader = Websearch(
-            collection_number=0,
+            collection_number="0",
             agent=_agent,
             user=user,
             ApiClient=ApiClient,
@@ -148,7 +150,7 @@ async def deleteagent(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await Websearch(
-        collection_number=0,
+        collection_number="0",
         agent=agent,
         user=user,
         ApiClient=ApiClient,
@@ -268,18 +270,21 @@ async def toggle_command(
 
 # Get agent browsed links
 @app.get(
-    "/api/agent/{agent_name}/browsed_links",
+    "/api/agent/{agent_name}/browsed_links/{collection_number}",
     tags=["Agent", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_agent_browsed_links(
-    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+    agent_name: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    return {"links": agent.get_browsed_links()}
+    return {"links": agent.get_browsed_links(conversation_id=collection_number)}
 
 
 # Delete browsed link from memory
@@ -299,13 +304,13 @@ async def delete_browsed_link(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     websearch = Websearch(
-        collection_number=url.collection_number,
+        collection_number=str(url.collection_number),
         agent=agent,
         user=user,
         ApiClient=ApiClient,
     )
     websearch.agent_memory.delete_memories_from_external_source(url=url.url)
-    agent.delete_browsed_link(url=url.url)
+    agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
     return {"message": "Browsed links deleted."}
 
 
@@ -333,3 +338,28 @@ async def text_to_speech(
             f.write(audio_data)
         tts_response = f"{AGIXT_URI}/outputs/{agent.agent_id}/{file_name}"
     return {"url": tts_response}
+
+
+# Plan task
+@app.post(
+    "/api/agent/{agent_name}/plan/task",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def plan_task(
+    agent_name: str,
+    task: TaskPlanInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    planned_task = await agent.plan_task(
+        user_input=task.user_input,
+        websearch=task.websearch,
+        websearch_depth=task.websearch_depth,
+        conversation_name=task.conversation_name,
+        log_user_input=task.log_user_input,
+        log_output=task.log_output,
+        enable_new_command=task.enable_new_command,
+    )
+    return {"response": planned_task}

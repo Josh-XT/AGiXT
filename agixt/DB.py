@@ -66,6 +66,25 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
 
+class UserOAuth(Base):
+    __tablename__ = "user_oauth"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    user = relationship("User")
+    provider_id = Column(UUID(as_uuid=True), ForeignKey("oauth_provider.id"))
+    provider = relationship("OAuthProvider")
+    access_token = Column(String, default="", nullable=False)
+    refresh_token = Column(String, default="", nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class OAuthProvider(Base):
+    __tablename__ = "oauth_provider"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, default="", nullable=False)
+
+
 class FailedLogins(Base):
     __tablename__ = "failed_logins"
     id = Column(
@@ -160,6 +179,11 @@ class AgentBrowsedLink(Base):
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("agent.id"),
         nullable=False,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
     )
     link = Column(Text, nullable=False)
     timestamp = Column(DateTime, server_default=func.now())
@@ -488,15 +512,17 @@ class TaskCategory(Base):
         primary_key=True,
         default=uuid.uuid4 if DATABASE_TYPE != "sqlite" else str(uuid.uuid4()),
     )
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
     name = Column(String)
     description = Column(String)
-    memory_collection = Column(Integer, default=0)
+    memory_collection = Column(String, default="0")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     category_id = Column(
         UUID(as_uuid=True), ForeignKey("task_category.id"), nullable=True
     )
     parent_category = relationship("TaskCategory", remote_side=[id])
+    user = relationship("User", backref="task_category")
 
 
 class TaskItem(Base):
@@ -511,7 +537,7 @@ class TaskItem(Base):
     category = relationship("TaskCategory")
     title = Column(String)
     description = Column(String)
-    memory_collection = Column(Integer, default=0)
+    memory_collection = Column(String, default="0")
     # agent_id is the action item owner. If it is null, it is an item for the user
     agent_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
