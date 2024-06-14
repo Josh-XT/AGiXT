@@ -708,7 +708,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
-                    log_user_interaction=False,
+                    log_user_input=False,
                     **prompt_args,
                 )
                 time.sleep(1)
