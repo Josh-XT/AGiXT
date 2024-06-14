@@ -6,6 +6,7 @@ import pdfplumber
 import zipfile
 import shutil
 import logging
+from pptxtopdf import convert
 
 
 class FileReader(Memories):
@@ -44,6 +45,10 @@ class FileReader(Memories):
         else:
             file_path = os.path.normpath(file_path)
         filename = os.path.basename(file_path)
+        if file_path.endswith((".ppt", ".pptx")):
+            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            convert(file_path, pdf_file_path)
+            file_path = pdf_file_path
         content = ""
         try:
             # If file extension is pdf, convert to text

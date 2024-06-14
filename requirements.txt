@@ -19,3 +19,4 @@ python-multipart==0.0.9
 nest_asyncio
 g4f==0.3.2.0
 pyotp
+pptxtopdf==0.0.2
