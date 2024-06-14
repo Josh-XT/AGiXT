@@ -137,5 +137,5 @@ def google_sso(code, redirect_uri=None) -> GoogleSSO:
         return None, None
     data = response.json()
     access_token = data["access_token"]
-    refresh_token = data["refresh_token"]
+    refresh_token = data["refresh_token"] if "refresh_token" in data else "Not provided"
     return GoogleSSO(access_token=access_token, refresh_token=refresh_token)
