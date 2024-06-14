@@ -63,6 +63,21 @@ class Conversations:
         )
         return [conversation.name for conversation in conversations]
 
+    def get_conversations_with_ids(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversations = (
+            session.query(Conversation)
+            .filter(
+                Conversation.user_id == user_id,
+            )
+            .all()
+        )
+        return {
+            str(conversation.id): conversation.name for conversation in conversations
+        }
+
     def get_conversation(self, limit=100, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
@@ -376,3 +391,19 @@ class Conversations:
 
         message.content = new_message
         session.commit()
+
+    def get_conversation_id(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            return None
+        return str(conversation.id)

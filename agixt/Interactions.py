@@ -40,7 +40,7 @@ class Interactions:
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                collection_number=1,
+                collection_number="1",
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -48,28 +48,28 @@ class Interactions:
             self.agent_memory = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=0,
+                collection_number="0",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=2,
+                collection_number="2",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.negative_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=3,
+                collection_number="3",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.github_memories = GithubReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=7,
+                collection_number="7",
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
@@ -129,6 +129,12 @@ class Interactions:
             )
             prompt = prompt_name
             prompt_args = []
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = f"{str(datetime.now())} Conversation"
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation = c.get_conversation()
         if top_results == 0:
             context = []
         else:
@@ -175,13 +181,12 @@ class Interactions:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 5:
+                    collection_id = kwargs["inject_memories_from_collection_number"]
+                    if collection_id not in ["0", "1", "2", "3", "4", "5", "6", "7"]:
                         context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
-                            collection_number=int(
-                                kwargs["inject_memories_from_collection_number"]
-                            ),
+                            collection_number=collection_id,
                             ApiClient=self.ApiClient,
                             user=self.user,
                         ).get_memories(
@@ -189,6 +194,17 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
+                context += await FileReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=c.get_conversation_id(),
+                    ApiClient=self.ApiClient,
+                    user=self.user,
+                ).get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
             else:
                 context = []
         if "context" in kwargs:
@@ -209,12 +225,7 @@ class Interactions:
                 helper_agent_name = self.agent.AGENT_CONFIG["settings"][
                     "helper_agent_name"
                 ]
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation = c.get_conversation()
+
         if "conversation_results" in kwargs:
             conversation_results = int(kwargs["conversation_results"])
         else:
@@ -697,7 +708,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
-                    log_user_interaction=False,
+                    log_user_input=False,
                     **prompt_args,
                 )
                 time.sleep(1)

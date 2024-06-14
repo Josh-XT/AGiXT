@@ -4,7 +4,7 @@ from readers.file import FileReader
 from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
-from Models import ChatCompletions
+from Models import ChatCompletions, TasksToDo, ChainCommandName
 from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
@@ -95,7 +95,7 @@ class AGiXT:
         user_input: str = "",
         limit_per_collection: int = 5,
         minimum_relevance_score: float = 0.3,
-        additional_collection_number: int = 0,
+        additional_collection: str = "0",
     ):
         """
         Get a list of memories
@@ -104,7 +104,7 @@ class AGiXT:
             user_input (str): User input to the agent
             limit_per_collection (int): Number of memories to return per collection
             minimum_relevance_score (float): Minimum relevance score for memories
-            additional_collection_number (int): Additional collection number to pull memories from. Collections 0-5 are injected automatically.
+            additional_collection (int): Additional collection number to pull memories from. Collections 0-5 are injected automatically.
 
         Returns:
             str: Agents relevant memories from the user input from collections 0-5 and the additional collection number if provided
@@ -113,7 +113,7 @@ class AGiXT:
             user_input=user_input if user_input else "*",
             top_results=limit_per_collection,
             min_relevance_score=minimum_relevance_score,
-            inject_memories_from_collection_number=int(additional_collection_number),
+            inject_memories_from_collection_number=additional_collection,
         )
         return formatted_prompt
 
@@ -539,7 +539,7 @@ class AGiXT:
         file_url: str = "",
         file_name: str = "",
         user_input: str = "",
-        collection_number: int = 1,
+        collection_id: str = "1",
         conversation_name: str = "",
     ):
         """
@@ -548,7 +548,7 @@ class AGiXT:
         Args:
             file_url (str): URL of the file
             file_path (str): Path to the file
-            collection_number (int): Collection number to store the file
+            collection_id (str): Collection ID to save the file to
             conversation_name (str): Name of the conversation
 
         Returns:
@@ -576,7 +576,7 @@ class AGiXT:
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=collection_number,
+            collection_number=collection_id,
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
@@ -704,6 +704,199 @@ class AGiXT:
                 f.write(file_data)
             url = f"{self.outputs}/{file_name}"
             return {"file_name": file_name, "file_url": url}
+
+    async def plan_task(
+        self,
+        user_input: str,
+        websearch: bool = False,
+        websearch_depth: int = 3,
+        conversation_name: str = "",
+        log_user_input: bool = True,
+        log_output: bool = True,
+        enable_new_command: bool = True,
+    ):
+        """
+        Plan a task from a user input, create and enable a new command to execute the plan
+
+        Args:
+        user_input (str): User input to the agent
+        websearch (bool): Whether to include web research in the chain
+        websearch_depth (int): Depth of web research to include
+        conversation_name (str): Name of the conversation to log activity to
+        log_user_input (bool): Whether to log the user input
+        log_output (bool): Whether to log the output
+        enable_new_command (bool): Whether to enable the new command for the agent
+
+        Returns:
+        str: The name of the created chain
+        """
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        if log_user_input:
+            c.log_interaction(
+                role="USER",
+                message=user_input,
+            )
+        c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Determining primary objective.",
+        )
+        # primary_objective = Step 1, execute chain "Smart Prompt" with the user input to get Primary Objective
+        primary_objective = await self.execute_chain(
+            chain_name="Smart Prompt",
+            user_input=user_input,
+            agent_override=self.agent_name,
+            log_user_input=False,
+            conversation_name=conversation_name,
+        )
+        chain_name = await self.inference(
+            user_input=user_input,
+            introduction=primary_objective,
+            prompt_category="Default",
+            prompt_name="Title a Chain",
+            log_output=False,
+            log_user_input=False,
+            conversation_name=conversation_name,
+        )
+        chain_title = await self.convert_to_pydantic_model(
+            input_string=chain_name,
+            model=ChainCommandName,
+        )
+        chain_name = chain_title.command_name
+        c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Breaking objective into a list of tasks.",
+        )
+        # numbered_list_of_tasks = Step 2, Execute prompt "Break into Steps" with `introduction` being step 1 response, websearch true if researching
+        # Note - Should do this more than once to get a better list of tasks
+        numbered_list_of_tasks = await self.inference(
+            user_input=user_input,
+            introduction=primary_objective,
+            prompt_category="Default",
+            prompt_name="Break into Steps",
+            websearch=websearch,
+            websearch_depth=websearch_depth,
+            injected_memories=10,
+            log_output=False,
+            log_user_input=False,
+            conversation_name=conversation_name,
+        )
+        task_list = await self.convert_to_pydantic_model(
+            input_string=numbered_list_of_tasks,
+            model=TasksToDo,
+        )
+        self.chain.add_chain(chain_name=chain_name)
+        c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Creating new command `{chain_name}`.",
+        )
+        i = 1
+        total_tasks = len(task_list.tasks)
+        x = 1
+        # First step in the chain should be to disable the command so that the agent doesn't try to execute it while executing it
+        self.chain.add_chain_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Disable Command",
+                "command_args": {
+                    "agent_name": self.agent_name,
+                    "command_name": chain_name,
+                },
+            },
+        )
+        i += 1
+        for task in task_list.tasks:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Planning task `{x}` of `{total_tasks}`.",
+            )
+            x += 1
+            # Create a smart prompt with the objective and task in context
+            self.chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=self.agent_name,
+                step_number=i,
+                prompt_type="Chain",
+                prompt={
+                    "chain_name": "Smart Prompt",
+                    "input": f"Primary Objective to keep in mind while working on the task: {primary_objective} \nThe only task to complete to move towards the objective: {task}",
+                },
+            )
+            i += 1
+            self.chain.add_chain_step(
+                chain_name=chain_name,
+                agent_name=self.agent_name,
+                step_number=i,
+                prompt_type="Chain",
+                prompt={
+                    "chain": (
+                        "Smart Instruct"
+                        if websearch
+                        else "Smart Instruct - No Research"
+                    ),
+                    "input": "{STEP" + str(i - 1) + "}",
+                },
+            )
+            i += 1
+        list_of_tasks = "\n".join(
+            [f"{i}. {task}" for i, task in enumerate(task_list.tasks, 1)]
+        )
+        # Enable the command of the chain name
+        if enable_new_command:
+            self.agent.update_agent_config(
+                new_config={chain_name: True}, config_key="commands"
+            )
+            message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nWould you like me to execute `{chain_name}` now?"
+        else:
+            message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nIf you are able to enable the command, I can execute it for you. Alternatively, you can execute the command manually."
+        if log_output:
+            c.log_interaction(
+                role=self.agent_name,
+                message=message,
+            )
+        return {
+            "chain_name": chain_name,
+            "message": message,
+            "tasks": list_of_tasks,
+        }
+
+    async def update_planned_task(
+        self,
+        chain_name: str,
+        user_input: str,
+        conversation_name: str = "",
+        log_user_input: bool = True,
+        log_output: bool = True,
+        enable_new_command: bool = True,
+    ):
+        """
+        Modify the chain based on user input
+
+        Args:
+        chain_name (str): Name of the chain to update
+        user_input (str): User input to the agent
+        conversation_name (str): Name of the conversation
+        log_user_input (bool): Whether to log the user input
+        log_output (bool): Whether to log the output
+
+        Returns:
+        str: Response from the agent
+        """
+        # Basically just delete the old chain after we extract the tasks and then run the plan_task function with more input from the user.
+        current_chain = self.chain.get_chain(chain_name=chain_name)
+        # This function is still a work in progress
+        # Need to
+
+        self.chain.delete_chain(chain_name=chain_name)
+        return await self.plan_task(
+            user_input=user_input,
+            conversation_name=conversation_name,
+            log_user_input=log_user_input,
+            log_output=log_output,
+            enable_new_command=enable_new_command,
+        )
 
     async def chat_completions(self, prompt: ChatCompletions):
         """
@@ -881,12 +1074,13 @@ class AGiXT:
         # Add user input to conversation
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         c.log_interaction(role="USER", message=new_prompt)
+        conversation_id = c.get_conversation_id()
         for file in files:
             await self.learn_from_file(
                 file_url=file["file_url"],
                 file_name=file["file_name"],
                 user_input=new_prompt,
-                collection_number=1,
+                collection_id=conversation_id,
                 conversation_name=conversation_name,
             )
         await self.learn_from_websites(
@@ -1120,7 +1314,7 @@ class AGiXT:
         )
         return dpo_dataset
 
-    def convert_to_pydantic_model(
+    async def convert_to_pydantic_model(
         self,
         input_string: str,
         model: Type[BaseModel],
@@ -1140,12 +1334,13 @@ class AGiXT:
                 description += f" (Enum values: {enum_values})"
             field_descriptions.append(description)
         schema = "\n".join(field_descriptions)
-        response = self.inference(
+        response = await self.inference(
             user_input=input_string,
             schema=schema,
             prompt_category="Default",
             prompt_name="Convert to Pydantic Model",
             log_user_input=False,
+            log_output=False,
         )
         if "```json" in response:
             response = response.split("```json")[1].split("```")[0].strip()
@@ -1174,7 +1369,7 @@ class AGiXT:
             logging.warning(
                 f"Error: {e} . Failed to convert the response to the model, trying again. {failures}/3 failures. Response: {response}"
             )
-            return self.convert_to_pydantic_model(
+            return await self.convert_to_pydantic_model(
                 input_string=input_string,
                 model=model,
                 max_failures=max_failures,

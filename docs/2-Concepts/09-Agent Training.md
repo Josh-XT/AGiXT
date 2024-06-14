@@ -47,7 +47,7 @@ agent_name="gpt4free"
 agixt.learn_github_repo(
     agent_name=agent_name,
     github_repo="Josh-XT/AGiXT",
-    collection_number=0,
+    collection_number="0",
 )
 
 # Create a synthetic dataset in DPO/CPO/ORPO format.
@@ -77,7 +77,7 @@ agent_name="gpt4free"
 agixt.learn_github_repo(
     agent_name=agent_name,
     github_repo="Josh-XT/AGiXT",
-    collection_number=0,
+    collection_number="0",
 )
 
 # Train the desired model on a synthetic DPO dataset created based on the agents memories.
