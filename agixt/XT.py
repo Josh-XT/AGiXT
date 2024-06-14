@@ -655,7 +655,7 @@ class AGiXT:
             if res == True:
                 response = f"I have read the entire content of the file called {file_name} into my memory."
             else:
-                response = f"I was unable to read the file called {file_name}."
+                response = f"[ERROR] I was unable to read the file called {file_name}."
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
