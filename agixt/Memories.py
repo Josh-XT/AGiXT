@@ -425,15 +425,15 @@ class Memories:
                 self.collection_name = (
                     f"{self.collection_name}_{self.collection_number}"
                 )
-            try:
-                default_results = await self.get_memories_data(
-                    user_input=user_input,
-                    limit=limit,
-                    min_relevance_score=min_relevance_score,
-                )
-            except:
-                default_results = []
-            self.collection_name = default_collection_name
+        try:
+            default_results = await self.get_memories_data(
+                user_input=user_input,
+                limit=limit,
+                min_relevance_score=min_relevance_score,
+            )
+        except:
+            default_results = []
+        self.collection_name = default_collection_name
         user_results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
