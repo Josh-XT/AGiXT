@@ -434,6 +434,10 @@ class Memories:
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
+        if isinstance(user_results, str):
+            user_results = [user_results]
+        if isinstance(default_results, str):
+            default_results = [default_results]
         results = user_results + default_results
         response = []
         if results:
