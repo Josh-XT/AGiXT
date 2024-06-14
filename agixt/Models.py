@@ -314,8 +314,8 @@ class Login(BaseModel):
 
 class Register(BaseModel):
     email: str
-    first_name: str
-    last_name: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
 
 
 class UserInfo(BaseModel):

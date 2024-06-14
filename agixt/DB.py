@@ -66,6 +66,25 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
 
+class UserOAuth(Base):
+    __tablename__ = "user_oauth"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    user = relationship("User")
+    provider_id = Column(UUID(as_uuid=True), ForeignKey("oauth_provider.id"))
+    provider = relationship("OAuthProvider")
+    access_token = Column(String, default="", nullable=False)
+    refresh_token = Column(String, default="", nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class OAuthProvider(Base):
+    __tablename__ = "oauth_provider"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, default="", nullable=False)
+
+
 class FailedLogins(Base):
     __tablename__ = "failed_logins"
     id = Column(
