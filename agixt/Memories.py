@@ -277,22 +277,17 @@ class Memories:
 
     async def get_collection(self):
         try:
-            return self.chroma_client.get_collection(
+            return self.chroma_client.get_or_create_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
         except:
             try:
-                return self.chroma_client.create_collection(
-                    name=self.collection_name,
-                    embedding_function=self.embedder,
-                    get_or_create=True,
+                return self.chroma_client.get_or_create_collection(
+                    name=self.collection_name, embedding_function=self.embedder
                 )
             except:
-                # Collection already exists
-                pass
-            return self.chroma_client.get_collection(
-                name=self.collection_name, embedding_function=self.embedder
-            )
+                logging.warning(f"Error getting collection: {self.collection_name}")
+                return None
 
     async def delete_memory(self, key: str):
         collection = await self.get_collection()
