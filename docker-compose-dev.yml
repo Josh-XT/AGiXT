@@ -22,7 +22,7 @@ services:
       USING_JWT: ${USING_JWT:-false}
       AGIXT_API_KEY: ${AGIXT_API_KEY}
       AGIXT_URI: ${AGIXT_URI-http://agixt:7437}
-      MAGIC_LINK_URL: ${AUTH_WEB-http://agixtinteractive:3437/user}
+      MAGIC_LINK_URL: ${AUTH_WEB-http://localhost:3437/user}
       DISABLED_EXTENSIONS: ${DISABLED_EXTENSIONS:-}
       DISABLED_PROVIDERS: ${DISABLED_PROVIDERS:-}
       WORKING_DIRECTORY: ${WORKING_DIRECTORY:-/agixt/WORKSPACE}
@@ -258,8 +258,8 @@ services:
       APP_DESCRIPTION: ${APP_DESCRIPTION-A chat powered by AGiXT.}
       INTERACTIVE_MODE: ${INTERACTIVE_MODE-chat}
       APP_NAME: ${APP_NAME-AGiXT}
-      APP_URI: ${APP_URI-http://agixtinteractive:3437}
-      AUTH_WEB: ${AUTH_WEB-http://agixtinteractive:3437/user}
+      APP_URI: ${APP_URI-http://localhost:3437}
+      AUTH_WEB: ${AUTH_WEB-http://localhost:3437/user}
       LOG_VERBOSITY_SERVER: 3
       THEME_NAME: ${THEME_NAME}
       ALLOW_EMAIL_SIGN_IN: ${ALLOW_EMAIL_SIGN_IN-true}
