@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
+from pdf2image import convert_from_path
 import subprocess
 import logging
 import asyncio
@@ -587,6 +588,20 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
+        if file_type == "pdf":
+            # Turn the pdf to images, then run inference on each image
+            pdf_path = file_path
+            images = convert_from_path(pdf_path)
+            for i, image in enumerate(images):
+                image_path = os.path.join(self.agent_workspace, f"{file_name}_{i}.png")
+                image.save(image_path, "PNG")
+                await self.learn_from_file(
+                    file_url=image_path,
+                    file_name=f"{file_name}_{i}.png",
+                    user_input=user_input,
+                    collection_id=collection_id,
+                    conversation_name=conversation_name,
+                )
         if (
             file_type == "wav"
             or file_type == "mp3"
@@ -639,10 +654,11 @@ class AGiXT:
                         vision_response = await self.agent.inference(
                             prompt=user_input, images=[file_url]
                         )
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         await file_reader.write_text_to_memory(
                             user_input=user_input,
-                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
-                            external_source=f"Image called `{file_name}`",
+                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                            external_source=f"Image called `{file_name}`.",
                         )
                         response = f"I have generated a description of the image called `{file_name}` into my memory."
                     except Exception as e:
