@@ -630,8 +630,12 @@ class AGiXT:
                 f"Read the content of the PDF file called `{file_name}` into memory."
             )
         elif file_path.endswith(".zip"):
-            new_folder = os.path.join(self.agent_workspace, f"extracted_{file_name}")
-            if os.path.normpath(new_folder).startswith(self.agent_workspace):
+            new_folder = os.path.normpath(
+                os.path.join(self.agent_workspace, f"extracted_{file_name}")
+            )
+            if os.path.normpath(file_path).startswith(
+                self.agent_workspace
+            ) and new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=new_folder)
                 # Iterate over every file that was extracted including subdirectories
@@ -773,7 +777,7 @@ class AGiXT:
                     )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if os.normpath(file_path).startswith(self.agent_workspace):
+            if os.paths.normpath(file_path).startswith(self.agent_workspace):
                 with open(file_path, "r") as f:
                     file_content = f.read()
                 await file_reader.write_text_to_memory(
