@@ -1111,6 +1111,11 @@ class AGiXT:
             summarize_content=False,
             conversation_name=conversation_name,
         )
+        await self.analyze_csv(
+            user_input=new_prompt,
+            conversation_name=conversation_name,
+            file_content=None,
+        )
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -1434,6 +1439,8 @@ class AGiXT:
             if len(csv_files) == 0:
                 return ""
             activities = c.get_activities(limit=20)["activities"]
+            if len(activities) == 0:
+                return ""
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
@@ -1551,7 +1558,7 @@ class AGiXT:
             if self.failures < 3:
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY][ERROR] Data analysis failed, trying again ({self.failures}/3).",
+                    message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
                 )
                 return await self.analyze_csv(
                     user_input=user_input,

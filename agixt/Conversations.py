@@ -230,7 +230,12 @@ class Conversations:
         if role.lower() == "user":
             logging.info(f"{self.user}: {message}")
         else:
-            logging.info(f"{role}: {message}")
+            if "[WARN]" in message:
+                logging.warning(f"{role}: {message}")
+            elif "[ERROR]" in message:
+                logging.error(f"{role}: {message}")
+            else:
+                logging.info(f"{role}: {message}")
 
     def delete_conversation(self):
         session = get_session()
