@@ -14,6 +14,7 @@ import subprocess
 import logging
 import asyncio
 import os
+import re
 import base64
 import uuid
 import json
@@ -40,6 +41,7 @@ class AGiXT:
         self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
         self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
+        self.failures = 0
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -1401,83 +1403,97 @@ class AGiXT:
         self,
         user_input: str,
         conversation_name: str,
+        file_content=None,
     ):
         # Step 1 - Check the conversation history and last user input to determine which file they want to analyze
         # Basically give a file listing for the agent's working directory and the last 10 interactions of the conversation
-        # Step 2 - Get file content
-        # Step 3 - Run command `Get CSV Preview Text` on the file content
-        """
-        {
-            "step": 3,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Get CSV Preview Text",
-                "text": "{text}",
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        """
+        if not file_content:
+            files = os.listdir(self.agent_workspace)
+            file_determination = await self.inference(
+                user_input=user_input,
+                prompt_category="Default",
+                prompt_name="Determine File",
+                directory_listing="\n".join(files),
+                conversation_results=10,
+                conversation_name=conversation_name,
+                log_user_input=False,
+                log_output=False,
+            )
+            # Iterate over files and use regex to see if the file name is in the response
+            file_name = ""
+            for file in files:
+                if re.search(file, file_determination):
+                    file_name = file
+                    break
+            if file_name == "":
+                return "I was unable to determine which file you are referring to."
+            # Step 2 - Get file content
+            file_path = os.path.join(self.agent_workspace, file_name)
+            file_content = open(file_path, "r").read()
+        lines = file_content.split("\n")
+        lines = lines[:2]
+        file_preview = "\n".join(lines)
         # Step 4 - Run `Code Interpreter` prompt
-        """
-        {
-            "step": 4,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Prompt",
-            "prompt": {
-                "user_input": "{user_input}",
-                "prompt_name": "Code Interpreter",
-                "prompt_category": "Default",
-                "import_file": "./data.csv",
-                "file_preview": "{STEP3}",
-                "shots": 1,
-                "context_results": 0,
-                "browse_links": false,
-                "websearch": false,
-                "websearch_depth": 0,
-                "disable_memory": true,
-                "inject_memories_from_collection_number": 0,
-                "conversation_results": 0,
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        """
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        c.log_interaction(
+            "[ACTIVITY] Analyzing data from file `{file_name}`.",
+        )
+        code_interpreter = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Code Interpreter",
+            import_file=file_path,
+            file_preview=file_preview,
+            conversation_name=conversation_name,
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
         # Step 5 - Verify the code is good before executing it.
-        """
-        {
-            "step": 5,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Prompt",
-            "prompt": {
-                "user_input": "{user_input}",
-                "prompt_name": "Verify Code Interpreter",
-                "prompt_category": "Default",
-                "import_file": "./data.csv",
-                "file_preview": "{STEP3}",
-                "code": "{STEP4}",
-                "shots": 1,
-                "context_results": 0,
-                "browse_links": false,
-                "websearch": false,
-                "websearch_depth": 0,
-                "disable_memory": true,
-                "inject_memories_from_collection_number": 0,
-                "conversation_results": 0,
-                "conversation": "AGiXT Terminal"
-            }
-        },
-        """
+        code_verification = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Verify Code Interpreter",
+            import_file=file_path,
+            file_preview=file_preview,
+            code=code_interpreter,
+            conversation_name=conversation_name,
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
-        """
-        {
-            "step": 6,
-            "agent_name": "SQLExpert",
-            "prompt_type": "Command",
-            "prompt": {
-                "command_name": "Execute Python Code",
-                "code": "{STEP5}",
-                "text": "{text}",
-                "conversation": "AGiXT Terminal"
-            }
-        }
-        """
+        code_execution = await self.execute_command(
+            command_name="Execute Python Code",
+            command_args={"code": code_verification, "text": file_content},
+            conversation_name=conversation_name,
+        )
+        if not code_execution.startswith("Error"):
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Data analysis complete.",
+            )
+        else:
+            self.failures += 1
+            if self.failures < 3:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY][ERROR] Data analysis failed, trying again ({self.failures}/3).",
+                )
+                return await self.data_analysis(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_content=file_content,
+                )
+            else:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
+                )
+        return code_execution
