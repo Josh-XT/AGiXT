@@ -12,4 +12,4 @@ User's last message:
 
 The assistant needs to determine which file the user is referring to using context from their last message, activities, and conversation history. Provide only the name of the file the user is referring to based on the conversation history and recent activities.
 
-**Respond only with the name of the file.**
+**Respond only with the name of the file. Multiple files can be selected by using new lines between file names**

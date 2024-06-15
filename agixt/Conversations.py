@@ -122,6 +122,47 @@ class Conversations:
             return_messages.append(msg)
         return {"interactions": return_messages}
 
+    def get_activities(self, limit=100, page=1):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = f"{str(datetime.now())} Conversation"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            return {"activities": []}
+        offset = (page - 1) * limit
+        messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .order_by(Message.timestamp.asc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        if not messages:
+            return {"activities": []}
+        return_activities = []
+        for message in messages:
+            if message.content.startswith("[ACTIVITY]"):
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": message.content,
+                    "timestamp": message.timestamp,
+                }
+                return_activities.append(msg)
+        # Order messages by timestamp oldest to newest
+        return_activities = sorted(return_activities, key=lambda x: x["timestamp"])
+        return {"activities": return_activities}
+
     def new_conversation(self, conversation_content=[]):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()

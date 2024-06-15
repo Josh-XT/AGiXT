@@ -1399,50 +1399,109 @@ class AGiXT:
                 failures=failures,
             )
 
-    async def data_analysis(
+    def get_agent_workspace_markdown(self):
+        def generate_markdown_structure(folder_path, indent=0):
+            if not os.path.isdir(folder_path):
+                return ""
+            markdown_output = ""
+            items = sorted(os.listdir(folder_path))
+            for item in items:
+                item_path = os.path.join(folder_path, item)
+                if os.path.isdir(item_path):
+                    markdown_output += f"{'  ' * indent}* **{item}/**\n"
+                    markdown_output += generate_markdown_structure(
+                        item_path, indent + 1
+                    )
+                else:
+                    markdown_output += f"{'  ' * indent}* {item}\n"
+            return markdown_output
+
+        return generate_markdown_structure(folder_path=self.agent_workspace)
+
+    async def analyze_csv(
         self,
         user_input: str,
         conversation_name: str,
         file_content=None,
     ):
-        # Step 1 - Check the conversation history and last user input to determine which file they want to analyze
-        # Basically give a file listing for the agent's working directory and the last 10 interactions of the conversation
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if not file_content:
             files = os.listdir(self.agent_workspace)
-            file_determination = await self.inference(
-                user_input=user_input,
-                prompt_category="Default",
-                prompt_name="Determine File",
-                directory_listing="\n".join(files),
-                conversation_results=10,
-                conversation_name=conversation_name,
-                log_user_input=False,
-                log_output=False,
-            )
-            # Iterate over files and use regex to see if the file name is in the response
+            file_names = []
             file_name = ""
-            for file in files:
-                if re.search(file, file_determination):
-                    file_name = file
-                    break
+            # Check if any files are csv files, if not, return empty string
+            csv_files = [file for file in files if file.endswith(".csv")]
+            if len(csv_files) == 0:
+                return ""
+            activities = c.get_activities(limit=20)["activities"]
+            likely_files = []
+            for activity in activities:
+                if ".csv" in activity["message"]:
+                    likely_files.append(activity["message"].split("`")[1])
+            if len(likely_files) == 0:
+                return ""
+            elif len(likely_files) == 1:
+                file_name = likely_files[0]
+                file_path = os.path.join(self.agent_workspace, file_name)
+                file_content = open(file_path, "r").read()
+            else:
+                file_determination = await self.inference(
+                    user_input=user_input,
+                    prompt_category="Default",
+                    prompt_name="Determine File",
+                    directory_listing="\n".join(csv_files),
+                    conversation_results=10,
+                    conversation_name=conversation_name,
+                    log_user_input=False,
+                    log_output=False,
+                    voice_response=False,
+                )
+                # Iterate over files and use regex to see if the file name is in the response
+                for file in files:
+                    if re.search(file, file_determination):
+                        file_names.append(file)
+                if len(file_names) == 1:
+                    file_name = file_names[0]
+                    file_path = os.path.join(self.agent_workspace, file_name)
+                    file_content = open(file_path, "r").read()
             if file_name == "":
-                return "I was unable to determine which file you are referring to."
-            # Step 2 - Get file content
-            file_path = os.path.join(self.agent_workspace, file_name)
-            file_content = open(file_path, "r").read()
-        lines = file_content.split("\n")
-        lines = lines[:2]
-        file_preview = "\n".join(lines)
-        # Step 4 - Run `Code Interpreter` prompt
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        c.log_interaction(
-            "[ACTIVITY] Analyzing data from file `{file_name}`.",
-        )
+                return ""
+        if len(file_names) > 1:
+            # Found multiple files, do things a little differently.
+            previews = []
+            import_files = ""
+            for file in file_names:
+                if import_files == "":
+                    import_files = f"`{self.agent_workspace}/{file}`"
+                else:
+                    import_files += f", `{self.agent_workspace}/{file}`"
+                file_path = os.path.join(self.agent_workspace, file)
+                file_content = open(file_path, "r").read()
+                lines = file_content.split("\n")
+                lines = lines[:2]
+                file_preview = "\n".join(lines)
+                previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
+            file_preview = "\n".join(previews)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Analyzing data from multiple files: {import_files}.",
+            )
+        else:
+            lines = file_content.split("\n")
+            lines = lines[:2]
+            file_preview = "\n".join(lines)
+            c.log_interaction(
+                "[ACTIVITY] Analyzing data from file `{file_name}`.",
+            )
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
-            prompt_name="Code Interpreter",
-            import_file=file_path,
+            prompt_name=(
+                "Code Interpreter Multifile"
+                if len(file_names) > 1
+                else "Code Interpreter"
+            ),
+            import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
             conversation_name=conversation_name,
             log_user_input=False,
@@ -1456,8 +1515,12 @@ class AGiXT:
         code_verification = await self.inference(
             user_input=user_input,
             prompt_category="Default",
-            prompt_name="Verify Code Interpreter",
-            import_file=file_path,
+            prompt_name=(
+                "Verify Code Interpreter Multifile"
+                if len(file_names) > 1
+                else "Verify Code Interpreter"
+            ),
+            import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
             code=code_interpreter,
             conversation_name=conversation_name,
@@ -1479,6 +1542,10 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Data analysis complete.",
             )
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"## Results from analyzing data in `{file_name}`:\n{code_execution}",
+            )
         else:
             self.failures += 1
             if self.failures < 3:
@@ -1486,7 +1553,7 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed, trying again ({self.failures}/3).",
                 )
-                return await self.data_analysis(
+                return await self.analyze_csv(
                     user_input=user_input,
                     conversation_name=conversation_name,
                     file_content=file_content,
