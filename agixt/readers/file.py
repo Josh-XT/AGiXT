@@ -93,7 +93,7 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                timestamp = f"\n\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 await self.write_text_to_memory(
                     user_input=file_path,
                     text=f"Content from file uploaded at {timestamp} named `{filename}`:\n{content}",

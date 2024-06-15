@@ -10,6 +10,7 @@ from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
 from pdf2image import convert_from_path
+import pandas as pd
 import subprocess
 import logging
 import asyncio
@@ -604,7 +605,42 @@ class AGiXT:
                     collection_id=collection_id,
                     conversation_name=conversation_name,
                 )
-        if (
+        if file_type == "xlsx" or file_type == "xls":
+            df = pd.read_excel(file_path)
+            # Check if the spreadsheet has multiple sheets
+            if isinstance(df, dict):
+                sheet_names = list(df.keys())
+                x = 0
+                csv_files = []
+                for sheet_name in sheet_names:
+                    x += 1
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    file_path = file_path.replace(".xlsx", f"_{x}.csv")
+                    csv_file_name = os.path.basename(file_path)
+                    df.to_csv(file_path, index=False)
+                    csv_files.append(f"`{csv_file_name}`")
+                    await self.learn_from_file(
+                        file_url=f"{self.outputs}/{csv_file_name}",
+                        file_name=csv_file_name,
+                        user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
+                        collection_id=collection_id,
+                        conversation_name=conversation_name,
+                    )
+            str_csv_files = ", ".join(csv_files)
+            response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
+        elif file_type == "csv":
+            df = pd.read_csv(file_path)
+            df_dict = df.to_dict()
+            for line in df_dict:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n{json.dumps(df_dict[line], indent=2)}\n"
+                await file_reader.write_text_to_memory(
+                    user_input=f"{user_input}\n{message}",
+                    text=message,
+                    external_source=f"file {file_path}",
+                )
+            response = f"Read the content of the file called {file_name} into memory."
+        elif (
             file_type == "wav"
             or file_type == "mp3"
             or file_type == "ogg"
@@ -662,7 +698,7 @@ class AGiXT:
                             text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
                             external_source=f"image {file_name}",
                         )
-                        response = f"I have generated a description of the image called `{file_name}` into my memory."
+                        response = f"Generated a description of the image called `{file_name}` into my memory."
                     except Exception as e:
                         logging.error(f"Error getting vision response: {e}")
                         response = f"[ERROR] I was unable to view the image called `{file_name}`."
@@ -673,7 +709,9 @@ class AGiXT:
         else:
             res = await file_reader.write_file_to_memory(file_path=file_path)
             if res == True:
-                response = f"I have read the entire content of the file called {file_name} into my memory."
+                response = (
+                    f"Read the content of the file called {file_name} into memory."
+                )
             else:
                 response = f"[ERROR] I was unable to read the file called {file_name}."
         if conversation_name != "" and conversation_name != None:
