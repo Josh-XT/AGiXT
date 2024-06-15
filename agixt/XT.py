@@ -1264,14 +1264,19 @@ class AGiXT:
                                             file_path = os.path.join(
                                                 self.agent_workspace, file_name
                                             )
-                                            with open(file_path, "wb") as f:
-                                                f.write(file_data)
-                                            files.append(
-                                                {
-                                                    "file_name": file_name,
-                                                    "file_url": f"{self.outputs}/{file_name}",
-                                                }
-                                            )
+                                            if os.path.normpath(file_path).startswith(
+                                                self.agent_workspace
+                                            ):
+                                                with open(file_path, "wb") as f:
+                                                    f.write(file_data)
+                                                files.append(
+                                                    {
+                                                        "file_name": file_name,
+                                                        "file_url": f"{self.outputs}/{file_name}",
+                                                    }
+                                                )
+                                        else:
+                                            urls.append(url)
                                 if "file_name" in msg:
                                     file_name = str(msg["file_name"])
                                 else:
