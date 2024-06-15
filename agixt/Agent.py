@@ -526,5 +526,15 @@ class Agent:
             .first()
         )
         if not agent:
-            return None
+            agent = (
+                self.session.query(AgentModel)
+                .filter(
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id
+                    == self.session.query(User).filter(User.email == DEFAULT_USER),
+                )
+                .first()
+            )
+            if not agent:
+                return None
         return agent.id
