@@ -212,8 +212,7 @@ class Interactions:
                         "vision_provider"
                     ]
                     if (
-                        images != []
-                        and vision_provider != "None"
+                        vision_provider != "None"
                         and vision_provider != ""
                         and vision_provider != None
                     ):
