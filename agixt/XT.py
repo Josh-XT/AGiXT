@@ -1261,10 +1261,12 @@ class AGiXT:
                                                 f"{user}_{repo}_{github_branch}.zip"
                                             )
                                             file_data = response.content
-                                            file_path = os.path.join(
-                                                self.agent_workspace, file_name
+                                            file_path = os.path.normpath(
+                                                os.path.join(
+                                                    self.agent_workspace, file_name
+                                                )
                                             )
-                                            if os.path.normpath(file_path).startswith(
+                                            if file_path.startswith(
                                                 self.agent_workspace
                                             ):
                                                 with open(file_path, "wb") as f:
