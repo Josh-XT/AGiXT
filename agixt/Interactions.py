@@ -8,7 +8,6 @@ import base64
 import uuid
 from datetime import datetime
 from readers.file import FileReader
-from readers.github import GithubReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
@@ -66,7 +65,7 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.github_memories = GithubReader(
+            self.github_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection_number="7",

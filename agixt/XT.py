@@ -10,10 +10,14 @@ from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
 from pdf2image import convert_from_path
+import pdfplumber
+import docx2txt
+import zipfile
 import pandas as pd
 import subprocess
 import logging
 import asyncio
+import requests
 import os
 import re
 import base64
@@ -569,15 +573,20 @@ class AGiXT:
             file_name = file_data["file_name"]
             file_path = os.path.join(self.agent_workspace, file_name)
         file_type = file_name.split(".")[-1]
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if file_type in ["ppt", "pptx"]:
             # Convert it to a PDF
             pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            if conversation_name != "" and conversation_name != None:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Converting PowerPoint file `{file_name}` to PDF.",
+                )
             subprocess.run(
                 ["unoconv", "-f", "pdf", "-o", pdf_file_path, file_path], check=True
             )
             file_path = pdf_file_path
         if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
@@ -591,7 +600,11 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        if file_type == "pdf":
+        # The only thing we disallow is binary that we can't convert to text
+        disallowed_types = ["exe", "bin", "rar"]
+        if file_type in disallowed_types:
+            response = f"[ERROR] I was unable to read the file called `{file_name}`."
+        elif file_type == "pdf":
             # Turn the pdf to images, then run inference on each image
             pdf_path = file_path
             images = convert_from_path(pdf_path)
@@ -605,7 +618,34 @@ class AGiXT:
                     collection_id=collection_id,
                     conversation_name=conversation_name,
                 )
-        if file_type == "xlsx" or file_type == "xls":
+            with pdfplumber.open(file_path) as pdf:
+                content = "\n".join([page.extract_text() for page in pdf.pages])
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            await file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
+                external_source=f"file {file_path}",
+            )
+            response = (
+                f"Read the content of the PDF file called `{file_name}` into memory."
+            )
+        elif file_path.endswith(".zip"):
+            new_folder = os.path.join(self.agent_workspace, f"extracted_{file_name}")
+            with zipfile.ZipFile(file_path, "r") as zipObj:
+                zipObj.extractall(path=new_folder)
+            # Iterate over every file that was extracted including subdirectories
+            for root, dirs, files in os.walk(new_folder):
+                for name in files:
+                    file_path = os.path.join(root, name)
+                    await self.learn_from_file(
+                        file_url=file_path,
+                        file_name=name,
+                        user_input=user_input,
+                        collection_id=collection_id,
+                        conversation_name=conversation_name,
+                    )
+            response = f"Extracted the content of the zip file called `{file_name}` and read them into memory."
+        elif file_type == "xlsx" or file_type == "xls":
             df = pd.read_excel(file_path)
             # Check if the spreadsheet has multiple sheets
             if isinstance(df, dict):
@@ -627,7 +667,7 @@ class AGiXT:
                         conversation_name=conversation_name,
                     )
                 str_csv_files = ", ".join(csv_files)
-                response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
+                response = f"Separated the content of the spreadsheet called `{file_name}` into {x} files called {str_csv_files} and read them into memory."
             else:
                 # Save it as a CSV file and run this function again
                 file_path = file_path.replace(f".{file_type}", ".csv")
@@ -640,6 +680,14 @@ class AGiXT:
                     collection_id=collection_id,
                     conversation_name=conversation_name,
                 )
+        elif file_path.endswith(".doc") or file_path.endswith(".docx"):
+            file_content = docx2txt.process(file_path)
+            await file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=file_content,
+                external_source=f"file {file_path}",
+            )
+            response = f"Read the content of the file called `{file_name}` into memory."
         elif file_type == "csv":
             df = pd.read_csv(file_path)
             df_dict = df.to_dict()
@@ -651,7 +699,7 @@ class AGiXT:
                     text=message,
                     external_source=f"file {file_path}",
                 )
-            response = f"Read the content of the file called {file_name} into memory."
+            response = f"Read the content of the file called `{file_name}` into memory."
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -719,13 +767,15 @@ class AGiXT:
                         f"[ERROR] I was unable to view the image called `{file_name}`."
                     )
         else:
-            res = await file_reader.write_file_to_memory(file_path=file_path)
-            if res == True:
-                response = (
-                    f"Read the content of the file called {file_name} into memory."
-                )
-            else:
-                response = f"[ERROR] I was unable to read the file called {file_name}."
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(file_path, "r") as f:
+                file_content = f.read()
+            await file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                external_source=f"file {file_path}",
+            )
+            response = f"Read the content of the file called `{file_name}` into memory."
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
@@ -979,6 +1029,8 @@ class AGiXT:
             dict: Chat completion response
         """
         conversation_name = prompt.user
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        conversation_id = c.get_conversation_id()
         urls = []
         files = []
         new_prompt = ""
@@ -1099,6 +1151,115 @@ class AGiXT:
                         for key, value in msg.items():
                             if "_url" in key:
                                 url = str(value["url"] if "url" in value else value)
+                                if url.startswith("https://github.com/"):
+                                    do_not_pull_repo = [
+                                        "/pull/",
+                                        "/issues",
+                                        "/discussions",
+                                        "/actions/",
+                                        "/projects",
+                                        "/security",
+                                        "/releases",
+                                        "/commits",
+                                        "/branches",
+                                        "/tags",
+                                        "/stargazers",
+                                        "/watchers",
+                                        "/network",
+                                        "/settings",
+                                        "/compare",
+                                        "/archive",
+                                    ]
+                                    if any(x in url for x in do_not_pull_repo):
+                                        # If the URL is not a repository, don't pull it
+                                        urls.append(url)
+                                    else:
+                                        # Download the zip for the repo
+                                        github_user = (
+                                            self.agent_settings["GITHUB_USERNAME"]
+                                            if "GITHUB_USERNAME" in self.agent_settings
+                                            else None
+                                        )
+                                        github_token = (
+                                            self.agent_settings["GITHUB_TOKEN"]
+                                            if "GITHUB_TOKEN" in self.agent_settings
+                                            else None
+                                        )
+                                        github_repo = url.replace(
+                                            "https://github.com/", ""
+                                        )
+                                        github_repo = github_repo.replace(
+                                            "https://www.github.com/", ""
+                                        )
+                                        if not github_branch:
+                                            github_branch = "main"
+                                        user = github_repo.split("/")[0]
+                                        repo = github_repo.split("/")[1]
+                                        if " " in repo:
+                                            repo = repo.split(" ")[0]
+                                        if "\n" in repo:
+                                            repo = repo.split("\n")[0]
+                                        # Remove any symbols that would not be in the user, repo, or branch
+                                        for symbol in [
+                                            " ",
+                                            "\n",
+                                            "\t",
+                                            "\r",
+                                            "\\",
+                                            "/",
+                                            ":",
+                                            "*",
+                                            "?",
+                                            '"',
+                                            "<",
+                                            ">",
+                                        ]:
+                                            repo = repo.replace(symbol, "")
+                                            user = user.replace(symbol, "")
+                                            github_branch = github_branch.replace(
+                                                symbol, ""
+                                            )
+                                        repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                        try:
+                                            if github_user and github_token:
+                                                response = requests.get(
+                                                    repo_url,
+                                                    auth=(github_user, github_token),
+                                                )
+                                            else:
+                                                response = requests.get(repo_url)
+                                        except:
+                                            github_branch = "master"
+                                            repo_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
+                                            try:
+                                                if github_user and github_token:
+                                                    response = requests.get(
+                                                        repo_url,
+                                                        auth=(
+                                                            github_user,
+                                                            github_token,
+                                                        ),
+                                                    )
+                                                else:
+                                                    response = requests.get(repo_url)
+                                            except:
+                                                pass
+                                        if response.status_code == 200:
+                                            file_name = (
+                                                f"{user}_{repo}_{github_branch}.zip"
+                                            )
+                                            file_data = response.content
+                                            file_path = os.path.join(
+                                                self.agent_workspace, file_name
+                                            )
+                                            with open(file_path, "wb") as f:
+                                                f.write(file_data)
+                                            files.append(
+                                                {
+                                                    "file_name": file_name,
+                                                    "file_url": f"{self.outputs}/{file_name}",
+                                                }
+                                            )
                                 if "file_name" in msg:
                                     file_name = str(msg["file_name"])
                                 else:
@@ -1142,7 +1303,6 @@ class AGiXT:
                                         )
                                         new_prompt += transcribed_audio
         # Add user input to conversation
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
