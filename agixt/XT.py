@@ -626,8 +626,21 @@ class AGiXT:
                         collection_id=collection_id,
                         conversation_name=conversation_name,
                     )
-            str_csv_files = ", ".join(csv_files)
-            response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
+                str_csv_files = ", ".join(csv_files)
+                response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
+            else:
+                df_dict = df.to_dict()
+                for line in df_dict:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n{json.dumps(df_dict[line], indent=2)}\n"
+                    await file_reader.write_text_to_memory(
+                        user_input=f"{user_input}\n{message}",
+                        text=message,
+                        external_source=f"file {file_path}",
+                    )
+                response = (
+                    f"Read the content of the file called {file_name} into memory."
+                )
         elif file_type == "csv":
             df = pd.read_csv(file_path)
             df_dict = df.to_dict()
