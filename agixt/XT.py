@@ -615,7 +615,7 @@ class AGiXT:
                 for sheet_name in sheet_names:
                     x += 1
                     df = pd.read_excel(file_path, sheet_name=sheet_name)
-                    file_path = file_path.replace(".xlsx", f"_{x}.csv")
+                    file_path = file_path.replace(f".{file_type}", f"_{x}.csv")
                     csv_file_name = os.path.basename(file_path)
                     df.to_csv(file_path, index=False)
                     csv_files.append(f"`{csv_file_name}`")
@@ -629,17 +629,16 @@ class AGiXT:
                 str_csv_files = ", ".join(csv_files)
                 response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
             else:
-                df_dict = df.to_dict()
-                for line in df_dict:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n{json.dumps(df_dict[line], indent=2)}\n"
-                    await file_reader.write_text_to_memory(
-                        user_input=f"{user_input}\n{message}",
-                        text=message,
-                        external_source=f"file {file_path}",
-                    )
-                response = (
-                    f"Read the content of the file called {file_name} into memory."
+                # Save it as a CSV file and run this function again
+                file_path = file_path.replace(f".{file_type}", ".csv")
+                csv_file_name = os.path.basename(file_path)
+                df.to_csv(file_path, index=False)
+                return await self.learn_from_file(
+                    file_url=f"{self.outputs}/{csv_file_name}",
+                    file_name=csv_file_name,
+                    user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
+                    collection_id=collection_id,
+                    conversation_name=conversation_name,
                 )
         elif file_type == "csv":
             df = pd.read_csv(file_path)
