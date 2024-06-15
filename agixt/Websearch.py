@@ -13,12 +13,9 @@ from typing import List
 from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
-from readers.github import GithubReader
 from datetime import datetime
 from Memories import extract_keywords
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -162,59 +159,6 @@ class Websearch:
                 external_source=url,
             )
             return content, None
-        if url.startswith("https://github.com/"):
-            do_not_pull_repo = [
-                "/pull/",
-                "/issues",
-                "/discussions",
-                "/actions/",
-                "/projects",
-                "/security",
-                "/releases",
-                "/commits",
-                "/branches",
-                "/tags",
-                "/stargazers",
-                "/watchers",
-                "/network",
-                "/settings",
-                "/compare",
-                "/archive",
-            ]
-            if any(x in url for x in do_not_pull_repo):
-                res = False
-            else:
-                if "/tree/" in url:
-                    branch = url.split("/tree/")[1].split("/")[0]
-                else:
-                    branch = "main"
-                res = await GithubReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number="7",
-                    user=self.user,
-                    ApiClient=self.ApiClient,
-                ).write_github_repository_to_memory(
-                    github_repo=url,
-                    github_user=(
-                        self.agent_settings["GITHUB_USER"]
-                        if "GITHUB_USER" in self.agent_settings
-                        else None
-                    ),
-                    github_token=(
-                        self.agent_settings["GITHUB_TOKEN"]
-                        if "GITHUB_TOKEN" in self.agent_settings
-                        else None
-                    ),
-                    github_branch=branch,
-                )
-            if res:
-                self.browsed_links.append(url)
-                self.agent.add_browsed_link(url=url, conversation_id=conversation_id)
-                return (
-                    f"Content from GitHub repository at {url} has been added to memory.",
-                    None,
-                )
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
