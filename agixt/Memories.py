@@ -454,8 +454,13 @@ class Memories:
                     if "external_source_name" in result
                     else None
                 )
+                timestamp = (
+                    result["timestamp"]
+                    if "timestamp" in result
+                    else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
                 if external_source:
-                    metadata = f"Sourced from {external_source}:\n{metadata}"
+                    metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response

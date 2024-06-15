@@ -622,7 +622,7 @@ class AGiXT:
             await file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
-                external_source=f"Audio file called `{file_name}`",
+                external_source=f"audio {file_name}",
             )
             response = (
                 f"I have transcribed the audio from `{file_name}` into my memory."
@@ -658,7 +658,7 @@ class AGiXT:
                         await file_reader.write_text_to_memory(
                             user_input=user_input,
                             text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                            external_source=f"Image called `{file_name}`.",
+                            external_source=f"image {file_name}",
                         )
                         response = f"I have generated a description of the image called `{file_name}` into my memory."
                     except Exception as e:
