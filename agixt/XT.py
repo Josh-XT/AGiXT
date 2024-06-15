@@ -645,7 +645,7 @@ class AGiXT:
             df_dict = df.to_dict()
             for line in df_dict:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n{json.dumps(df_dict[line], indent=2)}\n"
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
                 await file_reader.write_text_to_memory(
                     user_input=f"{user_input}\n{message}",
                     text=message,
