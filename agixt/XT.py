@@ -565,6 +565,7 @@ class AGiXT:
             )
             file_name = file_data["file_name"]
             file_path = os.path.join(self.agent_workspace, file_name)
+        file_type = file_name.split(".")[-1]
         if file_type in ["ppt", "pptx"]:
             # Convert it to a PDF
             pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
@@ -580,7 +581,6 @@ class AGiXT:
             )
         if user_input == "":
             user_input = "Describe each stage of this image."
-        file_type = file_name.split(".")[-1]
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
@@ -1396,3 +1396,88 @@ class AGiXT:
                 response_type=response_type,
                 failures=failures,
             )
+
+    async def data_analysis(
+        self,
+        user_input: str,
+        conversation_name: str,
+    ):
+        # Step 1 - Check the conversation history and last user input to determine which file they want to analyze
+        # Basically give a file listing for the agent's working directory and the last 10 interactions of the conversation
+        # Step 2 - Get file content
+        # Step 3 - Run command `Get CSV Preview Text` on the file content
+        """
+        {
+            "step": 3,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Get CSV Preview Text",
+                "text": "{text}",
+                "conversation": "AGiXT Terminal"
+            }
+        },
+        """
+        # Step 4 - Run `Code Interpreter` prompt
+        """
+        {
+            "step": 4,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "user_input": "{user_input}",
+                "prompt_name": "Code Interpreter",
+                "prompt_category": "Default",
+                "import_file": "./data.csv",
+                "file_preview": "{STEP3}",
+                "shots": 1,
+                "context_results": 0,
+                "browse_links": false,
+                "websearch": false,
+                "websearch_depth": 0,
+                "disable_memory": true,
+                "inject_memories_from_collection_number": 0,
+                "conversation_results": 0,
+                "conversation": "AGiXT Terminal"
+            }
+        },
+        """
+        # Step 5 - Verify the code is good before executing it.
+        """
+        {
+            "step": 5,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "user_input": "{user_input}",
+                "prompt_name": "Verify Code Interpreter",
+                "prompt_category": "Default",
+                "import_file": "./data.csv",
+                "file_preview": "{STEP3}",
+                "code": "{STEP4}",
+                "shots": 1,
+                "context_results": 0,
+                "browse_links": false,
+                "websearch": false,
+                "websearch_depth": 0,
+                "disable_memory": true,
+                "inject_memories_from_collection_number": 0,
+                "conversation_results": 0,
+                "conversation": "AGiXT Terminal"
+            }
+        },
+        """
+        # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
+        """
+        {
+            "step": 6,
+            "agent_name": "SQLExpert",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Execute Python Code",
+                "code": "{STEP5}",
+                "text": "{text}",
+                "conversation": "AGiXT Terminal"
+            }
+        }
+        """
