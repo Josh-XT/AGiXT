@@ -777,7 +777,7 @@ class AGiXT:
                     )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if os.paths.normpath(file_path).startswith(self.agent_workspace):
+            if os.path.normpath(file_path).startswith(self.agent_workspace):
                 with open(file_path, "r") as f:
                     file_content = f.read()
                 await file_reader.write_text_to_memory(
