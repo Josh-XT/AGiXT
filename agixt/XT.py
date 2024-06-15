@@ -768,14 +768,21 @@ class AGiXT:
                     )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with open(file_path, "r") as f:
-                file_content = f.read()
-            await file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
-                external_source=f"file {file_path}",
-            )
-            response = f"Read the content of the file called `{file_name}` into memory."
+            if os.normpath(file_path).startswith(self.agent_workspace):
+                with open(file_path, "r") as f:
+                    file_content = f.read()
+                await file_reader.write_text_to_memory(
+                    user_input=user_input,
+                    text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                    external_source=f"file {file_path}",
+                )
+                response = (
+                    f"Read the content of the file called `{file_name}` into memory."
+                )
+            else:
+                response = (
+                    f"[ERROR] I was unable to read the file called `{file_name}`."
+                )
         if conversation_name != "" and conversation_name != None:
             c.log_interaction(
                 role=self.agent_name,
