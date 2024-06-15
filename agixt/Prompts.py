@@ -97,27 +97,29 @@ class Prompts:
         if not prompt:
             prompt_name = prompt_name.replace("/", "-").replace("\\", "-")
             prompt_file = os.path.join("prompts", "Default", f"{prompt_name}.txt")
-            if os.path.exists(prompt_file):
-                with open(prompt_file, "r") as f:
-                    prompt_content = f.read()
-                self.add_prompt(
-                    prompt_name=prompt_name,
-                    prompt=prompt_content,
-                    prompt_category="Default",
-                )
-                prompt = (
-                    self.session.query(Prompt)
-                    .filter(
-                        Prompt.name == prompt_name,
-                        Prompt.user_id == self.user_id,
-                        Prompt.prompt_category.has(name="Default"),
+            if prompt_file.startswith(os.path.join(os.getcwd(), "prompts")):
+                if os.path.exists(prompt_file):
+                    with open(prompt_file, "r") as f:
+                        prompt_content = f.read()
+                    self.add_prompt(
+                        prompt_name=prompt_name,
+                        prompt=prompt_content,
+                        prompt_category="Default",
                     )
-                    .join(PromptCategory)
-                    .filter(
-                        PromptCategory.name == "Default", Prompt.user_id == self.user_id
+                    prompt = (
+                        self.session.query(Prompt)
+                        .filter(
+                            Prompt.name == prompt_name,
+                            Prompt.user_id == self.user_id,
+                            Prompt.prompt_category.has(name="Default"),
+                        )
+                        .join(PromptCategory)
+                        .filter(
+                            PromptCategory.name == "Default",
+                            Prompt.user_id == self.user_id,
+                        )
+                        .first()
                     )
-                    .first()
-                )
         if prompt:
             return prompt.content
         return None
