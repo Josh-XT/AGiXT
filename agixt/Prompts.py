@@ -1,5 +1,6 @@
 from DB import Prompt, PromptCategory, Argument, User, get_session
 from Globals import DEFAULT_USER
+import os
 
 
 class Prompts:
@@ -50,7 +51,7 @@ class Prompts:
             self.session.add(argument)
         self.session.commit()
 
-    def get_prompt(self, prompt_name, prompt_category="Default"):
+    def get_prompt(self, prompt_name: str, prompt_category: str = "Default"):
         user_data = self.session.query(User).filter(User.email == DEFAULT_USER).first()
         prompt = (
             self.session.query(Prompt)
@@ -93,6 +94,35 @@ class Prompts:
                 )
                 .first()
             )
+        if not prompt:
+            prompt_file = os.path.normpath(
+                os.path.join(os.getcwd(), "prompts", "Default", f"{prompt_name}.txt")
+            )
+            base_path = os.path.join(os.getcwd(), "prompts")
+            if not prompt_file.startswith(base_path):
+                return None
+            if os.path.exists(prompt_file):
+                with open(prompt_file, "r") as f:
+                    prompt_content = f.read()
+                self.add_prompt(
+                    prompt_name=prompt_name,
+                    prompt=prompt_content,
+                    prompt_category="Default",
+                )
+                prompt = (
+                    self.session.query(Prompt)
+                    .filter(
+                        Prompt.name == prompt_name,
+                        Prompt.user_id == self.user_id,
+                        Prompt.prompt_category.has(name="Default"),
+                    )
+                    .join(PromptCategory)
+                    .filter(
+                        PromptCategory.name == "Default",
+                        Prompt.user_id == self.user_id,
+                    )
+                    .first()
+                )
         if prompt:
             return prompt.content
         return None

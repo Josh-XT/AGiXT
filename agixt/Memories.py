@@ -282,8 +282,10 @@ class Memories:
             )
         except:
             try:
-                return self.chroma_client.get_or_create_collection(
-                    name=self.collection_name, embedding_function=self.embedder
+                return self.chroma_client.create_collection(
+                    name=self.collection_name,
+                    embedding_function=self.embedder,
+                    get_or_create=True,
                 )
             except:
                 logging.warning(f"Error getting collection: {self.collection_name}")
@@ -452,8 +454,13 @@ class Memories:
                     if "external_source_name" in result
                     else None
                 )
+                timestamp = (
+                    result["timestamp"]
+                    if "timestamp" in result
+                    else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
                 if external_source:
-                    metadata = f"Sourced from {external_source}:\n{metadata}"
+                    metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response

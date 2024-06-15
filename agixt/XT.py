@@ -9,12 +9,15 @@ from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
+from pdf2image import convert_from_path
+import pandas as pd
+import subprocess
 import logging
 import asyncio
 import os
+import re
 import base64
 import uuid
-import requests
 import json
 import time
 
@@ -39,6 +42,7 @@ class AGiXT:
         self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
         self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
+        self.failures = 0
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -564,15 +568,22 @@ class AGiXT:
             )
             file_name = file_data["file_name"]
             file_path = os.path.join(self.agent_workspace, file_name)
+        file_type = file_name.split(".")[-1]
+        if file_type in ["ppt", "pptx"]:
+            # Convert it to a PDF
+            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            subprocess.run(
+                ["unoconv", "-f", "pdf", "-o", pdf_file_path, file_path], check=True
+            )
+            file_path = pdf_file_path
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading file {file_name} into memory.",
+                message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
             )
         if user_input == "":
             user_input = "Describe each stage of this image."
-        file_type = file_name.split(".")[-1]
         file_reader = FileReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
@@ -580,7 +591,68 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        if (
+        if file_type == "pdf":
+            # Turn the pdf to images, then run inference on each image
+            pdf_path = file_path
+            images = convert_from_path(pdf_path)
+            for i, image in enumerate(images):
+                image_path = os.path.join(self.agent_workspace, f"{file_name}_{i}.png")
+                image.save(image_path, "PNG")
+                await self.learn_from_file(
+                    file_url=image_path,
+                    file_name=f"{file_name}_{i}.png",
+                    user_input=user_input,
+                    collection_id=collection_id,
+                    conversation_name=conversation_name,
+                )
+        if file_type == "xlsx" or file_type == "xls":
+            df = pd.read_excel(file_path)
+            # Check if the spreadsheet has multiple sheets
+            if isinstance(df, dict):
+                sheet_names = list(df.keys())
+                x = 0
+                csv_files = []
+                for sheet_name in sheet_names:
+                    x += 1
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    file_path = file_path.replace(f".{file_type}", f"_{x}.csv")
+                    csv_file_name = os.path.basename(file_path)
+                    df.to_csv(file_path, index=False)
+                    csv_files.append(f"`{csv_file_name}`")
+                    await self.learn_from_file(
+                        file_url=f"{self.outputs}/{csv_file_name}",
+                        file_name=csv_file_name,
+                        user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
+                        collection_id=collection_id,
+                        conversation_name=conversation_name,
+                    )
+                str_csv_files = ", ".join(csv_files)
+                response = f"Separated the content of the spreadsheet called {file_name} into {x} files called {str_csv_files} and read them into memory."
+            else:
+                # Save it as a CSV file and run this function again
+                file_path = file_path.replace(f".{file_type}", ".csv")
+                csv_file_name = os.path.basename(file_path)
+                df.to_csv(file_path, index=False)
+                return await self.learn_from_file(
+                    file_url=f"{self.outputs}/{csv_file_name}",
+                    file_name=csv_file_name,
+                    user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
+                    collection_id=collection_id,
+                    conversation_name=conversation_name,
+                )
+        elif file_type == "csv":
+            df = pd.read_csv(file_path)
+            df_dict = df.to_dict()
+            for line in df_dict:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
+                await file_reader.write_text_to_memory(
+                    user_input=f"{user_input}\n{message}",
+                    text=message,
+                    external_source=f"file {file_path}",
+                )
+            response = f"Read the content of the file called {file_name} into memory."
+        elif (
             file_type == "wav"
             or file_type == "mp3"
             or file_type == "ogg"
@@ -600,7 +672,7 @@ class AGiXT:
             await file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
-                external_source=f"Audio file called `{file_name}`",
+                external_source=f"audio {file_name}",
             )
             response = (
                 f"I have transcribed the audio from `{file_name}` into my memory."
@@ -632,12 +704,13 @@ class AGiXT:
                         vision_response = await self.agent.inference(
                             prompt=user_input, images=[file_url]
                         )
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         await file_reader.write_text_to_memory(
                             user_input=user_input,
-                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
-                            external_source=f"Image called `{file_name}`",
+                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                            external_source=f"image {file_name}",
                         )
-                        response = f"I have generated a description of the image called `{file_name}` into my memory."
+                        response = f"Generated a description of the image called `{file_name}` into my memory."
                     except Exception as e:
                         logging.error(f"Error getting vision response: {e}")
                         response = f"[ERROR] I was unable to view the image called `{file_name}`."
@@ -646,14 +719,11 @@ class AGiXT:
                         f"[ERROR] I was unable to view the image called `{file_name}`."
                     )
         else:
-            if conversation_name != "" and conversation_name != None:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
-                )
             res = await file_reader.write_file_to_memory(file_path=file_path)
             if res == True:
-                response = f"I have read the entire content of the file called {file_name} into my memory."
+                response = (
+                    f"Read the content of the file called {file_name} into memory."
+                )
             else:
                 response = f"[ERROR] I was unable to read the file called {file_name}."
         if conversation_name != "" and conversation_name != None:
@@ -1073,6 +1143,8 @@ class AGiXT:
                                         new_prompt += transcribed_audio
         # Add user input to conversation
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        for file in files:
+            new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
         conversation_id = c.get_conversation_id()
         for file in files:
@@ -1088,6 +1160,11 @@ class AGiXT:
             scrape_depth=3,
             summarize_content=False,
             conversation_name=conversation_name,
+        )
+        await self.analyze_csv(
+            user_input=new_prompt,
+            conversation_name=conversation_name,
+            file_content=None,
         )
         if mode == "command" and command_name and command_variable:
             try:
@@ -1376,3 +1453,171 @@ class AGiXT:
                 response_type=response_type,
                 failures=failures,
             )
+
+    def get_agent_workspace_markdown(self):
+        def generate_markdown_structure(folder_path, indent=0):
+            if not os.path.isdir(folder_path):
+                return ""
+            markdown_output = ""
+            items = sorted(os.listdir(folder_path))
+            for item in items:
+                item_path = os.path.join(folder_path, item)
+                if os.path.isdir(item_path):
+                    markdown_output += f"{'  ' * indent}* **{item}/**\n"
+                    markdown_output += generate_markdown_structure(
+                        item_path, indent + 1
+                    )
+                else:
+                    markdown_output += f"{'  ' * indent}* {item}\n"
+            return markdown_output
+
+        return generate_markdown_structure(folder_path=self.agent_workspace)
+
+    async def analyze_csv(
+        self,
+        user_input: str,
+        conversation_name: str,
+        file_content=None,
+    ):
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        if not file_content:
+            files = os.listdir(self.agent_workspace)
+            file_names = []
+            file_name = ""
+            # Check if any files are csv files, if not, return empty string
+            csv_files = [file for file in files if file.endswith(".csv")]
+            if len(csv_files) == 0:
+                return ""
+            activities = c.get_activities(limit=20)["activities"]
+            if len(activities) == 0:
+                return ""
+            likely_files = []
+            for activity in activities:
+                if ".csv" in activity["message"]:
+                    likely_files.append(activity["message"].split("`")[1])
+            if len(likely_files) == 0:
+                return ""
+            elif len(likely_files) == 1:
+                file_name = likely_files[0]
+                file_path = os.path.join(self.agent_workspace, file_name)
+                file_content = open(file_path, "r").read()
+            else:
+                file_determination = await self.inference(
+                    user_input=user_input,
+                    prompt_category="Default",
+                    prompt_name="Determine File",
+                    directory_listing="\n".join(csv_files),
+                    conversation_results=10,
+                    conversation_name=conversation_name,
+                    log_user_input=False,
+                    log_output=False,
+                    voice_response=False,
+                )
+                # Iterate over files and use regex to see if the file name is in the response
+                for file in files:
+                    if re.search(file, file_determination):
+                        file_names.append(file)
+                if len(file_names) == 1:
+                    file_name = file_names[0]
+                    file_path = os.path.join(self.agent_workspace, file_name)
+                    file_content = open(file_path, "r").read()
+            if file_name == "":
+                return ""
+        if len(file_names) > 1:
+            # Found multiple files, do things a little differently.
+            previews = []
+            import_files = ""
+            for file in file_names:
+                if import_files == "":
+                    import_files = f"`{self.agent_workspace}/{file}`"
+                else:
+                    import_files += f", `{self.agent_workspace}/{file}`"
+                file_path = os.path.join(self.agent_workspace, file)
+                file_content = open(file_path, "r").read()
+                lines = file_content.split("\n")
+                lines = lines[:2]
+                file_preview = "\n".join(lines)
+                previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
+            file_preview = "\n".join(previews)
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Analyzing data from multiple files: {import_files}.",
+            )
+        else:
+            lines = file_content.split("\n")
+            lines = lines[:2]
+            file_preview = "\n".join(lines)
+            c.log_interaction(
+                "[ACTIVITY] Analyzing data from file `{file_name}`.",
+            )
+        code_interpreter = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name=(
+                "Code Interpreter Multifile"
+                if len(file_names) > 1
+                else "Code Interpreter"
+            ),
+            import_file=import_files if len(file_names) > 1 else file_path,
+            file_preview=file_preview,
+            conversation_name=conversation_name,
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        # Step 5 - Verify the code is good before executing it.
+        code_verification = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name=(
+                "Verify Code Interpreter Multifile"
+                if len(file_names) > 1
+                else "Verify Code Interpreter"
+            ),
+            import_file=import_files if len(file_names) > 1 else file_path,
+            file_preview=file_preview,
+            code=code_interpreter,
+            conversation_name=conversation_name,
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
+        code_execution = await self.execute_command(
+            command_name="Execute Python Code",
+            command_args={"code": code_verification, "text": file_content},
+            conversation_name=conversation_name,
+        )
+        if not code_execution.startswith("Error"):
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Data analysis complete.",
+            )
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"## Results from analyzing data in `{file_name}`:\n{code_execution}",
+            )
+        else:
+            self.failures += 1
+            if self.failures < 3:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
+                )
+                return await self.analyze_csv(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_content=file_content,
+                )
+            else:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
+                )
+        return code_execution
