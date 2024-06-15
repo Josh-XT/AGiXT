@@ -631,20 +631,25 @@ class AGiXT:
             )
         elif file_path.endswith(".zip"):
             new_folder = os.path.join(self.agent_workspace, f"extracted_{file_name}")
-            with zipfile.ZipFile(file_path, "r") as zipObj:
-                zipObj.extractall(path=new_folder)
-            # Iterate over every file that was extracted including subdirectories
-            for root, dirs, files in os.walk(new_folder):
-                for name in files:
-                    file_path = os.path.join(root, name)
-                    await self.learn_from_file(
-                        file_url=file_path,
-                        file_name=name,
-                        user_input=user_input,
-                        collection_id=collection_id,
-                        conversation_name=conversation_name,
-                    )
-            response = f"Extracted the content of the zip file called `{file_name}` and read them into memory."
+            if os.path.normpath(new_folder).startswith(self.agent_workspace):
+                with zipfile.ZipFile(file_path, "r") as zipObj:
+                    zipObj.extractall(path=new_folder)
+                # Iterate over every file that was extracted including subdirectories
+                for root, dirs, files in os.walk(new_folder):
+                    for name in files:
+                        file_path = os.path.join(root, name)
+                        await self.learn_from_file(
+                            file_url=file_path,
+                            file_name=name,
+                            user_input=user_input,
+                            collection_id=collection_id,
+                            conversation_name=conversation_name,
+                        )
+                response = f"Extracted the content of the zip file called `{file_name}` and read them into memory."
+            else:
+                response = (
+                    f"[ERROR] I was unable to read the file called `{file_name}`."
+                )
         elif file_type == "xlsx" or file_type == "xls":
             df = pd.read_excel(file_path)
             # Check if the spreadsheet has multiple sheets
