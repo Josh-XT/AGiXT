@@ -6,6 +6,7 @@ import pdfplumber
 import zipfile
 import shutil
 import logging
+from datetime import datetime
 
 
 class FileReader(Memories):
@@ -92,11 +93,11 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                stored_content = f"From file: {filename}\n{content}"
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 await self.write_text_to_memory(
                     user_input=file_path,
-                    text=stored_content,
-                    external_source=f"file called {filename}",
+                    text=f"Content from file uploaded at {timestamp} named `{filename}`:\n{content}",
+                    external_source=f"file {filename}",
                 )
             return True
         except:

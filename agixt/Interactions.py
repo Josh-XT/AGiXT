@@ -194,17 +194,58 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
-                context += await FileReader(
+                conversation_memories = FileReader(
                     agent_name=self.agent_name,
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=c.get_conversation_id(),
                     ApiClient=self.ApiClient,
                     user=self.user,
-                ).get_memories(
+                )
+                conversation_context = await conversation_memories.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                context += conversation_context
+                if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+                    vision_provider = self.agent.AGENT_CONFIG["settings"][
+                        "vision_provider"
+                    ]
+                    if (
+                        vision_provider != "None"
+                        and vision_provider != ""
+                        and vision_provider != None
+                    ):
+                        for memory in conversation_context:
+                            # If the memory starts with "Sourced from image", get a new vision response to add and inject
+                            if memory.startswith("Sourced from image "):
+                                file_name = memory.split("Sourced from image ")[
+                                    1
+                                ].split(":")[0]
+                                # File will be in the agent's workspace /{file_name}
+                                file_path = os.path.join(
+                                    self.agent.working_directory, file_name
+                                )
+                                if os.path.exists(file_path):
+                                    images = [file_path]
+                                    timestamp = datetime.now().strftime(
+                                        "%B %d, %Y %I:%M %p"
+                                    )
+                                    c.log_interaction(
+                                        role=self.agent_name,
+                                        message=f"[ACTIVITY] Looking at image `{file_name}`.",
+                                    )
+                                    vision_response = await self.agent.inference(
+                                        prompt=user_input, images=images
+                                    )
+                                    await conversation_memories.write_text_to_memory(
+                                        user_input=user_input,
+                                        text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
+                                        external_source=f"image {file_name}",
+                                    )
+                                    context.append(
+                                        f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n"
+                                    )
             else:
                 context = []
         if "context" in kwargs:

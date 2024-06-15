@@ -24,3 +24,5 @@ httpx==0.27.0
 numpy==1.26.4
 mysql-connector-python==8.3.0
 pydub==0.25.1
+python-pptx==0.6.23
+pdf2image==1.17.0
