@@ -9,12 +9,12 @@ from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
+import subprocess
 import logging
 import asyncio
 import os
 import base64
 import uuid
-import requests
 import json
 import time
 
@@ -564,11 +564,18 @@ class AGiXT:
             )
             file_name = file_data["file_name"]
             file_path = os.path.join(self.agent_workspace, file_name)
+        if file_type in ["ppt", "pptx"]:
+            # Convert it to a PDF
+            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            subprocess.run(
+                ["unoconv", "-f", "pdf", "-o", pdf_file_path, file_path], check=True
+            )
+            file_path = pdf_file_path
         if conversation_name != "" and conversation_name != None:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading file {file_name} into memory.",
+                message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
             )
         if user_input == "":
             user_input = "Describe each stage of this image."
@@ -646,11 +653,6 @@ class AGiXT:
                         f"[ERROR] I was unable to view the image called `{file_name}`."
                     )
         else:
-            if conversation_name != "" and conversation_name != None:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
-                )
             res = await file_reader.write_file_to_memory(file_path=file_path)
             if res == True:
                 response = f"I have read the entire content of the file called {file_name} into my memory."
@@ -1073,6 +1075,8 @@ class AGiXT:
                                         new_prompt += transcribed_audio
         # Add user input to conversation
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        for file in files:
+            new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
         conversation_id = c.get_conversation_id()
         for file in files:

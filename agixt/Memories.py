@@ -282,8 +282,10 @@ class Memories:
             )
         except:
             try:
-                return self.chroma_client.get_or_create_collection(
-                    name=self.collection_name, embedding_function=self.embedder
+                return self.chroma_client.create_collection(
+                    name=self.collection_name,
+                    embedding_function=self.embedder,
+                    get_or_create=True,
                 )
             except:
                 logging.warning(f"Error getting collection: {self.collection_name}")
