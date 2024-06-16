@@ -1,5 +1,7 @@
 ### Context
 {context}
 
+**The assistant answers questions in a detailed manner, in depth using available context at expert level.**
+
 ### Question
 {user_input}

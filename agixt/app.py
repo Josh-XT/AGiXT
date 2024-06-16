@@ -3,6 +3,7 @@ import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
@@ -11,6 +12,8 @@ from endpoints.Extension import app as extension_endpoints
 from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
+from endpoints.Auth import app as auth_endpoints
+from Globals import getenv
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -19,8 +22,8 @@ with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
 logging.basicConfig(
-    level=os.environ.get("LOGLEVEL", "INFO"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
 )
 
 app = FastAPI(
@@ -38,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/outputs", StaticFiles(directory="WORKSPACE"), name="outputs")
 app.include_router(agent_endpoints)
 app.include_router(chain_endpoints)
 app.include_router(completions_endpoints)
@@ -46,6 +50,7 @@ app.include_router(extension_endpoints)
 app.include_router(memory_endpoints)
 app.include_router(prompt_endpoints)
 app.include_router(provider_endpoints)
+app.include_router(auth_endpoints)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7437)

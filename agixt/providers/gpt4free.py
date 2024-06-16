@@ -1,78 +1,39 @@
+from g4f.client import AsyncClient
 import logging
 import asyncio
 
-from g4f.Provider import RetryProvider
-from g4f.models import ModelUtils, gpt_35_turbo, default
-
 
 class Gpt4freeProvider:
-    def __init__(
-        self,
-        AI_MODEL: str = gpt_35_turbo.name,
-        MAX_TOKENS: int = 4096,
-        AI_TEMPERATURE: float = 0.7,
-        AI_TOP_P: float = 0.7,
-        WAIT_BETWEEN_REQUESTS: int = 1,
-        WAIT_AFTER_FAILURE: int = 3,
-        **kwargs,
-    ):
-        self.requirements = ["g4f", "httpx"]
-        if not AI_MODEL:
-            self.AI_MODEL = default
-        elif AI_MODEL in ModelUtils.convert:
-            self.AI_MODEL = ModelUtils.convert[AI_MODEL]
-        else:
-            self.AI_MODEL = ModelUtils.convert["gpt-3.5-turbo"]
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
-        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
-        self.WAIT_BETWEEN_REQUESTS = (
-            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
-        )
-        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+    def __init__(self, AI_MODEL: str = "gpt-4-turbo", **kwargs):
+        self.requirements = ["g4f"]
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-4-turbo"
 
-    async def inference(self, prompt, tokens: int = 0):
-        max_new_tokens = (
-            int(self.MAX_TOKENS) - int(tokens) if tokens > 0 else self.MAX_TOKENS
-        )
-        model = self.AI_MODEL
-        provider = model.best_provider
-        if provider:
-            append_model = f" and model: {model.name}" if model.name else ""
-            logging.info(f"[Gpt4Free] Use provider: {provider.__name__}{append_model}")
+    @staticmethod
+    def services():
+        return ["llm"]
+
+    async def inference(self, prompt, tokens: int = 0, images: list = []):
+        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        client = AsyncClient()
+        models = ["gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
-            return (
-                await asyncio.gather(
-                    provider.create_async(
-                        model=model.name,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=max_new_tokens,
-                        temperature=float(self.AI_TEMPERATURE),
-                        top_p=float(self.AI_TOP_P),
-                    ),
-                    asyncio.sleep(int(self.WAIT_BETWEEN_REQUESTS)),
-                )
-            )[0]
+            response = await client.chat.completions.create(
+                model=self.AI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+            )
+            return str(response.choices[0].message.content)
         except Exception as e:
-            if int(self.WAIT_AFTER_FAILURE) > 0:
-                await asyncio.sleep(int(self.WAIT_AFTER_FAILURE))
-            raise e
-        finally:
-            if provider and isinstance(provider, RetryProvider):
-                if hasattr(provider, "exceptions"):
-                    for provider_name in provider.exceptions:
-                        error = provider.exceptions[provider_name]
-                        logging.error(f"[Gpt4Free] {provider_name}: {error}")
-
-
-if __name__ == "__main__":
-    import asyncio, time
-
-    async def run_test():
-        petal = Gpt4freeProvider()
-        start = time.time()
-        response = await petal.inference("What is the meaning of life?")
-        print(response)
-        print(f"{round(time.time()-start, 2)} secs")
-
-    asyncio.run(run_test())
+            logging.warning(f"gpt4free API Error: {e}")
+            for model in models:
+                try:
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        stream=False,
+                    )
+                    return str(response.choices[0].message.content)
+                except Exception as e:
+                    logging.warning(f"gpt4free API Error: {e}")
+                    continue
+        return "Unable to retrieve a response from the gpt4free provider."

@@ -1,5 +1,6 @@
 from typing import List, Union
 from requests.compat import urljoin
+import logging
 
 try:
     from bs4 import BeautifulSoup
@@ -34,6 +35,15 @@ class web_playwright(Extensions):
         }
 
     async def scrape_text_with_playwright(self, url: str) -> str:
+        """
+        Scrape the text content of a webpage using Playwright
+
+        Args:
+        url (str): The URL of the webpage to scrape
+
+        Returns:
+        str: The text content of the webpage
+        """
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -57,6 +67,15 @@ class web_playwright(Extensions):
         return text
 
     async def scrape_links_with_playwright(self, url: str) -> Union[str, List[str]]:
+        """
+        Scrape the hyperlinks of a webpage using Playwright
+
+        Args:
+        url (str): The URL of the webpage to scrape
+
+        Returns:
+        Union[str, List[str]]: The hyperlinks of the webpage
+        """
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -81,6 +100,16 @@ class web_playwright(Extensions):
         return formatted_links
 
     async def take_screenshot_with_playwright(self, url: str, path: str):
+        """
+        Take a screenshot of a webpage using Playwright
+
+        Args:
+        url (str): The URL of the webpage to take a screenshot of
+        path (str): The path to save the screenshot
+
+        Returns:
+        str: The result of taking the screenshot
+        """
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
@@ -90,5 +119,5 @@ class web_playwright(Extensions):
                 await page.screenshot(path=path, full_page=True, type="png")
                 await browser.close()
         except Exception as e:
-            print(e)
+            logging.error(f"Playwright Error: {str(e)}")
             return f"Error: {str(e)}"

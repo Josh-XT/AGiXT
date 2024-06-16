@@ -1,5 +1,6 @@
 import datetime
 import json
+import uuid
 import requests
 import os
 import re
@@ -11,82 +12,80 @@ import logging
 import docker
 import asyncio
 
-IMAGE_NAME = "joshxt/safeexecute:latest"
-
 
 def install_docker_image():
+    docker_image = "joshxt/safeexecute:latest"
     client = docker.from_env()
     try:
-        client.images.get(IMAGE_NAME)
-        logging.info(f"Image '{IMAGE_NAME}' found locally")
+        client.images.get(docker_image)
+        logging.info(f"Image '{docker_image}' found locally")
     except:
-        logging.info(f"Installing docker image '{IMAGE_NAME}' from Docker Hub")
-        client.images.pull(IMAGE_NAME)
-        logging.info(f"Image '{IMAGE_NAME}' installed")
+        logging.info(f"Installing docker image '{docker_image}' from Docker Hub")
+        client.images.pull(docker_image)
+        logging.info(f"Image '{docker_image}' installed")
     return client
 
 
-def execute_python_code(code: str, working_directory: str = None) -> str:
-    if working_directory is None:
-        working_directory = os.path.join(os.getcwd(), "WORKSPACE")
-    docker_working_dir = working_directory
-    if os.environ.get("DOCKER_CONTAINER", False):
-        docker_working_dir = os.environ.get("WORKING_DIRECTORY", working_directory)
-    if not os.path.exists(working_directory):
-        os.makedirs(working_directory)
+def execute_python_code(code: str, agent_id: str = "") -> str:
+    docker_image = "joshxt/safeexecute:latest"
+    docker_working_dir = f"/agixt/WORKSPACE/{agent_id}"
+    os.makedirs(docker_working_dir, exist_ok=True)
+    host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
+    host_working_dir = os.path.join(host_working_dir, agent_id)
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-    temp_file = os.path.join(os.getcwd(), "WORKSPACE", "temp.py")
+    temp_file_name = f"{str(uuid.uuid4())}.py"
+    temp_file = os.path.join(docker_working_dir, temp_file_name)
+    logging.info(f"Writing Python code to temporary file: {temp_file}")
     with open(temp_file, "w") as f:
         f.write(code)
-    os.chmod(temp_file, 0o755)  # Set executable permissions
+    logging.info(
+        f"Temporary file written. Checking if the file exists: {os.path.exists(temp_file)}"
+    )
     try:
         client = install_docker_image()
-        if package_requirements:
-            # Install the required packages in the container
-            for package in package_requirements:
-                try:
-                    logging.info(f"Installing package '{package}' in container")
-                    client.containers.run(
-                        IMAGE_NAME,
-                        f"pip install {package}",
-                        volumes={
-                            os.path.abspath(docker_working_dir): {
-                                "bind": "/workspace",
-                                "mode": "rw",
-                            }
-                        },
-                        working_dir="/workspace",
-                        stderr=True,
-                        stdout=True,
-                        detach=True,
-                    )
-                except Exception as e:
-                    logging.error(f"Error installing package '{package}': {str(e)}")
-                    return f"Error: {str(e)}"
+        # Install the required packages in the container
+        for package in package_requirements:
+            try:
+                logging.info(f"Installing package '{package}' in container")
+                client.containers.run(
+                    docker_image,
+                    f"pip install {package}",
+                    volumes={
+                        host_working_dir: {"bind": docker_working_dir, "mode": "rw"}
+                    },
+                    working_dir=docker_working_dir,
+                    stderr=True,
+                    stdout=True,
+                    remove=True,
+                )
+            except Exception as e:
+                logging.error(f"Error installing package '{package}': {str(e)}")
+                return f"Error: {str(e)}"
         # Run the Python code in the container
         container = client.containers.run(
-            IMAGE_NAME,
-            f"python /workspace/temp.py",
-            volumes={
-                os.path.abspath(docker_working_dir): {
-                    "bind": "/workspace",
-                    "mode": "rw",
-                }
-            },
-            working_dir="/workspace",
+            docker_image,
+            f"python {os.path.join(docker_working_dir, temp_file_name)}",
+            volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
+            working_dir=docker_working_dir,
             stderr=True,
             stdout=True,
             detach=True,
         )
-        container.wait()
+        # Wait for the container to finish and capture the logs
+        result = container.wait()
         logs = container.logs().decode("utf-8")
         container.remove()
-        os.remove(temp_file)
+        if result["StatusCode"] != 0:
+            logging.error(f"Error executing Python code: {logs}")
+            return f"Error: {logs}"
         logging.info(f"Python code executed successfully. Logs: {logs}")
+        logs = str(logs)
+        if logs.endswith("\n"):
+            logs = logs[:-1]
         return logs
     except Exception as e:
         logging.error(f"Error executing Python code: {str(e)}")
@@ -141,9 +140,6 @@ def parse_mindmap(mindmap):
     return root
 
 
-chains = Chain().get_chains()
-
-
 class agixt_actions(Extensions):
     def __init__(self, **kwargs):
         self.commands = {
@@ -151,7 +147,6 @@ class agixt_actions(Extensions):
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Generate Agent Helper Chain": self.generate_helper_chain,
             "Ask for Help or Further Clarification to Complete Task": self.ask_for_help,
-            "Create a new command": self.create_command,
             "Execute Python Code": self.execute_python_code_internal,
             "Get Python Code from Response": self.get_python_code_from_response,
             "Get Mindmap for task to break it down": self.get_mindmap,
@@ -165,9 +160,11 @@ class agixt_actions(Extensions):
             "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
+            "Disable Command": self.disable_command,
+            "Plan Multistep Task": self.plan_multistep_task,
         }
-
-        for chain in chains:
+        user = kwargs["user"] if "user" in kwargs else "user"
+        for chain in Chain(user=user).get_chains():
             self.commands[chain] = self.run_chain
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -182,6 +179,15 @@ class agixt_actions(Extensions):
         self.failures = 0
 
     async def read_file_content(self, file_path: str):
+        """
+        Read the content of a file and store it in long term memory
+
+        Args:
+        file_path (str): The path to the file
+
+        Returns:
+        str: Success message
+        """
         with open(file_path, "r") as f:
             file_content = f.read()
         filename = os.path.basename(file_path)
@@ -189,19 +195,38 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             file_name=filename,
             file_content=file_content,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def write_website_to_memory(self, url: str):
+        """
+        Read the content of a website and store it in long term memory
+
+        Args:
+        url (str): The URL of the website
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_url(
             agent_name=self.agent_name,
             url=url,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def store_long_term_memory(
         self, input: str, data_to_correlate_with_input: str
     ):
+        """
+        Store information in long term memory
+
+        Args:
+        input (str): The user input
+        data_to_correlate_with_input (str): The data to correlate with the user input in long term memory, useful for feedback or remembering important information for later
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_text(
             agent_name=self.agent_name,
             user_input=input,
@@ -209,20 +234,76 @@ class agixt_actions(Extensions):
         )
 
     async def search_arxiv(self, query: str, max_articles: int = 5):
+        """
+        Search for articles on arXiv, read into long term memory
+
+        Args:
+        query (str): The search query
+        max_articles (int): The maximum number of articles to read
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_arxiv(
             query=query,
             article_ids=None,
             max_articles=max_articles,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def read_github_repository(self, repository_url: str):
+        """
+        Read the content of a GitHub repository and store it in long term memory
+
+        Args:
+        repository_url (str): The URL of the GitHub repository
+
+        Returns:
+        str: Success message
+        """
         return self.ApiClient.learn_github_repo(
             agent_name=self.agent_name,
             github_repo=repository_url,
             use_agent_settings=True,
-            collection_number=0,
+            collection_number="0",
         )
+
+    async def disable_command(self, command_name: str):
+        """
+        Disable a command
+
+        Args:
+        command_name (str): The name of the command to disable
+
+        Returns:
+        str: Success message
+        """
+        return self.ApiClient.toggle_command(
+            agent_name=self.agent_name, commands_name=command_name, enable=False
+        )
+
+    async def plan_multistep_task(self, assumed_scope_of_work: str):
+        """
+        Plan a multi-step task
+
+        Args:
+        assumed_scope_of_work (str): The assumed scope of work
+
+        Returns:
+        str: The name of the new chain
+        """
+        user_input = assumed_scope_of_work
+        new_chain = self.ApiClient.plan_task(
+            agent_name=self.agent_name,
+            user_input=user_input,
+            websearch=True,
+            websearch_depth=3,
+            conversation_name=self.conversation_name,
+            log_user_input=False,
+            log_output=False,
+            enable_new_command=True,
+        )
+        return new_chain["message"]
 
     async def create_task_chain(
         self,
@@ -233,31 +314,35 @@ class agixt_actions(Extensions):
         smart_chain: bool = False,
         researching: bool = False,
     ):
+        """
+        Create a task chain from a numbered list of tasks
+
+        Args:
+        agent (str): The agent to create the task chain for
+        primary_objective (str): The primary objective to keep in mind while working on the task
+        numbered_list_of_tasks (str): The numbered list of tasks to complete
+        short_chain_description (str): A short description of the chain
+        smart_chain (bool): Whether to create a smart chain
+        researching (bool): Whether to include web research in the chain
+
+        Returns:
+        str: The name of the created chain
+        """
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
         new_task_list = []
         current_task = ""
         for task in task_list:
-            if task and task[0] in [
-                str(i) for i in range(10)
-            ]:  # Check for task starting with a digit (0-9)
-                if current_task:  # If there's a current task, add it to the list
-                    new_task_list.append(
-                        current_task.lstrip("0123456789.")
-                    )  # Strip leading digits and periods
-                current_task = task  # Start a new current task
+            if task and task[0].isdigit():
+                if current_task:
+                    new_task_list.append(current_task.lstrip("0123456789."))
+                current_task = task
             else:
-                current_task += (
-                    "\n" + task
-                )  # If the line doesn't start with a number, it's a subtask - add it to the current task
+                current_task += "\n" + task
 
-        if current_task:  # Add the last task if it exists
-            if "\n\n" in current_task:
-                current_task = current_task.split("\n\n")[0]
-            new_task_list.append(
-                current_task.lstrip("0123456789.")
-            )  # Strip leading digits and periods
+        if current_task:
+            new_task_list.append(current_task.lstrip("0123456789."))
 
         task_list = new_task_list
 
@@ -271,7 +356,7 @@ class agixt_actions(Extensions):
                 step_number=i,
                 prompt_type="Chain",
                 prompt={
-                    "chain": "Smart Prompt",
+                    "chain_name": "Smart Prompt",
                     "input": f"Primary Objective to keep in mind while working on the task: {primary_objective} \nThe only task to complete to move towards the objective: {task}",
                 },
             )
@@ -309,6 +394,15 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def run_chain(self, input_for_task: str = ""):
+        """
+        Run a chain
+
+        Args:
+        input_for_task (str): The input for the task
+
+        Returns:
+        str: The response from the chain
+        """
         response = await self.ApiClient.run_chain(
             chain_name=self.command_name,
             user_input=input_for_task,
@@ -322,6 +416,15 @@ class agixt_actions(Extensions):
         return response
 
     def parse_openapi(self, data):
+        """
+        Parse OpenAPI data to extract endpoints
+
+        Args:
+        data (dict): The OpenAPI data
+
+        Returns:
+        list: The list of endpoints
+        """
         endpoints = []
         schemas = data.get("components", {}).get(
             "schemas", {}
@@ -382,6 +485,15 @@ class agixt_actions(Extensions):
         return endpoints
 
     def get_auth_type(self, openapi_data):
+        """
+        Get the authentication type from the OpenAPI data
+
+        Args:
+        openapi_data (dict): The OpenAPI data
+
+        Returns:
+        str: The authentication type
+        """
         # The "components" section contains the security schemes
         if (
             "components" in openapi_data
@@ -398,9 +510,17 @@ class agixt_actions(Extensions):
                         return scheme_details["scheme"]
         return "basic"
 
-    async def generate_openapi_chain(
-        self, agent: str, extension_name: str, openapi_json_url: str
-    ):
+    async def generate_openapi_chain(self, extension_name: str, openapi_json_url: str):
+        """
+        Generate an AGiXT extension from an OpenAPI JSON URL
+
+        Args:
+        extension_name (str): The name of the extension
+        openapi_json_url (str): The URL of the OpenAPI JSON file
+
+        Returns:
+        str: The name of the created chain
+        """
         # Experimental currently.
         openapi_str = requests.get(openapi_json_url).text
         openapi_data = json.loads(openapi_str)
@@ -501,6 +621,17 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def generate_helper_chain(self, user_agent, helper_agent, task_in_question):
+        """
+        Generate a helper chain for an agent
+
+        Args:
+        user_agent (str): The user agent
+        helper_agent (str): The helper agent
+        task_in_question (str): The task in question
+
+        Returns:
+        str: The name of the created chain
+        """
         chain_name = f"Help Chain - {user_agent} to {helper_agent}"
         self.ApiClient.add_chain(chain_name=chain_name)
         i = 1
@@ -530,6 +661,16 @@ class agixt_actions(Extensions):
         return chain_name
 
     async def ask_for_help(self, your_agent_name, your_task):
+        """
+        Ask for help from a helper agent
+
+        Args:
+        your_agent_name (str): Your agent name
+        your_task (str): Your task
+
+        Returns:
+        str: The response from the helper agent
+        """
         return self.ApiClient.run_chain(
             chain_name="Ask Helper Agent for Help",
             user_input=your_task,
@@ -541,24 +682,16 @@ class agixt_actions(Extensions):
             },
         )
 
-    async def create_command(
-        self, function_description: str, agent: str = "AGiXT"
-    ) -> List[str]:
-        try:
-            return self.ApiClient.run_chain(
-                chain_name="Create New Command",
-                user_input=function_description,
-                agent_name=self.agent_name,
-                all_responses=False,
-                from_step=1,
-                chain_args={
-                    "conversation_name": self.conversation_name,
-                },
-            )
-        except Exception as e:
-            return f"Unable to create command: {e}"
-
     async def ask(self, user_input: str) -> str:
+        """
+        Ask a question
+
+        Args:
+        user_input (str): The user input
+
+        Returns:
+        str: The response to the question
+        """
         response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Chat",
@@ -572,6 +705,15 @@ class agixt_actions(Extensions):
         return response
 
     async def instruct(self, user_input: str) -> str:
+        """
+        Instruct the agent
+
+        Args:
+        user_input (str): The user input
+
+        Returns:
+        str: The response to the instruction
+        """
         response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="instruct",
@@ -585,12 +727,30 @@ class agixt_actions(Extensions):
         return response
 
     async def get_python_code_from_response(self, response: str):
+        """
+        Get the Python code from the response
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The Python code
+        """
         if "```python" in response:
             response = response.split("```python")[1].split("```")[0]
         return response
 
     async def execute_python_code_internal(self, code: str, text: str = "") -> str:
-        working_dir = os.environ.get("WORKING_DIRECTORY", self.WORKING_DIRECTORY)
+        """
+        Execute Python code
+
+        Args:
+        code (str): The Python code
+        text (str): The text
+
+        Returns:
+        str: The result of the Python code
+        """
         if text:
             csv_content_header = text.split("\n")[0]
             # Remove any trailing spaces from any headers
@@ -601,9 +761,24 @@ class agixt_actions(Extensions):
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
             with open(filepath, "w") as f:
                 f.write(text)
-        return execute_python_code(code=code, working_directory=working_dir)
+        agents = self.ApiClient.get_agents()
+        agent_id = ""
+        for agent in agents:
+            if agent["name"] == self.agent_name:
+                agent_id = str(agent["id"])
+        execution_response = execute_python_code(code=code, agent_id=agent_id)
+        return execution_response
 
     async def get_mindmap(self, task: str):
+        """
+        Get a mindmap for a task
+
+        Args:
+        task (str): The task
+
+        Returns:
+        dict: The mindmap
+        """
         mindmap = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Mindmap",
@@ -615,10 +790,29 @@ class agixt_actions(Extensions):
         return parse_mindmap(mindmap=mindmap)
 
     async def make_csv_code_block(self, data: str) -> str:
-        return f"```csv\n{data}\n```"
+        """
+        Make a CSV code block
+
+        Args:
+        data (str): The data
+
+        Returns:
+        str: The CSV code block
+        """
+        if "," in data or "\n" in data:
+            return f"```csv\n{data}\n```"
+        return data
 
     async def get_csv_preview(self, filename: str):
-        # Get first 2 lines of the file
+        """
+        Get a preview of a CSV file
+
+        Args:
+        filename (str): The filename
+
+        Returns:
+        str: The preview of the CSV file consisting of the first 2 lines
+        """
         filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
         with open(filepath, "r") as f:
             lines = f.readlines()
@@ -627,17 +821,42 @@ class agixt_actions(Extensions):
         return lines_string
 
     async def get_csv_preview_text(self, text: str):
-        # Get first 2 lines of the text
+        """
+        Get a preview of a CSV text
+
+        Args:
+        text (str): The text
+
+        Returns:
+        str: The preview of the CSV text consisting of the first 2 lines
+        """
         lines = text.split("\n")
         lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
     async def get_csv_from_response(self, response: str) -> str:
+        """
+        Get the CSV data from the response
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The CSV data
+        """
         return response.split("```csv")[1].split("```")[0]
 
-    # Convert LLM response of a list of either numbers like a numbered list, *'s, -'s to a list from the string response
     async def convert_llm_response_to_list(self, response):
+        """
+        Convert an LLM response to a list
+
+        Args:
+        response (str): The response
+
+        Returns:
+        list: The list
+        """
         response = response.split("\n")
         response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
         response = [item for item in response if item]
@@ -645,6 +864,15 @@ class agixt_actions(Extensions):
         return response
 
     async def convert_questions_to_dataset(self, response):
+        """
+        Convert questions to a dataset
+
+        Args:
+        response (str): The response
+
+        Returns:
+        str: The dataset
+        """
         questions = await self.convert_llm_response_to_list(response)
         tasks = []
         i = 0
@@ -654,7 +882,7 @@ class agixt_actions(Extensions):
                 await asyncio.gather(*tasks)
                 tasks = []
             task = asyncio.create_task(
-                await self.ApiClient.prompt_agent(
+                self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name="Basic With Memory",
                     prompt_args={
@@ -669,6 +897,16 @@ class agixt_actions(Extensions):
     async def convert_string_to_pydantic_model(
         self, input_string: str, output_model: Type[BaseModel]
     ):
+        """
+        Convert a string to a Pydantic model
+
+        Args:
+        input_string (str): The input string
+        output_model (Type[BaseModel]): The output model
+
+        Returns:
+        Type[BaseModel]: The Pydantic model
+        """
         fields = output_model.model_fields
         field_descriptions = [f"{field}: {fields[field]}" for field in fields]
         schema = "\n".join(field_descriptions)

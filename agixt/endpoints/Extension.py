@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
 from Extensions import Extensions
-from ApiClient import Agent, log_interaction, verify_api_key, get_api_client
+from ApiClient import Agent, Conversations, verify_api_key, get_api_client, is_admin
 from Models import CommandExecution
 
 
@@ -36,7 +36,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 
 @app.post(
     "/api/agent/{agent_name}/command",
-    tags=["Extensions"],
+    tags=["Extensions", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_command(
@@ -45,6 +45,8 @@ async def run_command(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
@@ -54,17 +56,18 @@ async def run_command(
         agent_config=agent_config,
         conversation_name=command.conversation_name,
         ApiClient=ApiClient,
+        api_key=authorization,
         user=user,
     ).execute_command(
         command_name=command.command_name, command_args=command.command_args
     )
-    log_interaction(
-        agent_name=agent_name,
-        conversation_name=command.conversation_name,
-        role=agent_name,
-        message=command_output,
-        user=user,
-    )
+    if (
+        command.conversation_name != ""
+        and command.conversation_name != None
+        and command_output != None
+    ):
+        c = Conversations(conversation_name=command.conversation_name, user=user)
+        c.log_interaction(role=agent_name, message=command_output)
     return {
         "response": command_output,
     }

@@ -3,19 +3,24 @@ import os
 import asyncio
 import sys
 import json
+import time
 import spacy
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.types import QueryResult
 from numpy import array, linalg, ndarray
 from hashlib import sha256
-from Embedding import Embedding
+from Providers import Providers
 from datetime import datetime
 from collections import Counter
 from typing import List
-from Defaults import DEFAULT_USER
+from Globals import getenv, DEFAULT_USER
+from textacy.extract.keyterms import textrank
 
-
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -30,8 +35,14 @@ def nlp(text):
     return sp(text)
 
 
+def extract_keywords(doc=None, text="", limit=10):
+    if not doc:
+        doc = nlp(text)
+    return [k for k, s in textrank(doc, topn=limit)]
+
+
 def snake(old_str: str = ""):
-    if old_str == "":
+    if not old_str:
         return ""
     if " " in old_str:
         old_str = old_str.replace(" ", "")
@@ -77,7 +88,6 @@ def query_results_to_records(results: "QueryResult"):
         return []
     memory_records = [
         {
-            "is_reference": metadata["is_reference"] == "True",
             "external_source_name": metadata["external_source_name"],
             "id": metadata["id"],
             "description": metadata["description"],
@@ -105,25 +115,21 @@ def get_chroma_client():
         CHROMA_API_KEY: The API key of the Chroma server
         CHROMA_SSL: Set to "true" if the Chroma server uses SSL
     """
-    chroma_host = os.environ.get("CHROMA_HOST", None)
+    chroma_host = getenv("CHROMA_HOST")
     chroma_settings = Settings(
         anonymized_telemetry=False,
     )
     if chroma_host:
         # Use external Chroma server
         try:
-            chroma_api_key = os.environ.get("CHROMA_API_KEY", None)
+            chroma_api_key = getenv("CHROMA_API_KEY")
             chroma_headers = (
                 {"Authorization": f"Bearer {chroma_api_key}"} if chroma_api_key else {}
             )
             return chromadb.HttpClient(
                 host=chroma_host,
-                port=os.environ.get("CHROMA_PORT", "8000"),
-                ssl=(
-                    False
-                    if os.environ.get("CHROMA_SSL", "false").lower() != "true"
-                    else True
-                ),
+                port=getenv("CHROMA_PORT"),
+                ssl=(False if getenv("CHROMA_SSL").lower() != "true" else True),
                 headers=chroma_headers,
                 settings=chroma_settings,
             )
@@ -147,37 +153,56 @@ class Memories:
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
-        collection_number: int = 0,
+        collection_number: str = "0",  # Is now actually a collection ID and a string to allow conversational memories.
         ApiClient=None,
         summarize_content: bool = False,
         user=DEFAULT_USER,
     ):
+        global DEFAULT_USER
         self.agent_name = agent_name
+        if not DEFAULT_USER:
+            DEFAULT_USER = "user"
+        if not user:
+            user = "user"
         if user != DEFAULT_USER:
-            if user == "":
-                user = "USER"
             self.collection_name = f"{snake(user)}_{snake(agent_name)}"
         else:
-            self.collection_name = snake(agent_name)
+            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
+        self.user = user
         self.collection_number = collection_number
-        if collection_number > 0:
-            self.collection_name = f"{self.collection_name}_{collection_number}"
+        # Check if collection_number is a number, it might be a string
+        if collection_number != "0":
+            self.collection_name = snake(f"{self.collection_name}_{collection_number}")
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
-            agent_config if agent_config else {"settings": {"embedder": "default"}}
+            agent_config
+            if agent_config
+            else {"settings": {"embeddings_provider": "default"}}
         )
         self.agent_settings = (
             self.agent_config["settings"]
             if "settings" in self.agent_config
-            else {"embedder": "default"}
+            else {"embeddings_provider": "default"}
         )
         self.chroma_client = get_chroma_client()
         self.ApiClient = ApiClient
-        self.embed = Embedding(agent_settings=self.agent_settings)
-        self.chunk_size = self.embed.chunk_size
-        self.embedder = self.embed.embedder
+        self.embedding_provider = Providers(
+            name=(
+                self.agent_settings["embeddings_provider"]
+                if "embeddings_provider" in self.agent_settings
+                else "default"
+            ),
+            ApiClient=ApiClient,
+        )
+        self.chunk_size = (
+            self.embedding_provider.chunk_size
+            if hasattr(self.embedding_provider, "chunk_size")
+            else 256
+        )
+        self.embedder = self.embedding_provider.embedder
         self.summarize_content = summarize_content
+        self.failures = 0
 
     async def wipe_memory(self):
         try:
@@ -221,14 +246,12 @@ class Memories:
     async def import_collections_from_json(self, json_data: List[dict]):
         for data in json_data:
             for key, value in data.items():
-                try:
-                    collection_number = int(key)
-                except:
-                    collection_number = 0
-                self.collection_number = collection_number
-                self.collection_name = snake(self.agent_name)
-                if collection_number > 0:
-                    self.collection_name = f"{self.collection_name}_{collection_number}"
+                self.collection_number = key if key else "0"
+                self.collection_name = snake(f"{self.user}_{self.agent_name}")
+                if str(self.collection_number) != "0":
+                    self.collection_name = (
+                        f"{self.collection_name}_{self.collection_number}"
+                    )
                 for val in value[self.collection_name]:
                     try:
                         await self.write_text_to_memory(
@@ -242,9 +265,8 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        if int(self.collection_number) > 0:
-            collection_name = snake(self.agent_name)
-            collection_name = f"{collection_name}_{self.collection_number}"
+        if str(self.collection_number) != "0":
+            collection_name = snake(f"{self.user}_{self.agent_name}")
         else:
             collection_name = self.collection_name
         return [
@@ -255,17 +277,19 @@ class Memories:
 
     async def get_collection(self):
         try:
-            return self.chroma_client.get_collection(
+            return self.chroma_client.get_or_create_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
         except:
-            self.chroma_client.create_collection(
-                name=self.collection_name,
-                embedding_function=self.embedder,
-            )
-            return self.chroma_client.get_collection(
-                name=self.collection_name, embedding_function=self.embedder
-            )
+            try:
+                return self.chroma_client.create_collection(
+                    name=self.collection_name,
+                    embedding_function=self.embedder,
+                    get_or_create=True,
+                )
+            except:
+                logging.warning(f"Error getting collection: {self.collection_name}")
+                return None
 
     async def delete_memory(self, key: str):
         collection = await self.get_collection()
@@ -314,11 +338,32 @@ class Memories:
                         (chunk + datetime.now().isoformat()).encode()
                     ).hexdigest(),
                 }
-                collection.add(
-                    ids=metadata["id"],
-                    metadatas=metadata,
-                    documents=chunk,
-                )
+                try:
+                    collection.add(
+                        ids=metadata["id"],
+                        metadatas=metadata,
+                        documents=chunk,
+                    )
+                except:
+                    logging.warning(f"Error writing to memory: {chunk}")
+                    # Try again 5 times before giving up
+                    self.failures += 1
+                    for i in range(5):
+                        try:
+                            time.sleep(0.1)
+                            collection.add(
+                                ids=metadata["id"],
+                                metadatas=metadata,
+                                documents=chunk,
+                            )
+                            self.failures = 0
+                            break
+                        except:
+                            self.failures += 1
+                            if self.failures > 5:
+                                break
+                            continue
+        return True
 
     async def get_memories_data(
         self,
@@ -331,7 +376,7 @@ class Memories:
         collection = await self.get_collection()
         if collection == None:
             return ""
-        embedding = array(self.embed.embed_text(text=user_input))
+        embedding = array(self.embedding_provider.embeddings(user_input))
         results = collection.query(
             query_embeddings=embedding.tolist(),
             n_results=limit,
@@ -339,7 +384,6 @@ class Memories:
         )
         embedding_array = array(results["embeddings"][0])
         if len(embedding_array) == 0:
-            logging.warning("Embedding collection is empty.")
             return []
         embedding_array = embedding_array.reshape(embedding_array.shape[0], -1)
         if len(embedding.shape) == 2:
@@ -368,11 +412,35 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        results = await self.get_memories_data(
+        global DEFAULT_USER
+        default_collection_name = self.collection_name
+        default_results = []
+        if self.user != DEFAULT_USER:
+            # Get global memories for the agent first
+            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
+            if str(self.collection_number) != "0":
+                self.collection_name = (
+                    f"{self.collection_name}_{self.collection_number}"
+                )
+        try:
+            default_results = await self.get_memories_data(
+                user_input=user_input,
+                limit=limit,
+                min_relevance_score=min_relevance_score,
+            )
+        except:
+            default_results = []
+        self.collection_name = default_collection_name
+        user_results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
+        if isinstance(user_results, str):
+            user_results = [user_results]
+        if isinstance(default_results, str):
+            default_results = [default_results]
+        results = user_results + default_results
         response = []
         if results:
             for result in results:
@@ -386,13 +454,39 @@ class Memories:
                     if "external_source_name" in result
                     else None
                 )
+                timestamp = (
+                    result["timestamp"]
+                    if "timestamp" in result
+                    else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
                 if external_source:
-                    # If the external source is a url or a file path, add it to the metadata
-                    if external_source:
-                        metadata = f"Sourced from {external_source}:\n{metadata}"
+                    metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response
+
+    def delete_memories_from_external_source(self, external_source: str):
+        collection = self.chroma_client.get_collection(name=self.collection_name)
+        if collection:
+            results = collection.query(
+                query_metadatas={"external_source_name": external_source},
+                include=["metadatas"],
+            )
+            ids = results["metadatas"][0]["id"]
+            if ids:
+                collection.delete(ids=ids)
+                return True
+        return False
+
+    def get_external_data_sources(self):
+        collection = self.chroma_client.get_collection(name=self.collection_name)
+        if collection:
+            results = collection.query(
+                include=["metadatas"],
+            )
+            external_sources = results["metadatas"][0]["external_source_name"]
+            return list(set(external_sources))
+        return []
 
     def score_chunk(self, chunk: str, keywords: set) -> int:
         """Score a chunk based on the number of query keywords it contains."""
@@ -406,9 +500,7 @@ class Memories:
         content_chunks = []
         chunk = []
         chunk_len = 0
-        keywords = [
-            token.text for token in doc if token.pos_ in {"NOUN", "PROPN", "VERB"}
-        ]
+        keywords = set(extract_keywords(doc=doc, limit=10))
         for sentence in sentences:
             sentence_tokens = len(sentence)
             if chunk_len + sentence_tokens > chunk_size and chunk:
@@ -429,157 +521,3 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
-
-    async def get_context(
-        self,
-        user_input: str,
-        limit: int = 10,
-        websearch: bool = False,
-        additional_collections: List[str] = [],
-    ) -> str:
-        self.collection_number = 0
-        context = await self.get_memories(
-            user_input=user_input,
-            limit=limit,
-            min_relevance_score=0.2,
-        )
-        self.collection_number = 2
-        positive_feedback = await self.get_memories(
-            user_input=user_input,
-            limit=3,
-            min_relevance_score=0.7,
-        )
-        self.collection_number = 3
-        negative_feedback = await self.get_memories(
-            user_input=user_input,
-            limit=3,
-            min_relevance_score=0.7,
-        )
-        if positive_feedback or negative_feedback:
-            context += f"The users input makes you to remember some feedback from previous interactions:\n"
-            if positive_feedback:
-                context += f"Positive Feedback:\n{positive_feedback}\n"
-            if negative_feedback:
-                context += f"Negative Feedback:\n{negative_feedback}\n"
-        if websearch:
-            self.collection_number = 1
-            context += await self.get_memories(
-                user_input=user_input,
-                limit=limit,
-                min_relevance_score=0.2,
-            )
-        if additional_collections:
-            for collection in additional_collections:
-                self.collection_number = collection
-                context += await self.get_memories(
-                    user_input=user_input,
-                    limit=limit,
-                    min_relevance_score=0.2,
-                )
-        return context
-
-    async def batch_prompt(
-        self,
-        user_inputs: List[str] = [],
-        prompt_name: str = "Ask Questions",
-        prompt_category: str = "Default",
-        batch_size: int = 10,
-        qa: bool = False,
-        **kwargs,
-    ):
-        i = 0
-        tasks = []
-        responses = []
-        if user_inputs == []:
-            return []
-        for user_input in user_inputs:
-            i += 1
-            logging.info(f"[{i}/{len(user_inputs)}] Running Prompt: {prompt_name}")
-            if i % batch_size == 0:
-                responses += await asyncio.gather(**tasks)
-                tasks = []
-            task = asyncio.create_task(
-                await self.ApiClient.prompt_agent(
-                    agent_name=self.agent_name,
-                    prompt_name=prompt_name,
-                    prompt_args={
-                        "prompt_category": prompt_category,
-                        "user_input": user_input,
-                        **kwargs,
-                    },
-                )
-                if not qa
-                else await self.agent_qa(question=user_input, context_results=10)
-            )
-            tasks.append(task)
-        responses += await asyncio.gather(**tasks)
-        return responses
-
-    # Answer a question with context injected, return in sharegpt format
-    async def agent_qa(self, question: str = "", context_results: int = 10):
-        context = await self.get_context(user_input=question, limit=context_results)
-        answer = await self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Answer Question with Memory",
-            prompt_args={
-                "prompt_category": "Default",
-                "user_input": question,
-                "context_results": context_results,
-            },
-        )
-        # Create a memory with question and answer
-        self.collection_number = 0
-        await self.write_text_to_memory(
-            user_input=question,
-            text=answer,
-            external_source="Synthetic QA",
-        )
-        qa = [
-            {
-                "from": "human",
-                "value": f"### Context\n{context}\n### Question\n{question}",
-            },
-            {"from": "gpt", "value": answer},
-        ]
-        return qa
-
-    # Creates a synthetic dataset from memories in sharegpt format
-    async def create_dataset_from_memories(
-        self, dataset_name: str = "", batch_size: int = 10
-    ):
-        memories = []
-        questions = []
-        if dataset_name == "":
-            dataset_name = f"{datetime.now().isoformat()}-dataset"
-        collections = await self.get_collections()
-        for collection in collections:
-            self.collection_name = collection
-            memories += await self.export_collection_to_json()
-        logging.info(f"There are {len(memories)} memories.")
-        memories = [memory["text"] for memory in memories]
-        # Get a list of questions about each memory
-        question_list = self.batch_prompt(
-            user_inputs=memories,
-            qa=False,
-            batch_size=batch_size,
-        )
-        for question in question_list:
-            # Convert the response to a list of questions
-            question = question.split("\n")
-            question = [
-                item.lstrip("0123456789.*- ") for item in question if item.lstrip()
-            ]
-            question = [item for item in question if item]
-            question = [item.lstrip("0123456789.*- ") for item in question]
-            questions += question
-        # Answer each question with context injected
-        qa = self.batch_prompt(
-            user_inputs=questions,
-            qa=True,
-            batch_size=batch_size,
-        )
-        conversations = {"conversations": [qa]}
-        # Save messages to a json file to be used as a dataset
-        with open(f"{dataset_name}.json", "w") as f:
-            f.write(json.dumps(conversations))
-        return conversations

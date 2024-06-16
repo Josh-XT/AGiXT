@@ -31,5 +31,15 @@ jobs:
       notebook: tests/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
+      report-name: "agixt-tests"
       additional-python-dependencies: agixtsdk
+    needs: build-agixt
+  test-completions:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/completions-tests.ipynb
+      image: ${{ needs.build-agixt.outputs.primary-image }}
+      port: "7437"
+      report-name: "completions-tests"
+      additional-python-dependencies: openai requests python-dotenv
     needs: build-agixt

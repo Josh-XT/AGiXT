@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
-from ApiClient import Prompts, verify_api_key
+from fastapi import APIRouter, HTTPException, Depends, Header
+from ApiClient import Prompts, verify_api_key, is_admin
 from Models import (
     PromptName,
     PromptList,
@@ -14,14 +14,17 @@ app = APIRouter()
 
 @app.post(
     "/api/prompt/{prompt_category}",
-    tags=["Prompt"],
+    tags=["Prompt", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def add_prompt(
     prompt: CustomPromptModel,
     prompt_category: str = "Default",
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).add_prompt(
             prompt_name=prompt.prompt_name,
@@ -103,12 +106,17 @@ async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_
 
 @app.delete(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_prompt(
-    prompt_name: str, prompt_category: str = "Default", user=Depends(verify_api_key)
+    prompt_name: str,
+    prompt_category: str = "Default",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).delete_prompt(
             prompt_name=prompt_name, prompt_category=prompt_category
@@ -121,7 +129,7 @@ async def delete_prompt(
 # Rename prompt
 @app.patch(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def rename_prompt(
@@ -129,7 +137,10 @@ async def rename_prompt(
     new_name: PromptName,
     prompt_category: str = "Default",
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).rename_prompt(
             prompt_name=prompt_name,
@@ -145,14 +156,17 @@ async def rename_prompt(
 
 @app.put(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt"],
+    tags=["Prompt", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_prompt(
     prompt: CustomPromptModel,
     prompt_category: str = "Default",
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     try:
         Prompts(user=user).update_prompt(
             prompt_name=prompt.prompt_name,

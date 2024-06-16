@@ -1,129 +1,47 @@
-import string
-import random
 import time
+import base64
+import uuid
 from fastapi import APIRouter, Depends, Header
-from Interactions import Interactions, get_tokens
-from Embedding import Embedding
+from Globals import get_tokens
 from ApiClient import Agent, verify_api_key, get_api_client
+from providers.default import DefaultProvider
+from fastapi import UploadFile, File, Form
+from typing import Optional, List
 from Models import (
-    Completions,
+    ChatCompletions,
     EmbeddingModel,
-    GenerateModel,
-    GenerateResponse,
+    TextToSpeech,
+    ImageCreation,
 )
+from XT import AGiXT
 
 app = APIRouter()
 
 
+# Chat Completions endpoint
+# https://platform.openai.com/docs/api-reference/chat/createChatCompletion
 @app.post(
-    "/api/v1/completions", tags=["Completions"], dependencies=[Depends(verify_api_key)]
-)
-async def completion(
-    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
-):
-    # prompt.model is the agent name
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
-    agent_config = agent.agent.AGENT_CONFIG
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
-    else:
-        model = "undefined"
-    response = await agent.run(
-        user_input=prompt.prompt,
-        prompt="Custom Input",
-        context_results=3,
-        shots=prompt.n,
-    )
-    characters = string.ascii_letters + string.digits
-    prompt_tokens = get_tokens(prompt.prompt)
-    completion_tokens = get_tokens(response)
-    total_tokens = int(prompt_tokens) + int(completion_tokens)
-    random_chars = "".join(random.choice(characters) for _ in range(15))
-    res_model = {
-        "id": f"cmpl-{random_chars}",
-        "object": "text_completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "text": response,
-                "index": 0,
-                "logprobs": None,
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-    }
-    return res_model
-
-
-@app.post(
-    "/api/v1/chat/completions",
-    tags=["Completions"],
+    "/v1/chat/completions",
+    tags=["OpenAI Style Endpoints"],
     dependencies=[Depends(verify_api_key)],
 )
 async def chat_completion(
-    prompt: Completions, user=Depends(verify_api_key), authorization: str = Header(None)
+    prompt: ChatCompletions,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ):
     # prompt.model is the agent name
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=prompt.model, user=user, ApiClient=ApiClient)
-    agent_config = agent.agent.AGENT_CONFIG
-    if "settings" in agent_config:
-        if "AI_MODEL" in agent_config["settings"]:
-            model = agent_config["settings"]["AI_MODEL"]
-        else:
-            model = "undefined"
-    else:
-        model = "undefined"
-    response = await agent.run(
-        user_input=prompt.prompt,
-        prompt="Custom Input",
-        context_results=3,
-        shots=prompt.n,
-    )
-    characters = string.ascii_letters + string.digits
-    prompt_tokens = get_tokens(prompt.prompt)
-    completion_tokens = get_tokens(response)
-    total_tokens = int(prompt_tokens) + int(completion_tokens)
-    random_chars = "".join(random.choice(characters) for _ in range(15))
-    res_model = {
-        "id": f"chatcmpl-{random_chars}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "message": [
-                    {
-                        "role": "assistant",
-                        "content": response,
-                    },
-                ],
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-    }
-    return res_model
+    # prompt.user is the conversation name
+    agixt = AGiXT(user=user, agent_name=prompt.model, api_key=authorization)
+    return await agixt.chat_completions(prompt=prompt)
 
 
-# Use agent name in the model field to use embedding.
+# Embedding endpoint
+# https://platform.openai.com/docs/api-reference/embeddings/createEmbedding
 @app.post(
-    "/api/v1/embedding", tags=["Completions"], dependencies=[Depends(verify_api_key)]
+    "/v1/embeddings",
+    tags=["OpenAI Style Endpoints"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def embedding(
     embedding: EmbeddingModel,
@@ -132,14 +50,9 @@ async def embedding(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent_name = embedding.model
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
-    agent_settings = agent_config["settings"] if "settings" in agent_config else None
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     tokens = get_tokens(embedding.input)
-    embedding = Embedding(agent_settings=agent_settings).embed_text(
-        text=embedding.input
-    )
+    embedding = agent.embeddings(input=embedding.input)
     return {
         "data": [{"embedding": embedding, "index": 0, "object": "embedding"}],
         "model": agent_name,
@@ -148,46 +61,113 @@ async def embedding(
     }
 
 
+# Audio Transcription endpoint
+# https://platform.openai.com/docs/api-reference/audio/createTranscription
 @app.post(
-    "/api/v1/{agent_name}/generate",
-    tags=["Completions"],
+    "/v1/audio/transcriptions",
+    tags=["Audio"],
     dependencies=[Depends(verify_api_key)],
 )
-async def generate_text(
-    generate: GenerateModel,
-    agent_name: str,
-    user=Depends(verify_api_key),
+async def speech_to_text(
+    file: UploadFile = File(...),
+    model: str = Form("base"),
+    language: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None),
+    response_format: Optional[str] = Form("json"),
+    temperature: Optional[float] = Form(0.0),
+    timestamp_granularities: Optional[List[str]] = Form(["segment"]),
+    user: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
     ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    response = await agent.run(
-        user_input=generate.inputs, prompt="Custom Input", **generate.parameters
-    )
-    tokens = get_tokens(response)
-    details = {
-        "best_of_sequences": [
-            {
-                "finish_reason": "length",
-                "generated_text": response,
-                "generated_tokens": tokens,
-                "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
-                "seed": 42,
-                "tokens": [
-                    {"id": 0, "logprob": -0.34, "special": False, "text": response}
-                ],
-                "top_tokens": [
-                    [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
-                ],
-            }
-        ],
-        "finish_reason": "length",
-        "generated_tokens": tokens,
-        "prefill": [{"id": 0, "logprob": -0.34, "text": response}],
-        "seed": 42,
-        "tokens": [{"id": 0, "logprob": -0.34, "special": False, "text": response}],
-        "top_tokens": [
-            [{"id": 0, "logprob": -0.34, "special": False, "text": response}]
-        ],
+    agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
+    audio_format = file.content_type.split("/")[1]
+    if audio_format == "x-wav":
+        audio_format = "wav"
+    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    with open(audio_path, "wb") as f:
+        f.write(file.file.read())
+    response = await agent.transcribe_audio(audio_path=audio_path)
+    return {"text": response}
+
+
+# Audio Translations endpoint
+# https://platform.openai.com/docs/api-reference/audio/createTranslation
+@app.post(
+    "/v1/audio/translations",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def translate_audio(
+    file: UploadFile = File(...),
+    model: str = Form("base"),
+    language: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None),
+    response_format: Optional[str] = Form("json"),
+    temperature: Optional[float] = Form(0.0),
+    timestamp_granularities: Optional[List[str]] = Form(["segment"]),
+    user: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=model, user=user, ApiClient=ApiClient)
+    # Save as audio file based on its type
+    audio_format = file.content_type.split("/")[1]
+    audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
+    with open(audio_path, "wb") as f:
+        f.write(file.file.read())
+    response = await agent.translate_audio(audio_path=audio_path)
+    if response.startswith("data:"):
+        response = response.split(",")[1]
+    return {"text": response}
+
+
+# Text to Speech endpoint
+# https://platform.openai.com/docs/api-reference/audio/createSpeech
+@app.post(
+    "/v1/audio/speech",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def text_to_speech(
+    tts: TextToSpeech,
+    authorization: str = Header(None),
+    user: str = Depends(verify_api_key),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
+    if agent.TTS_PROVIDER != None:
+        audio_data = await agent.text_to_speech(text=tts.input)
+    else:
+        audio_data = await DefaultProvider().text_to_speech(text=tts.input)
+    return base64.b64encode(audio_data).decode("utf-8")
+
+
+# Image Generation endpoint
+# https://platform.openai.com/docs/api-reference/images
+@app.post(
+    "/v1/images/generations",
+    tags=["Images"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def generate_image(
+    image: ImageCreation,
+    authorization: str = Header(None),
+    user: str = Depends(verify_api_key),
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=image.model, user=user, ApiClient=ApiClient)
+    images = []
+    if int(image.n) > 1:
+        for i in range(image.n):
+            image = await agent.generate_image(prompt=image.prompt)
+            images.append({"url": image})
+        return {
+            "created": int(time.time()),
+            "data": images,
+        }
+    image = await agent.generate_image(prompt=image.prompt)
+    return {
+        "created": int(time.time()),
+        "data": [{"url": image}],
     }
-    return GenerateResponse(details=details, generated_text=response)

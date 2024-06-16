@@ -2,12 +2,16 @@ import os
 import base64
 import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Header
-from ApiClient import Agent, verify_api_key, get_api_client, WORKERS
+from ApiClient import Agent, verify_api_key, get_api_client, WORKERS, is_admin
 from typing import Dict, Any, List
+from Websearch import Websearch
+from XT import AGiXT
+from Memories import Memories
+from Conversations import Conversations
 from readers.github import GithubReader
 from readers.file import FileReader
-from readers.website import WebsiteReader
 from readers.arxiv import ArxivReader
+from readers.youtube import YoutubeReader
 from Models import (
     AgentMemoryQuery,
     TextMemoryInput,
@@ -15,8 +19,13 @@ from Models import (
     UrlInput,
     GitHubInput,
     ArxivInput,
+    YoutubeInput,
     ResponseMessage,
     Dataset,
+    FinetuneAgentModel,
+    ExternalSource,
+    UserInput,
+    FeedbackInput,
 )
 
 app = APIRouter()
@@ -30,22 +39,18 @@ app = APIRouter()
 async def query_memories(
     agent_name: str,
     memory: AgentMemoryQuery,
-    collection_number=0,
+    collection_number="0",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=collection_number,
+        collection_number=str(collection_number),
         ApiClient=ApiClient,
         user=user,
     ).get_memories_data(
@@ -69,7 +74,7 @@ async def export_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    memories = await WebsiteReader(
+    memories = await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).export_collections_to_json()
     return {"memories": memories}
@@ -90,7 +95,7 @@ async def import_agent_memories(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name, agent_config=agent_config, ApiClient=ApiClient, user=user
     ).import_collections_from_json(memories)
     return ResponseMessage(message="Memories imported.")
@@ -111,13 +116,14 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    await WebsiteReader(
+    memory = Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=data.collection_number,
+        collection_number=str(data.collection_number),
         ApiClient=ApiClient,
         user=user,
-    ).write_text_to_memory(
+    )
+    await memory.write_text_to_memory(
         user_input=data.user_input, text=data.text, external_source="user input"
     )
     return ResponseMessage(
@@ -156,7 +162,7 @@ async def learn_file(
         await FileReader(
             agent_name=agent_name,
             agent_config=agent_config,
-            collection_number=file.collection_number,
+            collection_number=str(file.collection_number),
             ApiClient=ApiClient,
             user=user,
         ).write_file_to_memory(file_path=file_path)
@@ -185,17 +191,18 @@ async def learn_url(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
-    await WebsiteReader(
-        agent_name=agent_name,
-        agent_config=agent_config,
-        collection_number=url.collection_number,
-        ApiClient=ApiClient,
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    url.url = url.url.replace(" ", "%20")
+    response = await Websearch(
+        collection_number=str(url.collection_number),
+        agent=agent,
         user=user,
-    ).write_website_to_memory(url=url.url)
-    return ResponseMessage(message="Agent learned the content from the url.")
+        ApiClient=ApiClient,
+    ).scrape_websites(
+        user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
+        search_depth=3,
+    )
+    return ResponseMessage(message=response)
 
 
 @app.post(
@@ -216,7 +223,7 @@ async def learn_github_repo(
     await GithubReader(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=git.collection_number,
+        collection_number=str(git.collection_number),
         use_agent_settings=git.use_agent_settings,
         ApiClient=ApiClient,
         user=user,
@@ -249,7 +256,7 @@ async def learn_arxiv(
     await ArxivReader(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=arxiv_input.collection_number,
+        collection_number=str(arxiv_input.collection_number),
         ApiClient=ApiClient,
     ).write_arxiv_articles_to_memory(
         query=arxiv_input.query,
@@ -257,6 +264,30 @@ async def learn_arxiv(
         max_articles=arxiv_input.max_results,
     )
     return ResponseMessage(message="Agent learned the content from the arXiv articles.")
+
+
+@app.post(
+    "/api/agent/{agent_name}/learn/youtube",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def learn_youtube(
+    agent_name: str,
+    youtube_input: YoutubeInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    agent_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).get_agent_config()
+    await YoutubeReader(
+        agent_name=agent_name,
+        agent_config=agent_config,
+        collection_number=str(youtube_input.collection_number),
+        ApiClient=ApiClient,
+    ).write_youtube_captions_to_memory(video_id=youtube_input.video_id)
+    return ResponseMessage(message="Agent learned the content from the YouTube video.")
 
 
 @app.post(
@@ -272,10 +303,11 @@ async def agent_reader(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
-    collection_number = data["collection_number"] if "collection_number" in data else 0
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.AGENT_CONFIG
+    collection_number = (
+        str(data["collection_number"]) if "collection_number" in data else "0"
+    )
     if reader_name == "file":
         response = await FileReader(
             agent_name=agent_name,
@@ -285,13 +317,12 @@ async def agent_reader(
             user=user,
         ).write_file_to_memory(file_path=data["file_path"])
     elif reader_name == "website":
-        response = await WebsiteReader(
-            agent_name=agent_name,
-            agent_config=agent_config,
+        response = await Websearch(
             collection_number=collection_number,
-            ApiClient=ApiClient,
+            agent=agent,
             user=user,
-        ).write_website_to_memory(url=data["url"])
+            ApiClient=ApiClient,
+        ).get_web_content(url=data["url"])
     elif reader_name == "github":
         response = await GithubReader(
             agent_name=agent_name,
@@ -320,6 +351,14 @@ async def agent_reader(
             article_ids=data["article_ids"],
             max_articles=data["max_articles"],
         )
+    elif reader_name == "youtube":
+        response = await YoutubeReader(
+            agent_name=agent_name,
+            agent_config=agent_config,
+            collection_number=collection_number,
+            ApiClient=ApiClient,
+            user=user,
+        ).write_youtube_captions_to_memory(video_id=data["video_id"])
     else:
         raise HTTPException(status_code=400, detail="Invalid reader name.")
     if response == True:
@@ -332,18 +371,20 @@ async def agent_reader(
 
 @app.delete(
     "/api/agent/{agent_name}/memory",
-    tags=["Memory"],
+    tags=["Memory", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
     agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
-        collection_number=0,
+        collection_number="0",
         ApiClient=ApiClient,
         user=user,
     ).wipe_memory()
@@ -352,22 +393,20 @@ async def wipe_agent_memories(
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}",
-    tags=["Memory"],
+    tags=["Memory", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
     agent_name: str,
-    collection_number=0,
+    collection_number: str = "0",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -384,18 +423,14 @@ async def wipe_agent_memories(
 )
 async def delete_agent_memory(
     agent_name: str,
-    collection_number=0,
+    collection_number: str = "0",
     memory_id="",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    await WebsiteReader(
+    await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
         collection_number=collection_number,
@@ -410,7 +445,7 @@ async def delete_agent_memory(
 # Create dataset
 @app.post(
     "/api/agent/{agent_name}/memory/dataset",
-    tags=["Memory"],
+    tags=["Memory", "Admin"],
     dependencies=[Depends(verify_api_key)],
     summary="Create a dataset from the agent's memories",
 )
@@ -420,21 +455,188 @@ async def create_dataset(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
     asyncio.create_task(
-        await WebsiteReader(
+        AGiXT(
             agent_name=agent_name,
-            agent_config=agent.AGENT_CONFIG,
-            collection_number=0,
-            ApiClient=ApiClient,
             user=user,
-        ).create_dataset_from_memories(
-            dataset_name=dataset.dataset_name,
-            batch_size=batch_size,
-        )
+            api_key=authorization,
+        ).create_dataset_from_memories(batch_size=batch_size)
     )
     return ResponseMessage(
         message=f"Creation of dataset {dataset.dataset_name} for agent {agent_name} started."
     )
+
+
+@app.post(
+    "/api/agent/{agent_name}/dpo",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Gets a DPO response for a question",
+)
+async def get_dpo_response(
+    agent_name: str,
+    user_input: UserInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> Dict[str, Any]:
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    prompt, chosen, rejected = await agixt.dpo(
+        question=user_input, injected_memories=int(user_input.injected_memories)
+    )
+    return {
+        "prompt": prompt,
+        "chosen": chosen,
+        "rejected": rejected,
+    }
+
+
+# Train model
+@app.post(
+    "/api/agent/{agent_name}/memory/dataset/{dataset_name}/finetune",
+    tags=["Memory", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Fine tune a language model with the agent's memories as a synthetic dataset",
+)
+async def fine_tune_model(
+    agent_name: str,
+    finetune: FinetuneAgentModel,
+    dataset_name: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    from Tuning import fine_tune_llm
+
+    ApiClient = get_api_client(authorization=authorization)
+    asyncio.create_task(
+        fine_tune_llm(
+            agent_name=agent_name,
+            dataset_name=dataset_name,
+            model_name=finetune.model,
+            max_seq_length=finetune.max_seq_length,
+            huggingface_output_path=finetune.huggingface_output_path,
+            private_repo=finetune.private_repo,
+            ApiClient=ApiClient,
+        )
+    )
+    return ResponseMessage(
+        message=f"Fine-tuning of model {finetune.model_name} started. The agent's status has is now set to True, it will be set to False once the training is complete."
+    )
+
+
+# Delete memories from external source
+@app.delete(
+    "/api/agent/{agent_name}/memory/external_source",
+    tags=["Memory", "Admin"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_memories_from_external_source(
+    agent_name: str,
+    external_source: ExternalSource,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=str(external_source.collection_number),
+        ApiClient=ApiClient,
+        user=user,
+    ).delete_memories_from_external_source(
+        external_source=external_source.external_source
+    )
+    return ResponseMessage(
+        message=f"Memories from external source {external_source.external_source} for agent {agent_name} deleted."
+    )
+
+
+# Get unique external sources
+@app.get(
+    "/api/agent/{agent_name}/memory/external_sources/{collection_number}",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_unique_external_sources(
+    agent_name: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> Dict[str, Any]:
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    external_sources = await Memories(
+        agent_name=agent_name,
+        agent_config=agent.AGENT_CONFIG,
+        collection_number=collection_number,
+        ApiClient=ApiClient,
+        user=user,
+    ).get_external_data_sources()
+    return {"external_sources": external_sources}
+
+
+# RLHF endpoint
+@app.post(
+    "/api/agent/{agent_name}/feedback",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def rlhf(
+    agent_name: str,
+    data: FeedbackInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    c = Conversations(conversation_name=data.conversation_name, user=user)
+    if c.has_received_feedback(message=data.message):
+        return ResponseMessage(
+            message="Feedback already received for this interaction."
+        )
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    if data.positive == True:
+        memory = agixt.agent_interactions.positive_feedback_memories
+    else:
+        memory = agixt.agent_interactions.negative_feedback_memories
+    reflection = await agixt.inference(
+        user_input=data.user_input,
+        input_kind="positive" if data.positive == True else "negative",
+        assistant_response=data.message,
+        feedback=data.feedback,
+        conversation_name=data.conversation_name,
+        log_user_input=False,
+        log_output=False,
+    )
+    memory_message = f"""## Feedback received from a similar interaction in the past:
+### User
+{data.user_input}
+
+### Assistant
+{data.message}
+
+### Feedback from User
+{data.feedback}
+
+### Reflection on the feedback
+{reflection}
+"""
+    await memory.write_text_to_memory(
+        user_input=data.user_input,
+        text=memory_message,
+        external_source="reflection from user feedback",
+    )
+    response_message = (
+        f"{'Positive' if data.positive == True else 'Negative'} feedback received."
+    )
+    c.log_interaction(
+        role=agent_name,
+        message=f"[ACTIVITY][FEEDBACK] {response_message}",
+    )
+    c.toggle_feedback_received(message=data.message)
+    return ResponseMessage(message=response_message)

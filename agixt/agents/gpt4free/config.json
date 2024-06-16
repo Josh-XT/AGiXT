@@ -2,9 +2,15 @@
   "commands": {},
   "settings": {
     "provider": "gpt4free",
-    "AI_MODEL": "gpt-3.5-turbo",
+    "tts_provider": "default",
+    "transcription_provider": "default",
+    "translation_provider": "default",
+    "embeddings_provider": "default",
+    "image_provider": "None",
+    "vision_provider": "None",
+    "AI_MODEL": "mixtral-8x7b",
     "AI_TEMPERATURE": "0.4",
-    "MAX_TOKENS": "4000",
+    "MAX_TOKENS": "32000",
     "embedder": "default",
     "AUTONOMOUS_EXECUTION": true,
     "helper_agent_name": "gpt4free",
@@ -15,6 +21,12 @@
     "stream": "false",
     "WORKING_DIRECTORY": "./WORKSPACE",
     "WORKING_DIRECTORY_RESTRICTED": "True",
-    "HUGGINGFACE_AUDIO_TO_TEXT_MODEL": "facebook/wav2vec2-large-960h-lv60-self"
+    "mode": "prompt",
+    "prompt_category": "Default",
+    "prompt_name": "Chat",
+    "VOICE": "Brian",
+    "PERSONA": "",
+    "websearch": false,
+    "websearch_depth": 3
   }
 }

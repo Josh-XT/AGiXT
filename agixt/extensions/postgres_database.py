@@ -51,12 +51,24 @@ class postgres_database(Extensions):
             return None
 
     async def execute_sql(self, query: str):
+        """
+        Execute a custom SQL query in the Postgres database
+
+        Args:
+        query (str): The SQL query to execute
+
+        Returns:
+        str: The result of the SQL query
+        """
         if "```sql" in query:
             query = query.split("```sql")[1].split("```")[0]
         query = query.replace("\n", " ")
         query = query.strip()
+        query = query.replace("```", "")
         logging.info(f"Executing SQL Query: {query}")
         connection = self.get_connection()
+        if not connection:
+            return "Error connecting to Postgres Database"
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         try:
             cursor.execute(query)
@@ -101,8 +113,17 @@ class postgres_database(Extensions):
             return await self.execute_sql(query=new_query)
 
     async def get_schema(self):
+        """
+        Get the schema of the Postgres database
+
+        Returns:
+        str: The schema of the Postgres database
+        """
+
         logging.info(f"Getting schema for database '{self.POSTGRES_DATABASE_NAME}'")
         connection = self.get_connection()
+        if not connection:
+            return "Error connecting to Postgres Database"
         cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cursor.execute(
             f"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema');"

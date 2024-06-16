@@ -5,12 +5,13 @@ import glob
 import os
 import inspect
 import logging
-from Defaults import DEFAULT_SETTINGS
-from dotenv import load_dotenv
+from Globals import getenv
 
-load_dotenv()
-
-DISABLED_PROVIDERS = os.getenv("DISABLED_PROVIDERS", "").replace(" ", "").split(",")
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
+DISABLED_PROVIDERS = getenv("DISABLED_PROVIDERS").replace(" ", "").split(",")
 
 
 def get_providers():
@@ -24,34 +25,25 @@ def get_providers():
 
 def get_provider_options(provider_name):
     provider_name = provider_name.lower()
-    if provider_name == "llamacppapi":
-        provider_name = "llamacpp"
+    options = {}
     if provider_name in DISABLED_PROVIDERS:
         return {}
     logging.info(f"Getting options for provider: {provider_name}")
     # This will keep transformers from being installed unless needed.
-    if provider_name == "pipeline":
-        options = DEFAULT_SETTINGS.copy()
-        options["provider"] = provider_name
-        options["HUGGINGFACE_API_KEY"] = ""
-        options["MODEL_PATH"] = ""
-    else:
-        try:
-            module = importlib.import_module(f"providers.{provider_name}")
-            provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
-            signature = inspect.signature(provider_class.__init__)
-            options = {
-                name: (
-                    param.default
-                    if param.default is not inspect.Parameter.empty
-                    else None
-                )
-                for name, param in signature.parameters.items()
-                if name != "self" and name != "kwargs"
-            }
-        except:
-            pass
-    if "prodiver" not in options:
+    try:
+        module = importlib.import_module(f"providers.{provider_name}")
+        provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+        signature = inspect.signature(provider_class.__init__)
+        options = {
+            name: (
+                param.default if param.default is not inspect.Parameter.empty else None
+            )
+            for name, param in signature.parameters.items()
+            if name != "self" and name != "kwargs"
+        }
+    except:
+        pass
+    if "provider" not in options:
         options["provider"] = provider_name
     return options
 
@@ -65,6 +57,38 @@ def get_providers_with_settings():
             }
         )
     return providers
+
+
+def get_provider_services(provider_name="openai"):
+    try:
+        module = importlib.import_module(f"providers.{provider_name}")
+        provider_class = getattr(module, f"{provider_name.capitalize()}Provider")
+        return provider_class.services()
+    except:
+        return []
+
+
+def get_providers_by_service(service="llm"):
+    providers = []
+    if service in [
+        "llm",
+        "tts",
+        "image",
+        "embeddings",
+        "transcription",
+        "translation",
+        "vision",
+    ]:
+        try:
+            for provider in get_providers():
+                if provider in DISABLED_PROVIDERS:
+                    continue
+                if service in get_provider_services(provider):
+                    providers.append(provider)
+            return providers
+        except:
+            return []
+    return []
 
 
 class Providers:
@@ -81,7 +105,8 @@ class Providers:
             self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
-            raise AttributeError(f"module {__name__} has no attribute {name}") from e
+            if name != None and name != "None" and not str(name).startswith("__"):
+                logging.info(f"Error loading provider: {name}")
 
     def __getattr__(self, attr):
         return getattr(self.instance, attr)

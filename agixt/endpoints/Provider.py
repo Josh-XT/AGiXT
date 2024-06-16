@@ -1,8 +1,12 @@
 from typing import Dict
-from fastapi import APIRouter, Depends, Header
-from Providers import get_provider_options, get_providers, get_providers_with_settings
-from Embedding import get_embedding_providers, get_embedders
-from ApiClient import verify_api_key, DB_CONNECTED
+from fastapi import APIRouter, Depends, Header, HTTPException
+from Providers import (
+    get_provider_options,
+    get_providers,
+    get_providers_with_settings,
+    get_providers_by_service,
+)
+from ApiClient import verify_api_key, get_api_client, is_admin
 from typing import Any
 
 app = APIRouter()
@@ -34,6 +38,16 @@ async def get_all_providers(user=Depends(verify_api_key)):
     return {"providers": providers}
 
 
+@app.get(
+    "/api/providers/service/{service}",
+    tags=["Provider"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_providers_by_service_name(service: str, user=Depends(verify_api_key)):
+    providers = get_providers_by_service(service=service)
+    return {"providers": providers}
+
+
 # Gets list of embedding providers
 @app.get(
     "/api/embedding_providers",
@@ -41,7 +55,7 @@ async def get_all_providers(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_embed_providers(user=Depends(verify_api_key)):
-    providers = get_embedding_providers()
+    providers = get_providers_by_service(service="embeddings")
     return {"providers": providers}
 
 
@@ -52,17 +66,4 @@ async def get_embed_providers(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_embedder_info(user=Depends(verify_api_key)) -> Dict[str, Any]:
-    return {"embedders": get_embedders()}
-
-
-if DB_CONNECTED:
-    from db.User import create_user
-    from Models import User
-
-    @app.post("/api/user", tags=["User"])
-    async def createuser(account: User, authorization: str = Header(None)):
-        return create_user(api_key=authorization, email=account.email, role="user")
-
-    @app.post("/api/admin", tags=["User"])
-    async def createadmin(account: User, authorization: str = Header(None)):
-        return create_user(api_key=authorization, email=account.email, role="admin")
+    return {"embedders": get_providers_by_service(service="embeddings")}

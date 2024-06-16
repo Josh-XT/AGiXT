@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any, Union
+from Globals import DEFAULT_USER
 
 
 class AgentName(BaseModel):
@@ -21,9 +22,20 @@ class AgentMemoryQuery(BaseModel):
     min_relevance_score: float = 0.0
 
 
+class UserInput(BaseModel):
+    user_input: str
+    injected_memories: Optional[int] = 10
+
+
 class Dataset(BaseModel):
-    dataset_name: str
     batch_size: int = 5
+
+
+class FinetuneAgentModel(BaseModel):
+    model: Optional[str] = "unsloth/mistral-7b-v0.2"
+    max_seq_length: Optional[int] = 16384
+    huggingface_output_path: Optional[str] = "JoshXT/finetuned-mistral-7b-v0.2"
+    private_repo: Optional[bool] = True
 
 
 class Objective(BaseModel):
@@ -46,38 +58,36 @@ class PromptCategoryList(BaseModel):
     prompt_categories: List[str]
 
 
-class Completions(BaseModel):
-    model: str = "gpt-3.5-turbo"
-    prompt: str = ""
-    max_tokens: Optional[int] = 8192
-    temperature: Optional[float] = 0.9
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    logit_bias: Optional[Dict[str, float]] = None
-    stop: Optional[List[str]] = None
-    echo: Optional[bool] = False
-    system_message: Optional[str] = ""
-    user: Optional[str] = None
-    format_prompt: Optional[bool] = True
-
-
 class ChatCompletions(BaseModel):
-    model: str = "gpt-3.5-turbo"
+    model: str = "gpt-3.5-turbo"  # This is the agent name
     messages: List[dict] = None
     temperature: Optional[float] = 0.9
     top_p: Optional[float] = 1.0
-    functions: Optional[List[dict]] = None
-    function_call: Optional[str] = None
+    tools: Optional[List[dict]] = None
+    tools_choice: Optional[str] = "auto"
     n: Optional[int] = 1
     stream: Optional[bool] = False
     stop: Optional[List[str]] = None
-    max_tokens: Optional[int] = 8192
+    max_tokens: Optional[int] = 4096
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
+    user: Optional[str] = "Chat"  # This is the conversation name
+
+
+class TextToSpeech(BaseModel):
+    input: str
+    model: Optional[str] = "gpt4free"
+    voice: Optional[str] = "default"
+    language: Optional[str] = "en"
     user: Optional[str] = None
-    system_message: Optional[str] = ""
+
+
+class ImageCreation(BaseModel):
+    prompt: str
+    model: Optional[str] = "dall-e-3"
+    n: Optional[int] = 1
+    size: Optional[str] = "1024x1024"
 
 
 class EmbeddingModel(BaseModel):
@@ -111,6 +121,7 @@ class RunChainStep(BaseModel):
     prompt: str
     agent_override: Optional[str] = ""
     chain_args: Optional[dict] = {}
+    chain_run_id: Optional[str] = ""
 
 
 class StepInfo(BaseModel):
@@ -145,19 +156,27 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class FileInput(BaseModel):
     file_name: str
     file_content: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class TextMemoryInput(BaseModel):
     user_input: str
     text: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
+
+
+class FeedbackInput(BaseModel):
+    user_input: str
+    message: str
+    feedback: str
+    positive: Optional[bool] = True
+    conversation_name: Optional[str] = ""
 
 
 class TaskOutput(BaseModel):
@@ -177,13 +196,20 @@ class CustomPromptModel(BaseModel):
 
 class AgentSettings(BaseModel):
     agent_name: str
-    settings: Dict[str, Any]
+    settings: Optional[Dict[str, Any]] = {}
+    commands: Optional[Dict[str, Any]] = {}
+    training_urls: Optional[List[str]] = []
 
 
 class AgentConfig(BaseModel):
     agent_name: str
     settings: Dict[str, Any]
     commands: Dict[str, Any]
+
+
+class AgentBrowsedLinks(BaseModel):
+    agent_name: str
+    links: List[Dict[str, Any]]
 
 
 class AgentCommands(BaseModel):
@@ -198,10 +224,19 @@ class HistoryModel(BaseModel):
     page: int = 1
 
 
+class ExternalSource(BaseModel):
+    external_source: str
+    collection_number: Optional[str] = "0"
+
+
 class ConversationHistoryModel(BaseModel):
     agent_name: str
     conversation_name: str
     conversation_content: List[dict] = []
+
+
+class TTSInput(BaseModel):
+    text: str
 
 
 class ConversationHistoryMessageModel(BaseModel):
@@ -215,6 +250,24 @@ class UpdateConversationHistoryMessageModel(BaseModel):
     conversation_name: str
     message: str
     new_message: str
+
+
+class TaskPlanInput(BaseModel):
+    user_input: str
+    websearch: Optional[bool] = False
+    websearch_depth: Optional[int] = 3
+    conversation_name: Optional[str] = "AGiXT Task Planning"
+    log_user_input: Optional[bool] = True
+    log_output: Optional[bool] = True
+    enable_new_command: Optional[bool] = True
+
+
+class TasksToDo(BaseModel):
+    tasks: List[str]
+
+
+class ChainCommandName(BaseModel):
+    command_name: str
 
 
 class GitHubInput(BaseModel):
@@ -233,21 +286,42 @@ class ArxivInput(BaseModel):
     collection_number: Optional[int] = 0
 
 
+class YoutubeInput(BaseModel):
+    video_id: str
+    collection_number: Optional[str] = "0"
+
+
 class CommandExecution(BaseModel):
     command_name: str
     command_args: dict
     conversation_name: str = "AGiXT Terminal Command Execution"
 
 
-class User(BaseModel):
+class WebhookUser(BaseModel):
     email: str
+    agent_name: Optional[str] = ""
+    settings: Optional[Dict[str, Any]] = {}
+    commands: Optional[Dict[str, Any]] = {}
+    training_urls: Optional[List[str]] = []
+    github_repos: Optional[List[str]] = []
 
 
-class GenerateModel(BaseModel):
-    inputs: str
-    parameters: dict
+# Auth user models
+class Login(BaseModel):
+    email: str
+    token: str
 
 
-class GenerateResponse(BaseModel):
-    details: dict
-    generated_text: str
+class Register(BaseModel):
+    email: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+
+
+class UserInfo(BaseModel):
+    first_name: str
+    last_name: str
+
+
+class Detail(BaseModel):
+    detail: str

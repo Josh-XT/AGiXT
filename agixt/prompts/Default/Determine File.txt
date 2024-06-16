@@ -1,0 +1,15 @@
+Recent conversation history for context: 
+ {conversation_history} 
+
+Today's date is {date} .
+
+## Directory listing of the assistant's working directory
+
+ {directory_listing} 
+
+User's last message:
+ {user_input} 
+
+The assistant needs to determine which file the user is referring to using context from their last message, activities, and conversation history. Provide only the name of the file the user is referring to based on the conversation history and recent activities.
+
+**Respond only with the name of the file. Multiple files can be selected by using new lines between file names. Simply say "None" if there is nothing relevant to do with any files from the user's last message and context.**

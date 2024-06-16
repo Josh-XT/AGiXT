@@ -11,6 +11,16 @@ on:
         required: true
       port:
         type: string
+      secondary-image:
+        type: string
+        required: false
+        description: "Secondary image to run"
+        default: "joshxt/safeexecute:latest"
+      secondary-image-port:
+        type: string
+        required: false
+        description: "Port for the secondary image"
+        default: "5432"
       port-mapping:
         type: string
       additional-python-dependencies:
@@ -30,6 +40,34 @@ on:
       clone-repo:
         type: boolean
         default: false
+      database-type:
+        type: string
+        default: "postgresql"
+        description: "Database type to use"
+      db-connected:
+        type: boolean
+        default: true
+        description: "If the database is connected"
+      report-name:
+        type: string
+        default: "test-reports"
+        description: "Name of the report"
+      auth-schema:
+        type: string
+        description: schema to use for authentication
+        default: company
+      sendgrid-api-key:
+        type: string
+        default: none
+        description: Optional sendgrid api-key available as os.getenv('SENDGRID_API_KEY') in your notebook
+      stripe-api-key:
+        type: string
+        default: none
+        description: Optional stripe api-key available as os.getenv('STRIPE_API_KEY') in your notebook
+      default-email:
+        type: string
+        default: none
+        description: Optional default email available as os.getenv('DEFAULT_EMAIL') in your notebook
     secrets:
       api-key:
         description: Optional api-key available as os.getenv('API_KEY') in your notebook
@@ -40,11 +78,51 @@ jobs:
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
+      dbservice:
+        image: postgres:latest
+        ports:
+          - 5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+      secondary-service:
+        image: ${{ inputs.secondary-image }}
+        ports:
+          - ${{ inputs.secondary-image-port }}
+        env:
+          DB_CONNECTED: ${{ inputs.db-connected }}
+          DATABASE_TYPE: ${{ inputs.database-type }}
+          DATABASE_HOST: dbservice
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres
+          DATABASE_PORT: 5432
+          DATABASE_NAME: postgres
+          SCHEMA: ${{ inputs.auth-schema }}
+          LOG_LEVEL: DEBUG
+          MFA_VERIFY: authenticator
+          TZ: America/New_York
       service-under-test:
         image: ${{ inputs.image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.port, inputs.port) }}
-
+        env:
+          DB_CONNECTED: ${{ inputs.db-connected }}
+          DATABASE_TYPE: ${{ inputs.database-type }}
+          DATABASE_HOST: dbservice
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres
+          DATABASE_PORT: 5432
+          DATABASE_NAME: postgres
+          SCHEMA: ${{ inputs.auth-schema }}
+          LOG_LEVEL: DEBUG
+          SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
+          DEFAULT_EMAIL: ${{ inputs.default-email }}
+          DEFAULT_SERVICE: sendgrid
+          MFA_VERIFY: authenticator
+          MODE: development
+          STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
+          TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -111,5 +189,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: ${{ inputs.report-name }}
           path: ${{ env.artifact-file }}

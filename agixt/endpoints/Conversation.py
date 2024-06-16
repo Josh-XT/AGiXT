@@ -1,13 +1,6 @@
 from fastapi import APIRouter, Depends
-from ApiClient import (
-    verify_api_key,
-    get_conversations,
-    get_conversation,
-    new_conversation,
-    delete_history,
-    delete_message,
-    update_message,
-)
+from ApiClient import verify_api_key, Conversations
+from typing import Optional
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
@@ -20,27 +13,20 @@ app = APIRouter()
 
 
 @app.get(
-    "/api/{agent_name}/conversations",
-    tags=["Conversation"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_conversations_list(agent_name: str, user=Depends(verify_api_key)):
-    conversations = get_conversations(agent_name=agent_name, user=user)
-    if conversations is None:
-        conversations = []
-    return {"conversations": conversations}
-
-
-@app.get(
     "/api/conversations",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversations_list(user=Depends(verify_api_key)):
-    conversations = get_conversations(agent_name="OpenAI", user=user)
+    c = Conversations(user=user)
+    conversations = c.get_conversations()
     if conversations is None:
         conversations = []
-    return {"conversations": conversations}
+    conversations_with_ids = c.get_conversations_with_ids()
+    return {
+        "conversations": conversations,
+        "conversations_with_ids": conversations_with_ids,
+    }
 
 
 @app.get(
@@ -49,14 +35,12 @@ async def get_conversations_list(user=Depends(verify_api_key)):
     dependencies=[Depends(verify_api_key)],
 )
 async def get_conversation_history(history: HistoryModel, user=Depends(verify_api_key)):
-    conversation_history = get_conversation(
-        agent_name=history.agent_name,
-        conversation_name=history.conversation_name,
+    conversation_history = Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).get_conversation(
         limit=history.limit,
         page=history.page,
-        user=user,
     )
-
     if conversation_history is None:
         conversation_history = []
     if "interactions" in conversation_history:
@@ -71,19 +55,13 @@ async def get_conversation_history(history: HistoryModel, user=Depends(verify_ap
 )
 async def get_conversation_data(
     conversation_name: str,
-    agent_name: str = "OpenAI",
     limit: int = 100,
     page: int = 1,
     user=Depends(verify_api_key),
 ):
-    conversation_history = get_conversation(
-        agent_name=agent_name,
-        conversation_name=conversation_name,
-        limit=limit,
-        page=page,
-        user=user,
-    )
-
+    conversation_history = Conversations(
+        conversation_name=conversation_name, user=user
+    ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
         conversation_history = []
     if "interactions" in conversation_history:
@@ -97,14 +75,12 @@ async def get_conversation_data(
     dependencies=[Depends(verify_api_key)],
 )
 async def new_conversation_history(
-    history: ConversationHistoryModel, user=Depends(verify_api_key)
+    history: ConversationHistoryModel,
+    user=Depends(verify_api_key),
 ):
-    new_conversation(
-        agent_name=history.agent_name,
-        conversation_name=history.conversation_name,
-        conversation_content=history.conversation_content,
-        user=user,
-    )
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).new_conversation(conversation_content=history.conversation_content)
     return {"conversation_history": history.conversation_content}
 
 
@@ -116,11 +92,9 @@ async def new_conversation_history(
 async def delete_conversation_history(
     history: ConversationHistoryModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
-    delete_history(
-        agent_name=history.agent_name,
-        conversation_name=history.conversation_name,
-        user=user,
-    )
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).delete_conversation()
     return ResponseMessage(
         message=f"Conversation `{history.conversation_name}` for agent {history.agent_name} deleted."
     )
@@ -134,12 +108,9 @@ async def delete_conversation_history(
 async def delete_history_message(
     history: ConversationHistoryMessageModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
-    delete_message(
-        agent_name=history.agent_name,
-        message=history.message,
-        conversation_name=history.conversation_name,
-        user=user,
-    )
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).delete_message(message=history.message)
     return ResponseMessage(message=f"Message deleted.")
 
 
@@ -151,11 +122,10 @@ async def delete_history_message(
 async def update_history_message(
     history: UpdateConversationHistoryMessageModel, user=Depends(verify_api_key)
 ) -> ResponseMessage:
-    update_message(
-        agent_name=history.agent_name,
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).update_message(
         message=history.message,
         new_message=history.new_message,
-        conversation_name=history.conversation_name,
-        user=user,
     )
     return ResponseMessage(message=f"Message updated.")

@@ -18,7 +18,7 @@ if( !(Test-Path "$(Get-Location)\.env") ) {
     $env:UVICORN_WORKERS = Read-Host "Enter the number of AGiXT workers to run (default: 10)"
     $env:AGIXT_AUTO_UPDATE = $env:AGIXT_AUTO_UPDATE.ToLower()
     if ([string]::IsNullOrEmpty($env:AGIXT_AUTO_UPDATE) -or $env:AGIXT_AUTO_UPDATE -eq "y" -or $env:AGIXT_AUTO_UPDATE -eq "yes") { $env:AGIXT_AUTO_UPDATE = "true" } else { $env:AGIXT_AUTO_UPDATE = "false" }  
-    if ([string]::IsNullOrEmpty($env:AGIXT_URI)) { $env:AGIXT_URI = "http://localhost:7437" }
+    if ([string]::IsNullOrEmpty($env:AGIXT_URI)) { $env:AGIXT_URI = "http://agixt:7437" }
     if ([string]::IsNullOrEmpty($env:UVICORN_WORKERS)) { $env:UVICORN_WORKERS = "10" }
     if ([string]::IsNullOrEmpty($env:WORKING_DIRECTORY)) { $env:WORKING_DIRECTORY = "$(Get-Location)\agixt\WORKSPACE" }
     Set-Content -Path "$(Get-Location)\.env" -Value "AGIXT_AUTO_UPDATE=$env:AGIXT_AUTO_UPDATE`nAGIXT_API_KEY=$env:AGIXT_API_KEY`nAGIXT_URI=$env:AGIXT_URI`nUVICORN_WORKERS=$env:UVICORN_WORKERS`nWORKING_DIRECTORY=$env:WORKING_DIRECTORY"

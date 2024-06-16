@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
-from ApiClient import Chain, verify_api_key, get_api_client
-from Chains import Chains
+from ApiClient import Chain, verify_api_key, get_api_client, is_admin
+from XT import AGiXT
 from Models import (
     RunChain,
     RunChainStep,
@@ -16,8 +16,10 @@ from Models import (
 app = APIRouter()
 
 
-@app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
-async def get_chains(user=Depends(verify_api_key)):
+@app.get("/api/chain", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)])
+async def get_chains(user=Depends(verify_api_key), authorization: str = Header(None)):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     chains = Chain(user=user).get_chains()
     return chains
 
@@ -26,31 +28,13 @@ async def get_chains(user=Depends(verify_api_key)):
     "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
 )
 async def get_chain(chain_name: str, user=Depends(verify_api_key)):
-    # try:
     chain_data = Chain(user=user).get_chain(chain_name=chain_name)
     return {"chain": chain_data}
-    # except:
-    #    raise HTTPException(status_code=404, detail="Chain not found")
-
-
-@app.get(
-    "/api/chain/{chain_name}/responses",
-    tags=["Chain"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_chain_responses(chain_name: str, user=Depends(verify_api_key)):
-    try:
-        chain_data = Chain(user=user).get_step_response(
-            chain_name=chain_name, step_number="all"
-        )
-        return {"chain": chain_data}
-    except:
-        raise HTTPException(status_code=404, detail="Chain not found")
 
 
 @app.post(
     "/api/chain/{chain_name}/run",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain(
@@ -59,14 +43,20 @@ async def run_chain(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    ApiClient = get_api_client(authorization=authorization)
-    chain_response = await Chains(user=user, ApiClient=ApiClient).run_chain(
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
+    chain_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).execute_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
         agent_override=user_input.agent_override,
-        all_responses=user_input.all_responses,
         from_step=user_input.from_step,
         chain_args=user_input.chain_args,
+        log_user_input=False,
     )
     try:
         if "Chain failed to complete" in chain_response:
@@ -78,7 +68,7 @@ async def run_chain(
 
 @app.post(
     "/api/chain/{chain_name}/run/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain_step(
@@ -88,6 +78,8 @@ async def run_chain_step(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     chain = Chain(user=user)
     chain_steps = chain.get_chain(chain_name=chain_name)
     try:
@@ -96,8 +88,15 @@ async def run_chain_step(
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
-    ApiClient = get_api_client(authorization=authorization)
-    chain_step_response = await Chains(user=user, ApiClient=ApiClient).run_chain_step(
+    agent_name = (
+        user_input.agent_override if user_input.agent_override else step["agent"]
+    )
+    chain_step_response = await AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+    ).run_chain_step(
+        chain_run_id=user_input.chain_run_id,
         step=step,
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -117,31 +116,41 @@ async def run_chain_step(
 # Get chain args
 @app.get(
     "/api/chain/{chain_name}/args",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_chain_args(
     chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ):
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    chain_args = Chains(user=user, ApiClient=ApiClient).get_chain_args(
+    chain_args = Chain(user=user, ApiClient=ApiClient).get_chain_args(
         chain_name=chain_name
     )
     return {"chain_args": chain_args}
 
 
-@app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/chain", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)])
 async def add_chain(
-    chain_name: ChainName, user=Depends(verify_api_key)
+    chain_name: ChainName,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).add_chain(chain_name=chain_name.chain_name)
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
-@app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/api/chain/import", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)]
+)
 async def importchain(
-    chain: ChainData, user=Depends(verify_api_key)
+    chain: ChainData, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     response = Chain(user=user).import_chain(
         chain_name=chain.chain_name, steps=chain.steps
     )
@@ -149,11 +158,18 @@ async def importchain(
 
 
 @app.put(
-    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+    "/api/chain/{chain_name}",
+    tags=["Chain", "Admin"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def rename_chain(
-    chain_name: str, new_name: ChainNewName, user=Depends(verify_api_key)
+    chain_name: str,
+    new_name: ChainNewName,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).rename_chain(chain_name=chain_name, new_name=new_name.new_name)
     return ResponseMessage(
         message=f"Chain '{chain_name}' renamed to '{new_name.new_name}'."
@@ -161,24 +177,34 @@ async def rename_chain(
 
 
 @app.delete(
-    "/api/chain/{chain_name}", tags=["Chain"], dependencies=[Depends(verify_api_key)]
+    "/api/chain/{chain_name}",
+    tags=["Chain", "Admin"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def delete_chain(
-    chain_name: str, user=Depends(verify_api_key)
+    chain_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).delete_chain(chain_name=chain_name)
     return ResponseMessage(message=f"Chain '{chain_name}' deleted.")
 
 
 @app.post(
     "/api/chain/{chain_name}/step",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def add_step(
-    chain_name: str, step_info: StepInfo, user=Depends(verify_api_key)
+    chain_name: str,
+    step_info: StepInfo,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
-    Chain(user=user).add_chain_step(
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    ApiClient = get_api_client(authorization=authorization)
+    Chain(user=user, ApiClient=ApiClient).add_chain_step(
         chain_name=chain_name,
         step_number=step_info.step_number,
         prompt_type=step_info.prompt_type,
@@ -190,7 +216,7 @@ async def add_step(
 
 @app.put(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_step(
@@ -198,10 +224,13 @@ async def update_step(
     step_number: int,
     chain_step: ChainStep,
     user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).update_step(
         chain_name=chain_name,
-        step_number=chain_step.step_number,
+        step_number=step_number if step_number else chain_step.step_number,
         prompt_type=chain_step.prompt_type,
         prompt=chain_step.prompt,
         agent_name=chain_step.agent_name,
@@ -213,12 +242,17 @@ async def update_step(
 
 @app.patch(
     "/api/chain/{chain_name}/step/move",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def move_step(
-    chain_name: str, chain_step_new_info: ChainStepNewInfo, user=Depends(verify_api_key)
+    chain_name: str,
+    chain_step_new_info: ChainStepNewInfo,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).move_step(
         chain_name=chain_name,
         current_step_number=chain_step_new_info.old_step_number,
@@ -231,11 +265,16 @@ async def move_step(
 
 @app.delete(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain"],
+    tags=["Chain", "Admin"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_step(
-    chain_name: str, step_number: int, user=Depends(verify_api_key)
+    chain_name: str,
+    step_number: int,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> ResponseMessage:
+    if is_admin(email=user, api_key=authorization) != True:
+        raise HTTPException(status_code=403, detail="Access Denied")
     Chain(user=user).delete_step(chain_name=chain_name, step_number=step_number)
     return {"message": f"Step {step_number} deleted from chain '{chain_name}'."}

@@ -1,0 +1,23 @@
+## Context 
+ {context} 
+
+Recent conversation history for context: 
+ {conversation_history} 
+
+Today's date is {date} .
+
+## System
+The assistant is receiving feedback from the user. As an exercise in reflection, summarize the error that the assistant made to receive this feedback.
+
+The user's message prior to the one receiving {input_kind} was:
+ {user_input} 
+
+The assistant's response was:
+ {assistant_response} 
+
+The user felt this was {input_kind} and provided the following feedback:
+ {feedback} 
+
+This message is not to the user, it is to store into the assitants long term training data and reflect back on for future interactions.
+
+Based on the interaction, what should the assistant do differently to improve the user experience?
