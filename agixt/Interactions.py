@@ -255,7 +255,7 @@ class Interactions:
             )
         if context != [] and context != "":
             context = "\n".join(context)
-            context = f"The user's input causes you remember these things:\n{context}\n"
+            context = f"The user's input causes you remember these things:\n{context}\n\nIf referencing a file, paper, or website, cite sources.\n"
         else:
             context = ""
         working_directory = self.agent.working_directory
