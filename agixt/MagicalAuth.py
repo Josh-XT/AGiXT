@@ -31,7 +31,7 @@ Required environment variables:
 
 - SENDGRID_API_KEY: SendGrid API key
 - SENDGRID_FROM_EMAIL: Default email address to send emails from
-- ENCRYPTION_SECRET: Encryption key to encrypt and decrypt data
+- AGIXT_API_KEY: Encryption key to encrypt and decrypt data
 - MAGIC_LINK_URL: URL to send in the email for the user to click on
 - REGISTRATION_WEBHOOK: URL to send a POST request to when a user registers
 """
@@ -95,23 +95,23 @@ def webhook_create_user(
 
 
 def verify_api_key(authorization: str = Header(None)):
-    ENCRYPTION_SECRET = getenv("ENCRYPTION_SECRET")
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     if getenv("AUTH_PROVIDER") == "magicalauth":
-        ENCRYPTION_SECRET = f'{ENCRYPTION_SECRET}{datetime.now().strftime("%Y%m%d")}'
+        AGIXT_API_KEY = f'{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}'
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    if ENCRYPTION_SECRET:
+    if AGIXT_API_KEY:
         if authorization is None:
             raise HTTPException(
                 status_code=401, detail="Authorization header is missing"
             )
-        if authorization == ENCRYPTION_SECRET:
+        if authorization == AGIXT_API_KEY:
             return "ADMIN"
         try:
-            if authorization == ENCRYPTION_SECRET:
+            if authorization == AGIXT_API_KEY:
                 return "ADMIN"
             token = jwt.decode(
                 jwt=authorization,
-                key=ENCRYPTION_SECRET,
+                key=AGIXT_API_KEY,
                 algorithms=["HS256"],
             )
             db = get_session()
@@ -163,7 +163,7 @@ def send_email(
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        encryption_key = getenv("ENCRYPTION_SECRET")
+        encryption_key = getenv("AGIXT_API_KEY")
         self.link = getenv("MAGIC_LINK_URL")
         self.encryption_key = f'{encryption_key}{datetime.now().strftime("%Y%m%d")}'
         self.token = (
@@ -400,7 +400,7 @@ class MagicalAuth:
                 requests.post(
                     registration_webhook,
                     json={"email": self.email},
-                    headers={"Authorization": getenv("ENCRYPTION_SECRET")},
+                    headers={"Authorization": getenv("AGIXT_API_KEY")},
                 )
             except Exception as e:
                 pass
