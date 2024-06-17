@@ -651,7 +651,8 @@ class AGiXT:
                 for root, dirs, files in os.walk(new_folder):
                     for name in files:
                         file_path = os.path.join(root, name)
-                        output_url = f"{self.outputs}/{extracted_zip_folder_name}/{dirs[0]}/{name}"
+                        current_folder = root.replace(new_folder, "")
+                        output_url = f"{self.outputs}/{extracted_zip_folder_name}/{current_folder}/{name}"
                         logging.info(f"Output URL: {output_url}")
                         await self.learn_from_file(
                             file_url=output_url,
