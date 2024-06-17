@@ -191,6 +191,25 @@ class Agent:
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        vision_provider = (
+            self.AGENT_CONFIG["settings"]["vision_provider"]
+            if "vision_provider" in self.AGENT_CONFIG["settings"]
+            else "None"
+        )
+        if (
+            vision_provider != "None"
+            and vision_provider != None
+            and vision_provider != ""
+        ):
+            try:
+                self.VISION_PROVIDER = Providers(
+                    name=vision_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                )
+            except Exception as e:
+                logging.error(f"Error loading vision provider: {str(e)}")
+                self.VISION_PROVIDER = None
+        else:
+            self.VISION_PROVIDER = None
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
             if "tts_provider" in self.AGENT_CONFIG["settings"]
@@ -319,6 +338,16 @@ class Agent:
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
+            prompt=prompt, tokens=tokens, images=images
+        )
+        return answer.replace("\_", "_")
+
+    async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
+        if not prompt:
+            return ""
+        if not self.VISION_PROVIDER:
+            return ""
+        answer = await self.VISION_PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
         return answer.replace("\_", "_")

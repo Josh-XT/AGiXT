@@ -763,37 +763,37 @@ class AGiXT:
             "bmp",
             "svg",
         ]:
-            if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-                vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
-                if (
-                    vision_provider != "None"
-                    and vision_provider != ""
-                    and vision_provider != None
-                ):
-                    if conversation_name != "" and conversation_name != None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Viewing image at {file_url}.",
-                        )
-                    try:
-                        vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
-                        vision_response = await self.agent.inference(
-                            prompt=vision_prompt, images=[file_url]
-                        )
-                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        await file_reader.write_text_to_memory(
-                            user_input=user_input,
-                            text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
-                            external_source=f"image {file_name}",
-                        )
-                        response = f"Generated a description of the image called `{file_name}` into my memory."
-                    except Exception as e:
-                        logging.error(f"Error getting vision response: {e}")
-                        response = f"[ERROR] I was unable to view the image called `{file_name}`."
-                else:
+            if (
+                self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
+            ):
+                if conversation_name != "" and conversation_name != None:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Viewing image at {file_url}.",
+                    )
+                try:
+                    vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+                    vision_response = await self.agent.vision_inference(
+                        prompt=vision_prompt, images=[file_url]
+                    )
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await file_reader.write_text_to_memory(
+                        user_input=user_input,
+                        text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
+                        external_source=f"image {file_name}",
+                    )
+                    response = f"Generated a description of the image called `{file_name}` into my memory."
+                except Exception as e:
+                    logging.error(f"Error getting vision response: {e}")
                     response = (
                         f"[ERROR] I was unable to view the image called `{file_name}`."
                     )
+            else:
+                response = (
+                    f"[ERROR] I was unable to view the image called `{file_name}`."
+                )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             if os.path.normpath(file_path).startswith(self.agent_workspace):
