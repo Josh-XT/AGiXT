@@ -631,35 +631,6 @@ class AGiXT:
                 text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
                 external_source=f"file {file_path}",
             )
-            if (
-                self.agent.VISION_PROVIDER != "None"
-                and self.agent.VISION_PROVIDER != ""
-                and self.agent.VISION_PROVIDER != None
-            ):
-                with pdfplumber.open(file_path) as pdf:
-                    # Iterate over each page
-                    for i, page in enumerate(pdf.pages):
-                        # Extract images
-                        images = page.images
-                        # Save each image
-                        for j, img in enumerate(images):
-                            # Extract image bytes and convert to an image object
-                            image_bytes = (
-                                page.to_image(resolution=300).to_image().original_bytes
-                            )
-                            im = Image.open(io.BytesIO(image_bytes))
-                            image_name = file_name.replace(
-                                ".pdf", f"_page_{i}_image_{j}.png"
-                            )
-                            # Save the image
-                            im.save(image_name)
-                            await self.learn_from_file(
-                                file_url=f"{self.outputs}/{image_name}",
-                                file_name=image_name,
-                                user_input=f"Original file: {file_name}\nPage: {i} Image: {j}\n{user_input}",
-                                collection_id=collection_id,
-                                conversation_name=conversation_name,
-                            )
             response = (
                 f"Read the content of the PDF file called `{file_name}` into memory."
             )
