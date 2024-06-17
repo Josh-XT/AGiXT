@@ -650,10 +650,9 @@ class AGiXT:
                 for root, dirs, files in os.walk(new_folder):
                     for name in files:
                         file_path = os.path.join(root, name)
-                        file_name = os.path.basename(file_path)
                         await self.learn_from_file(
-                            file_url=f"{self.outputs}/{file_name}",
-                            file_name=file_name,
+                            file_url=f"{self.outputs}/extracted_{file_name}/{name}",
+                            file_name=name,
                             user_input=user_input,
                             collection_id=collection_id,
                             conversation_name=conversation_name,
