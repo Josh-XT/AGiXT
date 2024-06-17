@@ -831,8 +831,12 @@ class AGiXT:
         if url.startswith("http"):
             return {"file_name": file_name, "file_url": url}
         else:
-            file_type = url.split(",")[0].split("/")[1].split(";")[0]
-            file_data = base64.b64decode(url.split(",")[1])
+            if "," in url:
+                file_type = url.split(",")[0].split("/")[1].split(";")[0]
+                file_data = base64.b64decode(url.split(",")[1])
+            else:
+                file_type = file_name.split(".")[-1]
+                file_data = base64.b64decode(url)
             full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
             if not full_path.startswith(self.agent_workspace):
                 raise Exception("Path given not allowed")
