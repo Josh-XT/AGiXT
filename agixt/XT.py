@@ -620,6 +620,7 @@ class AGiXT:
             for i, image in enumerate(images):
                 image_file_name = f"{file_name}_{i}.png"
                 image_path = os.path.join(self.agent_workspace, image_file_name)
+                path = os.path.normpath(image_path).split(self.agent_workspace)[1]
                 image.save(image_path, "PNG")
                 await self.learn_from_file(
                     file_url=f"{self.outputs}/{image_file_name}",
@@ -645,7 +646,9 @@ class AGiXT:
                 os.path.join(self.agent_workspace, extracted_zip_folder_name)
             )
             logging.info(f"Extracting zip file to {new_folder}")
-            norm_file_path = os.path.normpath(file_path)
+            norm_file_path = os.path.normpath(
+                os.path.join(self.agent_workspace, file_name)
+            )
             logging.info(f"Normalized file path: {norm_file_path}")
             logging.info(f"Agent workspace: {self.agent_workspace}")
             if norm_file_path.startswith(
