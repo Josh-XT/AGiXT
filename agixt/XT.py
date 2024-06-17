@@ -771,7 +771,7 @@ class AGiXT:
                 if conversation_name != "" and conversation_name != None:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Viewing image at {file_url}.",
+                        message=f"[ACTIVITY] Viewing image at {file_url} ",
                     )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
