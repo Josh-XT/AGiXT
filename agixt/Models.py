@@ -162,7 +162,7 @@ class UrlInput(BaseModel):
 class FileInput(BaseModel):
     file_name: str
     file_content: str
-    collection_number: Optional[str] = "0"
+    collection_number: Optional[Any] = "0"
 
 
 class TextMemoryInput(BaseModel):
