@@ -159,7 +159,7 @@ async def learn_file(
     response = await agixt.learn_from_file(
         file_url=f"{agixt.outputs}/{file.file_name}",
         file_name=file.file_name,
-        user_input=f"File {file.file_name} uploaded on {timestamp} to {agixt.outputs}/{file.file_name} .",
+        user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
         conversation_name=f"{datetime.now().strftime('%Y-%m-%d')} Conversation",
     )
