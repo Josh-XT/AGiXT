@@ -616,7 +616,7 @@ class AGiXT:
         elif file_type == "pdf":
             # Turn the pdf to images, then run inference on each image
             pdf_path = file_path
-            images = convert_from_path(pdf_path)
+            images = convert_from_path(pdf_path, output_folder=self.agent_workspace)
             for i, image in enumerate(images):
                 image_file_name = f"{file_name}_{i}.png"
                 image_path = os.path.join(self.agent_workspace, image_file_name)
