@@ -644,7 +644,9 @@ class AGiXT:
                         # Save each image
                         for j, img in enumerate(images):
                             # Extract image bytes and convert to an image object
-                            image_bytes = page.extract_image(img["object_id"])["image"]
+                            image_bytes = (
+                                page.to_image(resolution=300).to_image().original_bytes
+                            )
                             im = Image.open(io.BytesIO(image_bytes))
                             image_name = file_name.replace(
                                 ".pdf", f"_page_{i}_image_{j}.png"
