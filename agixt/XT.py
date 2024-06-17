@@ -568,12 +568,14 @@ class AGiXT:
         logging.info(f"User input: {user_input}")
         logging.info(f"Collection ID: {collection_id}")
         logging.info(f"Conversation name: {conversation_name}")
+        logging.info(f"Agent workspace: {self.agent_workspace}")
+        logging.info(f"Outputs: {self.outputs}")
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
-            folder_path = file_url.split(self.outputs)[1]
+            folder_path = file_url.split(f"{self.outputs}/")[1]
             file_path = os.path.normpath(
-                os.path.join(self.agent_workspace, folder_path, file_name)
+                os.path.join(self.agent_workspace, folder_path)
             )
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
@@ -583,6 +585,11 @@ class AGiXT:
             file_name = file_data["file_name"]
             file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
         logging.info(f"File path: {file_path}")
+        if not file_path.startswith(self.agent_workspace):
+            file_path = os.path.normpath(
+                os.path.join(self.agent_workspace, file_name)
+            )
+            logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if file_type in ["ppt", "pptx"]:
