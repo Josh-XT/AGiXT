@@ -530,7 +530,7 @@ class Agent:
                 self.session.query(AgentModel)
                 .filter(
                     AgentModel.name == self.agent_name,
-                    User.email == DEFAULT_USER,
+                    AgentModel.user.has(email=DEFAULT_USER),
                 )
                 .first()
             )
