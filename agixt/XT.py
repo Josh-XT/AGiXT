@@ -586,9 +586,7 @@ class AGiXT:
             file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
         logging.info(f"File path: {file_path}")
         if not file_path.startswith(self.agent_workspace):
-            file_path = os.path.normpath(
-                os.path.join(self.agent_workspace, file_name)
-            )
+            file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
             logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
@@ -778,8 +776,9 @@ class AGiXT:
                             message=f"[ACTIVITY] Viewing image at {file_url}.",
                         )
                     try:
+                        vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                         vision_response = await self.agent.inference(
-                            prompt=user_input, images=[file_url]
+                            prompt=vision_prompt, images=[file_url]
                         )
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         await file_reader.write_text_to_memory(
