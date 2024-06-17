@@ -623,18 +623,6 @@ class AGiXT:
         elif file_type == "pdf":
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
-                # Save images to workspace
-                for i, image in enumerate(pdf.images):
-                    image_file_name = f"{file_name}_{i}.png"
-                    image_path = os.path.join(self.agent_workspace, image_file_name)
-                    image.save(image_path, "PNG")
-                    await self.learn_from_file(
-                        file_url=f"{self.outputs}/{image_file_name}",
-                        file_name=image_file_name,
-                        user_input=user_input,
-                        collection_id=collection_id,
-                        conversation_name=conversation_name,
-                    )
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
                 user_input=user_input,
@@ -647,18 +635,27 @@ class AGiXT:
                 and self.agent.VISION_PROVIDER != None
             ):
                 with pdfplumber.open(file_path) as pdf:
-                    # Save images to workspace
-                    for i, image in enumerate(pdf.images):
-                        image_file_name = f"{file_name}_{i}.png"
-                        image_path = os.path.join(self.agent_workspace, image_file_name)
-                        image.save(image_path, "PNG")
-                        await self.learn_from_file(
-                            file_url=f"{self.outputs}/{image_file_name}",
-                            file_name=image_file_name,
-                            user_input=f"{user_input}\nUploaded file: {image_file_name} from PDF file: {file_name}",
-                            collection_id=collection_id,
-                            conversation_name=conversation_name,
-                        )
+                    # Iterate over each page
+                    for i, page in enumerate(pdf.pages):
+                        # Extract images
+                        images = page.images
+                        # Save each image
+                        for j, img in enumerate(images):
+                            # Extract image bytes and convert to an image object
+                            image_bytes = page.extract_image(img["object_id"])["image"]
+                            im = Image.open(io.BytesIO(image_bytes))
+                            image_name = file_name.replace(
+                                ".pdf", f"_page_{i}_image_{j}.png"
+                            )
+                            # Save the image
+                            im.save(image_name)
+                            await self.learn_from_file(
+                                file_url=f"{self.outputs}/{image_name}",
+                                file_name=image_name,
+                                user_input=f"Original file: {file_name}\nPage: {i} Image: {j}\n{user_input}",
+                                collection_id=collection_id,
+                                conversation_name=conversation_name,
+                            )
             response = (
                 f"Read the content of the PDF file called `{file_name}` into memory."
             )
