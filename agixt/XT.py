@@ -638,8 +638,9 @@ class AGiXT:
                 f"Read the content of the PDF file called `{file_name}` into memory."
             )
         elif file_path.endswith(".zip"):
+            extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
-                os.path.join(self.agent_workspace, f"extracted_{file_name}")
+                os.path.join(self.agent_workspace, extracted_zip_folder_name)
             )
             if os.path.normpath(file_path).startswith(
                 self.agent_workspace
@@ -651,7 +652,7 @@ class AGiXT:
                     for name in files:
                         file_path = os.path.join(root, name)
                         await self.learn_from_file(
-                            file_url=f"{self.outputs}/extracted_{file_name}/{name}",
+                            file_url=f"{self.outputs}/{extracted_zip_folder_name}/{name}",
                             file_name=name,
                             user_input=user_input,
                             collection_id=collection_id,
