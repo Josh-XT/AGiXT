@@ -12,6 +12,7 @@ from readers.github import GithubReader
 from readers.file import FileReader
 from readers.arxiv import ArxivReader
 from readers.youtube import YoutubeReader
+from datetime import datetime
 from Models import (
     AgentMemoryQuery,
     TextMemoryInput,
@@ -142,12 +143,11 @@ async def learn_file(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
     # Strip any path information from the file name
+    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     file.file_name = os.path.basename(file.file_name)
-    base_path = os.path.join(os.getcwd(), "WORKSPACE")
-    file_path = os.path.normpath(os.path.join(base_path, file.file_name))
-    if not file_path.startswith(base_path):
+    file_path = os.path.normpath(os.path.join(agixt.agent_workspace, file.file_name))
+    if not file_path.startswith(agixt.agent_workspace):
         raise Exception("Path given not allowed")
     try:
         file_content = base64.b64decode(file.file_content)
@@ -155,28 +155,15 @@ async def learn_file(
         file_content = file.file_content.encode("utf-8")
     with open(file_path, "wb") as f:
         f.write(file_content)
-    try:
-        agent_config = Agent(
-            agent_name=agent_name, user=user, ApiClient=ApiClient
-        ).get_agent_config()
-        await FileReader(
-            agent_name=agent_name,
-            agent_config=agent_config,
-            collection_number=str(file.collection_number),
-            ApiClient=ApiClient,
-            user=user,
-        ).write_file_to_memory(file_path=file_path)
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-        return ResponseMessage(message="Agent learned the content from the file.")
-    except Exception as e:
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    response = await agixt.learn_from_file(
+        file_url=f"{agixt.outputs}/{file.file_name}",
+        file_name=file.file_name,
+        user_input=f"File {file.file_name} uploaded on {timestamp} to {agixt.outputs}/{file.file_name} .",
+        collection_id=str(file.collection_number),
+        conversation_name=f"File uploaded on {timestamp}",
+    )
+    return ResponseMessage(message=response)
 
 
 @app.post(

@@ -1731,7 +1731,8 @@ class AGiXT:
             lines = lines[:2]
             file_preview = "\n".join(lines)
             c.log_interaction(
-                "[ACTIVITY] Analyzing data from file `{file_name}`.",
+                role=self.agent_name,
+                message=f"[ACTIVITY] Analyzing data from file `{file_name}`.",
             )
         code_interpreter = await self.inference(
             user_input=user_input,
