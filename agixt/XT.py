@@ -562,11 +562,17 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+        logging.info(f"Learning from file: {file_url}")
+        logging.info(f"File name: {file_name}")
+        logging.info(f"User input: {user_input}")
+        logging.info(f"Collection ID: {collection_id}")
+        logging.info(f"Conversation name: {conversation_name}")
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
-            file_path = os.path.join(self.agent_workspace, file_name)
+            file_path = os.path.join(self.agent_workspace, file_url.split("/")[-1])
         else:
+            logging.info(f"{file_url} does not start with {self.outputs}")
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
             )
