@@ -571,8 +571,8 @@ class AGiXT:
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
-            file_path = os.path.join(
-                self.agent_workspace, file_url.split(self.outputs)[1]
+            file_path = os.path.normpath(
+                os.path.join(self.agent_workspace, file_url.split(self.outputs)[1])
             )
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
@@ -580,12 +580,13 @@ class AGiXT:
                 url=file_url, file_name=file_name
             )
             file_name = file_data["file_name"]
-            file_path = os.path.join(self.agent_workspace, file_name)
+            file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
         file_type = file_name.split(".")[-1]
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if file_type in ["ppt", "pptx"]:
             # Convert it to a PDF
             pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
             if conversation_name != "" and conversation_name != None:
                 c.log_interaction(
                     role=self.agent_name,
@@ -615,12 +616,10 @@ class AGiXT:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
             # Turn the pdf to images, then run inference on each image
-            pdf_path = file_path
-            images = convert_from_path(pdf_path, output_folder=self.agent_workspace)
+            images = convert_from_path(file_path, output_folder=self.agent_workspace)
             for i, image in enumerate(images):
                 image_file_name = f"{file_name}_{i}.png"
                 image_path = os.path.join(self.agent_workspace, image_file_name)
-                path = os.path.normpath(image_path).split(self.agent_workspace)[1]
                 image.save(image_path, "PNG")
                 await self.learn_from_file(
                     file_url=f"{self.outputs}/{image_file_name}",
@@ -651,7 +650,6 @@ class AGiXT:
                 # Iterate over every file that was extracted including subdirectories
                 for root, dirs, files in os.walk(new_folder):
                     for name in files:
-                        file_path = os.path.join(root, name)
                         current_folder = root.replace(new_folder, "")
                         output_url = f"{self.outputs}/{extracted_zip_folder_name}/{current_folder}/{name}"
                         logging.info(f"Output URL: {output_url}")
