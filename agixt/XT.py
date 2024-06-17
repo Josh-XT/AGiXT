@@ -571,7 +571,9 @@ class AGiXT:
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
-            file_path = os.path.join(self.agent_workspace, file_url.split("/")[-1])
+            file_path = os.path.join(
+                self.agent_workspace, file_url.split(self.outputs)[1]
+            )
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
             file_data = await self.download_file_to_workspace(
