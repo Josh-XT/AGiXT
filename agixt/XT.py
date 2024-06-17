@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
-from pdf2image import convert_from_path
 import pdfplumber
 import docx2txt
 import zipfile
@@ -622,27 +621,44 @@ class AGiXT:
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
-            # Turn the pdf to images, then run inference on each image
-            images = convert_from_path(file_path, output_folder=self.agent_workspace)
-            for i, image in enumerate(images):
-                image_file_name = f"{file_name}_{i}.png"
-                image_path = os.path.join(self.agent_workspace, image_file_name)
-                image.save(image_path, "PNG")
-                await self.learn_from_file(
-                    file_url=f"{self.outputs}/{image_file_name}",
-                    file_name=image_file_name,
-                    user_input=user_input,
-                    collection_id=collection_id,
-                    conversation_name=conversation_name,
-                )
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
+                # Save images to workspace
+                for i, image in enumerate(pdf.images):
+                    image_file_name = f"{file_name}_{i}.png"
+                    image_path = os.path.join(self.agent_workspace, image_file_name)
+                    image.save(image_path, "PNG")
+                    await self.learn_from_file(
+                        file_url=f"{self.outputs}/{image_file_name}",
+                        file_name=image_file_name,
+                        user_input=user_input,
+                        collection_id=collection_id,
+                        conversation_name=conversation_name,
+                    )
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
                 external_source=f"file {file_path}",
             )
+            if (
+                self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
+            ):
+                with pdfplumber.open(file_path) as pdf:
+                    # Save images to workspace
+                    for i, image in enumerate(pdf.images):
+                        image_file_name = f"{file_name}_{i}.png"
+                        image_path = os.path.join(self.agent_workspace, image_file_name)
+                        image.save(image_path, "PNG")
+                        await self.learn_from_file(
+                            file_url=f"{self.outputs}/{image_file_name}",
+                            file_name=image_file_name,
+                            user_input=f"{user_input}\nUploaded file: {image_file_name} from PDF file: {file_name}",
+                            collection_id=collection_id,
+                            conversation_name=conversation_name,
+                        )
             response = (
                 f"Read the content of the PDF file called `{file_name}` into memory."
             )
