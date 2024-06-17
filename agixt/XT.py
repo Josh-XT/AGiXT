@@ -555,7 +555,8 @@ class AGiXT:
 
         Args:
             file_url (str): URL of the file
-            file_path (str): Path to the file
+            file_name (str): Name of the file
+            user_input (str): User input to the agent
             collection_id (str): Collection ID to save the file to
             conversation_name (str): Name of the conversation
 
@@ -615,11 +616,12 @@ class AGiXT:
             pdf_path = file_path
             images = convert_from_path(pdf_path)
             for i, image in enumerate(images):
-                image_path = os.path.join(self.agent_workspace, f"{file_name}_{i}.png")
+                image_file_name = f"{file_name}_{i}.png"
+                image_path = os.path.join(self.agent_workspace, image_file_name)
                 image.save(image_path, "PNG")
                 await self.learn_from_file(
-                    file_url=image_path,
-                    file_name=f"{file_name}_{i}.png",
+                    file_url=f"{self.outputs}/{image_file_name}",
+                    file_name=image_file_name,
                     user_input=user_input,
                     collection_id=collection_id,
                     conversation_name=conversation_name,
@@ -648,9 +650,10 @@ class AGiXT:
                 for root, dirs, files in os.walk(new_folder):
                     for name in files:
                         file_path = os.path.join(root, name)
+                        file_name = os.path.basename(file_path)
                         await self.learn_from_file(
-                            file_url=file_path,
-                            file_name=name,
+                            file_url=f"{self.outputs}/{file_name}",
+                            file_name=file_name,
                             user_input=user_input,
                             collection_id=collection_id,
                             conversation_name=conversation_name,

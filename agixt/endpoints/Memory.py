@@ -161,7 +161,7 @@ async def learn_file(
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp} to {agixt.outputs}/{file.file_name} .",
         collection_id=str(file.collection_number),
-        conversation_name=f"File uploaded on {timestamp}",
+        conversation_name=f"{datetime.now().strftime('%Y-%m-%d')} Conversation",
     )
     return ResponseMessage(message=response)
 
