@@ -774,7 +774,7 @@ class AGiXT:
                         message=f"[ACTIVITY] Viewing image at {file_url} ",
                     )
                 try:
-                    vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+                    vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     vision_response = await self.agent.vision_inference(
                         prompt=vision_prompt, images=[file_url]
                     )
