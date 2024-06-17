@@ -28,7 +28,13 @@ from Models import (
     UserInput,
     FeedbackInput,
 )
+import logging
+from Globals import getenv
 
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 app = APIRouter()
 
 
@@ -144,10 +150,11 @@ async def learn_file(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     # Strip any path information from the file name
-    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     file.file_name = os.path.basename(file.file_name)
-    file_path = os.path.normpath(os.path.join(agixt.agent_workspace, file.file_name))
-    if not file_path.startswith(agixt.agent_workspace):
+    file_path = os.path.normpath(os.path.join(agent.agent_workspace, file.file_name))
+    logging.info(f"File path: {file_path}")
+    if not file_path.startswith(agent.agent_workspace):
         raise Exception("Path given not allowed")
     try:
         file_content = base64.b64decode(file.file_content)
@@ -156,8 +163,10 @@ async def learn_file(
     with open(file_path, "wb") as f:
         f.write(file_content)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    response = await agixt.learn_from_file(
-        file_url=f"{agixt.outputs}/{file.file_name}",
+    logging.info(f"File {file.file_name} uploaded on {timestamp}.")
+    logging.info(f"URL of file: {agent.outputs}/{file.file_name}")
+    response = await agent.learn_from_file(
+        file_url=f"{agent.outputs}/{file.file_name}",
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
