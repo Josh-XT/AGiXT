@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
+from PIL import Image
+import io
 import pdfplumber
 import docx2txt
 import zipfile
