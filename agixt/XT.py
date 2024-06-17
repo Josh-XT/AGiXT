@@ -571,8 +571,9 @@ class AGiXT:
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
+            folder_path = file_url.split(self.outputs)[1]
             file_path = os.path.normpath(
-                os.path.join(self.agent_workspace, file_url.split(self.outputs)[1])
+                os.path.join(self.agent_workspace, folder_path, file_name)
             )
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
