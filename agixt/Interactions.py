@@ -581,12 +581,11 @@ class Interactions:
                     )
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-            vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
             if (
                 images != []
-                and vision_provider != "None"
-                and vision_provider != ""
-                and vision_provider != None
+                and self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
             ):
                 logging.info(f"Getting vision response for images: {images}")
                 message = (
@@ -597,7 +596,7 @@ class Interactions:
                     message=f"[ACTIVITY] {message}",
                 )
                 try:
-                    vision_response = await self.agent.inference(
+                    vision_response = await self.agent.vision_inference(
                         prompt=user_input, images=images
                     )
                     logging.info(f"Vision Response: {vision_response}")
