@@ -644,7 +644,11 @@ class AGiXT:
             new_folder = os.path.normpath(
                 os.path.join(self.agent_workspace, extracted_zip_folder_name)
             )
-            if os.path.normpath(file_path).startswith(
+            logging.info(f"Extracting zip file to {new_folder}")
+            norm_file_path = os.path.normpath(file_path)
+            logging.info(f"Normalized file path: {norm_file_path}")
+            logging.info(f"Agent workspace: {self.agent_workspace}")
+            if norm_file_path.startswith(
                 self.agent_workspace
             ) and new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
