@@ -85,6 +85,35 @@ def start_ezlocalai():
         )
 
 
+def get_cuda_vram():
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        lines = result.stdout.strip().split("\n")
+        if len(lines) == 0:
+            return 0, 0
+        total_vram, free_vram = map(int, lines[0].split(","))
+        return total_vram, free_vram
+    except FileNotFoundError:
+        print("nvidia-smi not found. No CUDA support.")
+        return 0, 0
+    except subprocess.CalledProcessError as e:
+        print(f"nvidia-smi failed with error: {e.stderr}")
+        return 0, 0
+    except Exception as e:
+        print(f"Error getting CUDA information: {e}")
+        return 0, 0
+
+
 if not is_docker_installed():
     print("Docker is not installed. Please install Docker and try again.")
     exit(1)
@@ -130,7 +159,9 @@ if use_ezlocalai == None:
         else:
             run_shell_command("cd ezlocalai && git pull && cd ..")
         ezlocalai_uri = prompt_user("Set your ezLocalai URI", f"http://{local_ip}:8091")
-        default_llm = prompt_user("Default LLM to use", "Mistral-7B-Instruct-v0.2")
+        default_llm = prompt_user(
+            "Default LLM to use", "QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF"
+        )
         default_vlm = prompt_user(
             "Use vision model? Enter model from Hugging Face or 'None' for no vision model",
             "deepseek-ai/deepseek-vl-1.3b-chat",
@@ -142,13 +173,23 @@ if use_ezlocalai == None:
             img_enabled = True
         else:
             img_enabled = False
+        total_vram, free_vram = get_cuda_vram()
         with open(".env", "a") as env_file:
             env_file.write("USE_EZLOCALAI=true\n")
+        gpu_layers = 0
+        if total_vram > 0:
+            gpu_layers = min(33, total_vram // 500)
+            if gpu_layers < 0:
+                gpu_layers = 0
         with open("ezlocalai/.env", "w") as env_file:
-            env_file.write(f"EZLOCALAI_URI={ezlocalai_uri}\n")
+            env_file.write(f"EZLOCALAI_URL={ezlocalai_uri}\n")
             env_file.write(f"DEFAULT_LLM={default_llm}\n")
             env_file.write(f"DEFAULT_VLM={default_vlm}\n")
+            env_file.write(f"GPU_LAYERS={gpu_layers}\n")
             env_file.write(f"IMG_ENABLED={img_enabled}\n")
+            if img_enabled:
+                env_file.write("SD_MODEL=stabilityai/sdxl-turbo")
+                env_file.write("IMG_DEVICE=cpu")
         # Create a default ezlocalai agent that will work with AGiXT out of the box
         ezlocalai_agent_settings = {
             "commands": {},
@@ -161,7 +202,7 @@ if use_ezlocalai == None:
                 "image_provider": "ezlocalai" if img_enabled else "default",
                 "EZLOCALAI_API_KEY": api_key,
                 "AI_MODEL": "Mistral-7B-Instruct-v0.2",
-                "API_URI": f"{ezlocalai_uri}/v1/",
+                "EZLOCALAI_API_URI": f"{ezlocalai_uri}/v1/",
                 "MAX_TOKENS": "4096",
                 "AI_TEMPERATURE": 0.5,
                 "AI_TOP_P": 0.9,
@@ -174,8 +215,6 @@ if use_ezlocalai == None:
                 "WEBSEARCH_TIMEOUT": 0,
                 "WAIT_BETWEEN_REQUESTS": 1,
                 "WAIT_AFTER_FAILURE": 3,
-                "WORKING_DIRECTORY": "./WORKSPACE",
-                "WORKING_DIRECTORY_RESTRICTED": True,
                 "persona": "",
             },
         }

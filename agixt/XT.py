@@ -1674,9 +1674,9 @@ class AGiXT:
         file_content=None,
     ):
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        file_names = []
         if not file_content:
             files = os.listdir(self.agent_workspace)
-            file_names = []
             file_name = ""
             # Check if any files are csv files, if not, return empty string
             csv_files = [file for file in files if file.endswith(".csv")]
