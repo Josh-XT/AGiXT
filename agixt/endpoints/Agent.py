@@ -199,6 +199,11 @@ async def prompt_agent(
             str(agent_prompt.prompt_args["tts"]).lower() == "true"
         )
         del agent_prompt.prompt_args["tts"]
+    if "context_results" in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["injected_memories"] = int(
+            agent_prompt.prompt_args["context_results"]
+        )
+        del agent_prompt.prompt_args["context_results"]
     response = await agent.inference(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
