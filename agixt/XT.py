@@ -1675,9 +1675,9 @@ class AGiXT:
     ):
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         file_names = []
+        file_name = ""
         if not file_content:
             files = os.listdir(self.agent_workspace)
-            file_name = ""
             # Check if any files are csv files, if not, return empty string
             csv_files = [file for file in files if file.endswith(".csv")]
             if len(csv_files) == 0:
@@ -1743,7 +1743,7 @@ class AGiXT:
             file_preview = "\n".join(lines)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Analyzing data from file `{file_name}`.",
+                message=f"[ACTIVITY] Analyzing data from file.",
             )
         code_interpreter = await self.inference(
             user_input=user_input,
@@ -1796,7 +1796,7 @@ class AGiXT:
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"## Results from analyzing data in `{file_name}`:\n{code_execution}",
+                message=f"## Results from analyzing data:\n{code_execution}",
             )
         else:
             self.failures += 1
