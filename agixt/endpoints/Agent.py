@@ -193,20 +193,14 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Interactions(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    if (
-        "prompt" in agent_prompt.prompt_args
-        and "prompt_name" not in agent_prompt.prompt_args
-    ):
-        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_args["prompt"]
-    if "prompt_name" not in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["prompt_name"] = "Chat"
-    if "prompt_category" not in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["prompt_category"] = "Default"
-    agent_prompt.prompt_args = {k: v for k, v in agent_prompt.prompt_args.items()}
-    response = await agent.run(
-        log_user_input=True,
+    agent = AGiXT(user=user, agent_name=agent_name, authorization=authorization)
+    if "tts" in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["voice_response"] = (
+            str(agent_prompt.prompt_args["tts"]).lower() == "true"
+        )
+        del agent_prompt.prompt_args["tts"]
+    response = await agent.inference(
+        prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
     )
     return {"response": str(response)}
