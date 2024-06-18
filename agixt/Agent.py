@@ -371,11 +371,7 @@ class Agent:
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return ""
-        working_dir = (
-            self.AGENT_CONFIG["WORKING_DIRECTORY"]
-            if "WORKING_DIRECTORY" in self.AGENT_CONFIG
-            else os.path.join(os.getcwd(), "WORKSPACE")
-        )
+        working_dir = self.working_directory
         verbose_commands = f"### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
         verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
         for command in self.available_commands:
