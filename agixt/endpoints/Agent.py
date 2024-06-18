@@ -193,7 +193,7 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    agent = AGiXT(user=user, agent_name=agent_name, authorization=authorization)
+    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     if "tts" in agent_prompt.prompt_args:
         agent_prompt.prompt_args["voice_response"] = (
             str(agent_prompt.prompt_args["tts"]).lower() == "true"
