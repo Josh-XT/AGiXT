@@ -7,6 +7,7 @@ from Models import (
     ConversationHistoryMessageModel,
     UpdateConversationHistoryMessageModel,
     ResponseMessage,
+    LogInteraction,
 )
 
 app = APIRouter()
@@ -129,3 +130,20 @@ async def update_history_message(
         new_message=history.new_message,
     )
     return ResponseMessage(message=f"Message updated.")
+
+
+@app.post(
+    "/api/conversation/message",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def log_interaction(
+    log_interaction: LogInteraction, user=Depends(verify_api_key)
+) -> ResponseMessage:
+    Conversations(
+        conversation_name=log_interaction.conversation_name, user=user
+    ).log_interaction(
+        message=log_interaction.message,
+        role=log_interaction.role,
+    )
+    return ResponseMessage(message=f"Interaction logged.")

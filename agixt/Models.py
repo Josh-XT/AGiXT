@@ -27,6 +27,12 @@ class UserInput(BaseModel):
     injected_memories: Optional[int] = 10
 
 
+class LogInteraction(BaseModel):
+    role: str
+    message: str
+    conversation_name: Optional[str] = ""
+
+
 class Dataset(BaseModel):
     batch_size: int = 5
 
