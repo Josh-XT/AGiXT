@@ -274,7 +274,7 @@ class Message(Base):
     )
     role = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime, server_default=func.now())
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
     conversation_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("conversation.id"),
