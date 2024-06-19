@@ -217,7 +217,7 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Generating audio.",
             )
-        tts_url = await self.agent.text_to_speech(text=text.text)
+        tts_url = await self.agent.text_to_speech(text=text)
         if not str(tts_url).startswith("http"):
             file_type = "wav"
             file_name = f"{uuid.uuid4().hex}.{file_type}"
