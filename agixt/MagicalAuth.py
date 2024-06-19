@@ -411,14 +411,15 @@ class MagicalAuth:
         session.add(user_preferences)
         user_requirements = self.registration_requirements()
         if "subscription" in user_requirements:
-            if user_requirements["subscription"] != "None":
-                user.is_active = False
-                user_preferences = UserPreferences(
-                    user_id=user.id,
-                    pref_key="subscription",
-                    pref_value=user_requirements["subscription"],
-                )
-                session.add(user_preferences)
+            if str(user_requirements["subscription"]).lower() != "none":
+                if str(user_requirements["subscription"]).startswith("http"):
+                    user.is_active = False
+                    user_preferences = UserPreferences(
+                        user_id=user.id,
+                        pref_key="subscription",
+                        pref_value=user_requirements["subscription"],
+                    )
+                    session.add(user_preferences)
         session.commit()
         session.close()
         # Send registration webhook out to third party application such as AGiXT to create a user there.
@@ -596,19 +597,14 @@ class MagicalAuth:
             del user_preferences["missing_requirements"]
         user_requirements = self.registration_requirements()
         missing_requirements = []
-        sub = False
         for key, value in user_requirements.items():
             if key not in user_preferences:
                 if key == "subscription":
-                    if value != "None":
-                        sub = True
+                    if str(value).lower() != "none":
+                        if str(value).startswith("http"):
+                            raise HTTPException(status_code=402, detail=str(value))
                 else:
                     missing_requirements.append(key)
         if missing_requirements:
-            if sub is True:
-                if str(user_requirements["subscription"]).startswith("http"):
-                    raise HTTPException(
-                        status_code=402, detail=user_requirements["subscription"]
-                    )
             user_preferences["missing_requirements"] = missing_requirements
         return user_preferences
