@@ -617,7 +617,17 @@ class AGiXT:
                     message=f"[ACTIVITY] Converting PowerPoint file `{file_name}` to PDF.",
                 )
             subprocess.run(
-                ["unoconv", "-f", "pdf", "-o", pdf_file_path, file_path], check=True
+                [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    self.agent_workspace,
+                    file_path,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
             file_path = pdf_file_path
         if conversation_name != "" and conversation_name != None:
