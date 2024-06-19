@@ -4,9 +4,11 @@ from DB import (
     Conversation,
     Message,
     User,
+    UserPreferences,
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
+import pytz
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -109,13 +111,30 @@ class Conversations:
         if not messages:
             return {"interactions": []}
         return_messages = []
+        # Check if there is a user preference for timezone
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id == user_id,
+                UserPreferences.pref_key == "timezone",
+            )
+            .first()
+        )
+        if not user_preferences:
+            user_preferences = UserPreferences(
+                user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
+            )
+            session.add(user_preferences)
+            session.commit()
+        gmt = pytz.timezone("GMT")
+        local_tz = pytz.timezone(user_preferences.pref_value)
         for message in messages:
             msg = {
                 "id": message.id,
                 "role": message.role,
                 "message": message.content,
-                "timestamp": message.timestamp,
-                "updated_at": message.updated_at,
+                "timestamp": gmt.localize(message.timestamp).astimezone(local_tz),
+                "updated_at": gmt.localize(message.updated_at).astimezone(local_tz),
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
             }

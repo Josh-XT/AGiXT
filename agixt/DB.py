@@ -66,6 +66,14 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
 
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    pref_key = Column(String, nullable=False)
+    pref_value = Column(String, nullable=True)
+
+
 class UserOAuth(Base):
     __tablename__ = "user_oauth"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -274,7 +282,7 @@ class Message(Base):
     )
     role = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    timestamp = Column(DateTime, server_default=func.now())
     conversation_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("conversation.id"),
