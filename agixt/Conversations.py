@@ -205,7 +205,8 @@ class Conversations:
             )
             .first()
         )
-
+        if role.lower() == "user":
+            role = "USER"
         if not conversation:
             conversation = self.new_conversation()
             session.close()
