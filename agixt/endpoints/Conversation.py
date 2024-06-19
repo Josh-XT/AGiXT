@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from ApiClient import verify_api_key, Conversations
-from typing import Optional
+from XT import AGiXT
 from Models import (
     HistoryModel,
     ConversationHistoryModel,
@@ -8,7 +8,10 @@ from Models import (
     UpdateConversationHistoryMessageModel,
     ResponseMessage,
     LogInteraction,
+    RenameConversationModel,
 )
+import json
+from datetime import datetime
 
 app = APIRouter()
 
@@ -147,3 +150,38 @@ async def log_interaction(
         role=log_interaction.role,
     )
     return ResponseMessage(message=f"Interaction logged.")
+
+
+# Ask AI to rename the conversation
+@app.put(
+    "/api/conversation",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def rename_conversation(
+    rename: RenameConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    if rename.new_conversation_name == "/":
+        agixt = AGiXT(user=user, agent_name=rename.agent_name, api_key=authorization)
+        response = await agixt.inference(
+            prompt_name="Name Conversation",
+            conversation_name=rename.conversation_name,
+            log_user_input=False,
+            log_output=False,
+        )
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].strip()
+        try:
+            response = json.loads(response)
+            new_name = response["suggested_conversation_name"]
+        except:
+            new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+        rename.new_conversation_name = new_name
+    Conversations(
+        conversation_name=rename.conversation_name, user=user
+    ).rename_conversation(new_name=rename.new_conversation_name)
+    return {"conversation_name": rename.new_conversation_name}

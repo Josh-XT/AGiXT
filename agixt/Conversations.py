@@ -454,3 +454,20 @@ class Conversations:
         if not conversation:
             return None
         return str(conversation.id)
+
+    def rename_conversation(self, new_name):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            return
+        conversation.name = new_name
+        session.commit()
