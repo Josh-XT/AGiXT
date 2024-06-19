@@ -590,7 +590,7 @@ class MagicalAuth:
                         if str(value).lower() == "false":
                             raise HTTPException(status_code=402, detail=str(value))
                 else:
-                    missing_requirements.append(key)
+                    missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         return user_preferences
