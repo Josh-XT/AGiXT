@@ -204,10 +204,8 @@ async def prompt_agent(
             agent_prompt.prompt_args["context_results"]
         )
         del agent_prompt.prompt_args["context_results"]
-    if "prompt" in agent_prompt.prompt_args:
-        agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_args["prompt"]
-        del agent_prompt.prompt_args["prompt"]
     response = await agent.inference(
+        prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
     )
     return {"response": str(response)}
