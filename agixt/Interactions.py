@@ -630,6 +630,9 @@ class Interactions:
                 message=log_message,
             )
         try:
+            c.log_interaction(
+                role=self.agent_name, message="[ACTIVITY] Generating response."
+            )
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
             )
@@ -640,6 +643,10 @@ class Interactions:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
             logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY][ERROR] Unable to generate response.",
+            )
             return f"Unable to retrieve response."
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
