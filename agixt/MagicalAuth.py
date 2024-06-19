@@ -27,6 +27,8 @@ import pyotp
 import requests
 import logging
 import jwt
+import json
+import os
 
 
 logging.basicConfig(
@@ -400,6 +402,14 @@ class MagicalAuth:
         )
         session.add(user)
         session.commit()
+        # Add default user preferences
+        user_preferences = UserPreferences(
+            user_id=user.id,
+            pref_key="timezone",
+            pref_value=getenv("TZ"),
+        )
+        session.add(user_preferences)
+        session.commit()
         session.close()
         # Send registration webhook out to third party application such as AGiXT to create a user there.
         registration_webhook = getenv("REGISTRATION_WEBHOOK")
@@ -537,6 +547,18 @@ class MagicalAuth:
             send_link=False,
         )
 
+    def registration_requirements(self):
+        if not os.path.exists("registration_requirements.json"):
+            requirements = {}
+        else:
+            with open("registration_requirements.json", "r") as file:
+                requirements = json.load(file)
+        if not requirements:
+            requirements = {}
+        if "subscription" not in requirements:
+            requirements["subscription"] = "None"
+        return requirements
+
     def get_user_preferences(self):
         user = verify_api_key(self.token)
         if user is None:
@@ -548,6 +570,8 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        if not user_preferences:
+            return {}
         session.close()
         if "email" in user_preferences:
             del user_preferences["email"]
@@ -555,6 +579,18 @@ class MagicalAuth:
             del user_preferences["first_name"]
         if "last_name" in user_preferences:
             del user_preferences["last_name"]
-        if not user_preferences:
-            return {}
+        if "missing_requirements" in user_preferences:
+            del user_preferences["missing_requirements"]
+        user_requirements = self.registration_requirements()
+        missing_requirements = []
+        for key, value in user_requirements.items():
+            if key not in user_preferences:
+                if key == "subscription":
+                    if str(value).lower() != "none":
+                        if str(value).lower() == "false":
+                            raise HTTPException(status_code=402, detail=str(value))
+                else:
+                    missing_requirements.append(key)
+        if missing_requirements:
+            user_preferences["missing_requirements"] = missing_requirements
         return user_preferences
