@@ -1,4 +1,11 @@
-from DB import User, FailedLogins, UserOAuth, OAuthProvider, get_session
+from DB import (
+    User,
+    FailedLogins,
+    UserOAuth,
+    OAuthProvider,
+    UserPreferences,
+    get_session,
+)
 from OAuth2Providers import get_sso_provider
 from Models import UserInfo, Register, Login
 from fastapi import Header, HTTPException
@@ -347,11 +354,12 @@ class MagicalAuth:
             )
         user_id = user_info["sub"]
         user = session.query(User).filter(User.id == user_id).first()
-        session.close()
         if user is None:
+            session.close()
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(user_id):
             return user
+        session.close()
         self.add_failed_login(ip_address=ip_address)
         raise HTTPException(
             status_code=401,
@@ -414,9 +422,29 @@ class MagicalAuth:
         session = get_session()
         user = session.query(User).filter(User.id == user.id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
         for key, value in kwargs.items():
             if key in allowed_keys:
                 setattr(user, key, value)
+            else:
+                # Check if there is a user preference record, create one if not, update if so.
+                user_preference = next(
+                    (x for x in user_preferences if x.pref_key == key),
+                    None,
+                )
+                if user_preference is None:
+                    user_preference = UserPreferences(
+                        user_id=user.id,
+                        pref_key=key,
+                        pref_value=value,
+                    )
+                    session.add(user_preference)
+                else:
+                    user_preference.pref_value = value
         session.commit()
         session.close()
         return "User updated successfully"
@@ -508,3 +536,25 @@ class MagicalAuth:
             referrer=referrer,
             send_link=False,
         )
+
+    def get_user_preferences(self):
+        user = verify_api_key(self.token)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        session = get_session()
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        session.close()
+        if "email" in user_preferences:
+            del user_preferences["email"]
+        if "first_name" in user_preferences:
+            del user_preferences["first_name"]
+        if "last_name" in user_preferences:
+            del user_preferences["last_name"]
+        if not user_preferences:
+            return {}
+        return user_preferences
