@@ -669,6 +669,10 @@ class Interactions:
                     and agent_settings["tts_provider"] != None
                 ):
                     try:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] Generating audio response.",
+                        )
                         tts_response = await self.agent.text_to_speech(
                             text=self.response
                         )

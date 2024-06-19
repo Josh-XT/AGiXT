@@ -215,7 +215,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Generating audio.",
+                message=f"[ACTIVITY] Generating audio response.",
             )
         tts_url = await self.agent.text_to_speech(text=text)
         if not str(tts_url).startswith("http"):
