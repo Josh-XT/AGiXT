@@ -409,17 +409,6 @@ class MagicalAuth:
             pref_value=getenv("TZ"),
         )
         session.add(user_preferences)
-        user_requirements = self.registration_requirements()
-        if "subscription" in user_requirements:
-            if str(user_requirements["subscription"]).lower() != "none":
-                if str(user_requirements["subscription"]).startswith("http"):
-                    user.is_active = False
-                    user_preferences = UserPreferences(
-                        user_id=user.id,
-                        pref_key="subscription",
-                        pref_value=user_requirements["subscription"],
-                    )
-                    session.add(user_preferences)
         session.commit()
         session.close()
         # Send registration webhook out to third party application such as AGiXT to create a user there.
@@ -568,9 +557,6 @@ class MagicalAuth:
             requirements = {}
         if "subscription" not in requirements:
             requirements["subscription"] = "None"
-        requirements["subscription"] = str(requirements["subscription"]).replace(
-            "{email}", self.email
-        )
         return requirements
 
     def get_user_preferences(self):
@@ -601,7 +587,7 @@ class MagicalAuth:
             if key not in user_preferences:
                 if key == "subscription":
                     if str(value).lower() != "none":
-                        if str(value).startswith("http"):
+                        if str(value).lower() == "false":
                             raise HTTPException(status_code=402, detail=str(value))
                 else:
                     missing_requirements.append(key)
