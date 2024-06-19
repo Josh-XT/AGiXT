@@ -34,11 +34,14 @@ def log_in(
     request: Request,
     authorization: str = Header(None),
 ):
-    user_data = MagicalAuth(token=authorization).login(ip_address=request.client.host)
+    auth = MagicalAuth(token=authorization)
+    user_data = auth.login(ip_address=request.client.host)
+    user_preferences = auth.get_user_preferences()
     return {
         "email": user_data.email,
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
+        **user_preferences,
     }
 
 

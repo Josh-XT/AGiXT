@@ -358,18 +358,7 @@ class MagicalAuth:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(user_id):
-            user_preferences = (
-                session.query(UserPreferences)
-                .filter(UserPreferences.user_id == user.id)
-                .all()
-            )
-            preferences = {x.pref_key: x.pref_value for x in user_preferences}
-            response = {
-                **user.model_dump(),
-                **preferences,
-            }
-            session.close()
-            return response
+            return user
         session.close()
         self.add_failed_login(ip_address=ip_address)
         raise HTTPException(
@@ -547,3 +536,25 @@ class MagicalAuth:
             referrer=referrer,
             send_link=False,
         )
+
+    def get_user_preferences(self):
+        user = verify_api_key(self.token)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        session = get_session()
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        session.close()
+        if "email" in user_preferences:
+            del user_preferences["email"]
+        if "first_name" in user_preferences:
+            del user_preferences["first_name"]
+        if "last_name" in user_preferences:
+            del user_preferences["last_name"]
+        if not user_preferences:
+            return {}
+        return user_preferences
