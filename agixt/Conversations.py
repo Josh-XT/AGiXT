@@ -110,11 +110,16 @@ class Conversations:
             return {"interactions": []}
         return_messages = []
         for message in messages:
+            try:
+                formatted_timestamp = message.timestamp.strftime("%Y-%m-%d %I:%M:%S %p")
+            except Exception as e:
+                logging.info(f"Error formatting timestamp: {e}")
+                formatted_timestamp = message.timestamp
             msg = {
                 "id": message.id,
                 "role": message.role,
                 "message": message.content,
-                "timestamp": message.timestamp,
+                "timestamp": formatted_timestamp,
                 "updated_at": message.updated_at,
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
