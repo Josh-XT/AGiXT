@@ -110,17 +110,12 @@ class Conversations:
             return {"interactions": []}
         return_messages = []
         for message in messages:
-            tz = getenv("TZ")
-            timestamp = message.timestamp.astimezone(tz)
-            timestamp = timestamp.strftime("%Y-%m-%d %I:%M:%S %p")
-            updated_at = message.updated_at.astimezone(tz)
-            updated_at = updated_at.strftime("%Y-%m-%d %I:%M:%S %p")
             msg = {
                 "id": message.id,
                 "role": message.role,
                 "message": message.content,
-                "timestamp": timestamp,
-                "updated_at": updated_at,
+                "timestamp": message.timestamp,
+                "updated_at": message.updated_at,
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
             }
