@@ -194,12 +194,19 @@ class AGiXT:
             )
         return await self.agent.generate_image(prompt=prompt)
 
-    async def text_to_speech(self, text: str, conversation_name: str = ""):
+    async def text_to_speech(
+        self,
+        text: str,
+        conversation_name: str = "",
+        log_output: bool = False,
+    ):
         """
         Generate Text to Speech audio from text
 
         Args:
             text (str): Text to convert to speech
+            conversation_name (str): Name of the conversation
+            log_output (bool): Whether to log the output
 
         Returns:
             str: URL of the generated audio
@@ -222,6 +229,11 @@ class AGiXT:
             with open(audio_path, "wb") as f:
                 f.write(audio_data)
             tts_url = f"{self.outputs}/{file_name}"
+        if log_output:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+            )
         return tts_url
 
     async def audio_to_text(self, audio_path: str, conversation_name: str = ""):
@@ -230,6 +242,7 @@ class AGiXT:
 
         Args:
             audio_path (str): Path to the audio file
+            conversation_name (str): Name of the conversation
 
         Returns
             str: Transcription of the audio
@@ -249,6 +262,7 @@ class AGiXT:
 
         Args:
             audio_path (str): Path to the audio file
+            conversation_name (str): Name of the conversation
 
         Returns
             str: Translation of the audio
@@ -268,6 +282,7 @@ class AGiXT:
         command_args: dict,
         conversation_name: str = "",
         voice_response: bool = False,
+        log_output: bool = False,
     ):
         """
         Execute a command with arguments
@@ -277,6 +292,7 @@ class AGiXT:
             command_args (dict): Arguments for the command
             conversation_name (str): Name of the conversation
             voice_response (bool): Whether to generate a voice response
+            log_output (bool): Whether to log the output
 
         Returns:
             str: Response from the command
@@ -304,8 +320,13 @@ class AGiXT:
                 and self.agent_settings["tts_provider"] != ""
                 and self.agent_settings["tts_provider"] != None
             ):
-                tts_response = await self.text_to_speech(text=response)
-                response = f"{response}\n\n{tts_response}"
+                await self.text_to_speech(
+                    text=response,
+                    conversation_name=conversation_name,
+                    log_output=log_output,
+                )
+        if log_output:
+            c.log_interaction(role=self.agent_name, message=response)
         return response
 
     async def run_chain_step(
@@ -455,10 +476,9 @@ class AGiXT:
                 role="USER",
                 message=user_input,
             )
-        agent_name = agent_override if agent_override != "" else "AGiXT"
         if conversation_name != "":
             c.log_interaction(
-                role=agent_name,
+                role=self.agent_name,
                 message=f"[ACTIVITY] Running chain `{chain_name}`.",
             )
         response = ""
@@ -495,20 +515,16 @@ class AGiXT:
             response = step_responses[-1]
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
-        if conversation_name != "":
-            c.log_interaction(
-                role=agent_name,
-                message=response,
-            )
+        c.log_interaction(role=self.agent_name, message=response)
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
                 and self.agent_settings["tts_provider"] != ""
                 and self.agent_settings["tts_provider"] != None
             ):
-                tts_response = await self.text_to_speech(text=response)
-                response = f'{response}\n\n<audio controls><source src="{tts_response}" type="audio/wav"></audio>'
-        c.log_interaction(role=self.agent_name, message=response)
+                await self.text_to_speech(
+                    text=response, conversation_name=conversation_name, log_output=True
+                )
         return response
 
     async def learn_from_websites(

@@ -682,7 +682,10 @@ class Interactions:
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
                             tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
-                        self.response = f"{self.response}\n\n{tts_response}"
+                            c.log_interaction(
+                                role=self.agent_name, message=tts_response
+                            )
+
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:
