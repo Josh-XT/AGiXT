@@ -359,7 +359,9 @@ class MagicalAuth:
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(user_id):
             user_preferences = (
-                session.query(UserPreferences).filter(User.id == user.id).all()
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == user.id)
+                .all()
             )
             preferences = {x.pref_key: x.pref_value for x in user_preferences}
             response = {
@@ -432,7 +434,9 @@ class MagicalAuth:
         user = session.query(User).filter(User.id == user.id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
         user_preferences = (
-            session.query(UserPreferences).filter(User.id == user.id).all()
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
         )
         for key, value in kwargs.items():
             if key in allowed_keys:
