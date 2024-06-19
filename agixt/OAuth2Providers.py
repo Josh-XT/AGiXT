@@ -57,6 +57,7 @@ from sso.yelp import yelp_sso
 from sso.zendesk import zendesk_sso
 from Globals import getenv
 from fastapi import HTTPException
+import logging
 
 
 def get_provider_info(provider):
@@ -441,9 +442,10 @@ def get_sso_provider(provider: str, code, redirect_uri=None):
         try:
             return provider_info["function"](code=code, redirect_uri=redirect_uri)
         except Exception as e:
+            logging.error(f"Error getting user information from {provider}: {e}")
             raise HTTPException(
                 status_code=403,
-                detail=f"Error getting user info from {provider}: {e}",
+                detail=f"Error getting user information from {provider}.",
             )
     else:
         return None
