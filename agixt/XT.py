@@ -393,7 +393,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Running prompt: {prompt_name} with args: {args}",
+                            message=f"[ACTIVITY] Running prompt: {prompt_name} with args:\n```json\n{json.dumps(args, indent=2)}```",
                         )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
@@ -411,7 +411,7 @@ class AGiXT:
                     if conversation_name != "" and conversation_name != None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Running chain: {args['chain']} with args: {args}",
+                            message=f"[ACTIVITY] Running chain: {args['chain']} with args:\n```json\n{json.dumps(args, indent=2)}```",
                         )
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
@@ -775,7 +775,7 @@ class AGiXT:
                 if conversation_name != "" and conversation_name != None:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Viewing image at {file_url} ",
+                        message=f"[ACTIVITY] Viewing image at {file_url} .",
                     )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
