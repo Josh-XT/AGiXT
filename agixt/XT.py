@@ -158,6 +158,10 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+        c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        c.log_interaction(
+            role=self.agent_name, message="[ACTIVITY] Generating response."
+        )
         return await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,

@@ -630,9 +630,6 @@ class Interactions:
                 message=log_message,
             )
         try:
-            c.log_interaction(
-                role=self.agent_name, message="[ACTIVITY] Generating response."
-            )
             self.response = await self.agent.inference(
                 prompt=formatted_prompt, tokens=tokens
             )
