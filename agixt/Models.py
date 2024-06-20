@@ -251,6 +251,10 @@ class TTSInput(BaseModel):
     text: str
 
 
+class WebhookModel(BaseModel):
+    success: str
+
+
 class ConversationHistoryMessageModel(BaseModel):
     agent_name: str
     conversation_name: str

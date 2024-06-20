@@ -1,14 +1,21 @@
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
 from MagicalAuth import MagicalAuth, verify_api_key, is_agixt_admin
-from DB import get_session, User
+from DB import get_session, User, UserPreferences
 from Agent import add_agent
-from ApiClient import get_api_client, is_admin
-from Models import WebhookUser
+from ApiClient import get_api_client
+from Models import WebhookUser, WebhookModel
 from Globals import getenv
 import pyotp
+import stripe
+import logging
 
 app = APIRouter()
+
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 
 
 @app.post("/v1/user")
@@ -145,6 +152,63 @@ async def createuser(
             file_content=zip_file_content,
         )
     return {"status": "Success"}, 200
+
+
+@app.post(
+    "/webhook",
+    summary="Webhook endpoint for events.",
+    response_model=WebhookModel,
+    tags=["Webhook"],
+)
+async def webhook(request: Request):
+    event = None
+    data = None
+    try:
+        event = stripe.Webhook.construct_event(
+            payload=(await request.body()).decode("utf-8"),
+            sig_header=request.headers.get("stripe-signature"),
+            secret=getenv("STRIPE_WEBHOOK_SECRET"),
+        )
+        data = event["data"]["object"]
+    except stripe.error.SignatureVerificationError as e:
+        logging.debug(f"Webhook signature verification failed: {str(e)}.")
+        raise HTTPException(
+            status_code=400, detail="Webhook signature verification failed."
+        )
+    logging.debug(f"Stripe Webhook Event of type {event['type']} received")
+    if event and event["type"] == "checkout.session.completed":
+        session = get_session()
+        logging.debug("Checkout session completed.")
+        email = data["customer_details"]["email"]
+        user = session.query(User).filter_by(email=email).first()
+        stripe_id = data["customer"]
+        name = data["customer_details"]["name"]
+        status = data["payment_status"]
+        if not user:
+            logging.debug("User not found.")
+            return {"success": "false"}
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter_by(user_id=user.id, pref_key="subscription")
+            .first()
+        )
+        if not user_preferences:
+            user_preferences = UserPreferences(
+                user_id=user.id, pref_key="subscription", pref_value=stripe_id
+            )
+            session.add(user_preferences)
+            session.commit()
+        name = name.split(" ")
+        user.first_name = name[0]
+        user.last_name = name[1]
+        session.commit()
+        session.close()
+        return {"success": "true"}
+    elif event and event["type"] == "customer.subscription.updated":
+        logging.debug("Customer Subscription Update session completed.")
+    else:
+        logging.debug("Unhandled Stripe event type {}".format(event["type"]))
+    return {"success": "true"}
 
 
 @app.post(
