@@ -101,11 +101,11 @@ async def createuser(
     account: WebhookUser,
     authorization: str = Header(None),
 ):
+    email = account.email.lower()
     if not is_agixt_admin(email=email, api_key=authorization):
         raise HTTPException(status_code=403, detail="Unauthorized")
     ApiClient = get_api_client(authorization=authorization)
     session = get_session()
-    email = account.email.lower()
     agent_name = account.agent_name
     settings = account.settings
     commands = account.commands
