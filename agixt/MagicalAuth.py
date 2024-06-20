@@ -48,11 +48,18 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     if api_key == getenv("AGIXT_API_KEY"):
         return True
     session = get_session()
-    user = session.query(User).filter_by(email=email).first()
+    try:
+        user = session.query(User).filter_by(email=email).first()
+    except:
+        session.close()
+        return False
     if not user:
+        session.close()
         return False
     if user.admin is True:
+        session.close()
         return True
+    session.close()
     return False
 
 
