@@ -11,8 +11,6 @@ from Models import UserInfo, Register, Login
 from fastapi import Header, HTTPException
 from Globals import getenv
 from datetime import datetime, timedelta
-from Agent import add_agent
-from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import (
@@ -58,51 +56,6 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     return False
 
 
-def webhook_create_user(
-    api_key: str,
-    email: str,
-    role: str = "user",
-    agent_name: str = "",
-    settings: dict = {},
-    commands: dict = {},
-    training_urls: list = [],
-    github_repos: list = [],
-    ApiClient: AGiXTSDK = AGiXTSDK(),
-):
-    if not is_agixt_admin(email=email, api_key=api_key):
-        return {"error": "Access Denied"}, 403
-    session = get_session()
-    email = email.lower()
-    user_exists = session.query(User).filter_by(email=email).first()
-    if user_exists:
-        session.close()
-        return {"error": "User already exists"}, 400
-    admin = True if role.lower() == "admin" else False
-    user = User(
-        email=email,
-        admin=admin,
-        first_name="",
-        last_name="",
-    )
-    session.add(user)
-    session.commit()
-    session.close()
-    if agent_name != "" and agent_name is not None:
-        add_agent(
-            agent_name=agent_name,
-            provider_settings=settings,
-            commands=commands,
-            user=email,
-        )
-    if training_urls != []:
-        for url in training_urls:
-            ApiClient.learn_url(agent_name=agent_name, url=url)
-    if github_repos != []:
-        for repo in github_repos:
-            ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
-    return {"status": "Success"}, 200
-
-
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     if getenv("AUTH_PROVIDER") == "magicalauth":
@@ -131,6 +84,21 @@ def verify_api_key(authorization: str = Header(None)):
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
         return authorization
+
+
+def get_user_id(user: str):
+    session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+    if user_data is None:
+        session.close()
+        raise HTTPException(status_code=404, detail=f"User {user} not found.")
+    try:
+        user_id = user_data.id
+    except Exception as e:
+        session.close()
+        raise HTTPException(status_code=404, detail=f"User {user} not found.")
+    session.close()
+    return user_id
 
 
 def send_email(

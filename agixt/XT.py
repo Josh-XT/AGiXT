@@ -630,10 +630,14 @@ class AGiXT:
                 stderr=subprocess.PIPE,
             )
             file_path = pdf_file_path
-        if conversation_name != "" and conversation_name != None:
+        if (
+            conversation_name != ""
+            and conversation_name != None
+            and file_type not in ["jpg", "jpeg", "png", "gif"]
+        ):
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading file `{file_name}` into memory.",
+                message=f"[ACTIVITY] Reading `{file_name}` into memory.",
             )
         if user_input == "":
             user_input = "Describe each stage of this image."
@@ -785,7 +789,7 @@ class AGiXT:
                 if conversation_name != "" and conversation_name != None:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Viewing image at {file_url} .",
+                        message=f"[ACTIVITY] [Uploaded {file_name}]({file_url}) .",
                     )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
@@ -1347,7 +1351,9 @@ class AGiXT:
                                         self.agent_workspace,
                                         audio_file_info["file_name"],
                                     )
-                                    if url.startswith(self.agent_workspace):
+                                    if os.path.normpath(audio_file_path).startswith(
+                                        self.agent_workspace
+                                    ):
                                         wav_file = os.path.join(
                                             self.agent_workspace,
                                             f"{uuid.uuid4().hex}.wav",
