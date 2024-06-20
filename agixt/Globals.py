@@ -35,7 +35,6 @@ def getenv(var_name: str):
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_API_KEY": None,
         "ALLOWED_DOMAINS": "*",
-        "ALLOWLIST": "*",
         "WORKSPACE": os.path.join(os.getcwd(), "WORKSPACE"),
         "APP_NAME": "AGiXT",
         "EMAIL_SERVER": "",
@@ -53,6 +52,7 @@ def getenv(var_name: str):
         "CHROMA_SSL": "false",
         "DISABLED_EXTENSIONS": "",
         "DISABLED_PROVIDERS": "",
+        "REGISTRATION_DISABLED": "false",
         "AUTH_PROVIDER": "",
     }
     default_value = default_values[var_name] if var_name in default_values else ""

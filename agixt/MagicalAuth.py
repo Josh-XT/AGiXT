@@ -375,6 +375,11 @@ class MagicalAuth:
         new_user.email = new_user.email.lower()
         self.email = new_user.email
         allowed_domains = getenv("ALLOWED_DOMAINS")
+        registration_disabled = getenv("REGISTRATION_DISABLED").lower() == "true"
+        if registration_disabled:
+            raise HTTPException(
+                status_code=403, detail="Registration is disabled for this server."
+            )
         if allowed_domains is None or allowed_domains == "":
             allowed_domains = "*"
         if allowed_domains != "*":
