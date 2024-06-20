@@ -160,6 +160,21 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+        if "conversation_results" in kwargs:
+            try:
+                injected_interactions = int(kwargs["conversation_results"])
+            except:
+                injected_interactions = 10
+            del kwargs["conversation_results"]
+        if "context_results" in kwargs:
+            try:
+                injected_memories = int(kwargs["context_results"])
+            except:
+                injected_memories = 10
+            del kwargs["context_results"]
+        if "tts" in kwargs:
+            voice_response = str(kwargs["tts"]).lower() == "true"
+            del kwargs["tts"]
         return await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
