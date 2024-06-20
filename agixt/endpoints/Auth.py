@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
-from MagicalAuth import MagicalAuth, verify_api_key
-from Agent import webhook_create_user
+from MagicalAuth import MagicalAuth, verify_api_key, is_agixt_admin
+from DB import get_session, User
+from Agent import add_agent
 from ApiClient import get_api_client, is_admin
 from Models import WebhookUser
 from Globals import getenv
@@ -100,19 +101,50 @@ async def createuser(
     account: WebhookUser,
     authorization: str = Header(None),
 ):
+    if not is_agixt_admin(email=email, api_key=authorization):
+        raise HTTPException(status_code=403, detail="Unauthorized")
     ApiClient = get_api_client(authorization=authorization)
-    return webhook_create_user(
-        api_key=authorization,
-        email=account.email,
-        role="user",
-        agent_name=account.agent_name,
-        settings=account.settings,
-        commands=account.commands,
-        training_urls=account.training_urls,
-        github_repos=account.github_repos,
-        zip_file_content=account.zip_file_content,
-        ApiClient=ApiClient,
+    session = get_session()
+    email = account.email.lower()
+    agent_name = account.agent_name
+    settings = account.settings
+    commands = account.commands
+    training_urls = account.training_urls
+    github_repos = account.github_repos
+    zip_file_content = account.zip_file_content
+    user_exists = session.query(User).filter_by(email=email).first()
+    if user_exists:
+        session.close()
+        return {"status": "User already exists"}, 200
+    user = User(
+        email=email,
+        admin=False,
+        first_name="",
+        last_name="",
     )
+    session.add(user)
+    session.commit()
+    session.close()
+    if agent_name != "" and agent_name is not None:
+        add_agent(
+            agent_name=agent_name,
+            provider_settings=settings,
+            commands=commands,
+            user=email,
+        )
+    if training_urls != []:
+        for url in training_urls:
+            ApiClient.learn_url(agent_name=agent_name, url=url)
+    if github_repos != []:
+        for repo in github_repos:
+            ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
+    if zip_file_content != "":
+        ApiClient.learn_file(
+            agent_name=agent_name,
+            file_name="training_data.zip",
+            file_content=zip_file_content,
+        )
+    return {"status": "Success"}, 200
 
 
 @app.post(
