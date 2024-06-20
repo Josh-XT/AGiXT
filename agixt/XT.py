@@ -253,7 +253,17 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Transcribing recorded audio.",
             )
+            # Start a timer
+            start = time.time()
         response = await self.agent.transcribe_audio(audio_path=audio_path)
+        if conversation_name != "" and conversation_name != None:
+            # End the timer
+            end = time.time()
+            elapsed_time = end - start
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"Transcribed audio in {elapsed_time} seconds.",
+            )
         return response
 
     async def translate_audio(self, audio_path: str, conversation_name: str = ""):
