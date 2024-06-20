@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
-from MagicalAuth import MagicalAuth, verify_api_key, webhook_create_user
+from MagicalAuth import MagicalAuth, verify_api_key
+from Agent import webhook_create_user
 from ApiClient import get_api_client, is_admin
 from Models import WebhookUser
 from Globals import getenv
