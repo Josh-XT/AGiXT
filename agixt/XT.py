@@ -133,7 +133,8 @@ class AGiXT:
         prompt_name: str = "Custom Input",
         conversation_name: str = "",
         images: list = [],
-        injected_memories: int = 5,
+        injected_memories: int = 10,
+        injected_interactions: int = 10,
         shots: int = 1,
         browse_links: bool = False,
         voice_response: bool = False,
@@ -149,6 +150,7 @@ class AGiXT:
             prompt_category (str): Category of the prompt
             prompt_name (str): Name of the prompt to use
             injected_memories (int): Number of memories to inject into the conversation
+            injected_interactions (int): Number of interactions to inject into the conversation
             conversation_name (str): Name of the conversation
             browse_links (bool): Whether to browse links in the response
             images (list): List of image file paths
@@ -163,6 +165,7 @@ class AGiXT:
             prompt_category=prompt_category,
             prompt_name=prompt_name,
             context_results=injected_memories,
+            conversation_results=injected_interactions,
             shots=shots,
             conversation_name=conversation_name,
             browse_links=browse_links,

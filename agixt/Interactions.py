@@ -280,21 +280,32 @@ class Interactions:
                 activity_history = [
                     interaction
                     for interaction in conversation["interactions"]
-                    if interaction["message"].startswith("[ACTIVITY]")
+                    if str(interaction["message"]).startswith("[ACTIVITY]")
                 ]
+                activities = []
+                for activity in activity_history:
+                    if "audio response" not in activity["message"]:
+                        activity["message"] = activity["message"].replace(
+                            "[ACTIVITY]", ""
+                        )
+                        activities.append(activity)
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
                 conversation["interactions"] = [
                     interaction
                     for interaction in conversation["interactions"]
-                    if not interaction["message"].startswith("[ACTIVITY]")
+                    if not str(interaction["message"]).startswith("[ACTIVITY]")
                 ]
+                interactions = []
+                for interaction in conversation["interactions"]:
+                    if not str(interaction["message"]).startswith("<audio controls>"):
+                        interactions.append(interaction)
                 if total_results > conversation_results:
-                    new_conversation_history = conversation["interactions"][
+                    new_conversation_history = interactions[
                         total_results - conversation_results : total_results
                     ]
                 else:
-                    new_conversation_history = conversation["interactions"]
+                    new_conversation_history = interactions
 
                 for interaction in new_conversation_history:
                     timestamp = (
