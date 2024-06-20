@@ -316,6 +316,7 @@ class WebhookUser(BaseModel):
     commands: Optional[Dict[str, Any]] = {}
     training_urls: Optional[List[str]] = []
     github_repos: Optional[List[str]] = []
+    zip_file_content: Optional[str] = ""
 
 
 # Auth user models
