@@ -133,6 +133,21 @@ def verify_api_key(authorization: str = Header(None)):
         return authorization
 
 
+def get_user_id(user: str):
+    session = get_session()
+    user_data = session.query(User).filter(User.email == user).first()
+    if user_data is None:
+        session.close()
+        raise HTTPException(status_code=404, detail=f"User {user} not found.")
+    try:
+        user_id = user_data.id
+    except Exception as e:
+        session.close()
+        raise HTTPException(status_code=404, detail=f"User {user} not found.")
+    session.close()
+    return user_id
+
+
 def send_email(
     email: str,
     subject: str,

@@ -16,6 +16,7 @@ from DB import (
 from Providers import Providers
 from Extensions import Extensions
 from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
+from MagicalAuth import get_user_id
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 import logging
@@ -168,21 +169,6 @@ def get_agents(user=DEFAULT_USER):
         output.append({"name": agent.name, "id": agent.id, "status": False})
     session.close()
     return output
-
-
-def get_user_id(user=DEFAULT_USER):
-    session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
-    if user_data is None:
-        session.close()
-        raise HTTPException(status_code=404, detail=f"User {user} not found.")
-    try:
-        user_id = user_data.id
-    except Exception as e:
-        session.close()
-        raise HTTPException(status_code=404, detail=f"User {user} not found.")
-    session.close()
-    return user_id
 
 
 class Agent:
