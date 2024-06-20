@@ -110,6 +110,7 @@ async def createuser(
         commands=account.commands,
         training_urls=account.training_urls,
         github_repos=account.github_repos,
+        zip_file_content=account.zip_file_content,
         ApiClient=ApiClient,
     )
 

@@ -98,6 +98,7 @@ def webhook_create_user(
     commands: dict = {},
     training_urls: list = [],
     github_repos: list = [],
+    zip_file_content: str = "",
     ApiClient: AGiXTSDK = AGiXTSDK(),
 ):
     if not is_agixt_admin(email=email, api_key=api_key):
@@ -131,6 +132,12 @@ def webhook_create_user(
     if github_repos != []:
         for repo in github_repos:
             ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
+    if zip_file_content != "":
+        ApiClient.learn_file(
+            agent_name=agent_name,
+            file_name="training_data.zip",
+            file_content=zip_file_content,
+        )
     return {"status": "Success"}, 200
 
 

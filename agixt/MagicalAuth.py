@@ -11,8 +11,6 @@ from Models import UserInfo, Register, Login
 from fastapi import Header, HTTPException
 from Globals import getenv
 from datetime import datetime, timedelta
-from Agent import add_agent
-from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import (
