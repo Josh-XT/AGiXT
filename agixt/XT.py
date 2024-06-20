@@ -636,29 +636,6 @@ class AGiXT:
             logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if file_type in ["ppt", "pptx"]:
-            # Convert it to a PDF
-            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            if conversation_name != "" and conversation_name != None:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Converting PowerPoint file `{file_name}` to PDF.",
-                )
-            subprocess.run(
-                [
-                    "libreoffice",
-                    "--headless",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    self.agent_workspace,
-                    file_path,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            file_path = pdf_file_path
         if (
             conversation_name != ""
             and conversation_name != None
@@ -668,6 +645,32 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Reading `{file_name}` into memory.",
             )
+        if file_type in ["ppt", "pptx"]:
+            # Convert it to a PDF
+            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            if conversation_name != "" and conversation_name != None:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Converting PowerPoint file `{file_name}` to PDF.",
+                )
+            try:
+                subprocess.run(
+                    [
+                        "libreoffice",
+                        "--headless",
+                        "--convert-to",
+                        "pdf",
+                        "--outdir",
+                        self.agent_workspace,
+                        file_path,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+            except Exception as e:
+                logging.error(f"Error converting PowerPoint to PDF: {e}")
+            file_path = pdf_file_path
         if user_input == "":
             user_input = "Describe each stage of this image."
         file_reader = FileReader(
@@ -677,8 +680,7 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        # The only thing we disallow is binary that we can't convert to text
-        disallowed_types = ["exe", "bin", "rar"]
+        disallowed_types = ["exe", "bin", "rar", "ppt", "pptx"]
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
