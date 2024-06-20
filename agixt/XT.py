@@ -251,7 +251,7 @@ class AGiXT:
             c = Conversations(conversation_name=conversation_name, user=self.user_email)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"Transcribing audio.",
+                message=f"[ACTIVITY] Transcribing recorded audio.",
             )
         response = await self.agent.transcribe_audio(audio_path=audio_path)
         return response
