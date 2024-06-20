@@ -643,7 +643,7 @@ class AGiXT:
         ):
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Reading `{file_name}` into memory.",
+                message=f"[ACTIVITY] Reading [{file_name}]({file_url}) into memory.",
             )
         if file_type in ["ppt", "pptx"]:
             # Convert it to a PDF
@@ -652,7 +652,7 @@ class AGiXT:
             if conversation_name != "" and conversation_name != None:
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Converting PowerPoint file `{file_name}` to PDF.",
+                    message=f"[ACTIVITY] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
                 )
             try:
                 subprocess.run(
@@ -692,9 +692,7 @@ class AGiXT:
                 text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
                 external_source=f"file {file_path}",
             )
-            response = (
-                f"Read the content of the PDF file called `{file_name}` into memory."
-            )
+            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
         elif file_path.endswith(".zip"):
             extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
@@ -716,7 +714,7 @@ class AGiXT:
                             collection_id=collection_id,
                             conversation_name=conversation_name,
                         )
-                response = f"Extracted the content of the zip file called `{file_name}` and read them into memory."
+                response = f"Extracted the content of the zip file [{file_name}]({file_url}) and read them into memory."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -734,7 +732,9 @@ class AGiXT:
                     file_path = file_path.replace(f".{file_type}", f"_{x}.csv")
                     csv_file_name = os.path.basename(file_path)
                     df.to_csv(file_path, index=False)
-                    csv_files.append(f"`{csv_file_name}`")
+                    csv_files.append(
+                        f"[{csv_file_name}]({self.outputs}/{csv_file_name})"
+                    )
                     await self.learn_from_file(
                         file_url=f"{self.outputs}/{csv_file_name}",
                         file_name=csv_file_name,
@@ -763,7 +763,7 @@ class AGiXT:
                 text=file_content,
                 external_source=f"file {file_path}",
             )
-            response = f"Read the content of the file called `{file_name}` into memory."
+            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
         elif file_type == "csv":
             df = pd.read_csv(file_path)
             df_dict = df.to_dict()
@@ -775,7 +775,7 @@ class AGiXT:
                     text=message,
                     external_source=f"file {file_path}",
                 )
-            response = f"Read the content of the file called `{file_name}` into memory."
+            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -790,7 +790,7 @@ class AGiXT:
             if conversation_name != "" and conversation_name != None:
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Transcribing audio file `{file_name}` into memory.",
+                    message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
                 )
             audio_response = await self.audio_to_text(audio_path=file_path)
             await file_reader.write_text_to_memory(
@@ -799,7 +799,7 @@ class AGiXT:
                 external_source=f"audio {file_name}",
             )
             response = (
-                f"I have transcribed the audio from `{file_name}` into my memory."
+                f"Transcribed the audio from [{file_name}]({file_url}) into memory."
             )
         # If it is an image, generate a description then save to memory
         elif file_type in [
@@ -818,7 +818,6 @@ class AGiXT:
                 and self.agent.VISION_PROVIDER != None
             ):
                 if conversation_name != "" and conversation_name != None:
-                    # f"[ACTIVITY] [Uploaded {file_name}]({file_url}) ."
                     c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url}) .",
@@ -834,7 +833,7 @@ class AGiXT:
                         text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
                         external_source=f"image {file_name}",
                     )
-                    response = f"Generated a description of the image called `{file_name}` into my memory."
+                    response = f"Generated a description of the image called [{file_name}]({file_url}) and read it into memory."
                 except Exception as e:
                     logging.error(f"Error getting vision response: {e}")
                     response = (
@@ -854,9 +853,7 @@ class AGiXT:
                     text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
                     external_source=f"file {file_path}",
                 )
-                response = (
-                    f"Read the content of the file called `{file_name}` into memory."
-                )
+                response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
