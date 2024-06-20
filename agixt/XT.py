@@ -1351,7 +1351,9 @@ class AGiXT:
                                         self.agent_workspace,
                                         audio_file_info["file_name"],
                                     )
-                                    if url.startswith(self.agent_workspace):
+                                    if os.path.normpath(audio_file_path).startswith(
+                                        self.agent_workspace
+                                    ):
                                         wav_file = os.path.join(
                                             self.agent_workspace,
                                             f"{uuid.uuid4().hex}.wav",
