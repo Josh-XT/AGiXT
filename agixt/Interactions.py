@@ -265,7 +265,6 @@ class Interactions:
                 helper_agent_name = self.agent.AGENT_CONFIG["settings"][
                     "helper_agent_name"
                 ]
-
         if "conversation_results" in kwargs:
             conversation_results = int(kwargs["conversation_results"])
         else:
@@ -285,7 +284,7 @@ class Interactions:
                 activities = []
                 for activity in activity_history:
                     if "audio response" not in activity["message"]:
-                        activity["message"] = activity["message"].replace(
+                        activity["message"] = str(activity["message"]).replace(
                             "[ACTIVITY]", ""
                         )
                         activities.append(activity)
@@ -306,7 +305,6 @@ class Interactions:
                     ]
                 else:
                     new_conversation_history = interactions
-
                 for interaction in new_conversation_history:
                     timestamp = (
                         interaction["timestamp"] if "timestamp" in interaction else ""
