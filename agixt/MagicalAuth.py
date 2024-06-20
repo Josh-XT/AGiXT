@@ -550,8 +550,17 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        user_requirements = self.registration_requirements()
         if not user_preferences:
             return {}
+        if "subscription" in user_requirements:
+            if "subscription" not in user_preferences:
+                user_preferences["subscription"] = "none"
+            if str(user_preferences["subscription"]).lower() != "none":
+                if user.is_active is False:
+                    raise HTTPException(
+                        status_code=402, detail=user_preferences["subscription"]
+                    )
         session.close()
         if "email" in user_preferences:
             del user_preferences["email"]
@@ -561,15 +570,10 @@ class MagicalAuth:
             del user_preferences["last_name"]
         if "missing_requirements" in user_preferences:
             del user_preferences["missing_requirements"]
-        user_requirements = self.registration_requirements()
         missing_requirements = []
         for key, value in user_requirements.items():
             if key not in user_preferences:
-                if key == "subscription":
-                    if str(value).lower() != "none":
-                        if str(value).lower() == "false":
-                            raise HTTPException(status_code=402, detail=str(value))
-                else:
+                if key != "subscription":
                     missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
