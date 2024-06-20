@@ -306,7 +306,6 @@ class Agent:
                 )
                 .first()
             )
-
         config = {"settings": {}, "commands": {}}
         if agent:
             all_commands = session.query(Command).all()
@@ -399,11 +398,53 @@ class Agent:
             .first()
         )
         if not agent:
-            logging.error(f"Agent '{self.agent_name}' not found in the database.")
-            session.close()
-            raise HTTPException(
-                status_code=404, detail=f"Agent '{self.agent_name}' not found."
+            if self.user == DEFAULT_USER:
+                return f"Agent {self.agent_name} not found."
+            # Check if it is a global agent.
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            global_agent = (
+                session.query(AgentModel)
+                .filter(
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == global_user.id,
+                )
+                .first()
             )
+            # if it is a global agent, copy it to the user's agents.
+            if global_agent:
+                agent = AgentModel(
+                    name=self.agent_name,
+                    user_id=self.user_id,
+                    provider_id=global_agent.provider_id,
+                )
+                session.add(agent)
+                agent_settings = (
+                    session.query(AgentSettingModel)
+                    .filter_by(agent_id=global_agent.id)
+                    .all()
+                )
+                for setting in agent_settings:
+                    agent_setting = AgentSettingModel(
+                        agent_id=agent.id,
+                        name=setting.name,
+                        value=setting.value,
+                    )
+                    session.add(agent_setting)
+                agent_commands = (
+                    session.query(AgentCommand)
+                    .filter_by(agent_id=global_agent.id)
+                    .all()
+                )
+                for agent_command in agent_commands:
+                    agent_command = AgentCommand(
+                        agent_id=agent.id,
+                        command_id=agent_command.command_id,
+                        state=agent_command.state,
+                    )
+                    session.add(agent_command)
+                session.commit()
+                session.close()
+                return f"Agent {self.agent_name} configuration updated successfully."
         if config_key == "commands":
             for command_name, enabled in new_config.items():
                 command = session.query(Command).filter_by(name=command_name).first()
