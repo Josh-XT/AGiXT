@@ -278,6 +278,7 @@ class AGiXT:
             # End the timer
             end = time.time()
             elapsed_time = end - start
+            elapsed_time = "{:.2f}".format(elapsed_time)
             c.log_interaction(
                 role=self.agent_name,
                 message=f"Transcribed audio in {elapsed_time} seconds.",
