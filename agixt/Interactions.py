@@ -111,6 +111,7 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
+        searching: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -216,6 +217,7 @@ class Interactions:
                         vision_provider != "None"
                         and vision_provider != ""
                         and vision_provider != None
+                        and searching == False
                     ):
                         for memory in conversation_context:
                             # If the memory starts with "Sourced from image", get a new vision response to add and inject
@@ -447,6 +449,7 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
+        searching: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
         **kwargs,
@@ -561,6 +564,7 @@ class Interactions:
                     browse_links=False,
                     websearch=False,
                     tts=False,
+                    searching=True,
                 )
                 to_search = re.search(
                     r"\byes\b", str(to_search_or_not_to_search).lower()
@@ -581,6 +585,7 @@ class Interactions:
                         browse_links=False,
                         websearch=False,
                         tts=False,
+                        searching=True,
                     )
                     if "```json" in search_strings:
                         search_strings = (
@@ -657,6 +662,7 @@ class Interactions:
             prompt_category=prompt_category,
             conversation_name=conversation_name,
             websearch=websearch,
+            searching=searching,
             vision_response=vision_response,
             **kwargs,
         )
