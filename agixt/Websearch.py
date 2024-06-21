@@ -287,6 +287,11 @@ class Websearch:
                                     )
                                 )
                                 self.tasks.append(task)
+                            else:
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{activity_id}] Decided not to click any links on [{url}]({url}).",
+                                )
                         except:
                             logging.info(f"Issues reading {url}. Moving on...")
                             if (

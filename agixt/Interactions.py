@@ -762,7 +762,7 @@ class Interactions:
                         sources = sources.split("```")[1].strip()
                     try:
                         sources = json.loads(sources)
-                        if sources != {}:
+                        if sources != []:
                             for source in sources:
                                 if str(source["source"]).startswith("http"):
                                     source_list.append(
@@ -773,6 +773,7 @@ class Interactions:
                                         f"{source['source']} - {source['reason_sourced']}"
                                     )
                     except Exception as e:
+                        logging.info(f"Sources: {sources}")
                         logging.error(f"Error getting sources: {e}")
                     if source_list != []:
                         joined_sources = "\n".join(source_list)

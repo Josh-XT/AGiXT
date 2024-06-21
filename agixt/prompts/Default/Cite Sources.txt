@@ -24,3 +24,5 @@ Cite sources in the exact following JSON format in a json markdown code block.
     ]
 }
 ```
+
+JSON Formatted Response:
