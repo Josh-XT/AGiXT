@@ -1133,6 +1133,8 @@ class AGiXT:
         browse_links = True
         tts = False
         websearch = False
+        if "websearch" in self.agent_settings:
+            websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
