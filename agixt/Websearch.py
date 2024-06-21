@@ -333,7 +333,7 @@ class Websearch:
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
                     if conversation_name != "" and conversation_name is not None:
-                        activity = c.log_interaction(
+                        c.log_interaction(
                             role=self.agent_name,
                             message=f"[SUBACTIVITY][{activity_id}] Browsing [{url}]({url}).",
                         )
@@ -344,7 +344,7 @@ class Websearch:
                             agent_browsing=agent_browsing,
                             user_input=user_input,
                             conversation_name=conversation_name,
-                            activity_id=activity,
+                            activity_id=activity_id,
                         )
                     )
                     tasks.append(task)
