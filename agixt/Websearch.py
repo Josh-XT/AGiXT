@@ -257,7 +257,7 @@ class Websearch:
                             )
                             c.log_interaction(
                                 role=self.agent_name,
-                                message=f"[SUBACTIVITY][{activity_id}] Found {len(link_list)} links on {url} . Choosing one to browse next.",
+                                message=f"[SUBACTIVITY][{activity_id}] Found {len(link_list)} links on [{url}]({url}) . Choosing one to browse next.",
                             )
                         try:
                             pick_a_link = self.ApiClient.prompt_agent(
