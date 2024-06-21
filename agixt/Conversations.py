@@ -53,32 +53,6 @@ class Conversations:
         session.close()
         return history
 
-    def get_last_message_timestamp(self, conversation_name=None):
-        session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
-        if not conversation_name:
-            conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
-        if not conversation:
-            return None
-        message = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .order_by(Message.timestamp.desc())
-            .first()
-        )
-        timestamp = message.timestamp
-        session.close()
-        return timestamp
-
     def get_conversations(self):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
@@ -90,22 +64,8 @@ class Conversations:
             )
             .all()
         )
-        conversations_with_timestamps = {}
-        for conversation in conversations:
-            timestamp = self.get_last_message_timestamp(
-                conversation_name=conversation.name
-            )
-            if not timestamp:
-                timestamp = datetime.now()
-            conversations_with_timestamps[conversation.name] = timestamp
-        conversation_list = []
-        # Order the conversation names by timestamp newest to oldest with just a list of conversation names for return
-        for conversation in sorted(
-            conversations_with_timestamps,
-            key=conversations_with_timestamps.get,
-            reverse=True,
-        ):
-            conversation_list.append(conversation)
+        # return a list of conversation names
+        conversation_list = [conversation.name for conversation in conversations]
         session.close()
         return conversation_list
 
