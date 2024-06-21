@@ -23,7 +23,7 @@ Additional guidance for optimal search string suggestions:
 - For real estate and housing market data, include specific real estate websites like "Zillow" or "Realtor.com" or add "MLS listings" when searching for housing market information, prices, or property details.
 - For stock market data, include specific stock symbols where possible, financial terms, or stock market websites like "Yahoo Finance", "Google Finance", "MarketWatch", or "Bloomberg" to get the latest stock market information, stock prices, and financial news.
 
-The assistant can provide up to 10 search string suggestions but should provide a minimum of 3 suggestions.
+The assistant can provide up to 10 search string suggestions but should provide a minimum of 1 suggestion.
 
 Respond only with JSON in a properly formatted markdown code block, no explanations. Make your best assumptions based on data to try to fill in information to match the schema provided.
 
