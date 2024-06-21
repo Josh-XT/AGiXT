@@ -303,6 +303,7 @@ class Interactions:
                     interaction
                     for interaction in conversation["interactions"]
                     if str(interaction["message"]).startswith("[ACTIVITY]")
+                    or str(interaction["message"]).startswith("[SUBACTIVITY]")
                 ]
                 activities = []
                 for activity in activity_history:
@@ -314,6 +315,8 @@ class Interactions:
                     interaction
                     for interaction in conversation["interactions"]
                     if not str(interaction["message"]).startswith("[ACTIVITY]")
+                    and not str(interaction["message"]).startswith("<audio controls>")
+                    and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                 ]
                 interactions = []
                 for interaction in conversation["interactions"]:
