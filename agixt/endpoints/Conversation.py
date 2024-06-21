@@ -185,7 +185,10 @@ async def rename_conversation(
         except:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
         rename.new_conversation_name = new_name
-    Conversations(
-        conversation_name=rename.conversation_name, user=user
-    ).rename_conversation(new_name=rename.new_conversation_name)
+    c = Conversations(conversation_name=rename.conversation_name, user=user)
+    c.rename_conversation(new_name=rename.new_conversation_name)
+    c.log_interaction(
+        message=f"[ACTIVITY][INFO] Conversation renamed to `{rename.new_conversation_name}`.",
+        role=rename.agent_name,
+    )
     return {"conversation_name": rename.new_conversation_name}
