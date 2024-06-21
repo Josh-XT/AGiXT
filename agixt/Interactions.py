@@ -602,6 +602,7 @@ class Interactions:
                         prompt_category="Default",
                         user_input=user_input,
                         context_results=context_results,
+                        conversation_results=10,
                         conversation_name=conversation_name,
                         log_user_input=False,
                         log_output=False,
