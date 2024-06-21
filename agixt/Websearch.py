@@ -625,7 +625,7 @@ class Websearch:
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
                             activity_id=new_activity_id,
-                            agent_browsing=True,
+                            agent_browsing=False,
                         )
                     )
                     self.tasks.append(task)
