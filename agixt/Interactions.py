@@ -284,9 +284,6 @@ class Interactions:
                 activities = []
                 for activity in activity_history:
                     if "audio response" not in activity["message"]:
-                        activity["message"] = str(activity["message"]).replace(
-                            "[ACTIVITY]", ""
-                        )
                         activities.append(activity)
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
@@ -319,7 +316,7 @@ class Interactions:
                 for activity in activity_history:
                     timestamp = activity["timestamp"]
                     role = activity["role"]
-                    message = activity["message"]
+                    message = str(activity["message"]).replace("[ACTIVITY]", "")
                     conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:

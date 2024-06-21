@@ -229,6 +229,10 @@ class Websearch:
     async def recursive_browsing(
         self, user_input, links, conversation_name: str = "", conversation_id="1"
     ):
+        logging.info(f"Recursive browsing: {links}")
+        logging.info(
+            f"Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
+        )
         c = Conversations(conversation_name=conversation_name, user=self.user)
         try:
             words = links.split()
@@ -268,7 +272,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Browsing {url} .",
+                            message=f"[ACTIVITY][SUB] Browsing {url} .",
                         )
                     (
                         collected_data,
@@ -540,6 +544,9 @@ class Websearch:
             if len(user_input) > 0:
                 c = Conversations(conversation_name=conversation_name, user=self.user)
                 conversation_id = c.get_conversation_id()
+                logging.info(
+                    f"Websearch Agent: Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
+                )
                 if conversation_name != "" and conversation_name is not None:
                     c.log_interaction(
                         role=self.agent_name,
