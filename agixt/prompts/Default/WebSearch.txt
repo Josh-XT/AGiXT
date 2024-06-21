@@ -10,7 +10,7 @@ The assistant can provide up to 10 search string suggestions but should provide 
 
 Respond only with JSON in a properly formatted markdown code block, no explanations. Make your best assumptions based on data to try to fill in information to match the schema provided.
 
-Respond in the following following schema:
+Respond in the following schema:
 ```json
 {
     "search_string_suggestion_1": "search string 1, for example: top security vulnerabilities {date} ",
