@@ -248,9 +248,7 @@ class Websearch:
                     and conversation_name is not None
                     and user_input != ""
                 ):
-                    if len(link_list) > 0:
-                        if len(link_list) > int(self.websearch_depth):
-                            link_list = link_list[: int(self.websearch_depth)]
+                    if len(link_list) > 5:
                         if conversation_name != "" and conversation_name is not None:
                             c = Conversations(
                                 conversation_name=conversation_name, user=self.user
