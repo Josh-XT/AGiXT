@@ -236,7 +236,7 @@ class ExternalSource(BaseModel):
 
 
 class ConversationHistoryModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     conversation_content: List[dict] = []
 
@@ -256,13 +256,13 @@ class WebhookModel(BaseModel):
 
 
 class ConversationHistoryMessageModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     message: str
 
 
 class UpdateConversationHistoryMessageModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     message: str
     new_message: str
