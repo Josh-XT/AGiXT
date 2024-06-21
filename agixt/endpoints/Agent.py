@@ -1,6 +1,5 @@
 from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
-from Interactions import Interactions
 from XT import AGiXT
 from Websearch import Websearch
 from Globals import getenv
@@ -33,7 +32,7 @@ import os
 app = APIRouter()
 
 
-@app.post("/api/agent", tags=["Agent", "Admin"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def addagent(
     agent: AgentSettings,
     user=Depends(verify_api_key),
@@ -64,9 +63,7 @@ async def addagent(
     return {"message": "Agent added."}
 
 
-@app.post(
-    "/api/agent/import", tags=["Agent", "Admin"], dependencies=[Depends(verify_api_key)]
-)
+@app.post("/api/agent/import", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def import_agent(
     agent: AgentConfig, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> Dict[str, str]:
@@ -82,7 +79,7 @@ async def import_agent(
 
 @app.patch(
     "/api/agent/{agent_name}",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def renameagent(
@@ -99,7 +96,7 @@ async def renameagent(
 
 @app.put(
     "/api/agent/{agent_name}",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_agent_settings(
@@ -119,7 +116,7 @@ async def update_agent_settings(
 
 @app.put(
     "/api/agent/{agent_name}/commands",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_agent_commands(
@@ -139,7 +136,7 @@ async def update_agent_commands(
 
 @app.delete(
     "/api/agent/{agent_name}",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def deleteagent(
@@ -167,7 +164,7 @@ async def getagents(user=Depends(verify_api_key)):
 
 @app.get(
     "/api/agent/{agent_name}",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_agentconfig(
@@ -184,7 +181,7 @@ async def get_agentconfig(
 
 @app.post(
     "/api/agent/{agent_name}/prompt",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def prompt_agent(
@@ -213,7 +210,7 @@ async def prompt_agent(
 
 @app.get(
     "/api/agent/{agent_name}/command",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_commands(
@@ -228,7 +225,7 @@ async def get_commands(
 
 @app.patch(
     "/api/agent/{agent_name}/command",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def toggle_command(
@@ -270,7 +267,7 @@ async def toggle_command(
 # Get agent browsed links
 @app.get(
     "/api/agent/{agent_name}/browsed_links/{collection_number}",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_agent_browsed_links(
@@ -289,7 +286,7 @@ async def get_agent_browsed_links(
 # Delete browsed link from memory
 @app.delete(
     "/api/agent/{agent_name}/browsed_links",
-    tags=["Agent", "Admin"],
+    tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_browsed_link(
