@@ -244,7 +244,7 @@ class ConversationHistoryModel(BaseModel):
 class RenameConversationModel(BaseModel):
     agent_name: str
     conversation_name: str
-    new_conversation_name: Optional[str] = "/"
+    new_conversation_name: Optional[str] = "-"
 
 
 class TTSInput(BaseModel):
