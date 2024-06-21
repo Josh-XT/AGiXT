@@ -732,15 +732,29 @@ class Interactions:
                 self.response = re.sub(
                     r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
                 )
-            if "![" in self.response:
-                self.response = re.sub(
-                    r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
-                )
             if log_output:
                 c.log_interaction(
                     role=self.agent_name,
                     message=self.response,
                 )
+                if websearch:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message="[ACTIVITY] Citing sources.",
+                    )
+                    self.run(
+                        user_input=user_input,
+                        context_results=context_results,
+                        conversation_name=conversation_name,
+                        prompt_name="Cite Sources",
+                        prompt_category="Default",
+                        log_user_input=False,
+                        log_output=False,
+                        browse_links=False,
+                        websearch=False,
+                        tts=False,
+                        searching=True,
+                    )
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
