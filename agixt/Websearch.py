@@ -281,6 +281,7 @@ class Websearch:
                                         conversation_name=conversation_name,
                                         conversation_id=conversation_id,
                                         activity_id=activity_id,
+                                        agent_browsing=False,
                                     )
                                 )
                                 self.tasks.append(task)
@@ -305,6 +306,7 @@ class Websearch:
         conversation_name: str = "",
         conversation_id="1",
         activity_id="",
+        agent_browsing: bool = False,
     ):
         logging.info(f"Recursive browsing: {links}")
         logging.info(
@@ -339,7 +341,7 @@ class Websearch:
                         self.get_web_content(
                             url=url,
                             conversation_id=conversation_id,
-                            agent_browsing=True,
+                            agent_browsing=agent_browsing,
                             user_input=user_input,
                             conversation_name=conversation_name,
                             activity_id=activity,
@@ -610,6 +612,7 @@ class Websearch:
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
                             activity_id=new_activity_id,
+                            agent_browsing=True,
                         )
                     )
                     self.tasks.append(task)
