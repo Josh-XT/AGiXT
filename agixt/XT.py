@@ -848,11 +848,21 @@ class AGiXT:
             if os.path.normpath(file_path).startswith(self.agent_workspace):
                 with open(file_path, "r") as f:
                     file_content = f.read()
-                await file_reader.write_text_to_memory(
-                    user_input=user_input,
-                    text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
-                    external_source=f"file {file_path}",
-                )
+                # Check how many lines are in the file content
+                lines = file_content.split("\n")
+                if len(lines) > 1:
+                    for line_number, line in enumerate(lines):
+                        await file_reader.write_text_to_memory(
+                            user_input=user_input,
+                            text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                            external_source=f"file {file_path}",
+                        )
+                else:
+                    await file_reader.write_text_to_memory(
+                        user_input=user_input,
+                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                        external_source=f"file {file_path}",
+                    )
                 response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
             else:
                 response = (
