@@ -321,7 +321,7 @@ class Websearch:
         agent_browsing: bool = False,
     ):
         self.current_depth = self.current_depth + 1
-        if self.current_depth == self.websearch_depth:
+        if self.current_depth > self.websearch_depth:
             return ""
         logging.info(f"Recursive browsing: {links}")
         logging.info(
