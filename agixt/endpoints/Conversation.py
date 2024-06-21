@@ -169,6 +169,9 @@ async def rename_conversation(
             user_input=f"Rename conversation",
             prompt_name="Name Conversation",
             conversation_name=rename.conversation_name,
+            websearch=False,
+            browse_links=False,
+            voice_response=False,
             log_user_input=False,
             log_output=False,
         )
