@@ -1749,7 +1749,8 @@ class AGiXT:
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
-                    likely_files.append(activity["message"].split("`")[1])
+                    if "`" in activity["message"]:
+                        likely_files.append(activity["message"].split("`")[1])
             if len(likely_files) == 0:
                 return ""
             elif len(likely_files) == 1:
