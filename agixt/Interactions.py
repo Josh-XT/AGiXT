@@ -231,7 +231,7 @@ class Interactions:
                                     timestamp = datetime.now().strftime(
                                         "%B %d, %Y %I:%M %p"
                                     )
-                                    vision_response = await self.agent.inference(
+                                    vision_response = await self.agent.vision_inference(
                                         prompt=user_input, images=images
                                     )
                                     await conversation_memories.write_text_to_memory(
