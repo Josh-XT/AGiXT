@@ -227,7 +227,12 @@ class Websearch:
             return None, None
 
     async def recursive_browsing(
-        self, user_input, links, conversation_name: str = "", conversation_id="1"
+        self,
+        user_input,
+        links,
+        conversation_name: str = "",
+        conversation_id="1",
+        activity_id="",
     ):
         logging.info(f"Recursive browsing: {links}")
         logging.info(
@@ -255,7 +260,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY][SUB] Browsing {url} .",
+                            message=f"[SUBACTIVITY][{activity_id}] Browsing {url} .",
                         )
                     (
                         collected_data,
@@ -277,7 +282,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY][SUB] Browsing {url} .",
+                            message=f"[SUBACTIVITY][{activity_id}] Browsing {url} .",
                         )
                     (
                         collected_data,
@@ -295,7 +300,7 @@ class Websearch:
                             ):
                                 c.log_interaction(
                                     role=self.agent_name,
-                                    message=f"[ACTIVITY] Found {len(link_list)} links on {url} . Choosing one to browse next.",
+                                    message=f"[SUBACTIVITY][{activity_id}] Found {len(link_list)} links on {url} . Choosing one to browse next.",
                                 )
                             try:
                                 pick_a_link = self.ApiClient.prompt_agent(
@@ -324,6 +329,7 @@ class Websearch:
                                         links=pick_a_link,
                                         conversation_name=conversation_name,
                                         conversation_id=conversation_id,
+                                        activity_id=activity_id,
                                     )
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
@@ -333,7 +339,7 @@ class Websearch:
                                 ):
                                     c.log_interaction(
                                         role=self.agent_name,
-                                        message=f"[ACTIVITY][ERROR] Issues reading {url}. Moving on.",
+                                        message=f"[SUBACTIVITY][{activity_id}][ERROR] Issues reading {url}. Moving on.",
                                     )
 
     async def scrape_websites(
@@ -348,29 +354,27 @@ class Websearch:
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if len(links) < 1:
             return ""
-        if conversation_name != "" and conversation_name is not None:
-            c = Conversations(conversation_name=conversation_name, user=self.user)
-            conversation_id = c.get_conversation_id()
-            self.agent_memory = YoutubeReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number=conversation_id,
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Researching online.",
-            )
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation_id = c.get_conversation_id()
+        self.agent_memory = YoutubeReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=conversation_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        )
+        activity_id = c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Browsing {links[0]} and collecting data from it to learn more.",
+        )
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
-                    if conversation_name != "" and conversation_name is not None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Browsing {link} .",
-                        )
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{activity_id}] Browsing {link} .",
+                    )
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
                     )
@@ -391,7 +395,7 @@ class Websearch:
                                         ):
                                             c.log_interaction(
                                                 role=self.agent_name,
-                                                message=f"[ACTIVITY] Browsing {sublink[1]} .",
+                                                message=f"[SUBACTIVITY][{activity_id}] Browsing {sublink[1]} .",
                                             )
                                         (
                                             text_content,
@@ -407,7 +411,7 @@ class Websearch:
         if conversation_name != "" and conversation_name is not None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] {message}",
+                message=f"[SUBACTIVITY][{activity_id}] {message}",
             )
         return message
 
@@ -536,6 +540,7 @@ class Websearch:
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
         conversation_name: str = "",
+        activity_id: str = "",
     ):
         try:
             websearch_depth = int(websearch_depth)
@@ -552,11 +557,10 @@ class Websearch:
                 logging.info(
                     f"Websearch Agent: Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
                 )
-                if conversation_name != "" and conversation_name is not None:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY][SUB] Searching for `{search_string}`.",
-                    )
+                new_activity_id = c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{activity_id}] Searching for `{search_string}`.",
+                )
                 google_api_key = (
                     self.agent_settings["GOOGLE_API_KEY"]
                     if "GOOGLE_API_KEY" in self.agent_settings
@@ -599,6 +603,7 @@ class Websearch:
                             links=links,
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
+                            activity_id=new_activity_id,
                         )
                     )
                     self.tasks.append(task)

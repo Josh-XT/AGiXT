@@ -256,6 +256,8 @@ class Conversations:
                 logging.error(f"{role}: {message}")
             else:
                 logging.info(f"{role}: {message}")
+        message_id = str(new_message.id)
+        return message_id
 
     def delete_conversation(self):
         session = get_session()

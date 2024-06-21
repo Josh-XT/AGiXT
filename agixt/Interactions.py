@@ -547,7 +547,7 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Searching for information.",
+                    message=f"[ACTIVITY] Deciding if additional research is required.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
@@ -567,7 +567,7 @@ class Interactions:
                     r"\byes\b", str(to_search_or_not_to_search).lower()
                 )
                 if to_search:
-                    c.log_interaction(
+                    searching_activity_id = c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] Searching the web.",
                     )
@@ -616,6 +616,7 @@ class Interactions:
                                         websearch_depth=websearch_depth,
                                         websearch_timeout=websearch_timeout,
                                         conversation_name=conversation_name,
+                                        activity_id=searching_activity_id,
                                     )
                                 )
                                 async_tasks.append(search_task)
