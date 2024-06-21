@@ -12,9 +12,15 @@ Cite sources in the exact following JSON format in a json markdown code block.
 
 ```json
 {
-    "sources": {
-        "source": "URL or file name",
-        "reason_sourced": "Concise description of why the source was used in the response.",
-    }
+    "sources": [
+        {
+            "source": "URL or file name",
+            "reason_sourced": "Concise description of why the source was used in the response.",
+        },
+        {
+            "source": "URL or file name",
+            "reason_sourced": "Concise description of why the source was used in the response.",
+        }
+    ]
 }
 ```
