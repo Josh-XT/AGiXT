@@ -609,7 +609,7 @@ class Interactions:
                                         conversation_name=conversation_name,
                                     )
                                 )
-                        async_tasks.append(search_task)
+                                async_tasks.append(search_task)
                 else:
                     c.log_interaction(
                         role=self.agent_name,
