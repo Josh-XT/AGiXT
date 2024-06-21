@@ -536,11 +536,6 @@ class Websearch:
             websearch_timeout = 0
         if websearch_depth > 0:
             if len(user_input) > 0:
-                keywords = extract_keywords(text=search_string, limit=5)
-                if keywords:
-                    search_string = " ".join(keywords)
-                    # add month and year to the end of the search string
-                    search_string += f" {datetime.now().strftime('%B %Y')}"
                 c = Conversations(conversation_name=conversation_name, user=self.user)
                 conversation_id = c.get_conversation_id()
                 if conversation_name != "" and conversation_name is not None:

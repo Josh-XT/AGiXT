@@ -6,6 +6,7 @@ import time
 import logging
 import base64
 import uuid
+import asyncio
 from datetime import datetime
 from readers.file import FileReader
 from Websearch import Websearch
@@ -229,10 +230,6 @@ class Interactions:
                                     images = [file_path]
                                     timestamp = datetime.now().strftime(
                                         "%B %d, %Y %I:%M %p"
-                                    )
-                                    c.log_interaction(
-                                        role=self.agent_name,
-                                        message=f"[ACTIVITY] Looking at image `{file_name}`.",
                                     )
                                     vision_response = await self.agent.inference(
                                         prompt=user_input, images=images
@@ -526,6 +523,7 @@ class Interactions:
                 summarize_content=False,
                 conversation_name=conversation_name,
             )
+        async_tasks = []
         if websearch:
             if browse_links != False:
                 await self.websearch.scrape_websites(
@@ -564,7 +562,7 @@ class Interactions:
                         role=self.agent_name,
                         message=f"[ACTIVITY] Searching the web.",
                     )
-                    search_string = await self.run(
+                    search_strings = await self.run(
                         prompt_name="WebSearch",
                         prompt_category="Default",
                         user_input=user_input,
@@ -576,13 +574,37 @@ class Interactions:
                         websearch=False,
                         tts=False,
                     )
-                    await self.websearch.websearch_agent(
-                        user_input=user_input,
-                        search_string=search_string,
-                        websearch_depth=websearch_depth,
-                        websearch_timeout=websearch_timeout,
-                        conversation_name=conversation_name,
-                    )
+                    if "```json" in search_strings:
+                        search_strings = (
+                            search_strings.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in search_strings:
+                        search_strings = search_strings.split("```")[1].strip()
+                    try:
+                        search_suggestions = json.loads(search_strings)
+                    except:
+                        search_suggestions = []
+                    search_strings = []
+                    if search_suggestions != []:
+                        if "search_string_suggestion_1" in search_suggestions:
+                            search_string = search_strings["search_string_suggestion_1"]
+                            search_strings.append(search_string)
+                        if "search_string_suggestion_2" in search_strings:
+                            search_string = search_strings["search_string_suggestion_2"]
+                            search_strings.append(search_string)
+                        if "search_string_suggestion_3" in search_strings:
+                            search_string = search_strings["search_string_suggestion_3"]
+                            search_strings.append(search_string)
+                        search_task = asyncio.create_task(
+                            self.websearch.websearch_agent(
+                                user_input=user_input,
+                                search_string=search_string,
+                                websearch_depth=websearch_depth,
+                                websearch_timeout=websearch_timeout,
+                                conversation_name=conversation_name,
+                            )
+                        )
+                        async_tasks.append(search_task)
                 else:
                     c.log_interaction(
                         role=self.agent_name,
@@ -612,10 +634,11 @@ class Interactions:
                 except Exception as e:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Unable to view image.",
+                        message=f"[ACTIVITY][ERROR] Unable to view image.",
                     )
                     logging.error(f"Error getting vision response: {e}")
                     logging.warning("Failed to get vision response.")
+        await asyncio.gather(*async_tasks)
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
