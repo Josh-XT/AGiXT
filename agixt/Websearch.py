@@ -260,7 +260,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Browsing {url} .",
+                            message=f"[SUBACTIVITY][{activity_id}] Browsing [{url}]({url}).",
                         )
                     (
                         collected_data,
@@ -282,7 +282,7 @@ class Websearch:
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Browsing {url} .",
+                            message=f"[SUBACTIVITY][{activity_id}] Browsing [{url}]({url}).",
                         )
                     (
                         collected_data,
@@ -308,8 +308,8 @@ class Websearch:
                                     prompt_name="Pick-a-Link",
                                     prompt_args={
                                         "url": url,
-                                        "links": link_list,
-                                        "visited_links": self.browsed_links,
+                                        "links": str(link_list),
+                                        "visited_links": "\n".join(self.browsed_links),
                                         "disable_memory": True,
                                         "websearch": False,
                                         "browse_links": False,
@@ -368,7 +368,7 @@ class Websearch:
         )
         activity_id = c.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Browsing {links[0]} and collecting data from it to learn more.",
+            message=f"[ACTIVITY] Browsing [{links[0]}]({links[0]}) and collecting data from it to learn more.",
         )
         scraped_links = []
         if links is not None and len(links) > 0:
@@ -376,7 +376,7 @@ class Websearch:
                 if self.verify_link(link=link):
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[SUBACTIVITY][{activity_id}] Browsing {link} .",
+                        message=f"[SUBACTIVITY][{activity_id}] Browsing [{link}]({link}).",
                     )
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
@@ -398,7 +398,7 @@ class Websearch:
                                         ):
                                             c.log_interaction(
                                                 role=self.agent_name,
-                                                message=f"[SUBACTIVITY][{activity_id}] Browsing {sublink[1]} .",
+                                                message=f"[SUBACTIVITY][{activity_id}] Browsing [{sublink[1]}]({sublink[1]}).",
                                             )
                                         (
                                             text_content,
