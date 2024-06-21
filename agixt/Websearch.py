@@ -610,8 +610,8 @@ class Websearch:
                     content, links = await self.web_search(
                         query=search_string, conversation_id=conversation_id
                     )
-                if len(links) > 5:
-                    links = links[:5]
+                if len(links) > 25:
+                    links = links[:25]
                 logging.info(
                     f"Found {len(links)} results for {search_string} using DDG."
                 )
