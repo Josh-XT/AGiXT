@@ -737,55 +737,6 @@ class Interactions:
                     role=self.agent_name,
                     message=self.response,
                 )
-                if websearch:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message="[ACTIVITY] Citing sources.",
-                    )
-                    sources = await self.run(
-                        user_input=user_input,
-                        context_results=context_results,
-                        conversation_name=conversation_name,
-                        prompt_name="Cite Sources",
-                        prompt_category="Default",
-                        log_user_input=False,
-                        log_output=False,
-                        browse_links=False,
-                        websearch=False,
-                        tts=False,
-                        searching=True,
-                    )
-                    source_list = []
-                    if "```json" in sources:
-                        sources = sources.split("```json")[1].split("```")[0].strip()
-                    elif "```" in sources:
-                        sources = sources.split("```")[1].strip()
-                    try:
-                        sources = json.loads(sources)
-                        if sources != []:
-                            for source in sources:
-                                if str(source["source"]).startswith("http"):
-                                    source_list.append(
-                                        f"[{source['source']}]({source['source']}) - {source['reason_sourced']}"
-                                    )
-                                else:
-                                    source_list.append(
-                                        f"{source['source']} - {source['reason_sourced']}"
-                                    )
-                    except Exception as e:
-                        logging.info(f"Sources: {sources}")
-                        logging.error(f"Error getting sources: {e}")
-                    if source_list != []:
-                        joined_sources = "\n".join(source_list)
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"## Sources:\n{joined_sources}",
-                        )
-                    else:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message="No sources cited.",
-                        )
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
