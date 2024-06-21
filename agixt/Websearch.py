@@ -14,7 +14,6 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from datetime import datetime
-from Memories import extract_keywords
 from googleapiclient.discovery import build
 
 logging.basicConfig(

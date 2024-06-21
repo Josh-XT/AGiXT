@@ -11,6 +11,7 @@ from datetime import datetime
 from readers.file import FileReader
 from Websearch import Websearch
 from Extensions import Extensions
+from Memories import extract_keywords
 from ApiClient import (
     Agent,
     Prompts,
@@ -583,27 +584,31 @@ class Interactions:
                     try:
                         search_suggestions = json.loads(search_strings)
                     except:
-                        search_suggestions = []
+                        keywords = extract_keywords(text=search_string, limit=5)
+                        if keywords:
+                            search_string = " ".join(keywords)
+                            # add month and year to the end of the search string
+                            search_string += f" {datetime.now().strftime('%B %Y')}"
+                        search_suggestions = [
+                            {"search_string_suggestion_1": search_string}
+                        ]
                     search_strings = []
                     if search_suggestions != []:
-                        if "search_string_suggestion_1" in search_suggestions:
-                            search_string = search_strings["search_string_suggestion_1"]
-                            search_strings.append(search_string)
-                        if "search_string_suggestion_2" in search_strings:
-                            search_string = search_strings["search_string_suggestion_2"]
-                            search_strings.append(search_string)
-                        if "search_string_suggestion_3" in search_strings:
-                            search_string = search_strings["search_string_suggestion_3"]
-                            search_strings.append(search_string)
-                        search_task = asyncio.create_task(
-                            self.websearch.websearch_agent(
-                                user_input=user_input,
-                                search_string=search_string,
-                                websearch_depth=websearch_depth,
-                                websearch_timeout=websearch_timeout,
-                                conversation_name=conversation_name,
-                            )
-                        )
+                        for i in range(1, int(websearch_depth) + 1):
+                            if f"search_string_suggestion_{i}" in search_suggestions:
+                                search_string = search_suggestions[
+                                    f"search_string_suggestion_{i}"
+                                ]
+                                search_strings.append(search_string)
+                                search_task = asyncio.create_task(
+                                    self.websearch.websearch_agent(
+                                        user_input=user_input,
+                                        search_string=search_string,
+                                        websearch_depth=websearch_depth,
+                                        websearch_timeout=websearch_timeout,
+                                        conversation_name=conversation_name,
+                                    )
+                                )
                         async_tasks.append(search_task)
                 else:
                     c.log_interaction(
