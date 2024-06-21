@@ -134,7 +134,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
+            conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
         conversation = c.get_conversation()
         if top_results == 0:
@@ -208,6 +208,29 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                if len(conversation_context) == int(top_results):
+                    conversational_context_tokens = get_tokens(
+                        " ".join(conversation_context)
+                    )
+                    if int(conversational_context_tokens) < 4000:
+                        conversational_results = top_results * 2
+                        conversation_context = await conversation_memories.get_memories(
+                            user_input=user_input,
+                            limit=conversational_results,
+                            min_relevance_score=min_relevance_score,
+                        )
+                        conversational_context_tokens = get_tokens(
+                            " ".join(conversation_context)
+                        )
+                        if int(conversational_context_tokens) < 4000:
+                            conversational_results = conversational_results * 2
+                            conversation_context = (
+                                await conversation_memories.get_memories(
+                                    user_input=user_input,
+                                    limit=conversational_results,
+                                    min_relevance_score=min_relevance_score,
+                                )
+                            )
                 context += conversation_context
                 if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
                     vision_provider = self.agent.AGENT_CONFIG["settings"][
@@ -508,7 +531,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = datetime.now().strftime("%Y-%m-%d")
+            conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:

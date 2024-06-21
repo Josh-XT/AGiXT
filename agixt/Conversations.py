@@ -26,7 +26,7 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         if not self.conversation_name:
-            self.conversation_name = f"{str(datetime.now())} Conversation"
+            self.conversation_name = "-"
         conversation = (
             session.query(Conversation)
             .filter(
@@ -85,7 +85,7 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         if not self.conversation_name:
-            self.conversation_name = f"{str(datetime.now())} Conversation"
+            self.conversation_name = "-"
         conversation = (
             session.query(Conversation)
             .filter(
@@ -146,7 +146,7 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         if not self.conversation_name:
-            self.conversation_name = f"{str(datetime.now())} Conversation"
+            self.conversation_name = "-"
         conversation = (
             session.query(Conversation)
             .filter(
@@ -264,7 +264,7 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
         if not self.conversation_name:
-            self.conversation_name = f"{str(datetime.now())} Conversation"
+            self.conversation_name = "-"
         conversation = (
             session.query(Conversation)
             .filter(
