@@ -333,7 +333,6 @@ class Websearch:
             ]
         except:
             links = links
-        tasks = []
         if links is not None:
             for link in links:
                 if "href" in link:
@@ -360,8 +359,7 @@ class Websearch:
                             activity_id=activity_id,
                         )
                     )
-                    tasks.append(task)
-        await asyncio.gather(*tasks)
+                    self.tasks.append(task)
 
     async def scrape_websites(
         self,
