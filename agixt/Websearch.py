@@ -65,6 +65,7 @@ class Websearch:
             )
         except:
             self.websearch_depth = 3
+        self.current_depth = 0
 
     def verify_link(self, link: str = "") -> bool:
         if (
@@ -106,6 +107,8 @@ class Websearch:
                     "conversation_name": "AGiXT Terminal",
                     "tts": "false",
                     "searching": True,
+                    "log_user_input": False,
+                    "log_output": False,
                 },
             )
         chunks = await self.agent_memory.chunk_content(
@@ -125,6 +128,8 @@ class Websearch:
                         "conversation_name": "AGiXT Terminal",
                         "tts": "false",
                         "searching": True,
+                        "log_user_input": False,
+                        "log_output": False,
                     },
                 )
             )
@@ -315,6 +320,9 @@ class Websearch:
         activity_id="",
         agent_browsing: bool = False,
     ):
+        self.current_depth = self.current_depth + 1
+        if self.current_depth == self.websearch_depth:
+            return ""
         logging.info(f"Recursive browsing: {links}")
         logging.info(
             f"Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
