@@ -166,6 +166,7 @@ async def rename_conversation(
     if rename.new_conversation_name == "-":
         agixt = AGiXT(user=user, agent_name=rename.agent_name, api_key=authorization)
         response = await agixt.inference(
+            user_input=f"Rename conversation",
             prompt_name="Name Conversation",
             conversation_name=rename.conversation_name,
             log_user_input=False,
