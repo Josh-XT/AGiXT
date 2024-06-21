@@ -249,6 +249,8 @@ class Websearch:
                     and user_input != ""
                 ):
                     if len(link_list) > 5:
+                        if len(link_list) > 25:
+                            link_list = link_list[:25]
                         if conversation_name != "" and conversation_name is not None:
                             c = Conversations(
                                 conversation_name=conversation_name, user=self.user
@@ -610,8 +612,6 @@ class Websearch:
                     content, links = await self.web_search(
                         query=search_string, conversation_id=conversation_id
                     )
-                if len(links) > 25:
-                    links = links[:25]
                 logging.info(
                     f"Found {len(links)} results for {search_string} using DDG."
                 )
