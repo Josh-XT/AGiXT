@@ -508,6 +508,7 @@ class Interactions:
             )
             del kwargs["browse_links"]
         websearch = False
+        websearch_depth = 3
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
             websearch = (
                 str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
@@ -524,7 +525,6 @@ class Interactions:
         if "websearch" in kwargs:
             websearch = True if str(kwargs["websearch"]).lower() == "true" else False
             del kwargs["websearch"]
-        websearch_depth = 3
         if "websearch_depth" in kwargs:
             try:
                 websearch_depth = int(kwargs["websearch_depth"])

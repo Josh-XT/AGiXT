@@ -1132,6 +1132,7 @@ class AGiXT:
         new_prompt = ""
         browse_links = True
         tts = False
+        websearch = False
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -1227,6 +1228,8 @@ class AGiXT:
                 browse_links = str(message["browse_links"]).lower() == "true"
             if "tts" in message:
                 tts = str(message["tts"]).lower() == "true"
+            if "websearch" in message:
+                websearch = str(message["websearch"]).lower() == "true"
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
@@ -1474,6 +1477,7 @@ class AGiXT:
                 conversation_name=conversation_name,
                 injected_memories=context_results,
                 shots=prompt.n,
+                websearch=websearch,
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
