@@ -742,7 +742,7 @@ class Interactions:
                         role=self.agent_name,
                         message="[ACTIVITY] Citing sources.",
                     )
-                    self.run(
+                    sources = await self.run(
                         user_input=user_input,
                         context_results=context_results,
                         conversation_name=conversation_name,
@@ -754,6 +754,10 @@ class Interactions:
                         websearch=False,
                         tts=False,
                         searching=True,
+                    )
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=sources,
                     )
             tts = False
             if "tts" in kwargs:
