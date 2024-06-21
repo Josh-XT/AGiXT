@@ -848,11 +848,21 @@ class AGiXT:
             if os.path.normpath(file_path).startswith(self.agent_workspace):
                 with open(file_path, "r") as f:
                     file_content = f.read()
-                await file_reader.write_text_to_memory(
-                    user_input=user_input,
-                    text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
-                    external_source=f"file {file_path}",
-                )
+                # Check how many lines are in the file content
+                lines = file_content.split("\n")
+                if len(lines) > 1:
+                    for line_number, line in enumerate(lines):
+                        await file_reader.write_text_to_memory(
+                            user_input=user_input,
+                            text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
+                            external_source=f"file {file_path}",
+                        )
+                else:
+                    await file_reader.write_text_to_memory(
+                        user_input=user_input,
+                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                        external_source=f"file {file_path}",
+                    )
                 response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
             else:
                 response = (
@@ -1122,6 +1132,9 @@ class AGiXT:
         new_prompt = ""
         browse_links = True
         tts = False
+        websearch = False
+        if "websearch" in self.agent_settings:
+            websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
             mode = self.agent_settings["mode"]
         else:
@@ -1217,6 +1230,8 @@ class AGiXT:
                 browse_links = str(message["browse_links"]).lower() == "true"
             if "tts" in message:
                 tts = str(message["tts"]).lower() == "true"
+            if "websearch" in message:
+                websearch = str(message["websearch"]).lower() == "true"
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
@@ -1464,6 +1479,7 @@ class AGiXT:
                 conversation_name=conversation_name,
                 injected_memories=context_results,
                 shots=prompt.n,
+                websearch=websearch,
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
@@ -1749,7 +1765,8 @@ class AGiXT:
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
-                    likely_files.append(activity["message"].split("`")[1])
+                    if "`" in activity["message"]:
+                        likely_files.append(activity["message"].split("`")[1])
             if len(likely_files) == 0:
                 return ""
             elif len(likely_files) == 1:

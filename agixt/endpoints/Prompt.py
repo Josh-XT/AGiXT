@@ -14,7 +14,7 @@ app = APIRouter()
 
 @app.post(
     "/api/prompt/{prompt_category}",
-    tags=["Prompt", "Admin"],
+    tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
 async def add_prompt(
@@ -106,7 +106,7 @@ async def get_prompts(prompt_category: str = "Default", user=Depends(verify_api_
 
 @app.delete(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt", "Admin"],
+    tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_prompt(
@@ -129,7 +129,7 @@ async def delete_prompt(
 # Rename prompt
 @app.patch(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt", "Admin"],
+    tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
 async def rename_prompt(
@@ -156,7 +156,7 @@ async def rename_prompt(
 
 @app.put(
     "/api/prompt/{prompt_category}/{prompt_name}",
-    tags=["Prompt", "Admin"],
+    tags=["Prompt"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_prompt(
