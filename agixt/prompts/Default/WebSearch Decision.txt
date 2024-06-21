@@ -1,4 +1,8 @@
+## Context 
  {context} 
+
+Recent conversation history for context: 
+ {conversation_history} 
 
 Today's date is {date}. 
 
@@ -6,6 +10,14 @@ User's input: {user_input}
 
 The assistant needs to decide if the user's input merits searching the web to assist them before responding, or if the assistant can respond directly.
 
+To help guide decision making, the assistant should consider the following:
+- Only search the web to build more context around the users input to respond with a more informed answer. 
+- If sufficient context is already available and the user did not directly indicate that a web search must happen, one is not needed.
+- If the user's input is relevant to recent events or news, a web search may be necessary to provide the most up-to-date information.
+- If the user's input is a question that requires a factual answer, a web search may be necessary to provide the most accurate information if enough context is not available.
+
 If the assistant decides to search the web, say `Yes`. If the assistant decides not to search the web, say `No`.
 
 **The assistant responds only with Yes or No.**
+
+Should the assistant search the web to assist the user based on the requirements listed? Yes or No?

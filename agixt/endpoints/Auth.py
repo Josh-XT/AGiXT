@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 
-@app.post("/v1/user")
+@app.post("/v1/user", tags=["User"], summary="Register a new user")
 def register(register: Register):
     mfa_token = MagicalAuth().register(new_user=register)
     totp = pyotp.TOTP(mfa_token)
@@ -26,7 +26,12 @@ def register(register: Register):
     return {"otp_uri": otp_uri}
 
 
-@app.get("/v1/user/exists", response_model=bool, summary="Check if user exists")
+@app.get(
+    "/v1/user/exists",
+    tags=["User"],
+    response_model=bool,
+    summary="Check if user exists",
+)
 def get_user(email: str) -> bool:
     try:
         return MagicalAuth().user_exists(email=email)
@@ -36,6 +41,7 @@ def get_user(email: str) -> bool:
 
 @app.get(
     "/v1/user",
+    tags=["User"],
     dependencies=[Depends(verify_api_key)],
     summary="Get user details",
 )
@@ -56,6 +62,7 @@ def log_in(
 
 @app.post(
     "/v1/login",
+    tags=["User"],
     response_model=Detail,
     summary="Login with email and OTP token",
 )
@@ -73,6 +80,7 @@ async def send_magic_link(request: Request, login: Login):
 
 @app.put(
     "/v1/user",
+    tags=["User"],
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Update user details",
@@ -90,6 +98,7 @@ def update_user(update: UserInfo, request: Request, authorization: str = Header(
 # Delete user
 @app.delete(
     "/v1/user",
+    tags=["User"],
     dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Delete user",
@@ -216,6 +225,7 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
 
 @app.post(
     "/v1/oauth2/{provider}",
+    tags=["User"],
     response_model=Detail,
     summary="Login using OAuth2 provider",
 )

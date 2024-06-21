@@ -16,7 +16,7 @@ from Models import (
 app = APIRouter()
 
 
-@app.get("/api/chain", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)])
+@app.get("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def get_chains(user=Depends(verify_api_key), authorization: str = Header(None)):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
@@ -34,7 +34,7 @@ async def get_chain(chain_name: str, user=Depends(verify_api_key)):
 
 @app.post(
     "/api/chain/{chain_name}/run",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain(
@@ -68,7 +68,7 @@ async def run_chain(
 
 @app.post(
     "/api/chain/{chain_name}/run/step/{step_number}",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_chain_step(
@@ -116,7 +116,7 @@ async def run_chain_step(
 # Get chain args
 @app.get(
     "/api/chain/{chain_name}/args",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_chain_args(
@@ -131,7 +131,7 @@ async def get_chain_args(
     return {"chain_args": chain_args}
 
 
-@app.post("/api/chain", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)])
+@app.post("/api/chain", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def add_chain(
     chain_name: ChainName,
     user=Depends(verify_api_key),
@@ -143,9 +143,7 @@ async def add_chain(
     return ResponseMessage(message=f"Chain '{chain_name.chain_name}' created.")
 
 
-@app.post(
-    "/api/chain/import", tags=["Chain", "Admin"], dependencies=[Depends(verify_api_key)]
-)
+@app.post("/api/chain/import", tags=["Chain"], dependencies=[Depends(verify_api_key)])
 async def importchain(
     chain: ChainData, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
@@ -159,7 +157,7 @@ async def importchain(
 
 @app.put(
     "/api/chain/{chain_name}",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def rename_chain(
@@ -178,7 +176,7 @@ async def rename_chain(
 
 @app.delete(
     "/api/chain/{chain_name}",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_chain(
@@ -192,7 +190,7 @@ async def delete_chain(
 
 @app.post(
     "/api/chain/{chain_name}/step",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def add_step(
@@ -216,7 +214,7 @@ async def add_step(
 
 @app.put(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def update_step(
@@ -242,7 +240,7 @@ async def update_step(
 
 @app.patch(
     "/api/chain/{chain_name}/step/move",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def move_step(
@@ -265,7 +263,7 @@ async def move_step(
 
 @app.delete(
     "/api/chain/{chain_name}/step/{step_number}",
-    tags=["Chain", "Admin"],
+    tags=["Chain"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_step(

@@ -367,7 +367,7 @@ async def agent_reader(
 
 @app.delete(
     "/api/agent/{agent_name}/memory",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
@@ -389,7 +389,7 @@ async def wipe_agent_memories(
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
@@ -441,7 +441,7 @@ async def delete_agent_memory(
 # Create dataset
 @app.post(
     "/api/agent/{agent_name}/memory/dataset",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
     summary="Create a dataset from the agent's memories",
 )
@@ -492,7 +492,7 @@ async def get_dpo_response(
 # Train model
 @app.post(
     "/api/agent/{agent_name}/memory/dataset/{dataset_name}/finetune",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
     summary="Fine tune a language model with the agent's memories as a synthetic dataset",
 )
@@ -527,7 +527,7 @@ async def fine_tune_model(
 # Delete memories from external source
 @app.delete(
     "/api/agent/{agent_name}/memory/external_source",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_memories_from_external_source(

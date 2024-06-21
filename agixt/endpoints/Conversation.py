@@ -163,11 +163,19 @@ async def rename_conversation(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    if rename.new_conversation_name == "/":
+    c = Conversations(conversation_name=rename.conversation_name, user=user)
+    if rename.new_conversation_name == "-":
         agixt = AGiXT(user=user, agent_name=rename.agent_name, api_key=authorization)
+        conversation_list = c.get_conversations()
         response = await agixt.inference(
+            user_input=f"Rename conversation",
             prompt_name="Name Conversation",
             conversation_name=rename.conversation_name,
+            conversation_list="\n".join(conversation_list),
+            conversation_results=10,
+            websearch=False,
+            browse_links=False,
+            voice_response=False,
             log_user_input=False,
             log_output=False,
         )
@@ -178,10 +186,37 @@ async def rename_conversation(
         try:
             response = json.loads(response)
             new_name = response["suggested_conversation_name"]
+            if new_name in conversation_list:
+                # Do not use {new_name}!
+                response = await agixt.inference(
+                    user_input=f"**Do not use {new_name}!**",
+                    prompt_name="Name Conversation",
+                    conversation_name=rename.conversation_name,
+                    conversation_list="\n".join(conversation_list),
+                    conversation_results=10,
+                    websearch=False,
+                    browse_links=False,
+                    voice_response=False,
+                    log_user_input=False,
+                    log_output=False,
+                )
+                if "```json" in response:
+                    response = response.split("```json")[1].split("```")[0].strip()
+                elif "```" in response:
+                    response = response.split("```")[1].strip()
+                response = json.loads(response)
+                new_name = response["suggested_conversation_name"]
+                if new_name in conversation_list:
+                    new_name = datetime.now().strftime(
+                        "Conversation Created %Y-%m-%d %I:%M %p"
+                    )
         except:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
-        rename.new_conversation_name = new_name
-    Conversations(
-        conversation_name=rename.conversation_name, user=user
-    ).rename_conversation(new_name=rename.new_conversation_name)
+        rename.new_conversation_name = new_name.replace("_", " ")
+    c.rename_conversation(new_name=rename.new_conversation_name)
+    c = Conversations(conversation_name=rename.new_conversation_name, user=user)
+    c.log_interaction(
+        message=f"[ACTIVITY][INFO] Conversation renamed to `{rename.new_conversation_name}`.",
+        role=rename.agent_name,
+    )
     return {"conversation_name": rename.new_conversation_name}

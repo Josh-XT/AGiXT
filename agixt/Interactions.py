@@ -6,10 +6,12 @@ import time
 import logging
 import base64
 import uuid
+import asyncio
 from datetime import datetime
 from readers.file import FileReader
 from Websearch import Websearch
 from Extensions import Extensions
+from Memories import extract_keywords
 from ApiClient import (
     Agent,
     Prompts,
@@ -109,6 +111,7 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
+        searching: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -131,7 +134,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
+            conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
         conversation = c.get_conversation()
         if top_results == 0:
@@ -205,6 +208,29 @@ class Interactions:
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
                 )
+                if len(conversation_context) == int(top_results):
+                    conversational_context_tokens = get_tokens(
+                        " ".join(conversation_context)
+                    )
+                    if int(conversational_context_tokens) < 4000:
+                        conversational_results = top_results * 2
+                        conversation_context = await conversation_memories.get_memories(
+                            user_input=user_input,
+                            limit=conversational_results,
+                            min_relevance_score=min_relevance_score,
+                        )
+                        conversational_context_tokens = get_tokens(
+                            " ".join(conversation_context)
+                        )
+                        if int(conversational_context_tokens) < 4000:
+                            conversational_results = conversational_results * 2
+                            conversation_context = (
+                                await conversation_memories.get_memories(
+                                    user_input=user_input,
+                                    limit=conversational_results,
+                                    min_relevance_score=min_relevance_score,
+                                )
+                            )
                 context += conversation_context
                 if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
                     vision_provider = self.agent.AGENT_CONFIG["settings"][
@@ -214,6 +240,7 @@ class Interactions:
                         vision_provider != "None"
                         and vision_provider != ""
                         and vision_provider != None
+                        and searching == False
                     ):
                         for memory in conversation_context:
                             # If the memory starts with "Sourced from image", get a new vision response to add and inject
@@ -230,11 +257,7 @@ class Interactions:
                                     timestamp = datetime.now().strftime(
                                         "%B %d, %Y %I:%M %p"
                                     )
-                                    c.log_interaction(
-                                        role=self.agent_name,
-                                        message=f"[ACTIVITY] Looking at image `{file_name}`.",
-                                    )
-                                    vision_response = await self.agent.inference(
+                                    vision_response = await self.agent.vision_inference(
                                         prompt=user_input, images=images
                                     )
                                     await conversation_memories.write_text_to_memory(
@@ -284,9 +307,6 @@ class Interactions:
                 activities = []
                 for activity in activity_history:
                     if "audio response" not in activity["message"]:
-                        activity["message"] = str(activity["message"]).replace(
-                            "[ACTIVITY]", ""
-                        )
                         activities.append(activity)
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
@@ -294,6 +314,8 @@ class Interactions:
                     interaction
                     for interaction in conversation["interactions"]
                     if not str(interaction["message"]).startswith("[ACTIVITY]")
+                    and not str(interaction["message"]).startswith("<audio controls>")
+                    and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                 ]
                 interactions = []
                 for interaction in conversation["interactions"]:
@@ -319,7 +341,7 @@ class Interactions:
                 for activity in activity_history:
                     timestamp = activity["timestamp"]
                     role = activity["role"]
-                    message = activity["message"]
+                    message = str(activity["message"]).replace("[ACTIVITY]", "")
                     conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:
@@ -449,6 +471,7 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
+        searching: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
         **kwargs,
@@ -484,6 +507,7 @@ class Interactions:
             )
             del kwargs["browse_links"]
         websearch = False
+        websearch_depth = 3
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
             websearch = (
                 str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
@@ -500,7 +524,6 @@ class Interactions:
         if "websearch" in kwargs:
             websearch = True if str(kwargs["websearch"]).lower() == "true" else False
             del kwargs["websearch"]
-        websearch_depth = 3
         if "websearch_depth" in kwargs:
             try:
                 websearch_depth = int(kwargs["websearch_depth"])
@@ -510,7 +533,7 @@ class Interactions:
         if "conversation_name" in kwargs:
             conversation_name = kwargs["conversation_name"]
         if conversation_name == "":
-            conversation_name = datetime.now().strftime("%Y-%m-%d")
+            conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
@@ -519,21 +542,28 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
+        async_tasks = []
         if browse_links != False and websearch == False:
-            await self.websearch.scrape_websites(
-                user_input=user_input,
-                search_depth=websearch_depth,
-                summarize_content=False,
-                conversation_name=conversation_name,
-            )
-        if websearch:
-            if browse_links != False:
-                await self.websearch.scrape_websites(
+            task = asyncio.create_task(
+                self.websearch.scrape_websites(
                     user_input=user_input,
                     search_depth=websearch_depth,
                     summarize_content=False,
                     conversation_name=conversation_name,
                 )
+            )
+            async_tasks.append(task)
+        if websearch:
+            if browse_links != False:
+                task = asyncio.create_task(
+                    self.websearch.scrape_websites(
+                        user_input=user_input,
+                        search_depth=websearch_depth,
+                        summarize_content=False,
+                        conversation_name=conversation_name,
+                    )
+                )
+                async_tasks.append(task)
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
                     user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
@@ -542,47 +572,80 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Searching for information.",
+                    message=f"[ACTIVITY] Deciding if additional research is required.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
                     prompt_category="Default",
                     user_input=user_input,
-                    context_results=context_results,
+                    context_results=10,
+                    conversation_results=4,
                     conversation_name=conversation_name,
                     log_user_input=False,
                     log_output=False,
                     browse_links=False,
                     websearch=False,
                     tts=False,
+                    searching=True,
                 )
                 to_search = re.search(
                     r"\byes\b", str(to_search_or_not_to_search).lower()
                 )
                 if to_search:
-                    c.log_interaction(
+                    searching_activity_id = c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] Searching the web.",
                     )
-                    search_string = await self.run(
+                    search_strings = await self.run(
                         prompt_name="WebSearch",
                         prompt_category="Default",
                         user_input=user_input,
                         context_results=context_results,
+                        conversation_results=10,
                         conversation_name=conversation_name,
                         log_user_input=False,
                         log_output=False,
                         browse_links=False,
                         websearch=False,
                         tts=False,
+                        searching=True,
                     )
-                    await self.websearch.websearch_agent(
-                        user_input=user_input,
-                        search_string=search_string,
-                        websearch_depth=websearch_depth,
-                        websearch_timeout=websearch_timeout,
-                        conversation_name=conversation_name,
-                    )
+                    if "```json" in search_strings:
+                        search_strings = (
+                            search_strings.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in search_strings:
+                        search_strings = search_strings.split("```")[1].strip()
+                    try:
+                        search_suggestions = json.loads(search_strings)
+                    except:
+                        keywords = extract_keywords(text=search_string, limit=5)
+                        if keywords:
+                            search_string = " ".join(keywords)
+                            # add month and year to the end of the search string
+                            search_string += f" {datetime.now().strftime('%B %Y')}"
+                        search_suggestions = [
+                            {"search_string_suggestion_1": search_string}
+                        ]
+                    search_strings = []
+                    if search_suggestions != []:
+                        for i in range(1, int(websearch_depth) + 1):
+                            if f"search_string_suggestion_{i}" in search_suggestions:
+                                search_string = search_suggestions[
+                                    f"search_string_suggestion_{i}"
+                                ]
+                                search_strings.append(search_string)
+                                search_task = asyncio.create_task(
+                                    self.websearch.websearch_agent(
+                                        user_input=user_input,
+                                        search_string=search_string,
+                                        websearch_depth=websearch_depth,
+                                        websearch_timeout=websearch_timeout,
+                                        conversation_name=conversation_name,
+                                        activity_id=searching_activity_id,
+                                    )
+                                )
+                                async_tasks.append(search_task)
                 else:
                     c.log_interaction(
                         role=self.agent_name,
@@ -612,10 +675,10 @@ class Interactions:
                 except Exception as e:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Unable to view image.",
+                        message=f"[ACTIVITY][ERROR] Unable to view image.",
                     )
                     logging.error(f"Error getting vision response: {e}")
-                    logging.warning("Failed to get vision response.")
+        await asyncio.gather(*async_tasks)
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -623,6 +686,7 @@ class Interactions:
             prompt_category=prompt_category,
             conversation_name=conversation_name,
             websearch=websearch,
+            searching=searching,
             vision_response=vision_response,
             **kwargs,
         )
@@ -632,7 +696,6 @@ class Interactions:
             if user_input != "" and persist_context_in_history == False
             else formatted_prompt
         )
-
         if log_user_input:
             c.log_interaction(
                 role="USER",
@@ -647,8 +710,8 @@ class Interactions:
             error = ""
             for err in e:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
+            logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
-            logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY][ERROR] Unable to generate response.",
@@ -667,10 +730,6 @@ class Interactions:
             if "<image src=" in self.response:
                 self.response = re.sub(
                     r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
-                )
-            if "![" in self.response:
-                self.response = re.sub(
-                    r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
                 )
             if log_output:
                 c.log_interaction(
@@ -707,7 +766,6 @@ class Interactions:
                             c.log_interaction(
                                 role=self.agent_name, message=tts_response
                             )
-
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:

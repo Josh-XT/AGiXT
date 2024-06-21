@@ -14,7 +14,6 @@ from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from readers.youtube import YoutubeReader
 from datetime import datetime
-from Memories import extract_keywords
 from googleapiclient.discovery import build
 
 logging.basicConfig(
@@ -58,6 +57,15 @@ class Websearch:
             if "websearch_endpoint" in self.agent_settings
             else "https://search.brave.com"
         )
+        try:
+            self.websearch_depth = (
+                int(self.agent_settings["websearch_depth"])
+                if "websearch_depth" in self.agent_settings
+                else 3
+            )
+        except:
+            self.websearch_depth = 3
+        self.current_depth = 0
 
     def verify_link(self, link: str = "") -> bool:
         if (
@@ -98,6 +106,9 @@ class Websearch:
                     "disable_memory": True,
                     "conversation_name": "AGiXT Terminal",
                     "tts": "false",
+                    "searching": True,
+                    "log_user_input": False,
+                    "log_output": False,
                 },
             )
         chunks = await self.agent_memory.chunk_content(
@@ -116,6 +127,9 @@ class Websearch:
                         "disable_memory": True,
                         "conversation_name": "AGiXT Terminal",
                         "tts": "false",
+                        "searching": True,
+                        "log_user_input": False,
+                        "log_output": False,
                     },
                 )
             )
@@ -128,7 +142,14 @@ class Websearch:
             return await self.summarize_web_content(url=url, content=new_content)
 
     async def get_web_content(
-        self, url: str, summarize_content=False, conversation_id="1"
+        self,
+        url: str,
+        summarize_content=False,
+        conversation_id="1",
+        agent_browsing=False,
+        user_input="",
+        conversation_name="",
+        activity_id="",
     ):
         if url.startswith("https://arxiv.org/") or url.startswith(
             "https://www.arxiv.org/"
@@ -221,13 +242,91 @@ class Websearch:
                 )
                 self.browsed_links.append(url)
                 self.agent.add_browsed_link(url=url, conversation_id=conversation_id)
+                if (
+                    agent_browsing
+                    and conversation_name != ""
+                    and conversation_name is not None
+                    and user_input != ""
+                ):
+                    if len(link_list) > 5:
+                        if len(link_list) > 25:
+                            link_list = link_list[:25]
+                        if conversation_name != "" and conversation_name is not None:
+                            c = Conversations(
+                                conversation_name=conversation_name, user=self.user
+                            )
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{activity_id}] Found {len(link_list)} links on [{url}]({url}) . Choosing one to browse next.",
+                            )
+                        try:
+                            pick_a_link = self.ApiClient.prompt_agent(
+                                agent_name=self.agent_name,
+                                prompt_name="Pick-a-Link",
+                                prompt_args={
+                                    "url": url,
+                                    "links": str(link_list),
+                                    "visited_links": "\n".join(self.browsed_links),
+                                    "disable_memory": True,
+                                    "websearch": False,
+                                    "browse_links": False,
+                                    "user_input": user_input,
+                                    "context_results": 0,
+                                    "tts": False,
+                                    "searching": True,
+                                    "conversation_name": "Link selection",
+                                    "log_user_input": False,
+                                    "log_output": False,
+                                },
+                            )
+                            if not str(pick_a_link).lower().startswith("none"):
+                                logging.info(f"AI has decided to click: {pick_a_link}")
+                                task = asyncio.create_task(
+                                    self.recursive_browsing(
+                                        user_input=user_input,
+                                        links=pick_a_link,
+                                        conversation_name=conversation_name,
+                                        conversation_id=conversation_id,
+                                        activity_id=activity_id,
+                                        agent_browsing=False,
+                                    )
+                                )
+                                self.tasks.append(task)
+                            else:
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{activity_id}] Decided not to click any links on [{url}]({url}).",
+                                )
+                        except:
+                            logging.info(f"Issues reading {url}. Moving on...")
+                            if (
+                                conversation_name != ""
+                                and conversation_name is not None
+                            ):
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[SUBACTIVITY][{activity_id}][ERROR] Issues reading {url}. Moving on.",
+                                )
                 return text_content, link_list
         except:
             return None, None
 
     async def recursive_browsing(
-        self, user_input, links, conversation_name: str = "", conversation_id="1"
+        self,
+        user_input,
+        links,
+        conversation_name: str = "",
+        conversation_id="1",
+        activity_id="",
+        agent_browsing: bool = False,
     ):
+        self.current_depth = self.current_depth + 1
+        if self.current_depth > self.websearch_depth:
+            return ""
+        logging.info(f"Recursive browsing: {links}")
+        logging.info(
+            f"Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
+        )
         c = Conversations(conversation_name=conversation_name, user=self.user)
         try:
             words = links.split()
@@ -247,83 +346,22 @@ class Websearch:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
-                    (
-                        collected_data,
-                        link_list,
-                    ) = await self.get_web_content(
-                        url=url, conversation_id=conversation_id
-                    )
-        if links is not None:
-            for link in links:
-                if "href" in link:
-                    try:
-                        url = link["href"]
-                    except:
-                        url = link
-                else:
-                    url = link
-                url = re.sub(r"^.*?(http)", r"http", url)
-                if self.verify_link(link=url):
                     if conversation_name != "" and conversation_name is not None:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Browsing {url} .",
+                            message=f"[SUBACTIVITY][{activity_id}] Browsing [{url}]({url}).",
                         )
-                    (
-                        collected_data,
-                        link_list,
-                    ) = await self.get_web_content(
-                        url=url, conversation_id=conversation_id
+                    task = asyncio.create_task(
+                        self.get_web_content(
+                            url=url,
+                            conversation_id=conversation_id,
+                            agent_browsing=agent_browsing,
+                            user_input=user_input,
+                            conversation_name=conversation_name,
+                            activity_id=activity_id,
+                        )
                     )
-                    if link_list is not None:
-                        if len(link_list) > 0:
-                            if len(link_list) > 5:
-                                link_list = link_list[:3]
-                            if (
-                                conversation_name != ""
-                                and conversation_name is not None
-                            ):
-                                c.log_interaction(
-                                    role=self.agent_name,
-                                    message=f"[ACTIVITY] Found {len(link_list)} links on {url} . Choosing one to browse next.",
-                                )
-                            try:
-                                pick_a_link = self.ApiClient.prompt_agent(
-                                    agent_name=self.agent_name,
-                                    prompt_name="Pick-a-Link",
-                                    prompt_args={
-                                        "url": url,
-                                        "links": link_list,
-                                        "visited_links": self.browsed_links,
-                                        "disable_memory": True,
-                                        "websearch": False,
-                                        "browse_links": False,
-                                        "user_input": user_input,
-                                        "context_results": 0,
-                                        "tts": False,
-                                        "conversation_name": "Link selection",
-                                    },
-                                )
-                                if not str(pick_a_link).lower().startswith("none"):
-                                    logging.info(
-                                        f"AI has decided to click: {pick_a_link}"
-                                    )
-                                    await self.recursive_browsing(
-                                        user_input=user_input,
-                                        links=pick_a_link,
-                                        conversation_name=conversation_name,
-                                        conversation_id=conversation_id,
-                                    )
-                            except:
-                                logging.info(f"Issues reading {url}. Moving on...")
-                                if (
-                                    conversation_name != ""
-                                    and conversation_name is not None
-                                ):
-                                    c.log_interaction(
-                                        role=self.agent_name,
-                                        message=f"[ACTIVITY][ERROR] Issues reading {url}. Moving on.",
-                                    )
+                    self.tasks.append(task)
 
     async def scrape_websites(
         self,
@@ -337,29 +375,27 @@ class Websearch:
         links = re.findall(r"(?P<url>https?://[^\s]+)", user_input)
         if len(links) < 1:
             return ""
-        if conversation_name != "" and conversation_name is not None:
-            c = Conversations(conversation_name=conversation_name, user=self.user)
-            conversation_id = c.get_conversation_id()
-            self.agent_memory = YoutubeReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number=conversation_id,
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Researching online.",
-            )
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation_id = c.get_conversation_id()
+        self.agent_memory = YoutubeReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=conversation_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        )
+        activity_id = c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Browsing [{links[0]}]({links[0]}) and collecting data from it to learn more.",
+        )
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
                 if self.verify_link(link=link):
-                    if conversation_name != "" and conversation_name is not None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Browsing {link} .",
-                        )
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{activity_id}] Browsing [{link}]({link}).",
+                    )
                     text_content, link_list = await self.get_web_content(
                         url=link, summarize_content=summarize_content
                     )
@@ -380,7 +416,7 @@ class Websearch:
                                         ):
                                             c.log_interaction(
                                                 role=self.agent_name,
-                                                message=f"[ACTIVITY] Browsing {sublink[1]} .",
+                                                message=f"[SUBACTIVITY][{activity_id}] Browsing [{sublink[1]}]({sublink[1]}).",
                                             )
                                         (
                                             text_content,
@@ -396,7 +432,7 @@ class Websearch:
         if conversation_name != "" and conversation_name is not None:
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] {message}",
+                message=f"[SUBACTIVITY][{activity_id}] {message}",
             )
         return message
 
@@ -525,6 +561,7 @@ class Websearch:
         websearch_depth: int = 0,
         websearch_timeout: int = 0,
         conversation_name: str = "",
+        activity_id: str = "",
     ):
         try:
             websearch_depth = int(websearch_depth)
@@ -536,18 +573,15 @@ class Websearch:
             websearch_timeout = 0
         if websearch_depth > 0:
             if len(user_input) > 0:
-                keywords = extract_keywords(text=search_string, limit=5)
-                if keywords:
-                    search_string = " ".join(keywords)
-                    # add month and year to the end of the search string
-                    search_string += f" {datetime.now().strftime('%B %Y')}"
                 c = Conversations(conversation_name=conversation_name, user=self.user)
                 conversation_id = c.get_conversation_id()
-                if conversation_name != "" and conversation_name is not None:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] Searching for `{search_string}`.",
-                    )
+                logging.info(
+                    f"Websearch Agent: Conversation ID: {conversation_id} Conversation Name: {conversation_name}"
+                )
+                new_activity_id = c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{activity_id}] Searching for `{search_string}`.",
+                )
                 google_api_key = (
                     self.agent_settings["GOOGLE_API_KEY"]
                     if "GOOGLE_API_KEY" in self.agent_settings
@@ -590,6 +624,8 @@ class Websearch:
                             links=links,
                             conversation_name=conversation_name,
                             conversation_id=conversation_id,
+                            activity_id=new_activity_id,
+                            agent_browsing=False,
                         )
                     )
                     self.tasks.append(task)

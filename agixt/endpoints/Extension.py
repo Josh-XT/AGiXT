@@ -36,7 +36,7 @@ async def get_extensions(user=Depends(verify_api_key)):
 
 @app.post(
     "/api/agent/{agent_name}/command",
-    tags=["Extensions", "Admin"],
+    tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],
 )
 async def run_command(
