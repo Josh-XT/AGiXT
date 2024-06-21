@@ -303,7 +303,6 @@ class Interactions:
                     interaction
                     for interaction in conversation["interactions"]
                     if str(interaction["message"]).startswith("[ACTIVITY]")
-                    or str(interaction["message"]).startswith("[SUBACTIVITY]")
                 ]
                 activities = []
                 for activity in activity_history:
