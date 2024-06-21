@@ -270,6 +270,8 @@ class Websearch:
                                     "tts": False,
                                     "searching": True,
                                     "conversation_name": "Link selection",
+                                    "log_user_input": False,
+                                    "log_output": False,
                                 },
                             )
                             if not str(pick_a_link).lower().startswith("none"):
