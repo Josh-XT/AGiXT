@@ -517,22 +517,28 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
-        if browse_links != False and websearch == False:
-            await self.websearch.scrape_websites(
-                user_input=user_input,
-                search_depth=websearch_depth,
-                summarize_content=False,
-                conversation_name=conversation_name,
-            )
         async_tasks = []
-        if websearch:
-            if browse_links != False:
-                await self.websearch.scrape_websites(
+        if browse_links != False and websearch == False:
+            task = asyncio.create_task(
+                self.websearch.scrape_websites(
                     user_input=user_input,
                     search_depth=websearch_depth,
                     summarize_content=False,
                     conversation_name=conversation_name,
                 )
+            )
+            async_tasks.append(task)
+        if websearch:
+            if browse_links != False:
+                task = asyncio.create_task(
+                    self.websearch.scrape_websites(
+                        user_input=user_input,
+                        search_depth=websearch_depth,
+                        summarize_content=False,
+                        conversation_name=conversation_name,
+                    )
+                )
+                async_tasks.append(task)
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
                     user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
@@ -642,7 +648,6 @@ class Interactions:
                         message=f"[ACTIVITY][ERROR] Unable to view image.",
                     )
                     logging.error(f"Error getting vision response: {e}")
-                    logging.warning("Failed to get vision response.")
         await asyncio.gather(*async_tasks)
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
@@ -660,7 +665,6 @@ class Interactions:
             if user_input != "" and persist_context_in_history == False
             else formatted_prompt
         )
-
         if log_user_input:
             c.log_interaction(
                 role="USER",
@@ -675,8 +679,8 @@ class Interactions:
             error = ""
             for err in e:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
+            logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
-            logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             c.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY][ERROR] Unable to generate response.",
@@ -735,7 +739,6 @@ class Interactions:
                             c.log_interaction(
                                 role=self.agent_name, message=tts_response
                             )
-
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:
