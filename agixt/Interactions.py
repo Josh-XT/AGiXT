@@ -755,10 +755,36 @@ class Interactions:
                         tts=False,
                         searching=True,
                     )
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=sources,
-                    )
+                    source_list = []
+                    if "```json" in sources:
+                        sources = sources.split("```json")[1].split("```")[0].strip()
+                    elif "```" in sources:
+                        sources = sources.split("```")[1].strip()
+                    try:
+                        sources = json.loads(sources)
+                        if sources != {}:
+                            for source in sources:
+                                if str(source["source"]).startswith("http"):
+                                    source_list.append(
+                                        f"[{source['source']}]({source['source']}) - {source['reason_sourced']}"
+                                    )
+                                else:
+                                    source_list.append(
+                                        f"{source['source']} - {source['reason_sourced']}"
+                                    )
+                    except Exception as e:
+                        logging.error(f"Error getting sources: {e}")
+                    if source_list != []:
+                        joined_sources = "\n".join(source_list)
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"## Sources:\n{joined_sources}",
+                        )
+                    else:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message="No sources cited.",
+                        )
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
