@@ -252,6 +252,11 @@ class Websearch:
                     url = link
                 url = re.sub(r"^.*?(http)", r"http", url)
                 if self.verify_link(link=url):
+                    if conversation_name != "" and conversation_name is not None:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY][SUB] Browsing {url} .",
+                        )
                     (
                         collected_data,
                         link_list,
@@ -550,7 +555,7 @@ class Websearch:
                 if conversation_name != "" and conversation_name is not None:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Searching for `{search_string}`.",
+                        message=f"[ACTIVITY][SUB] Searching for `{search_string}`.",
                     )
                 google_api_key = (
                     self.agent_settings["GOOGLE_API_KEY"]
