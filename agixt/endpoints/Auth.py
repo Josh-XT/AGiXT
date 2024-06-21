@@ -167,7 +167,6 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
 
     @app.post(
         "/v1/webhook",
-        tags=["User"],
         summary="Webhook endpoint for events.",
         response_model=WebhookModel,
         tags=["Webhook"],
