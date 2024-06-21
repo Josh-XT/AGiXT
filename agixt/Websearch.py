@@ -324,13 +324,16 @@ class Websearch:
                                     logging.info(
                                         f"AI has decided to click: {pick_a_link}"
                                     )
-                                    await self.recursive_browsing(
-                                        user_input=user_input,
-                                        links=pick_a_link,
-                                        conversation_name=conversation_name,
-                                        conversation_id=conversation_id,
-                                        activity_id=activity_id,
+                                    task = asyncio.create_task(
+                                        self.recursive_browsing(
+                                            user_input=user_input,
+                                            links=pick_a_link,
+                                            conversation_name=conversation_name,
+                                            conversation_id=conversation_id,
+                                            activity_id=activity_id,
+                                        )
                                     )
+                                    self.tasks.append(task)
                             except:
                                 logging.info(f"Issues reading {url}. Moving on...")
                                 if (
