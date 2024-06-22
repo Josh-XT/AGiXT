@@ -560,7 +560,7 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY][INFO] Deciding if additional research online is required.",
+                    message=f"[ACTIVITY][INFO] Searching for information.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
@@ -634,11 +634,6 @@ class Interactions:
                                     )
                                 )
                                 async_tasks.append(search_task)
-                else:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY][INFO] Decided researching online is not necessary.",
-                    )
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
             if (
