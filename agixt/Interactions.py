@@ -243,38 +243,6 @@ class Interactions:
                                 )
                             )
                 context += conversation_context
-                if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-                    vision_provider = self.agent.AGENT_CONFIG["settings"][
-                        "vision_provider"
-                    ]
-                    if (
-                        vision_provider != "None"
-                        and vision_provider != ""
-                        and vision_provider != None
-                        and searching == False
-                    ):
-                        for memory in conversation_context:
-                            # If the memory starts with "Sourced from image", get a new vision response to add and inject
-                            if memory.startswith("Sourced from image "):
-                                file_name = memory.split("Sourced from image ")[
-                                    1
-                                ].split(":")[0]
-                                url = f"{self.outputs}/{file_name}"
-                                images = [url]
-                                timestamp = datetime.now().strftime(
-                                    "%B %d, %Y %I:%M %p"
-                                )
-                                vision_response = await self.agent.vision_inference(
-                                    prompt=user_input, images=images
-                                )
-                                await conversation_memories.write_text_to_memory(
-                                    user_input=user_input,
-                                    text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
-                                    external_source=f"image {file_name}",
-                                )
-                                context.append(
-                                    f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` at {timestamp}:\n{vision_response}\n"
-                                )
             else:
                 context = []
         if "context" in kwargs:
