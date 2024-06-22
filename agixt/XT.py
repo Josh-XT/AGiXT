@@ -1160,6 +1160,10 @@ class AGiXT:
             context_results = 5
         if "injected_memories" in self.agent_settings:
             context_results = int(self.agent_settings["injected_memories"])
+        if "conversation_results" in self.agent_settings:
+            conversation_results = int(self.agent_settings["conversation_results"])
+        else:
+            conversation_results = 6
         if "command_name" in self.agent_settings:
             command_name = self.agent_settings["command_name"]
         else:
@@ -1198,6 +1202,8 @@ class AGiXT:
                     mode = message["mode"]
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "conversation_results" in message:
+                conversation_results = int(message["conversation_results"])
             if "prompt_category" in message:
                 prompt_category = message["prompt_category"]
             if "prompt_name" in message:
@@ -1478,6 +1484,7 @@ class AGiXT:
                 prompt_category=prompt_category,
                 conversation_name=conversation_name,
                 injected_memories=context_results,
+                conversation_results=conversation_results,
                 shots=prompt.n,
                 websearch=websearch,
                 browse_links=browse_links,
@@ -1485,9 +1492,14 @@ class AGiXT:
                 log_user_input=False,
                 **prompt_args,
             )
-        prompt_tokens = get_tokens(new_prompt)
-        completion_tokens = get_tokens(response)
-        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        try:
+            prompt_tokens = get_tokens(new_prompt)
+            completion_tokens = get_tokens(response)
+            total_tokens = int(prompt_tokens) + int(completion_tokens)
+        except:
+            if not response:
+                response = "Unable to retrieve response."
+                logging.error(f"Error getting response: {response}")
         res_model = {
             "id": conversation_name,
             "object": "chat.completion",
