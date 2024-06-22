@@ -39,6 +39,7 @@ class Websearch:
         self.agent_settings = self.agent_config["settings"]
         self.requirements = ["agixtsdk"]
         self.failures = []
+        self.collection_number = collection_number
         browsed_links = self.agent.get_browsed_links()
         if browsed_links:
             self.browsed_links = [link["url"] for link in browsed_links]
