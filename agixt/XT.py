@@ -579,7 +579,7 @@ class AGiXT:
         else:
             url_str = {"\n".join(urls)}
             user_input = f"Learn from the information from these websites:\n {url_str} "
-        response = await self.websearch.scrape_websites(
+        response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
             search_depth=scrape_depth,
             summarize_content=summarize_content,
