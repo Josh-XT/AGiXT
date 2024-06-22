@@ -585,7 +585,7 @@ class Interactions:
             if user_input != "":
                 searching_activity_id = c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY][INFO] Searching for information.",
+                    message=f"[ACTIVITY] Searching for information.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
