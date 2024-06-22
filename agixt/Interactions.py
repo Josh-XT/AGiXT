@@ -539,9 +539,9 @@ class Interactions:
                 )
             )
             async_tasks.append(task)
-        if (
-            websearch
-        ):  # Any other research prompt and action can be added here on toggle
+        # Any other research prompt and action can be added here on bool toggle such as `websearch` and `browse_links`
+        # Add them as asyncio tasks to the async_tasks list
+        if websearch:
             if browse_links != False:
                 task = asyncio.create_task(
                     self.websearch.scrape_websites(
