@@ -289,16 +289,18 @@ class Interactions:
                     "helper_agent_name"
                 ]
         if "conversation_results" in kwargs:
-            conversation_results = int(kwargs["conversation_results"])
+            try:
+                conversation_results = int(kwargs["conversation_results"])
+            except:
+                conversation_results = 5
         else:
-            conversation_results = int(top_results) if top_results > 0 else 5
+            try:
+                conversation_results = int(top_results) if top_results > 0 else 5
+            except:
+                conversation_results = 5
         conversation_history = ""
         if "interactions" in conversation:
             if conversation["interactions"] != []:
-                total_results = len(conversation["interactions"])
-                # Get the last conversation_results interactions from the conversation
-                new_conversation_history = []
-                # Strip out any interactions where the message starts with [ACTIVITY]
                 activity_history = [
                     interaction
                     for interaction in conversation["interactions"]
@@ -327,8 +329,6 @@ class Interactions:
                         message = (
                             interaction["message"] if "message" in interaction else ""
                         )
-                        # Inject minimal conversation history into the prompt, just enough to give the agent some context.
-                        # Strip code blocks out of the message
                         message = regex.sub(r"(```.*?```)", "", message)
                         interactions.append(f"{timestamp} {role}: {message} \n ")
                 if len(interactions) > 0:
