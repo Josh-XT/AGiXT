@@ -212,12 +212,10 @@ class Conversations:
             session.commit()
             if conversation_content != []:
                 for interaction in conversation_content:
-                    new_message = Message(
+                    self.log_interaction(
                         role=interaction["role"],
-                        content=interaction["message"],
-                        conversation_id=conversation.id,
+                        message=interaction["message"],
                     )
-                    session.add(new_message)
         else:
             conversation = existing_conversation
         session.close()
