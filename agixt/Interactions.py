@@ -539,7 +539,9 @@ class Interactions:
                 )
             )
             async_tasks.append(task)
-        if websearch:
+        if (
+            websearch
+        ):  # Any other research prompt and action can be added here on toggle
             if browse_links != False:
                 task = asyncio.create_task(
                     self.websearch.scrape_websites(
@@ -558,7 +560,7 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY][INFO] Deciding if additional research is required.",
+                    message=f"[ACTIVITY][INFO] Deciding if additional research online is required.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
@@ -635,7 +637,7 @@ class Interactions:
                 else:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY][INFO] Decided searching the web is not necessary.",
+                        message=f"[ACTIVITY][INFO] Decided researching online is not necessary.",
                     )
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
