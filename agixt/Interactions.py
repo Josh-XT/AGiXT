@@ -40,12 +40,7 @@ class Interactions:
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
-            self.websearch = Websearch(
-                collection_number="1",
-                agent=self.agent,
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
+            self.websearch = None
             self.agent_memory = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
@@ -141,6 +136,14 @@ class Interactions:
             context = []
         else:
             if user_input:
+                if self.websearch == None:
+                    conversation_id = c.get_conversation_id()
+                    self.websearch = Websearch(
+                        collection_number=str(conversation_id),
+                        agent=self.agent,
+                        user=self.user,
+                        ApiClient=self.ApiClient,
+                    )
                 min_relevance_score = 0.3
                 if "min_relevance_score" in kwargs:
                     try:
@@ -539,6 +542,14 @@ class Interactions:
         else:
             websearch_timeout = 0
         async_tasks = []
+        if self.websearch == None:
+            conversation_id = c.get_conversation_id()
+            self.websearch = Websearch(
+                collection_number=str(conversation_id),
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
         if browse_links != False and websearch == False:
             task = asyncio.create_task(
                 self.websearch.scrape_websites(
@@ -574,7 +585,7 @@ class Interactions:
                     prompt_name="WebSearch Decision",
                     prompt_category="Default",
                     user_input=user_input,
-                    context_results=10,
+                    context_results=context_results,
                     conversation_results=4,
                     conversation_name=conversation_name,
                     log_user_input=False,
