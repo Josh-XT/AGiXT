@@ -819,7 +819,7 @@ class AGiXT:
                 if conversation_name != "" and conversation_name != None:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url}) .",
+                        message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
                     )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
