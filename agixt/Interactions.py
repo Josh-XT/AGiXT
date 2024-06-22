@@ -36,6 +36,7 @@ class Interactions:
     ):
         self.ApiClient = ApiClient
         self.user = user
+        self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
@@ -74,6 +75,7 @@ class Interactions:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
+            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
             self.agent = None
@@ -83,6 +85,7 @@ class Interactions:
             self.positive_feedback_memories = None
             self.negative_feedback_memories = None
             self.github_memories = None
+            self.outputs = f"{self.uri}/outputs"
         self.response = ""
         self.failures = 0
         self.chain = Chain(user=user)
@@ -256,26 +259,22 @@ class Interactions:
                                 file_name = memory.split("Sourced from image ")[
                                     1
                                 ].split(":")[0]
-                                # File will be in the agent's workspace /{file_name}
-                                file_path = os.path.join(
-                                    self.agent.working_directory, file_name
+                                url = f"{self.outputs}/{file_name}"
+                                images = [url]
+                                timestamp = datetime.now().strftime(
+                                    "%B %d, %Y %I:%M %p"
                                 )
-                                if os.path.exists(file_path):
-                                    images = [file_path]
-                                    timestamp = datetime.now().strftime(
-                                        "%B %d, %Y %I:%M %p"
-                                    )
-                                    vision_response = await self.agent.vision_inference(
-                                        prompt=user_input, images=images
-                                    )
-                                    await conversation_memories.write_text_to_memory(
-                                        user_input=user_input,
-                                        text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
-                                        external_source=f"image {file_name}",
-                                    )
-                                    context.append(
-                                        f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n"
-                                    )
+                                vision_response = await self.agent.vision_inference(
+                                    prompt=user_input, images=images
+                                )
+                                await conversation_memories.write_text_to_memory(
+                                    user_input=user_input,
+                                    text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}`:\n{vision_response}\n",
+                                    external_source=f"image {file_name}",
+                                )
+                                context.append(
+                                    f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` at {timestamp}:\n{vision_response}\n"
+                                )
             else:
                 context = []
         if "context" in kwargs:
@@ -512,6 +511,13 @@ class Interactions:
             del kwargs["browse_links"]
         websearch = False
         websearch_depth = 3
+        conversation_results = 5
+        if "conversation_results" in kwargs:
+            try:
+                conversation_results = int(kwargs["conversation_results"])
+            except:
+                conversation_results = 5
+            del kwargs["conversation_results"]
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
             websearch = (
                 str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
@@ -694,6 +700,7 @@ class Interactions:
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
+            conversation_results=conversation_results,
             prompt=prompt,
             prompt_category=prompt_category,
             conversation_name=conversation_name,
@@ -836,15 +843,34 @@ class Interactions:
                 prompt_args = {
                     "user_input": user_input,
                     "context_results": context_results,
+                    "conversation_results": conversation_results,
                     "conversation_name": conversation_name,
                     "disable_memory": disable_memory,
                     **kwargs,
                 }
+                if "images" in prompt_args:
+                    del prompt_args["images"]
+                if "searching" in prompt_args:
+                    del prompt_args["searching"]
+                if "tts" in prompt_args:
+                    del prompt_args["tts"]
+                if "websearch" in prompt_args:
+                    del prompt_args["websearch"]
+                if "websearch_depth" in prompt_args:
+                    del prompt_args["websearch_depth"]
+                if "browse_links" in prompt_args:
+                    del prompt_args["browse_links"]
+
                 shot_response = await self.run(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
                     log_user_input=False,
+                    log_output=False,
+                    websearch=False,
+                    browse_links=False,
+                    searching=True,
+                    tts=False,
                     **prompt_args,
                 )
                 time.sleep(1)
