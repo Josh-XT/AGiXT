@@ -508,11 +508,6 @@ class Interactions:
             except:
                 websearch_depth = 3
             del kwargs["websearch_depth"]
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = "-"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
@@ -520,7 +515,37 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = "-"
+        c = Conversations(conversation_name=conversation_name, user=self.user)
         async_tasks = []
+        vision_response = ""
+        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+            if (
+                images != []
+                and self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
+            ):
+                logging.info(f"Getting vision response for images: {images}")
+                message = "Viewing images." if len(images) > 1 else "Viewing image."
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] {message}",
+                )
+                try:
+                    vision_response = await self.agent.vision_inference(
+                        prompt=user_input, images=images
+                    )
+                    logging.info(f"Vision Response: {vision_response}")
+                except Exception as e:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY][ERROR] Unable to view image.",
+                    )
+                    logging.error(f"Error getting vision response: {e}")
         if self.websearch == None or self.websearch.collection_number == "1":
             conversation_id = c.get_conversation_id()
             self.websearch = Websearch(
@@ -634,33 +659,6 @@ class Interactions:
                                     )
                                 )
                                 async_tasks.append(search_task)
-        vision_response = ""
-        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-            if (
-                images != []
-                and self.agent.VISION_PROVIDER != "None"
-                and self.agent.VISION_PROVIDER != ""
-                and self.agent.VISION_PROVIDER != None
-            ):
-                logging.info(f"Getting vision response for images: {images}")
-                message = (
-                    "Looking at images." if len(images) > 1 else "Looking at image."
-                )
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] {message}",
-                )
-                try:
-                    vision_response = await self.agent.vision_inference(
-                        prompt=user_input, images=images
-                    )
-                    logging.info(f"Vision Response: {vision_response}")
-                except Exception as e:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY][ERROR] Unable to view image.",
-                    )
-                    logging.error(f"Error getting vision response: {e}")
         await asyncio.gather(*async_tasks)
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
