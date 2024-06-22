@@ -40,7 +40,12 @@ class Interactions:
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
-            self.websearch = None
+            self.websearch = Websearch(
+                collection_number="1",
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
             self.agent_memory = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
@@ -136,7 +141,7 @@ class Interactions:
             context = []
         else:
             if user_input:
-                if self.websearch == None:
+                if self.websearch == None or self.websearch.collection_number == "1":
                     conversation_id = c.get_conversation_id()
                     self.websearch = Websearch(
                         collection_number=str(conversation_id),
@@ -542,7 +547,7 @@ class Interactions:
         else:
             websearch_timeout = 0
         async_tasks = []
-        if self.websearch == None:
+        if self.websearch == None or self.websearch.collection_number == "1":
             conversation_id = c.get_conversation_id()
             self.websearch = Websearch(
                 collection_number=str(conversation_id),
