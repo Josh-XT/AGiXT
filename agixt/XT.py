@@ -691,7 +691,7 @@ class AGiXT:
                 text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
                 external_source=f"file {file_path}",
             )
-            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
+            response = f"Read [{file_name}]({file_url}) into memory."
         elif file_path.endswith(".zip"):
             extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
@@ -762,7 +762,7 @@ class AGiXT:
                 text=file_content,
                 external_source=f"file {file_path}",
             )
-            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
+            response = f"Read [{file_name}]({file_url}) into memory."
         elif file_type == "csv":
             df = pd.read_csv(file_path)
             df_dict = df.to_dict()
@@ -774,7 +774,7 @@ class AGiXT:
                     text=message,
                     external_source=f"file {file_path}",
                 )
-            response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
+            response = f"Read [{file_name}]({file_url}) into memory."
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -832,7 +832,7 @@ class AGiXT:
                         text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
                         external_source=f"image {file_name}",
                     )
-                    response = f"Generated a description of the image called [{file_name}]({file_url}) and read it into memory."
+                    response = f"Read [{file_name}]({file_url}) into memory."
                 except Exception as e:
                     logging.error(f"Error getting vision response: {e}")
                     response = (
@@ -862,7 +862,7 @@ class AGiXT:
                         text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
                         external_source=f"file {file_path}",
                     )
-                response = f"Read the content of the file called [{file_name}]({file_url}) into memory."
+                response = f"Read [{file_name}]({file_url}) into memory."
             else:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
