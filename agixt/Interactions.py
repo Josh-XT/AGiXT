@@ -310,33 +310,30 @@ class Interactions:
                         activities.append(activity)
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
-                conversation["interactions"] = [
-                    interaction for interaction in conversation["interactions"]
-                ]
                 interactions = []
                 for interaction in conversation["interactions"]:
+                    logging.info(f"Interaction: {interaction}")
                     if (
                         not str(interaction["message"]).startswith("<audio controls>")
                         and not str(interaction["message"]).startswith("[ACTIVITY]")
                         and not str(interaction["message"]).startswith("[SUBACTIVITY]")
                     ):
-                        interactions.append(interaction)
-                if total_results > conversation_results:
-                    new_conversation_history = interactions[
-                        total_results - conversation_results : total_results
-                    ]
-                else:
-                    new_conversation_history = interactions
-                for interaction in new_conversation_history:
-                    timestamp = (
-                        interaction["timestamp"] if "timestamp" in interaction else ""
-                    )
-                    role = interaction["role"] if "role" in interaction else ""
-                    message = interaction["message"] if "message" in interaction else ""
-                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
-                    # Strip code blocks out of the message
-                    message = regex.sub(r"(```.*?```)", "", message)
-                    conversation_history += f"{timestamp} {role}: {message} \n "
+                        timestamp = (
+                            interaction["timestamp"]
+                            if "timestamp" in interaction
+                            else ""
+                        )
+                        role = interaction["role"] if "role" in interaction else ""
+                        message = (
+                            interaction["message"] if "message" in interaction else ""
+                        )
+                        # Inject minimal conversation history into the prompt, just enough to give the agent some context.
+                        # Strip code blocks out of the message
+                        message = regex.sub(r"(```.*?```)", "", message)
+                        interactions.append(f"{timestamp} {role}: {message} \n ")
+                if len(interactions) > 0:
+                    interactions = interactions[-conversation_results:]
+                    conversation_history = "\n".join(interactions)
                 conversation_history += "\nThe assistant's recent activities:\n"
                 for activity in activity_history:
                     timestamp = activity["timestamp"]
