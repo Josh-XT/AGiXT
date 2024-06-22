@@ -5,12 +5,11 @@ from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName
+from Websearch import Websearch
 from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
 from pydantic import BaseModel
-from PIL import Image
-import io
 import pdfplumber
 import docx2txt
 import zipfile
@@ -580,7 +579,7 @@ class AGiXT:
         else:
             url_str = {"\n".join(urls)}
             user_input = f"Learn from the information from these websites:\n {url_str} "
-        response = await self.agent_interactions.websearch.scrape_websites(
+        response = await self.websearch.scrape_websites(
             user_input=user_input,
             search_depth=scrape_depth,
             summarize_content=summarize_content,
