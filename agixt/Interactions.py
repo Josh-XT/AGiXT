@@ -314,7 +314,6 @@ class Interactions:
                     activity_history = activity_history[-5:]
                 interactions = []
                 for interaction in conversation["interactions"]:
-                    logging.info(f"Interaction: {interaction}")
                     if (
                         not str(interaction["message"]).startswith("<audio controls>")
                         and not str(interaction["message"]).startswith("[ACTIVITY]")
