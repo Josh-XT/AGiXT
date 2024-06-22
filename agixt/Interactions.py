@@ -558,7 +558,7 @@ class Interactions:
             if user_input != "":
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Deciding if additional research is required.",
+                    message=f"[ACTIVITY][INFO] Deciding if additional research is required.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
@@ -635,7 +635,7 @@ class Interactions:
                 else:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Decided searching the web is not necessary.",
+                        message=f"[ACTIVITY][INFO] Decided searching the web is not necessary.",
                     )
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
