@@ -13,6 +13,7 @@ services:
     image: joshxt/agixt:main
     init: true
     environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
       DATABASE_HOST: ${DATABASE_HOST:-db}
       DATABASE_USER: ${DATABASE_USER:-postgres}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
