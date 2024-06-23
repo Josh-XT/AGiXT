@@ -49,12 +49,16 @@ def get_session():
     return session
 
 
+def get_new_id():
+    return str(uuid.uuid4())
+
+
 class User(Base):
     __tablename__ = "user"
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     email = Column(String, unique=True)
     first_name = Column(String, default="", nullable=True)
@@ -71,7 +75,7 @@ class UserPreferences(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -86,7 +90,7 @@ class UserOAuth(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -109,7 +113,7 @@ class OAuthProvider(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(String, default="", nullable=False)
 
@@ -119,7 +123,7 @@ class FailedLogins(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -135,7 +139,7 @@ class Provider(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     provider_settings = relationship("ProviderSetting", backref="provider")
@@ -146,7 +150,7 @@ class ProviderSetting(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     provider_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -162,7 +166,7 @@ class AgentProviderSetting(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     provider_setting_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -182,7 +186,7 @@ class AgentProvider(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     provider_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -202,7 +206,7 @@ class AgentBrowsedLink(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     agent_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -223,7 +227,7 @@ class Agent(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     provider_id = Column(
@@ -247,7 +251,7 @@ class Command(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     extension_id = Column(
@@ -262,7 +266,7 @@ class AgentCommand(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     command_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -283,7 +287,7 @@ class Conversation(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     user_id = Column(
@@ -299,7 +303,7 @@ class Message(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     role = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
@@ -323,7 +327,7 @@ class Setting(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     extension_id = Column(
@@ -338,7 +342,7 @@ class AgentSetting(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     agent_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -354,7 +358,7 @@ class Chain(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
@@ -382,7 +386,7 @@ class ChainStep(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     chain_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -425,7 +429,7 @@ class ChainStepArgument(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     argument_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -445,7 +449,7 @@ class ChainRun(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     chain_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -468,7 +472,7 @@ class ChainStepResponse(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     chain_step_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -489,7 +493,7 @@ class Extension(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True, default="")
@@ -500,7 +504,7 @@ class Argument(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     prompt_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -522,7 +526,7 @@ class PromptCategory(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
@@ -539,7 +543,7 @@ class TaskCategory(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -564,7 +568,7 @@ class TaskItem(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
@@ -600,7 +604,7 @@ class Prompt(Base):
     id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         primary_key=True,
-        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     prompt_category_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,

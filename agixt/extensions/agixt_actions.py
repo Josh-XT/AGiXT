@@ -393,7 +393,9 @@ class agixt_actions(Extensions):
             i += 1
         return chain_name
 
-    async def run_chain(self, input_for_task: str = ""):
+    async def run_chain(
+        self, input_for_task: str = "", start_from_step_number: int = 1
+    ):
         """
         Run a chain
 
@@ -403,12 +405,16 @@ class agixt_actions(Extensions):
         Returns:
         str: The response from the chain
         """
+        try:
+            step_number = int(start_from_step_number)
+        except:
+            step_number = 1
         response = await self.ApiClient.run_chain(
             chain_name=self.command_name,
             user_input=input_for_task,
             agent_name=self.agent_name,
             all_responses=False,
-            from_step=1,
+            from_step=step_number,
             chain_args={
                 "conversation_name": self.conversation_name,
             },
