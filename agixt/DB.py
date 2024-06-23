@@ -590,7 +590,8 @@ class Prompt(Base):
 
 if __name__ == "__main__":
     logging.info("Connecting to database...")
-    time.sleep(10)
+    if getenv("DATABASE_TYPE") != "sqlite":
+        time.sleep(10)
     Base.metadata.create_all(engine)
     logging.info("Connected to database.")
     # Check if the user table is empty
