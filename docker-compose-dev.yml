@@ -170,7 +170,7 @@ services:
       - agixt
     environment:
       AGIXT_URI: ${AGIXT_URI:-http://agixt:7437}
-      APP_URI: ${APP_URI:-http://localhost:8501}
+      APP_URI: ${STREAMLIT_APP_URI:-http://localhost:8501}
       AOL_CLIENT_ID: ${AOL_CLIENT_ID}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
       AUTODESK_CLIENT_ID: ${AUTODESK_CLIENT_ID}
