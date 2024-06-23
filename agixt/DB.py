@@ -541,14 +541,19 @@ class TaskCategory(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+    )
     name = Column(String)
     description = Column(String)
     memory_collection = Column(String, default="0")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     category_id = Column(
-        UUID(as_uuid=True), ForeignKey("task_category.id"), nullable=True
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("task_category.id"),
+        nullable=True,
     )
     parent_category = relationship("TaskCategory", remote_side=[id])
     user = relationship("User", backref="task_category")
@@ -561,8 +566,14 @@ class TaskItem(Base):
         primary_key=True,
         default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
-    category_id = Column(UUID(as_uuid=True), ForeignKey("task_category.id"))
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+    )
+    category_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("task_category.id"),
+    )
     category = relationship("TaskCategory")
     title = Column(String)
     description = Column(String)
