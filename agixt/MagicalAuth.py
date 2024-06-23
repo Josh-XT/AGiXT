@@ -184,6 +184,7 @@ class MagicalAuth:
             if token
             else None
         )
+        self.token = self.token.replace("Bearer ", "").replace("bearer ", "")
         try:
             # Decode jwt
             decoded = jwt.decode(
