@@ -402,48 +402,16 @@ def import_providers():
     session.commit()
 
 
-def create_default_user():
-    try:
-        session = get_session()
-        user_count = session.query(User).count()
-    except:
-        user_count = 0
-    while user_count == 0:
-        try:
-            user = User(email=DEFAULT_USER, admin=True)
-            session.add(user)
-            session.commit()
-            user_count = session.query(User).count()
-        except Exception as e:
-            logging.error(f"Waiting for database to be ready: {str(e)}")
-            user_count = 0
-            time.sleep(3)
-
-
 def import_all_data():
-    try:
-        session = get_session()
-        user_count = session.query(User).count()
-    except:
-        time.sleep(10)
-        try:
-            session = get_session()
-            user_count = session.query(User).count()
-        except:
-            user_count = 0
+    session = get_session()
+    user_count = session.query(User).count()
     if user_count == 0:
         # Create the default user
         logging.info("Creating default admin user...")
-        create_default_user()
+        user = User(email=DEFAULT_USER, admin=True)
+        session.add(user)
+        session.commit()
+        session.close()
         logging.info("Default user created.")
         logging.info("Importing providers...")
         import_providers()
-        logging.info("Importing extensions...")
-        import_extensions()
-        logging.info("Importing prompts...")
-        import_prompts()
-        logging.info("Importing agents...")
-        import_agents()
-        logging.info("Importing chains...")
-        import_chains()
-        logging.info("Imports complete.")
