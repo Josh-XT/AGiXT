@@ -170,6 +170,7 @@ services:
       - agixt
     environment:
       AGIXT_URI: ${AGIXT_URI:-http://agixt:7437}
+      APP_URI: ${APP_URI:-http://localhost:8501}
       AOL_CLIENT_ID: ${AOL_CLIENT_ID}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
       AUTODESK_CLIENT_ID: ${AUTODESK_CLIENT_ID}
@@ -235,6 +236,7 @@ services:
       YELP_CLIENT_ID: ${YELP_CLIENT_ID}
       ZENDESK_CLIENT_ID: ${ZENDESK_CLIENT_ID}
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
+      TZ: ${TZ:-America/New_York}
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:

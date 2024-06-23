@@ -42,12 +42,13 @@ services:
       - ./agixt/registration_requirements.json:/agixt/registration_requirements.json
       - /var/run/docker.sock:/var/run/docker.sock
   streamlit:
-    image: joshxt/streamlit:main
+    image: joshxt/streamlit:latest
     depends_on:
       - agixt
     environment:
       - AGIXT_URI=${AGIXT_URI-http://agixt:7437}
       - AGIXT_API_KEY=${AGIXT_API_KEY}
+      - TZ=${TZ-America/New_York}
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
