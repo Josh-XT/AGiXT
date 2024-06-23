@@ -385,7 +385,7 @@ def import_providers():
                 .one_or_none()
             )
             if provider_setting:
-                provider_setting.value = option_value
+                provider_setting.value = str(option_value)
                 logging.info(
                     f"Updating provider setting: {option_name} for provider: {provider_name}"
                 )
@@ -393,7 +393,7 @@ def import_providers():
                 provider_setting = ProviderSetting(
                     provider_id=provider.id,
                     name=option_name,
-                    value=option_value,
+                    value=str(option_value),
                 )
                 session.add(provider_setting)
                 logging.info(
