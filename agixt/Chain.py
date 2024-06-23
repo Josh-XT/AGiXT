@@ -183,9 +183,10 @@ class Chain:
             if argument_key not in prompt:
                 argument_key = "chain"
             target_id = (
-                session.query(Chain)
+                session.query(ChainDB)
                 .filter(
-                    Chain.name == prompt["chain_name"], Chain.user_id == self.user_id
+                    ChainDB.name == prompt["chain_name"],
+                    ChainDB.user_id == self.user_id,
                 )
                 .first()
                 .id
