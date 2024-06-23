@@ -68,18 +68,35 @@ class User(Base):
 
 class UserPreferences(Base):
     __tablename__ = "user_preferences"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+    )
     pref_key = Column(String, nullable=False)
     pref_value = Column(String, nullable=True)
 
 
 class UserOAuth(Base):
     __tablename__ = "user_oauth"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+    )
     user = relationship("User")
-    provider_id = Column(UUID(as_uuid=True), ForeignKey("oauth_provider.id"))
+    provider_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("oauth_provider.id"),
+    )
     provider = relationship("OAuthProvider")
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
@@ -89,7 +106,11 @@ class UserOAuth(Base):
 
 class OAuthProvider(Base):
     __tablename__ = "oauth_provider"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()) if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
     name = Column(String, default="", nullable=False)
 
 
