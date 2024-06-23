@@ -47,7 +47,7 @@ Required environment variables:
 def is_agixt_admin(email: str = "", api_key: str = ""):
     if api_key == getenv("AGIXT_API_KEY"):
         return True
-    api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
+    api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
     session = get_session()
     try:
         user = session.query(User).filter_by(email=email).first()
@@ -185,7 +185,8 @@ class MagicalAuth:
             if token
             else None
         )
-        self.token = self.token.replace("Bearer ", "").replace("bearer ", "")
+        if self.token:
+            self.token = str(self.token).replace("Bearer ", "").replace("bearer ", "")
         try:
             # Decode jwt
             decoded = jwt.decode(
