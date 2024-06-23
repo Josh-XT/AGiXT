@@ -434,6 +434,4 @@ def import_all_data():
         import_agents()
         logging.info("Importing chains...")
         import_chains()
-        logging.info("Importing conversations...")
-        import_conversations()
         logging.info("Imports complete.")
