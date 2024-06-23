@@ -1,7 +1,6 @@
 import os
 import json
 import yaml
-import time
 import logging
 from DB import (
     get_session,
@@ -112,7 +111,6 @@ def import_extensions():
                     session.add(command_arg)
                     logging.info(f"Imported argument: {arg} to command: {command_name}")
     session.commit()
-
     # Add extensions to the database if they don't exist
     for extension_name in extension_settings_data.keys():
         extension = session.query(Extension).filter_by(name=extension_name).first()
@@ -122,9 +120,7 @@ def import_extensions():
             session.flush()
             existing_extensions.append(extension)
             logging.info(f"Imported extension: {extension_name}")
-
     session.commit()
-
     # Migrate extension settings
     for extension_name, settings in extension_settings_data.items():
         extension = session.query(Extension).filter_by(name=extension_name).first()
@@ -153,8 +149,8 @@ def import_extensions():
                 logging.info(
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
-
     session.commit()
+    session.close()
 
 
 def import_chains(user=DEFAULT_USER):
@@ -303,6 +299,7 @@ def import_prompts(user=DEFAULT_USER):
                 session.add(argument)
                 session.commit()
                 logging.info(f"Imported prompt argument: {arg} for {prompt_name}")
+    session.close()
 
 
 def get_conversations():
@@ -362,6 +359,7 @@ def import_conversations(user=DEFAULT_USER):
                 session.add(message)
                 session.commit()
             logging.info(f"Imported conversation: {conversation_name}")
+    session.close()
 
 
 def import_providers():
@@ -400,6 +398,7 @@ def import_providers():
                     f"Imported provider setting: {option_name} for provider: {provider_name}"
                 )
     session.commit()
+    session.close()
 
 
 def import_all_data():
