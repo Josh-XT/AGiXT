@@ -49,7 +49,8 @@ def log_in(
     request: Request,
     authorization: str = Header(None),
 ):
-    auth = MagicalAuth(token=authorization)
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    auth = MagicalAuth(token=token)
     user_data = auth.login(ip_address=request.client.host)
     user_preferences = auth.get_user_preferences()
     return {
