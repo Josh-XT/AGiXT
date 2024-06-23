@@ -1,6 +1,7 @@
 import os
 import json
 import yaml
+import time
 import logging
 from DB import (
     get_session,
@@ -401,15 +402,27 @@ def import_providers():
     session.commit()
 
 
+def create_default_user():
+    session = get_session()
+    user_count = session.query(User).count()
+    while user_count == 0:
+        try:
+            user = User(email=DEFAULT_USER, admin=True)
+            session.add(user)
+            session.commit()
+            user_count = session.query(User).count()
+            break
+        except Exception as e:
+            time.sleep(3)
+
+
 def import_all_data():
     session = get_session()
     user_count = session.query(User).count()
     if user_count == 0:
         # Create the default user
         logging.info("Creating default admin user...")
-        user = User(email=DEFAULT_USER, admin=True)
-        session.add(user)
-        session.commit()
+        create_default_user()
         logging.info("Default user created.")
         logging.info("Importing providers...")
         import_providers()
