@@ -410,7 +410,7 @@ def import_all_data():
         user = User(email=DEFAULT_USER, admin=True)
         session.add(user)
         session.commit()
-        session.close()
         logging.info("Default user created.")
         logging.info("Importing providers...")
         import_providers()
+    session.close()
