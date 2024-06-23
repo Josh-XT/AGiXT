@@ -72,6 +72,7 @@ class UserPreferences(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"))
     pref_key = Column(String, nullable=False)
     pref_value = Column(String, nullable=True)
+    user = relationship("User", backref="preferences")
 
 
 class UserOAuth(Base):
