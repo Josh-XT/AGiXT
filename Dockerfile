@@ -65,6 +65,7 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
+ENV CHROMIUM_FLAGS="--no-sandbox"
 COPY . .
 
 WORKDIR /agixt
