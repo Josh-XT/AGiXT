@@ -345,10 +345,8 @@ class Memories:
                         documents=chunk,
                     )
                 except:
-                    # Try again 5 times before giving up
                     self.failures += 1
                     for i in range(5):
-                        logging.warning(f"({i}/5) Error writing to memory: {chunk}")
                         try:
                             time.sleep(0.1)
                             collection.add(
@@ -356,10 +354,6 @@ class Memories:
                                 metadatas=metadata,
                                 documents=chunk,
                             )
-                            if self.failures > 0:
-                                logging.info(
-                                    f"Successfully wrote to memory after failing previously: {chunk}"
-                                )
                             self.failures = 0
                             break
                         except:

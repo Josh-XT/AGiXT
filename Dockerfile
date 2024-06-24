@@ -1,6 +1,6 @@
 # Use Python 3.10
-FROM python:3.10-bullseye as python_base
-
+ARG BASE_IMAGE="python:3.10-bullseye"
+FROM ${BASE_IMAGE}
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
@@ -11,7 +11,8 @@ ENV PYTHONUNBUFFERED=1 \
     LD_LIBRARY_PATH="/usr/local/lib64/:$LD_LIBRARY_PATH" \
     DEBIAN_FRONTEND=noninteractive \
     CHROME_BIN=/usr/bin/chromium \
-    CHROMIUM_PATH=/usr/bin/chromium
+    CHROMIUM_PATH=/usr/bin/chromium \
+    CHROMIUM_FLAGS="--no-sandbox"
 
 # Install system packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -40,9 +41,11 @@ WORKDIR /
 # Install SQLite3
 RUN wget https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz && \
     tar xzf sqlite-autoconf-3420000.tar.gz && \
+    if [ ! -d "/usr/lib/aarch64-linux-gnu/" ]; then mkdir -p /usr/lib/aarch64-linux-gnu/; fi && \
     cd sqlite-autoconf-3420000 && \
     ./configure && \
     make && make install && \
+    cp /usr/local/lib/libsqlite3.* /usr/lib/aarch64-linux-gnu/ && \
     ldconfig && \
     cd .. && \
     rm -rf sqlite*
@@ -65,7 +68,6 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
-ENV CHROMIUM_FLAGS="--no-sandbox"
 COPY . .
 
 WORKDIR /agixt
