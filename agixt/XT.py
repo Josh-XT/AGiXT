@@ -29,7 +29,10 @@ import time
 class AGiXT:
     def __init__(self, user: str, agent_name: str, api_key: str):
         self.user_email = user.lower()
-        self.api_key = api_key.replace("Bearer ", "").replace("bearer ", "")
+        if api_key is not None:
+            self.api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
+        else:
+            self.api_key = api_key
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
         self.ApiClient = get_api_client(api_key)
