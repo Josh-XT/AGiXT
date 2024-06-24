@@ -15,13 +15,14 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai"])
     import openai
+from Globals import getenv
 
 
 class EzlocalaiProvider:
     def __init__(
         self,
         EZLOCALAI_API_KEY: str = "None",
-        EZLOCALAI_API_URI: str = "http://localhost:8091/v1/",
+        EZLOCALAI_API_URI: str = getenv("EZLOCALAI_URI"),
         AI_MODEL: str = "TheBloke/phi-2-dpo-GGUF",
         MAX_TOKENS: int = 8192,
         AI_TEMPERATURE: float = 1.33,
@@ -36,7 +37,7 @@ class EzlocalaiProvider:
         if not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"
         self.API_URI = (
-            EZLOCALAI_API_URI if EZLOCALAI_API_URI else "http://localhost:8091/v1/"
+            EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_URI")
         )
         self.VOICE = VOICE if VOICE else "HAL9000"
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
