@@ -167,7 +167,7 @@ class Chain:
         argument_key = None
         if prompt_type.lower() == "prompt":
             argument_key = "prompt_name"
-            target_id = (
+            target = (
                 session.query(Prompt)
                 .filter(
                     Prompt.name == prompt["prompt_name"],
@@ -175,30 +175,27 @@ class Chain:
                     Prompt.prompt_category.has(name=prompt_category),
                 )
                 .first()
-                .id
             )
             target_type = "prompt"
         elif prompt_type.lower() == "chain":
             argument_key = "chain_name"
             if argument_key not in prompt:
                 argument_key = "chain"
-            target_id = (
+            target = (
                 session.query(ChainDB)
                 .filter(
                     ChainDB.name == prompt[argument_key],
                     ChainDB.user_id == self.user_id,
                 )
                 .first()
-                .id
             )
             target_type = "chain"
         elif prompt_type.lower() == "command":
             argument_key = "command_name"
-            target_id = (
+            target = (
                 session.query(Command)
                 .filter(Command.name == prompt["command_name"])
                 .first()
-                .id
             )
             target_type = "command"
         else:
@@ -216,7 +213,7 @@ class Chain:
             if "input" in prompt:
                 del prompt["input"]
             argument_key = "prompt_name"
-            target_id = (
+            target = (
                 session.query(Prompt)
                 .filter(
                     Prompt.name == prompt["prompt_name"],
@@ -224,9 +221,16 @@ class Chain:
                     Prompt.prompt_category.has(name=prompt_category),
                 )
                 .first()
-                .id
             )
             target_type = "prompt"
+        if not target:
+            logging.error(
+                f"Target {prompt[argument_key]} not found. Using default prompt."
+            )
+            logging.info(f"Prompt: {prompt}")
+            logging.info(f"Prompt Type: {prompt_type}")
+            logging.info(f"Argument Key: {argument_key}")
+        target_id = target.id
         argument_value = prompt[argument_key]
         prompt_arguments = prompt.copy()
         del prompt_arguments[argument_key]

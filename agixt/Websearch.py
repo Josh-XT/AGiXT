@@ -389,6 +389,7 @@ class Websearch:
             role=self.agent_name,
             message=f"[ACTIVITY] Browsing [{links[0]}]({links[0]}) and collecting data from it to learn more.",
         )
+        tasks = []
         scraped_links = []
         if links is not None and len(links) > 0:
             for link in links:
@@ -397,37 +398,13 @@ class Websearch:
                         role=self.agent_name,
                         message=f"[SUBACTIVITY][{activity_id}] Browsing [{link}]({link}).",
                     )
-                    text_content, link_list = await self.get_web_content(
-                        url=link, summarize_content=summarize_content
+                    task = asyncio.create_task(
+                        self.get_web_content(
+                            url=link, summarize_content=summarize_content
+                        )
                     )
                     scraped_links.append(link)
-                    if (
-                        int(search_depth) > 0
-                        and "youtube.com/" not in link
-                        and "youtu.be/" not in link
-                    ):
-                        if link_list is not None and len(link_list) > 0:
-                            i = 0
-                            for sublink in link_list:
-                                if self.verify_link(link=sublink[1]):
-                                    if i <= search_depth:
-                                        if (
-                                            conversation_name != ""
-                                            and conversation_name is not None
-                                        ):
-                                            c.log_interaction(
-                                                role=self.agent_name,
-                                                message=f"[SUBACTIVITY][{activity_id}] Browsing [{sublink[1]}]({sublink[1]}).",
-                                            )
-                                        (
-                                            text_content,
-                                            link_list,
-                                        ) = await self.get_web_content(
-                                            url=sublink[1],
-                                            summarize_content=summarize_content,
-                                        )
-                                        i = i + 1
-                                        scraped_links.append(sublink[1])
+        await asyncio.gather(*tasks)
         str_links = "\n".join(scraped_links)
         message = f"I have read all of the content from the following links into my memory:\n{str_links}"
         if conversation_name != "" and conversation_name is not None:
