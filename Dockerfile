@@ -1,6 +1,4 @@
-# Use Python 3.10
-ARG BASE_IMAGE="python:3.10-bullseye"
-FROM ${BASE_IMAGE}
+FROM seleniarm/node-chromium
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
@@ -20,11 +18,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
     awk '/^deb / && !seen[$0]++ {gsub(/^deb /, "deb-src "); print}' /etc/apt/sources.list | tee -a /etc/apt/sources.list && \
-    echo "deb http://deb.debian.org/debian/ sid main" >> /etc/apt/sources.list && \
-    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0E98404D386FA1D9 6ED0E7B82643E131 && \
     apt-get update && \
     apt-get build-dep sqlite3 -y && \
-    apt-get -qqy install chromium chromium-driver && \
     rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
@@ -63,9 +58,6 @@ RUN npm install -g playwright && \
     npx playwright install && \
     playwright install
 
-RUN echo "chrome" > /opt/selenium/browser_name
-RUN chromium --version | awk '{print $2}' > /opt/selenium/browser_version
-RUN echo "\"goog:chromeOptions\": {\"binary\": \"/usr/bin/chromium\"}" > /opt/selenium/browser_binary_location
 COPY . .
 
 WORKDIR /agixt
