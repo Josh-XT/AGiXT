@@ -387,7 +387,7 @@ class Websearch:
         )
         activity_id = c.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Browsing [{links[0]}]({links[0]}) and collecting data from it to learn more.",
+            message=f"[ACTIVITY] Browsing links provided by the user.",
         )
         tasks = []
         scraped_links = []
