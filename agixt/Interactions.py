@@ -554,7 +554,7 @@ class Interactions:
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
-        if browse_links != False and websearch == False:
+        if browse_links != False and websearch == False and searching == False:
             task = asyncio.create_task(
                 self.websearch.scrape_websites(
                     user_input=user_input,
@@ -566,8 +566,8 @@ class Interactions:
             async_tasks.append(task)
         # Any other research prompt and action can be added here on bool toggle such as `websearch` and `browse_links`
         # Add them as asyncio tasks to the async_tasks list
-        if websearch:
-            if browse_links != False:
+        if websearch and searching == False:
+            if browse_links != False and searching == False:
                 task = asyncio.create_task(
                     self.websearch.scrape_websites(
                         user_input=user_input,
