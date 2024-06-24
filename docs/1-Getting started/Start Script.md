@@ -31,6 +31,7 @@ The script will check for and attempt to install or guide you through the instal
     ```
 
 2. Run the script:
+    If you're using Linux, you may need to prefix the command with `sudo` depending on your system configuration.
 
     ```bash
     python start.py
@@ -133,6 +134,7 @@ After setting up the environment variables and ensuring Docker and Docker Compos
 
 ## Troubleshooting
 
+- If the script fails to run on Linux, run it with `sudo`.
 - If you encounter any issues with Docker installation:
   - On Linux, ensure you have sudo privileges and that your system is up to date.
   - On macOS and Windows, follow the instructions to install Docker Desktop manually if the script cannot install it automatically.
