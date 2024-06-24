@@ -138,6 +138,7 @@ After setting up the environment variables and ensuring Docker and Docker Compos
   - On macOS and Windows, follow the instructions to install Docker Desktop manually if the script cannot install it automatically.
 - Check the Docker logs for any error messages if the containers fail to start.
 - Verify that all required ports are available and not in use by other services.
+- If the `python` command is not recognized, try using `python3` instead.
 
 ## Security Considerations
 
