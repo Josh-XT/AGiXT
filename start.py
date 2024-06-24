@@ -1,40 +1,21 @@
-import re
 import os
+import sys
 import subprocess
-import platform
-from dotenv import load_dotenv
-import socket
-import json
+import random
+import argparse
 
 try:
-    import win32com.client as wim
+    from tzlocal import get_localzone
 except ImportError:
-    wim = None
-
-
-def run_shell_command(command):
-    result = subprocess.run(
-        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    subprocess.run([sys.executable, "-m", "pip", "install", "tzlocal"], check=True)
+    from tzlocal import get_localzone
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "python-dotenv"], check=True
     )
-    return result.stdout
-
-
-def is_docker_installed():
-    try:
-        subprocess.run(["docker", "--version"], check=True, stdout=subprocess.DEVNULL)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-    finally:
-        s.close()
-    return ip
+    from dotenv import load_dotenv
 
 
 def prompt_user(prompt, default=None):
@@ -45,223 +26,135 @@ def prompt_user(prompt, default=None):
     return user_input if user_input else default
 
 
-def start_ezlocalai():
-    load_dotenv()
-    uri = os.getenv("EZLOCALAI_URI", f"http://{get_local_ip()}:8091")
-    api_key = os.getenv("AGIXT_API_KEY", "")
-    nvidia_gpu = False
-    if not os.path.exists("ezlocalai"):
-        run_shell_command("git clone https://github.com/DevXT-LLC/ezlocalai ezlocalai")
-    else:
-        run_shell_command("cd ezlocalai && git pull && cd ..")
-    with open("ezlocalai/.env", "r") as file:
-        lines = file.readlines()
-    with open("ezlocalai/.env", "w") as file:
-        for line in lines:
-            if line.startswith("EZLOCALAI_API_KEY="):
-                file.write(f"EZLOCALAI_API_KEY={api_key}\n")
-            elif line.startswith("EZLOCALAI_URI="):
-                file.write(f"EZLOCALAI_URI={uri}\n")
-            else:
-                file.write(line)
-    if platform.system() == "Windows":
-        wmi = wim.GetObject("winmgmts:")
-        for video_controller in wmi.InstancesOf("Win32_VideoController"):
-            if "NVIDIA" in video_controller.Name:
-                nvidia_gpu = True
-    elif platform.system() == "Linux":
-        cmd = "lspci | grep 'VGA' | grep 'NVIDIA'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        gpu_name_match = re.search(r"NVIDIA\s+([^:]+)", result.stdout)
-        if gpu_name_match:
-            nvidia_gpu = True
-    if nvidia_gpu:
-        run_shell_command(
-            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml down && docker-compose -f docker-compose-cuda.yml build && docker-compose -f docker-compose-cuda.yml up -d"
-        )
-    else:
-        run_shell_command(
-            "cd ezlocalai && docker-compose down && docker-compose build && docker-compose up -d"
-        )
-
-
-def get_cuda_vram():
+def is_docker_installed():
     try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.total,memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        lines = result.stdout.strip().split("\n")
-        if len(lines) == 0:
-            return 0, 0
-        total_vram, free_vram = map(int, lines[0].split(","))
-        return total_vram, free_vram
-    except FileNotFoundError:
-        print("nvidia-smi not found. No CUDA support.")
-        return 0, 0
-    except subprocess.CalledProcessError as e:
-        print(f"nvidia-smi failed with error: {e.stderr}")
-        return 0, 0
-    except Exception as e:
-        print(f"Error getting CUDA information: {e}")
-        return 0, 0
+        subprocess.run(["docker", "--version"], check=True, stdout=subprocess.DEVNULL)
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 
-if not is_docker_installed():
-    print("Docker is not installed. Please install Docker and try again.")
-    exit(1)
-
-print("\033[1m\033[96m")
-print("    ___   _______ _  ________")
-print("   /   | / ____(_) |/ /_  __/")
-print("  / /| |/ / __/ /|   / / /   ")
-print(" / ___ / /_/ / //   | / /    ")
-print("/_/  |_\____/_//_/|_|/_/     ")
-print(" ")
-print("----------------------------------------------------\033[0m")
-print("\033[1m\033[95mVisit our documentation at https://AGiXT.com \033[0m")
-
-if not os.path.isfile(".env"):
-    print("\033[1m\033[95mWelcome to the AGiXT Environment Setup!\033[0m")
-    local_ip = get_local_ip()
-    api_key = prompt_user("Set your AGiXT API key", "None")
-    agixt_uri = prompt_user(
-        "Set your AGiXT URI (This does not change the port)", f"http://{local_ip}:7437"
+def run_shell_command(command):
+    result = subprocess.run(
+        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
-    if api_key.lower() == "none":
-        api_key = ""
-    with open(".env", "w") as env_file:
-        env_file.write(f"AGIXT_URI={agixt_uri}\n")
-        env_file.write(f"AGIXT_API_KEY={api_key}\n")
-        env_file.write("UVICORN_WORKERS=10\n")
-load_dotenv()
-use_ezlocalai = os.getenv("USE_EZLOCALAI", None)
-if use_ezlocalai == None:
-    # Ask user if they want to use ezLocalai
-    use_ezlocalai = prompt_user(
-        "Would you like to use ezLocalai to run local models? (Y/N)", "Yes"
-    )
-    if use_ezlocalai.lower() in ["y", "yes"]:
-        use_ezlocalai = True
-        with open(".env", "a") as env_file:
-            env_file.write("USE_EZLOCALAI=true\n")
-        if not os.path.exists("ezlocalai"):
-            run_shell_command(
-                "git clone https://github.com/DevXT-LLC/ezlocalai ezlocalai"
+    return result.stdout
+
+
+def get_default_env_vars():
+    workspace_folder = os.path.normpath(os.path.join(os.getcwd(), "WORKSPACE"))
+    machine_tz = get_localzone()
+    return {
+        "AGIXT_API_KEY": "",
+        "AGIXT_URI": "http://localhost:7437",
+        "AGIXT_AGENT": "AGiXT",
+        "AGIXT_BRANCH": "stable",
+        "AGIXT_FILE_UPLOAD_ENABLED": "true",
+        "AGIXT_VOICE_INPUT_ENABLED": "true",
+        "AGIXT_FOOTER_MESSAGE": "Powered by AGiXT",
+        "AGIXT_REQUIRE_API_KEY": "false",
+        "AGIXT_RLHF": "true",
+        "AGIXT_SHOW_SELECTION": "conversation,agent",
+        "AGIXT_SHOW_AGENT_BAR": "true",
+        "AGIXT_SHOW_APP_BAR": "true",
+        "AGIXT_CONVERSATION_MODE": "select",
+        "ALLOWED_DOMAINS": "*",
+        "APP_DESCRIPTION": "A chat powered by AGiXT.",
+        "APP_NAME": "AGiXT Chat",
+        "APP_URI": "http://localhost:3437",
+        "STREAMLIT_APP_URI": "http://localhost:8501",
+        "AUTH_WEB": "http://localhost:3437/user",
+        "AUTH_PROVIDER": "magicalauth",
+        "DISABLED_PROVIDERS": "",
+        "DISABLED_EXTENSIONS": "",
+        "WORKING_DIRECTORY": workspace_folder.replace("\\", "/"),
+        "GITHUB_CLIENT_ID": "",
+        "GITHUB_CLIENT_SECRET": "",
+        "GOOGLE_CLIENT_ID": "",
+        "GOOGLE_CLIENT_SECRET": "",
+        "MICROSOFT_CLIENT_ID": "",
+        "MICROSOFT_CLIENT_SECRET": "",
+        "TZ": machine_tz,
+        "INTERACTIVE_MODE": "chat",
+        "THEME_NAME": "doom",
+        "ALLOW_EMAIL_SIGN_IN": "true",
+        "DATABASE_TYPE": "sqlite",
+        "DATABASE_NAME": "models/agixt",
+        "LOG_LEVEL": "INFO",
+        "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
+        "UVICORN_WORKERS": "10",
+        "AGIXT_AUTO_UPDATE": "true",
+    }
+
+
+def set_environment(env_updates=None):
+    load_dotenv()
+    env_vars = get_default_env_vars()
+    # Update with existing environment variables
+    for key in env_vars.keys():
+        env_value = os.getenv(key)
+        if env_value is not None:
+            env_vars[key] = env_value
+    # Apply updates
+    if env_updates:
+        for key, value in env_updates.items():
+            if key in env_vars:
+                env_vars[key] = value
+    # Ensure AGIXT_API_KEY is set
+    if env_vars["AGIXT_API_KEY"] == "":
+        env_vars["AGIXT_API_KEY"] = "".join(
+            random.choice(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             )
-        else:
-            run_shell_command("cd ezlocalai && git pull && cd ..")
-        ezlocalai_uri = prompt_user("Set your ezLocalai URI", f"http://{local_ip}:8091")
-        default_llm = prompt_user(
-            "Default LLM to use", "QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF"
+            for i in range(64)
         )
-        default_vlm = prompt_user(
-            "Use vision model? Enter model from Hugging Face or 'None' for no vision model",
-            "deepseek-ai/deepseek-vl-1.3b-chat",
-        )
-        if default_vlm.lower() == "none":
-            default_vlm = ""
-        img_enabled = prompt_user("Enable image generation? (Y/N)", "No")
-        if img_enabled.lower() in ["y", "yes"]:
-            img_enabled = True
-        else:
-            img_enabled = False
-        total_vram, free_vram = get_cuda_vram()
-        with open(".env", "a") as env_file:
-            env_file.write("USE_EZLOCALAI=true\n")
-        gpu_layers = 0
-        if total_vram > 0:
-            gpu_layers = min(33, total_vram // 500)
-            if gpu_layers < 0:
-                gpu_layers = 0
-        with open("ezlocalai/.env", "w") as env_file:
-            env_file.write(f"EZLOCALAI_URL={ezlocalai_uri}\n")
-            env_file.write(f"DEFAULT_LLM={default_llm}\n")
-            env_file.write(f"DEFAULT_VLM={default_vlm}\n")
-            env_file.write(f"GPU_LAYERS={gpu_layers}\n")
-            env_file.write(f"IMG_ENABLED={img_enabled}\n")
-            if img_enabled:
-                env_file.write("SD_MODEL=stabilityai/sdxl-turbo")
-                env_file.write("IMG_DEVICE=cpu")
-        # Create a default ezlocalai agent that will work with AGiXT out of the box
-        ezlocalai_agent_settings = {
-            "commands": {},
-            "settings": {
-                "provider": "ezlocalai",
-                "tts_provider": "ezlocalai",
-                "transcription_provider": "ezlocalai",
-                "translation_provider": "ezlocalai",
-                "embeddings_provider": "default",
-                "image_provider": "ezlocalai" if img_enabled else "default",
-                "EZLOCALAI_API_KEY": api_key,
-                "AI_MODEL": "Mistral-7B-Instruct-v0.2",
-                "EZLOCALAI_API_URI": f"{ezlocalai_uri}/v1/",
-                "MAX_TOKENS": "4096",
-                "AI_TEMPERATURE": 0.5,
-                "AI_TOP_P": 0.9,
-                "SYSTEM_MESSAGE": "",
-                "VOICE": "HAL9000",
-                "mode": "prompt",
-                "prompt_category": "Default",
-                "prompt_name": "Chat",
-                "helper_agent_name": "AGiXT",
-                "WEBSEARCH_TIMEOUT": 0,
-                "WAIT_BETWEEN_REQUESTS": 1,
-                "WAIT_AFTER_FAILURE": 3,
-                "persona": "",
-            },
-        }
-        os.makedirs("agixt/agents/AGiXT", exist_ok=True)
-        with open("agixt/agents/AGiXT/config.json", "w") as file:
-            file.write(json.dumps(ezlocalai_agent_settings, indent=4))
+    # Write to .env file
+    env_file_content = "\n".join(
+        [f'{key}="{value}"' for key, value in env_vars.items()]
+    )
+    with open(".env", "w") as file:
+        file.write(env_file_content)
+    dockerfile = "docker-compose.yml"
+    if env_vars["AGIXT_BRANCH"] != "stable":
+        dockerfile = "docker-compose-dev.yml"
+    if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
+        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
     else:
-        use_ezlocalai = False
-        env_file = open(".env", "a")
-        env_file.write("USE_EZLOCALAI=false\n")
-        env_file.close()
-else:
-    use_ezlocalai = use_ezlocalai.lower() == "true"
-print("\033[1m\033[95mWelcome to the AGiXT! \033[0m")
-ops = prompt_user(
-    f"""Choose from the following options:
-1. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Stable)
-2. Start AGiXT {'and ezLocalai ' if use_ezlocalai else ''}(Development)
-3. Exit
-Choose an option"""
-)
-if ops == "1":
-    print("Starting, please wait...")
-    if use_ezlocalai:
-        start_ezlocalai()
-        print(
-            f"ezLocalai started. It may take a few minutes for the server to become available at {os.getenv('EZLOCALAI_URI')}"
+        command = (
+            f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up"
         )
-    run_shell_command(
-        "docker-compose down && docker-compose pull && docker-compose up -d"
-    )
-    print(
-        f"AGiXT started. It may take a few minutes for the server to become available at {os.getenv('AGIXT_URI')}"
-    )
-elif ops == "2":
-    print("Starting, please wait...")
-    if use_ezlocalai:
-        start_ezlocalai()
-        print(
-            f"ezLocalai started. It may take a few minutes for the server to become available at {os.getenv('EZLOCALAI_URI')}"
+    run_shell_command(command)
+    return env_vars
+
+
+if __name__ == "__main__":
+    if not is_docker_installed():
+        print("Docker is not installed. Please install Docker and try again.")
+        exit(1)
+    parser = argparse.ArgumentParser(description="AGiXT Environment Setup")
+    # Add arguments for each environment variable
+    for key, value in get_default_env_vars().items():
+        parser.add_argument(
+            f"--{key.lower().replace('_', '-')}",
+            help=f"Set {key}",
+            type=str,
+            default=None,
+            required=False,
         )
-    run_shell_command(
-        "docker-compose -f docker-compose-dev.yml down && docker-compose -f docker-compose-dev.yml pull && docker-compose -f docker-compose-dev.yml up -d"
-    )
-    print(
-        f"AGiXT started. It may take a few minutes for the server to become available at {os.getenv('AGIXT_URI')}"
-    )
-else:
-    print("Exiting...")
-    exit(1)
+    args = parser.parse_args()
+    # Convert args to a dictionary, filtering out None values
+    arg_dict = {k: v for k, v in vars(args).items() if v is not None}
+    # Convert hyphenated arg names back to underscore format
+    env_updates = {k.upper().replace("-", "_"): v for k, v in arg_dict.items()}
+    # Check if .env file exists and if AGIXT_AUTO_UPDATE is not set via command line
+    if not os.path.exists(".env") and "AGIXT_AUTO_UPDATE" not in env_updates:
+        auto_update = prompt_user(
+            "Would you like AGiXT to auto update? (Y for yes, N for no)", "y"
+        )
+        if auto_update.lower() == "y" or auto_update.lower() == "yes":
+            auto_update = "true"
+        else:
+            auto_update = "false"
+        env_updates["AGIXT_AUTO_UPDATE"] = auto_update
+    # Apply updates and restart server
+    set_environment(env_updates=env_updates)
