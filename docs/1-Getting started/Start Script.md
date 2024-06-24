@@ -141,6 +141,8 @@ The script sets up various environment variables for AGiXT. Some key variables a
 
 Environment variables specific to ezLocalai:
 
+Note: If you do not have an NVIDIA GPU, the correct CUDA drivers, or enough VRAM, ezLocalai will still work running on CPU, but it will be slower.
+
 - `EZLOCALAI_URI`: URI for ezLocalai. Default is `http://{local_ip}:8091`.
 - `DEFAULT_MODEL`: Default language model for ezLocalai. Default is `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`. This model takes ~9GB VRAM at 32k max tokens, lower the max tokens if you have less VRAM or use a different model.
 - `VISION_MODEL`: Vision model for ezLocalai. Default is `deepseek-ai/deepseek-vl-1.3b-chat`. This model takes ~3GB VRAM in addition to the language model.
