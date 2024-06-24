@@ -4,9 +4,9 @@ import asyncio
 
 
 class Gpt4freeProvider:
-    def __init__(self, AI_MODEL: str = "gpt-4-turbo", **kwargs):
+    def __init__(self, AI_MODEL: str = "gemini-pro", **kwargs):
         self.requirements = ["g4f"]
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-4-turbo"
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gemini-pro"
 
     @staticmethod
     def services():
@@ -15,7 +15,7 @@ class Gpt4freeProvider:
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
         client = AsyncClient()
-        models = ["gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
+        models = ["gemini-pro", "gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
             response = await client.chat.completions.create(
                 model=self.AI_MODEL,
