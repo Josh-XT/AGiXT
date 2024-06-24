@@ -247,6 +247,35 @@ def get_local_ip():
     return ip
 
 
+def get_cuda_vram():
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        lines = result.stdout.strip().split("\n")
+        if len(lines) == 0:
+            return 0, 0
+        total_vram, free_vram = map(int, lines[0].split(","))
+        return total_vram, free_vram
+    except FileNotFoundError:
+        print("nvidia-smi not found. No CUDA support.")
+        return 0, 0
+    except subprocess.CalledProcessError as e:
+        print(f"nvidia-smi failed with error: {e.stderr}")
+        return 0, 0
+    except Exception as e:
+        print(f"Error getting CUDA information: {e}")
+        return 0, 0
+
+
 def start_ezlocalai():
     load_dotenv()
     env = get_default_env_vars()
@@ -295,6 +324,17 @@ def start_ezlocalai():
                 file.write(f"GPU_LAYERS={gpu_layers}\n")
             else:
                 file.write(line)
+    set_environment(
+        env_updates={
+            "EZLOCALAI_URI": uri,
+            "EZLOCALAI_API_KEY": api_key,
+            "DEFAULT_MODEL": default_model,
+            "VISION_MODEL": vision_model,
+            "LLM_MAX_TOKENS": llm_max_tokens,
+            "WHISPER_MODEL": whisper_model,
+            "GPU_LAYERS": gpu_layers,
+        }
+    )
     if platform.system() == "Windows":
         wmi = wim.GetObject("winmgmts:")
         for video_controller in wmi.InstancesOf("Win32_VideoController"):
@@ -314,35 +354,6 @@ def start_ezlocalai():
         run_shell_command(
             "cd ezlocalai && docker-compose down && docker-compose build && docker-compose up -d"
         )
-
-
-def get_cuda_vram():
-    try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.total,memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        lines = result.stdout.strip().split("\n")
-        if len(lines) == 0:
-            return 0, 0
-        total_vram, free_vram = map(int, lines[0].split(","))
-        return total_vram, free_vram
-    except FileNotFoundError:
-        print("nvidia-smi not found. No CUDA support.")
-        return 0, 0
-    except subprocess.CalledProcessError as e:
-        print(f"nvidia-smi failed with error: {e.stderr}")
-        return 0, 0
-    except Exception as e:
-        print(f"Error getting CUDA information: {e}")
-        return 0, 0
 
 
 if __name__ == "__main__":
