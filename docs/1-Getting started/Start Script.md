@@ -11,6 +11,7 @@ This Python script automates the setup and configuration process for AGiXT, a po
 - Supports both stable and development versions of AGiXT
 - Handles automatic updates (optional)
 - Provides command-line interface for easy configuration
+- Supports [ezLocalai](https://github.com/DevXT-LLC/ezlocalai) for hosting local models to use with AGiXT
 
 ## Prerequisites
 
@@ -50,10 +51,16 @@ Run the script with Python:
 python start.py
 ```
 
+To run AGiXT with ezLocalai, use the `--with-ezlocalai` flag:
+
+```bash
+python start.py --with-ezlocalai
+```
+
 You can also use command-line arguments to set specific environment variables to run in different ways. For example, to use the development branch and enable auto-updates, run:
 
 ```bash
-python start.py --agixt-branch dev --agixt-auto-update true
+python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai
 ```
 
 ### Command-line Options
@@ -100,6 +107,16 @@ The script supports setting any of the environment variables via command-line ar
 38. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
 39. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
 
+Options specific to ezLocalai:
+
+1. `--with-ezlocalai`: Start AGiXT with ezLocalai integration.
+2. `--ezlocalai-uri`: Set the ezLocalai URI (default: `http://{local_ip}:8091`)
+3. `--default-model`: Set the default language model for ezLocalai (default: `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`)
+4. `--vision-model`: Set the vision model for ezLocalai (default: `deepseek-ai/deepseek-vl-1.3b-chat`)
+5. `--llm-max-tokens`: Set the maximum number of tokens for language models (default: `32768`)
+6. `--whisper-model`: Set the Whisper model for speech recognition (default: `base.en`)
+7. `--gpu-layers`: Set the number of GPU layers to use (automatically determined based on available VRAM but can be modified.) (default: `-1` for all)
+
 For a full list of options with their current values, run:
 
 ```bash
@@ -121,6 +138,15 @@ The script sets up various environment variables for AGiXT. Some key variables a
 - `THEME_NAME`: UI color scheme (`default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
 - `DATABASE_TYPE`: Type of database to use (`sqlite` or `postgres`)
 - `UVICORN_WORKERS`: Number of workers running on the application. Default is `10`.
+
+Environment variables specific to ezLocalai:
+
+- `EZLOCALAI_URI`: URI for ezLocalai. Default is `http://{local_ip}:8091`.
+- `DEFAULT_MODEL`: Default language model for ezLocalai. Default is `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`. This model takes ~9GB VRAM at 32k max tokens, lower the max tokens if you have less VRAM or use a different model.
+- `VISION_MODEL`: Vision model for ezLocalai. Default is `deepseek-ai/deepseek-vl-1.3b-chat`. This model takes ~3GB VRAM in addition to the language model.
+- `LLM_MAX_TOKENS`: Maximum number of tokens for language models. Default is `32768`. Lower this value if you have less VRAM.
+- `WHISPER_MODEL`: Whisper model for speech recognition. Default is `base.en` for a fast English model.
+- `GPU_LAYERS`: Number of GPU layers to use. Default is `-1` for all.
 
 For a complete list of environment variables and their default values, please refer to the `get_default_env_vars()` function in the script.
 
