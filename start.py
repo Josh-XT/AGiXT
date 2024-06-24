@@ -139,10 +139,27 @@ def check_prerequisites():
 
 
 def run_shell_command(command):
-    result = subprocess.run(
-        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    print(f"Executing: {command}")
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
     )
-    return result.stdout
+
+    while True:
+        output = process.stdout.readline()
+        if output == "" and process.poll() is not None:
+            break
+        if output:
+            print(output.strip())
+
+    return_code = process.poll()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
 
 
 def get_default_env_vars():
@@ -228,10 +245,20 @@ def set_environment(env_updates=None):
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
-        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up -d"
+        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
     else:
-        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up -d"
-    run_shell_command(command)
+        command = (
+            f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up"
+        )
+    print("Press Ctrl+C to stop the containers and exit.")
+    try:
+        run_shell_command(command)
+    except KeyboardInterrupt:
+        print("\nStopping AGiXT containers...")
+        run_shell_command(f"docker-compose -f {dockerfile} down")
+        print("AGiXT containers stopped.")
+    except subprocess.CalledProcessError as e:
+        print(f"An error occurred: {e}")
     return env_vars
 
 
@@ -388,5 +415,5 @@ if __name__ == "__main__":
             auto_update = "false"
         env_updates["AGIXT_AUTO_UPDATE"] = auto_update
     # Apply updates and restart server
-    print("Please wait while AGiXT is starting, this can take several minutes...")
+    print("Please wait while AGiXT is starting, this can take several...")
     set_environment(env_updates=env_updates)
