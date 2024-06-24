@@ -3,6 +3,7 @@ import sys
 import subprocess
 import random
 import argparse
+import platform
 
 try:
     from tzlocal import get_localzone
@@ -32,6 +33,103 @@ def is_docker_installed():
         return True
     except subprocess.CalledProcessError:
         return False
+
+
+def is_tool_installed(tool):
+    try:
+        subprocess.run(
+            [tool, "--version"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def install_docker():
+    system = platform.system().lower()
+    if system == "linux":
+        if is_tool_installed("apt-get"):
+            commands = [
+                "sudo apt-get update",
+                "sudo apt-get install -y docker.io",
+                "sudo systemctl start docker",
+                "sudo systemctl enable docker",
+                "sudo usermod -aG docker $USER",
+            ]
+        elif is_tool_installed("yum"):
+            commands = [
+                "sudo yum install -y docker",
+                "sudo systemctl start docker",
+                "sudo systemctl enable docker",
+                "sudo usermod -aG docker $USER",
+            ]
+        else:
+            print("Unsupported Linux distribution. Please install Docker manually.")
+            return False
+    elif system == "darwin":
+        print(
+            "Please install Docker Desktop for Mac from https://www.docker.com/products/docker-desktop"
+        )
+        return False
+    elif system == "windows":
+        print(
+            "Please install Docker Desktop for Windows from https://www.docker.com/products/docker-desktop"
+        )
+        return False
+    else:
+        print(f"Unsupported operating system: {system}")
+        return False
+
+    for command in commands:
+        subprocess.run(command, shell=True, check=True)
+    return True
+
+
+def install_docker_compose():
+    system = platform.system().lower()
+    if system == "linux":
+        commands = [
+            'sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
+            "sudo chmod +x /usr/local/bin/docker-compose",
+        ]
+        for command in commands:
+            subprocess.run(command, shell=True, check=True)
+        return True
+    elif system in ["darwin", "windows"]:
+        print(
+            "Docker Compose is included in Docker Desktop. Please ensure Docker Desktop is installed."
+        )
+        return False
+    else:
+        print(f"Unsupported operating system: {system}")
+        return False
+
+
+def check_prerequisites():
+    if not is_tool_installed("docker"):
+        print("Docker is not installed.")
+        install = prompt_user("Would you like to install Docker? (y/n)", "y")
+        if install.lower() != "y":
+            print("Docker is required to run AGiXT. Exiting.")
+            sys.exit(1)
+        if not install_docker():
+            print("Failed to install Docker. Please install it manually and try again.")
+            sys.exit(1)
+
+    if not is_tool_installed("docker-compose"):
+        print("Docker Compose is not installed.")
+        install = prompt_user("Would you like to install Docker Compose? (y/n)", "y")
+        if install.lower() != "y":
+            print("Docker Compose is required to run AGiXT. Exiting.")
+            sys.exit(1)
+        if not install_docker_compose():
+            print(
+                "Failed to install Docker Compose. Please install it manually and try again."
+            )
+            sys.exit(1)
 
 
 def run_shell_command(command):
@@ -128,9 +226,7 @@ def set_environment(env_updates=None):
 
 
 if __name__ == "__main__":
-    if not is_docker_installed():
-        print("Docker is not installed. Please install Docker and try again.")
-        exit(1)
+    check_prerequisites()
     parser = argparse.ArgumentParser(description="AGiXT Environment Setup")
     # Add arguments for each environment variable
     for key, value in get_default_env_vars().items():
