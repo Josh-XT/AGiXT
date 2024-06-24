@@ -132,6 +132,8 @@ class Prompts:
         return None
 
     def get_prompts(self, prompt_category="Default"):
+        if not prompt_category:
+            prompt_category = "Default"
         session = get_session()
         user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
         global_prompts = (
@@ -175,6 +177,8 @@ class Prompts:
         return prompt_args
 
     def delete_prompt(self, prompt_name, prompt_category="Default"):
+        if not prompt_category:
+            prompt_category = "Default"
         session = get_session()
         prompt = (
             session.query(Prompt)
@@ -191,6 +195,8 @@ class Prompts:
         session.close()
 
     def update_prompt(self, prompt_name, prompt, prompt_category="Default"):
+        if not prompt_category:
+            prompt_category = "Default"
         session = get_session()
         prompt_obj = (
             session.query(Prompt)
@@ -244,6 +250,8 @@ class Prompts:
         session.close()
 
     def rename_prompt(self, prompt_name, new_prompt_name, prompt_category="Default"):
+        if not prompt_category:
+            prompt_category = "Default"
         session = get_session()
         prompt = (
             session.query(Prompt)
