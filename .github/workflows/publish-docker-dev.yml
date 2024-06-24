@@ -51,7 +51,17 @@ jobs:
       notebook: tests/tests.ipynb
       image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
-      report-name: "agixt-tests"
+      report-name: "agixt-postgres-tests"
+      additional-python-dependencies: agixtsdk
+    needs: build-agixt
+  test-agixt-sqlite:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/tests.ipynb
+      image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
+      port: "7437"
+      database-type: "sqlite"
+      report-name: "agixt-sqlite-tests"
       additional-python-dependencies: agixtsdk
     needs: build-agixt
   test-completions:

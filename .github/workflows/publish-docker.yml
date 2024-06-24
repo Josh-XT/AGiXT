@@ -31,7 +31,18 @@ jobs:
       notebook: tests/tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
-      report-name: "agixt-tests"
+      database-type: "postgresql"
+      report-name: "agixt-postgres-tests"
+      additional-python-dependencies: agixtsdk
+    needs: build-agixt
+  test-agixt-sqlite:
+    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
+    with:
+      notebook: tests/tests.ipynb
+      image: ${{ needs.build-agixt.outputs.primary-image }}
+      port: "7437"
+      database-type: "sqlite"
+      report-name: "agixt-sqlite-tests"
       additional-python-dependencies: agixtsdk
     needs: build-agixt
   test-completions:
