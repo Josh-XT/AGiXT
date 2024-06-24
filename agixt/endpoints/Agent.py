@@ -159,6 +159,16 @@ async def deleteagent(
 @app.get("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def getagents(user=Depends(verify_api_key)):
     agents = get_agents(user=user)
+    if getenv("EZLOCALAI_URI") != "http://localhost:8091/v1/":
+        agent_list = [agent["name"] for agent in agents]
+        if "AGiXT" not in agent_list:
+            add_agent(
+                agent_name="AGiXT",
+                provider_settings={},
+                commands={},
+                user=user,
+            )
+            agents = get_agents(user=user)
     return {"agents": agents}
 
 
