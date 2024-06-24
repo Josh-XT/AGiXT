@@ -403,6 +403,7 @@ class Websearch:
                             url=link, summarize_content=summarize_content
                         )
                     )
+                    tasks.append(task)
                     scraped_links.append(link)
         await asyncio.gather(*tasks)
         str_links = "\n".join(scraped_links)
