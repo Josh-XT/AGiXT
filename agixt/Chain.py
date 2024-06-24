@@ -185,7 +185,7 @@ class Chain:
             target_id = (
                 session.query(ChainDB)
                 .filter(
-                    ChainDB.name == prompt["chain_name"],
+                    ChainDB.name == prompt[argument_key],
                     ChainDB.user_id == self.user_id,
                 )
                 .first()
