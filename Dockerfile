@@ -1,4 +1,17 @@
-FROM seleniarm/node-chromium
+# Use Python 3.10
+ARG BASE_IMAGE="python:3.10-bullseye"
+FROM ${BASE_IMAGE} as python_base
+
+# Add seleniarm/node-chromium layer
+FROM seleniarm/node-chromium:latest as chromium_base
+
+# Combine layers
+FROM python_base
+
+# Copy Chromium and its dependencies from the chromium_base
+COPY --from=chromium_base /usr/bin/chromium /usr/bin/chromium
+COPY --from=chromium_base /usr/lib /usr/lib
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
@@ -10,10 +23,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install system packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update --fix-missing ; \
-    apt-get upgrade -y ; \
-    curl -sL https://deb.nodesource.com/setup_20.x | bash - ; \
-    apt-get install -y --fix-missing --no-install-recommends git build-essential gcc g++ sqlite3 libsqlite3-dev wget libgomp1 ffmpeg python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs libportaudio2 libasound-dev libreoffice unoconv poppler-utils && \
+    apt-get update --fix-missing && \
+    apt-get upgrade -y && \
+    curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --fix-missing --no-install-recommends \
+    git build-essential gcc g++ sqlite3 libsqlite3-dev wget libgomp1 ffmpeg \
+    python3 python3-pip python3-dev curl postgresql-client libnss3 libnspr4 \
+    libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 nodejs \
+    libportaudio2 libasound-dev libreoffice unoconv poppler-utils && \
     apt-get install -y gcc-10 g++-10 && \
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 10 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 10 && \
