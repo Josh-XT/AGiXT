@@ -228,11 +228,9 @@ def set_environment(env_updates=None):
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
-        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
+        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up -d"
     else:
-        command = (
-            f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up"
-        )
+        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up -d"
     run_shell_command(command)
     return env_vars
 
@@ -390,4 +388,5 @@ if __name__ == "__main__":
             auto_update = "false"
         env_updates["AGIXT_AUTO_UPDATE"] = auto_update
     # Apply updates and restart server
+    print("Please wait while AGiXT is starting, this can take several minutes...")
     set_environment(env_updates=env_updates)
