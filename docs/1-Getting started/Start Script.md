@@ -1,10 +1,12 @@
 # AGiXT Start Script
 
-This Python script automates the setup and configuration process for AGiXT, a powerful AI agent framework. It handles environment variable configuration, Docker installation checks, and deployment using Docker Compose.
+This Python script automates the setup and configuration process for AGiXT, a powerful AI agent framework. It handles environment variable configuration, Docker and Docker Compose installation checks, and deployment using Docker Compose.
 
 ## Features
 
-- Checks for Docker installation
+- Checks for Docker and Docker Compose installation
+- Attempts to install Docker and Docker Compose on Linux systems if missing
+- Provides installation instructions for Docker Desktop on macOS and Windows
 - Sets up environment variables with default values and user customization options
 - Supports both stable and development versions of AGiXT
 - Handles automatic updates (optional)
@@ -12,21 +14,32 @@ This Python script automates the setup and configuration process for AGiXT, a po
 
 ## Prerequisites
 
-- [Git](https://git-scm.com/downloads)
 - [Python 3.10.x](https://www.python.org/downloads/)
+
+The script will check for and attempt to install or guide you through the installation of:
+
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
 
 ## Installation
 
-1. Clone this repository or download the script.
-2. Install the required Python packages:
+1. Clone this repository or download the script:
 
-```bash
-pip install tzlocal python-dotenv
-git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT
-```
+    ```bash
+    git clone https://github.com/Josh-XT/AGiXT
+    cd AGiXT
+    ```
+
+2. Run the script:
+
+    ```bash
+    python start.py
+    ```
+
+The script will check for Docker and Docker Compose installation:
+
+- On Linux, it will attempt to install them if missing (requires sudo privileges).
+- On macOS and Windows, it will provide instructions to download and install Docker Desktop.
 
 ## Usage
 
@@ -112,7 +125,7 @@ For a complete list of environment variables and their default values, please re
 
 ## Docker Deployment
 
-After setting up the environment variables, the script will:
+After setting up the environment variables and ensuring Docker and Docker Compose are installed, the script will:
 
 1. Stop any running AGiXT Docker containers
 2. Pull the latest Docker images (if auto-update is enabled)
@@ -120,7 +133,9 @@ After setting up the environment variables, the script will:
 
 ## Troubleshooting
 
-- If you encounter any issues with Docker, ensure that Docker and Docker Compose are properly installed and running on your system.
+- If you encounter any issues with Docker installation:
+  - On Linux, ensure you have sudo privileges and that your system is up to date.
+  - On macOS and Windows, follow the instructions to install Docker Desktop manually if the script cannot install it automatically.
 - Check the Docker logs for any error messages if the containers fail to start.
 - Verify that all required ports are available and not in use by other services.
 
