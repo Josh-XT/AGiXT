@@ -12,6 +12,7 @@ from readers.github import GithubReader
 from readers.file import FileReader
 from readers.arxiv import ArxivReader
 from readers.youtube import YoutubeReader
+from datetime import datetime
 from Models import (
     AgentMemoryQuery,
     TextMemoryInput,
@@ -27,7 +28,13 @@ from Models import (
     UserInput,
     FeedbackInput,
 )
+import logging
+from Globals import getenv
 
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 app = APIRouter()
 
 
@@ -39,22 +46,18 @@ app = APIRouter()
 async def query_memories(
     agent_name: str,
     memory: AgentMemoryQuery,
-    collection_number=0,
+    collection_number="0",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
     memories = await Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=collection_number,
+        collection_number=str(collection_number),
         ApiClient=ApiClient,
         user=user,
     ).get_memories_data(
@@ -120,14 +123,10 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
-    try:
-        collection_number = int(data.collection_number)
-    except:
-        collection_number = 0
     memory = Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=collection_number,
+        collection_number=str(data.collection_number),
         ApiClient=ApiClient,
         user=user,
     )
@@ -150,12 +149,12 @@ async def learn_file(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
     # Strip any path information from the file name
+    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     file.file_name = os.path.basename(file.file_name)
-    base_path = os.path.join(os.getcwd(), "WORKSPACE")
-    file_path = os.path.normpath(os.path.join(base_path, file.file_name))
-    if not file_path.startswith(base_path):
+    file_path = os.path.normpath(os.path.join(agent.agent_workspace, file.file_name))
+    logging.info(f"File path: {file_path}")
+    if not file_path.startswith(agent.agent_workspace):
         raise Exception("Path given not allowed")
     try:
         file_content = base64.b64decode(file.file_content)
@@ -163,28 +162,17 @@ async def learn_file(
         file_content = file.file_content.encode("utf-8")
     with open(file_path, "wb") as f:
         f.write(file_content)
-    try:
-        agent_config = Agent(
-            agent_name=agent_name, user=user, ApiClient=ApiClient
-        ).get_agent_config()
-        await FileReader(
-            agent_name=agent_name,
-            agent_config=agent_config,
-            collection_number=file.collection_number,
-            ApiClient=ApiClient,
-            user=user,
-        ).write_file_to_memory(file_path=file_path)
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-        return ResponseMessage(message="Agent learned the content from the file.")
-    except Exception as e:
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logging.info(f"File {file.file_name} uploaded on {timestamp}.")
+    logging.info(f"URL of file: {agent.outputs}/{file.file_name}")
+    response = await agent.learn_from_file(
+        file_url=f"{agent.outputs}/{file.file_name}",
+        file_name=file.file_name,
+        user_input=f"File {file.file_name} uploaded on {timestamp}.",
+        collection_id=str(file.collection_number),
+        conversation_name=f"Agent Training on {datetime.now().strftime('%Y-%m-%d')} by {user}",
+    )
+    return ResponseMessage(message=response)
 
 
 @app.post(
@@ -202,7 +190,7 @@ async def learn_url(
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     url.url = url.url.replace(" ", "%20")
     response = await Websearch(
-        collection_number=url.collection_number,
+        collection_number=str(url.collection_number),
         agent=agent,
         user=user,
         ApiClient=ApiClient,
@@ -231,7 +219,7 @@ async def learn_github_repo(
     await GithubReader(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=git.collection_number,
+        collection_number=str(git.collection_number),
         use_agent_settings=git.use_agent_settings,
         ApiClient=ApiClient,
         user=user,
@@ -264,7 +252,7 @@ async def learn_arxiv(
     await ArxivReader(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=arxiv_input.collection_number,
+        collection_number=str(arxiv_input.collection_number),
         ApiClient=ApiClient,
     ).write_arxiv_articles_to_memory(
         query=arxiv_input.query,
@@ -292,7 +280,7 @@ async def learn_youtube(
     await YoutubeReader(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=youtube_input.collection_number,
+        collection_number=str(youtube_input.collection_number),
         ApiClient=ApiClient,
     ).write_youtube_captions_to_memory(video_id=youtube_input.video_id)
     return ResponseMessage(message="Agent learned the content from the YouTube video.")
@@ -313,7 +301,9 @@ async def agent_reader(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     agent_config = agent.AGENT_CONFIG
-    collection_number = data["collection_number"] if "collection_number" in data else 0
+    collection_number = (
+        str(data["collection_number"]) if "collection_number" in data else "0"
+    )
     if reader_name == "file":
         response = await FileReader(
             agent_name=agent_name,
@@ -377,7 +367,7 @@ async def agent_reader(
 
 @app.delete(
     "/api/agent/{agent_name}/memory",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
@@ -390,7 +380,7 @@ async def wipe_agent_memories(
     await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
-        collection_number=0,
+        collection_number="0",
         ApiClient=ApiClient,
         user=user,
     ).wipe_memory()
@@ -399,22 +389,18 @@ async def wipe_agent_memories(
 
 @app.delete(
     "/api/agent/{agent_name}/memory/{collection_number}",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def wipe_agent_memories(
     agent_name: str,
-    collection_number=0,
+    collection_number: str = "0",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await Memories(
         agent_name=agent_name,
@@ -433,16 +419,12 @@ async def wipe_agent_memories(
 )
 async def delete_agent_memory(
     agent_name: str,
-    collection_number=0,
+    collection_number: str = "0",
     memory_id="",
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
     ApiClient = get_api_client(authorization=authorization)
-    try:
-        collection_number = int(collection_number)
-    except:
-        collection_number = 0
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     await Memories(
         agent_name=agent_name,
@@ -459,7 +441,7 @@ async def delete_agent_memory(
 # Create dataset
 @app.post(
     "/api/agent/{agent_name}/memory/dataset",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
     summary="Create a dataset from the agent's memories",
 )
@@ -510,7 +492,7 @@ async def get_dpo_response(
 # Train model
 @app.post(
     "/api/agent/{agent_name}/memory/dataset/{dataset_name}/finetune",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
     summary="Fine tune a language model with the agent's memories as a synthetic dataset",
 )
@@ -545,7 +527,7 @@ async def fine_tune_model(
 # Delete memories from external source
 @app.delete(
     "/api/agent/{agent_name}/memory/external_source",
-    tags=["Memory", "Admin"],
+    tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def delete_memories_from_external_source(
@@ -561,7 +543,7 @@ async def delete_memories_from_external_source(
     await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
-        collection_number=external_source.collection_number,
+        collection_number=str(external_source.collection_number),
         ApiClient=ApiClient,
         user=user,
     ).delete_memories_from_external_source(
@@ -574,19 +556,22 @@ async def delete_memories_from_external_source(
 
 # Get unique external sources
 @app.get(
-    "/api/agent/{agent_name}/memory/external_sources",
+    "/api/agent/{agent_name}/memory/external_sources/{collection_number}",
     tags=["Memory"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_unique_external_sources(
-    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+    agent_name: str,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
 ) -> Dict[str, Any]:
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     external_sources = await Memories(
         agent_name=agent_name,
         agent_config=agent.AGENT_CONFIG,
-        collection_number=0,
+        collection_number=collection_number,
         ApiClient=ApiClient,
         user=user,
     ).get_external_data_sources()

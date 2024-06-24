@@ -153,7 +153,7 @@ class Memories:
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
-        collection_number: int = 0,
+        collection_number: str = "0",  # Is now actually a collection ID and a string to allow conversational memories.
         ApiClient=None,
         summarize_content: bool = False,
         user=DEFAULT_USER,
@@ -170,8 +170,9 @@ class Memories:
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
         self.user = user
         self.collection_number = collection_number
-        if collection_number > 0:
-            self.collection_name = f"{self.collection_name}_{collection_number}"
+        # Check if collection_number is a number, it might be a string
+        if collection_number != "0":
+            self.collection_name = snake(f"{self.collection_name}_{collection_number}")
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
@@ -245,14 +246,12 @@ class Memories:
     async def import_collections_from_json(self, json_data: List[dict]):
         for data in json_data:
             for key, value in data.items():
-                try:
-                    collection_number = int(key)
-                except:
-                    collection_number = 0
-                self.collection_number = collection_number
-                self.collection_name = snake(self.agent_name)
-                if collection_number > 0:
-                    self.collection_name = f"{self.collection_name}_{collection_number}"
+                self.collection_number = key if key else "0"
+                self.collection_name = snake(f"{self.user}_{self.agent_name}")
+                if str(self.collection_number) != "0":
+                    self.collection_name = (
+                        f"{self.collection_name}_{self.collection_number}"
+                    )
                 for val in value[self.collection_name]:
                     try:
                         await self.write_text_to_memory(
@@ -266,9 +265,8 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        if int(self.collection_number) > 0:
-            collection_name = snake(self.agent_name)
-            collection_name = f"{collection_name}_{self.collection_number}"
+        if str(self.collection_number) != "0":
+            collection_name = snake(f"{self.user}_{self.agent_name}")
         else:
             collection_name = self.collection_name
         return [
@@ -279,7 +277,7 @@ class Memories:
 
     async def get_collection(self):
         try:
-            return self.chroma_client.get_collection(
+            return self.chroma_client.get_or_create_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
         except:
@@ -290,11 +288,8 @@ class Memories:
                     get_or_create=True,
                 )
             except:
-                # Collection already exists
-                pass
-            return self.chroma_client.get_collection(
-                name=self.collection_name, embedding_function=self.embedder
-            )
+                logging.warning(f"Error getting collection: {self.collection_name}")
+                return None
 
     async def delete_memory(self, key: str):
         collection = await self.get_collection()
@@ -419,9 +414,11 @@ class Memories:
     ) -> List[str]:
         global DEFAULT_USER
         default_collection_name = self.collection_name
+        default_results = []
         if self.user != DEFAULT_USER:
+            # Get global memories for the agent first
             self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
-            if self.collection_number > 0:
+            if str(self.collection_number) != "0":
                 self.collection_name = (
                     f"{self.collection_name}_{self.collection_number}"
                 )
@@ -439,6 +436,10 @@ class Memories:
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
+        if isinstance(user_results, str):
+            user_results = [user_results]
+        if isinstance(default_results, str):
+            default_results = [default_results]
         results = user_results + default_results
         response = []
         if results:
@@ -453,8 +454,13 @@ class Memories:
                     if "external_source_name" in result
                     else None
                 )
+                timestamp = (
+                    result["timestamp"]
+                    if "timestamp" in result
+                    else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
                 if external_source:
-                    metadata = f"Sourced from {external_source}:\n{metadata}"
+                    metadata = f"Sourced from {external_source}:\nSourced on: {timestamp}\n{metadata}"
                 if metadata not in response and metadata != "":
                     response.append(metadata)
         return response

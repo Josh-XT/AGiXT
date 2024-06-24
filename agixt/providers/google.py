@@ -23,6 +23,7 @@ except ImportError:
     import gtts as ts
 
 from pydub import AudioSegment
+import uuid
 
 
 class GoogleProvider:
@@ -86,12 +87,11 @@ class GoogleProvider:
 
     async def text_to_speech(self, text: str):
         tts = ts.gTTS(text)
-        mp3_path = "speech.mp3"
+        mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
         tts.save(mp3_path)
-        wav_path = "output_speech.wav"
-        AudioSegment.from_mp3(mp3_path).set_frame_rate(16000).export(
-            wav_path, format="wav"
-        )
+        wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
+        audio = AudioSegment.from_mp3(mp3_path)
+        audio.export(wav_path, format="wav")
         os.remove(mp3_path)
         with open(wav_path, "rb") as f:
             audio_content = f.read()

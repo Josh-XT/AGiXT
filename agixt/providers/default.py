@@ -8,7 +8,7 @@ import numpy as np
 
 # Default provider uses:
 # llm: gpt4free
-# tts: gTTS
+# tts: Streamlabs TTS
 # transcription: faster-whisper
 # translation: faster-whisper
 

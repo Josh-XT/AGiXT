@@ -1,0 +1,23 @@
+## Conversation History
+ {conversation_history} 
+
+**Existing conversation names to NOT use:**
+ {conversation_list} 
+
+Act as a JSON converter that converts any text into the desired JSON format based on the schema provided. Respond only with JSON in a properly formatted markdown code block, no explanations. Make your best assumptions based on data to try to fill in information to match the schema provided.
+**DO NOT ADD FIELDS TO THE MODEL OR CHANGE TYPES OF FIELDS, FOLLOW THE PYDANTIC SCHEMA!**
+**Reformat the following information into a structured format according to the schema provided:**
+
+Based on the conversation history, suggest a name for the conversation in the `suggested_conversation_name` as a string. 
+
+Rules to follow:
+- Do not use the same name as an existing conversation.
+- Use spaces in the name, not underscores.
+- Use a unique name that is meaningfully based on the conversation, not something generic.
+
+{user_input}
+
+## Pydantic Schema:
+suggested_conversation_name: <class 'str'>
+
+JSON Structured Output:

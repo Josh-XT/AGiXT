@@ -16,6 +16,9 @@ from DB import (
 from Providers import Providers
 from Extensions import Extensions
 from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
+from MagicalAuth import get_user_id, is_agixt_admin
+from agixtsdk import AGiXTSDK
+from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 import logging
 import json
@@ -29,9 +32,9 @@ logging.basicConfig(
 
 
 def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
-    session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
+    session = get_session()
     # Check if agent already exists
     agent = (
         session.query(AgentModel)
@@ -39,6 +42,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .first()
     )
     if agent:
+        session.close()
         return {"message": f"Agent {agent_name} already exists."}
     agent = (
         session.query(AgentModel)
@@ -46,6 +50,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         .first()
     )
     if agent:
+        session.close()
         return {"message": f"Agent {agent_name} already exists."}
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -80,7 +85,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
                 )
                 session.add(agent_command)
     session.commit()
-
+    session.close()
     return {"message": f"Agent {agent_name} created."}
 
 
@@ -94,6 +99,7 @@ def delete_agent(agent_name, user=DEFAULT_USER):
         .first()
     )
     if not agent:
+        session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
 
     # Delete associated chain steps
@@ -125,7 +131,7 @@ def delete_agent(agent_name, user=DEFAULT_USER):
     # Delete the agent
     session.delete(agent)
     session.commit()
-
+    session.close()
     return {"message": f"Agent {agent_name} deleted."}, 200
 
 
@@ -139,11 +145,11 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER):
         .first()
     )
     if not agent:
+        session.close()
         return {"message": f"Agent {agent_name} not found."}, 404
-
     agent.name = new_name
     session.commit()
-
+    session.close()
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
@@ -162,21 +168,16 @@ def get_agents(user=DEFAULT_USER):
         if agent.name in [a["name"] for a in output]:
             continue
         output.append({"name": agent.name, "id": agent.id, "status": False})
+    session.close()
     return output
 
 
 class Agent:
-    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient=None):
+    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient: AGiXTSDK = None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
-        self.session = get_session()
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
-        try:
-            user_data = self.session.query(User).filter(User.email == self.user).first()
-            self.user_id = user_data.id
-        except Exception as e:
-            logging.error(f"User {self.user} not found.")
-            raise
+        self.user_id = get_user_id(user=self.user)
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -191,6 +192,25 @@ class Agent:
         self.PROVIDER = Providers(
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
+        vision_provider = (
+            self.AGENT_CONFIG["settings"]["vision_provider"]
+            if "vision_provider" in self.AGENT_CONFIG["settings"]
+            else "None"
+        )
+        if (
+            vision_provider != "None"
+            and vision_provider != None
+            and vision_provider != ""
+        ):
+            try:
+                self.VISION_PROVIDER = Providers(
+                    name=vision_provider, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
+                )
+            except Exception as e:
+                logging.error(f"Error loading vision provider: {str(e)}")
+                self.VISION_PROVIDER = None
+        else:
+            self.VISION_PROVIDER = None
         tts_provider = (
             self.AGENT_CONFIG["settings"]["tts_provider"]
             if "tts_provider" in self.AGENT_CONFIG["settings"]
@@ -267,8 +287,9 @@ class Agent:
                 setattr(self, key, self.AGENT_CONFIG[key])
 
     def get_agent_config(self):
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
                 AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
             )
@@ -276,26 +297,23 @@ class Agent:
         )
         if not agent:
             # Check if it is a global agent
-            global_user = (
-                self.session.query(User).filter(User.email == DEFAULT_USER).first()
-            )
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
             agent = (
-                self.session.query(AgentModel)
+                session.query(AgentModel)
                 .filter(
                     AgentModel.name == self.agent_name,
                     AgentModel.user_id == global_user.id,
                 )
                 .first()
             )
-
         config = {"settings": {}, "commands": {}}
         if agent:
-            all_commands = self.session.query(Command).all()
+            all_commands = session.query(Command).all()
             agent_settings = (
-                self.session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+                session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
             )
             agent_commands = (
-                self.session.query(AgentCommand)
+                session.query(AgentCommand)
                 .join(Command)
                 .filter(
                     AgentCommand.agent_id == agent.id,
@@ -312,13 +330,26 @@ class Agent:
                 )
             for setting in agent_settings:
                 config["settings"][setting.name] = setting.value
+            session.commit()
+            session.close()
             return config
+        session.close()
         return {"settings": DEFAULT_SETTINGS, "commands": {}}
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
+            prompt=prompt, tokens=tokens, images=images
+        )
+        return answer.replace("\_", "_")
+
+    async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
+        if not prompt:
+            return ""
+        if not self.VISION_PROVIDER:
+            return ""
+        answer = await self.VISION_PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
         return answer.replace("\_", "_")
@@ -342,11 +373,7 @@ class Agent:
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return ""
-        working_dir = (
-            self.AGENT_CONFIG["WORKING_DIRECTORY"]
-            if "WORKING_DIRECTORY" in self.AGENT_CONFIG
-            else os.path.join(os.getcwd(), "WORKSPACE")
-        )
+        working_dir = self.working_directory
         verbose_commands = f"### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
         verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
         for command in self.available_commands:
@@ -362,24 +389,68 @@ class Agent:
         return verbose_commands
 
     def update_agent_config(self, new_config, config_key):
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
                 AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
             )
             .first()
         )
         if not agent:
-            logging.error(f"Agent '{self.agent_name}' not found in the database.")
-            return
+            if self.user == DEFAULT_USER:
+                return f"Agent {self.agent_name} not found."
+            # Check if it is a global agent.
+            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+            global_agent = (
+                session.query(AgentModel)
+                .filter(
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == global_user.id,
+                )
+                .first()
+            )
+            # if it is a global agent, copy it to the user's agents.
+            if global_agent:
+                agent = AgentModel(
+                    name=self.agent_name,
+                    user_id=self.user_id,
+                    provider_id=global_agent.provider_id,
+                )
+                session.add(agent)
+                agent_settings = (
+                    session.query(AgentSettingModel)
+                    .filter_by(agent_id=global_agent.id)
+                    .all()
+                )
+                for setting in agent_settings:
+                    agent_setting = AgentSettingModel(
+                        agent_id=agent.id,
+                        name=setting.name,
+                        value=setting.value,
+                    )
+                    session.add(agent_setting)
+                agent_commands = (
+                    session.query(AgentCommand)
+                    .filter_by(agent_id=global_agent.id)
+                    .all()
+                )
+                for agent_command in agent_commands:
+                    agent_command = AgentCommand(
+                        agent_id=agent.id,
+                        command_id=agent_command.command_id,
+                        state=agent_command.state,
+                    )
+                    session.add(agent_command)
+                session.commit()
+                session.close()
+                return f"Agent {self.agent_name} configuration updated successfully."
         if config_key == "commands":
             for command_name, enabled in new_config.items():
-                command = (
-                    self.session.query(Command).filter_by(name=command_name).first()
-                )
+                command = session.query(Command).filter_by(name=command_name).first()
                 if command:
                     agent_command = (
-                        self.session.query(AgentCommand)
+                        session.query(AgentCommand)
                         .filter_by(agent_id=agent.id, command_id=command.id)
                         .first()
                     )
@@ -389,12 +460,12 @@ class Agent:
                         agent_command = AgentCommand(
                             agent_id=agent.id, command_id=command.id, state=enabled
                         )
-                        self.session.add(agent_command)
+                        session.add(agent_command)
         else:
             for setting_name, setting_value in new_config.items():
                 logging.info(f"Setting {setting_name} to {setting_value}.")
                 agent_setting = (
-                    self.session.query(AgentSettingModel)
+                    session.query(AgentSettingModel)
                     .filter_by(agent_id=agent.id, name=setting_name)
                     .first()
                 )
@@ -404,44 +475,50 @@ class Agent:
                     agent_setting = AgentSettingModel(
                         agent_id=agent.id, name=setting_name, value=str(setting_value)
                     )
-                    self.session.add(agent_setting)
+                    session.add(agent_setting)
         try:
-            self.session.commit()
+            session.commit()
+            session.close()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
         except Exception as e:
-            self.session.rollback()
+            session.rollback()
+            session.close()
             logging.error(f"Error updating agent configuration: {str(e)}")
-            raise
-
+            raise HTTPException(
+                status_code=500, detail=f"Error updating agent configuration: {str(e)}"
+            )
         return f"Agent {self.agent_name} configuration updated."
 
-    def get_browsed_links(self):
+    def get_browsed_links(self, conversation_id=None):
         """
         Get the list of URLs that have been browsed by the agent.
 
         Returns:
             list: The list of URLs that have been browsed by the agent.
         """
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
                 AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
             )
             .first()
         )
         if not agent:
+            session.close()
             return []
         browsed_links = (
-            self.session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id)
+            session.query(AgentBrowsedLink)
+            .filter_by(agent_id=agent.id, conversation_id=conversation_id)
             .order_by(AgentBrowsedLink.id.desc())
             .all()
         )
+        session.close()
         if not browsed_links:
             return []
         return browsed_links
 
-    def browsed_recently(self, url) -> bool:
+    def browsed_recently(self, url, conversation_id=None) -> bool:
         """
         Check if the given URL has been browsed by the agent within the last 24 hours.
 
@@ -451,7 +528,7 @@ class Agent:
         Returns:
             bool: True if the URL has been browsed within the last 24 hours, False otherwise.
         """
-        browsed_links = self.get_browsed_links()
+        browsed_links = self.get_browsed_links(conversation_id=conversation_id)
         if not browsed_links:
             return False
         for link in browsed_links:
@@ -460,7 +537,7 @@ class Agent:
                     return True
         return False
 
-    def add_browsed_link(self, url):
+    def add_browsed_link(self, url, conversation_id=None):
         """
         Add a URL to the list of browsed links for the agent.
 
@@ -470,8 +547,9 @@ class Agent:
         Returns:
             str: The response message.
         """
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
                 AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
             )
@@ -479,12 +557,15 @@ class Agent:
         )
         if not agent:
             return f"Agent {self.agent_name} not found."
-        browsed_link = AgentBrowsedLink(agent_id=agent.id, url=url)
-        self.session.add(browsed_link)
-        self.session.commit()
+        browsed_link = AgentBrowsedLink(
+            agent_id=agent.id, url=url, conversation_id=conversation_id
+        )
+        session.add(browsed_link)
+        session.commit()
+        session.close()
         return f"Link {url} added to browsed links."
 
-    def delete_browsed_link(self, url):
+    def delete_browsed_link(self, url, conversation_id=None):
         """
         Delete a URL from the list of browsed links for the agent.
 
@@ -494,34 +575,49 @@ class Agent:
         Returns:
             str: The response message.
         """
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
-                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+                AgentModel.name == self.agent_name,
+                AgentModel.user_id == self.user_id,
             )
             .first()
         )
         if not agent:
             return f"Agent {self.agent_name} not found."
         browsed_link = (
-            self.session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id, url=url)
+            session.query(AgentBrowsedLink)
+            .filter_by(agent_id=agent.id, url=url, conversation_id=conversation_id)
             .first()
         )
         if not browsed_link:
             return f"Link {url} not found."
-        self.session.delete(browsed_link)
-        self.session.commit()
+        session.delete(browsed_link)
+        session.commit()
+        session.close()
         return f"Link {url} deleted from browsed links."
 
     def get_agent_id(self):
+        session = get_session()
         agent = (
-            self.session.query(AgentModel)
+            session.query(AgentModel)
             .filter(
                 AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
             )
             .first()
         )
         if not agent:
-            return None
+            agent = (
+                session.query(AgentModel)
+                .filter(
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user.has(email=DEFAULT_USER),
+                )
+                .first()
+            )
+            session.close()
+            if not agent:
+                return None
+        session.close()
         return agent.id

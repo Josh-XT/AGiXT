@@ -6,6 +6,7 @@ import pdfplumber
 import zipfile
 import shutil
 import logging
+from datetime import datetime
 
 
 class FileReader(Memories):
@@ -13,7 +14,7 @@ class FileReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
-        collection_number: int = 0,
+        collection_number: str = "0",
         ApiClient=None,
         user=None,
         **kwargs,
@@ -21,7 +22,7 @@ class FileReader(Memories):
         super().__init__(
             agent_name=agent_name,
             agent_config=agent_config,
-            collection_number=collection_number,
+            collection_number=str(collection_number),
             ApiClient=ApiClient,
             user=user,
         )
@@ -44,6 +45,12 @@ class FileReader(Memories):
         else:
             file_path = os.path.normpath(file_path)
         filename = os.path.basename(file_path)
+        """
+        if file_path.endswith((".ppt", ".pptx")):
+            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
+            convert(file_path, pdf_file_path)
+            file_path = pdf_file_path
+        """
         content = ""
         try:
             # If file extension is pdf, convert to text
@@ -86,11 +93,11 @@ class FileReader(Memories):
                     with open(file_path, "r") as f:
                         content = f.read()
             if content != "":
-                stored_content = f"From file: {filename}\n{content}"
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 await self.write_text_to_memory(
                     user_input=file_path,
-                    text=stored_content,
-                    external_source=f"file called {filename}",
+                    text=f"Content from file uploaded at {timestamp} named `{filename}`:\n{content}",
+                    external_source=f"file {filename}",
                 )
             return True
         except:

@@ -6,11 +6,12 @@ import time
 import logging
 import base64
 import uuid
+import asyncio
 from datetime import datetime
 from readers.file import FileReader
-from readers.github import GithubReader
 from Websearch import Websearch
 from Extensions import Extensions
+from Memories import extract_keywords
 from ApiClient import (
     Agent,
     Prompts,
@@ -35,12 +36,13 @@ class Interactions:
     ):
         self.ApiClient = ApiClient
         self.user = user
+        self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                collection_number=1,
+                collection_number="1",
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -48,31 +50,32 @@ class Interactions:
             self.agent_memory = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=0,
+                collection_number="0",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.positive_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=2,
+                collection_number="2",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
             self.negative_feedback_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=3,
+                collection_number="3",
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.github_memories = GithubReader(
+            self.github_memories = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=7,
+                collection_number="7",
                 user=self.user,
                 ApiClient=self.ApiClient,
             )
+            self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
             self.agent = None
@@ -82,6 +85,7 @@ class Interactions:
             self.positive_feedback_memories = None
             self.negative_feedback_memories = None
             self.github_memories = None
+            self.outputs = f"{self.uri}/outputs"
         self.response = ""
         self.failures = 0
         self.chain = Chain(user=user)
@@ -110,6 +114,7 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
+        searching: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -129,10 +134,24 @@ class Interactions:
             )
             prompt = prompt_name
             prompt_args = []
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = "-"
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation = c.get_conversation()
         if top_results == 0:
             context = []
         else:
             if user_input:
+                if self.websearch == None or self.websearch.collection_number == "1":
+                    conversation_id = c.get_conversation_id()
+                    self.websearch = Websearch(
+                        collection_number=str(conversation_id),
+                        agent=self.agent,
+                        user=self.user,
+                        ApiClient=self.ApiClient,
+                    )
                 min_relevance_score = 0.3
                 if "min_relevance_score" in kwargs:
                     try:
@@ -175,13 +194,12 @@ class Interactions:
                         joined_feedback = "\n".join(negative_feedback)
                         context.append(f"Negative Feedback:\n{joined_feedback}\n")
                 if "inject_memories_from_collection_number" in kwargs:
-                    if int(kwargs["inject_memories_from_collection_number"]) > 5:
+                    collection_id = kwargs["inject_memories_from_collection_number"]
+                    if collection_id not in ["0", "1", "2", "3", "4", "5", "6", "7"]:
                         context += await FileReader(
                             agent_name=self.agent_name,
                             agent_config=self.agent.AGENT_CONFIG,
-                            collection_number=int(
-                                kwargs["inject_memories_from_collection_number"]
-                            ),
+                            collection_number=collection_id,
                             ApiClient=self.ApiClient,
                             user=self.user,
                         ).get_memories(
@@ -189,6 +207,42 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
+                conversation_memories = FileReader(
+                    agent_name=self.agent_name,
+                    agent_config=self.agent.AGENT_CONFIG,
+                    collection_number=c.get_conversation_id(),
+                    ApiClient=self.ApiClient,
+                    user=self.user,
+                )
+                conversation_context = await conversation_memories.get_memories(
+                    user_input=user_input,
+                    limit=top_results,
+                    min_relevance_score=min_relevance_score,
+                )
+                if len(conversation_context) == int(top_results):
+                    conversational_context_tokens = get_tokens(
+                        " ".join(conversation_context)
+                    )
+                    if int(conversational_context_tokens) < 4000:
+                        conversational_results = top_results * 2
+                        conversation_context = await conversation_memories.get_memories(
+                            user_input=user_input,
+                            limit=conversational_results,
+                            min_relevance_score=min_relevance_score,
+                        )
+                        conversational_context_tokens = get_tokens(
+                            " ".join(conversation_context)
+                        )
+                        if int(conversational_context_tokens) < 4000:
+                            conversational_results = conversational_results * 2
+                            conversation_context = (
+                                await conversation_memories.get_memories(
+                                    user_input=user_input,
+                                    limit=conversational_results,
+                                    min_relevance_score=min_relevance_score,
+                                )
+                            )
+                context += conversation_context
             else:
                 context = []
         if "context" in kwargs:
@@ -199,7 +253,7 @@ class Interactions:
             )
         if context != [] and context != "":
             context = "\n".join(context)
-            context = f"The user's input causes you remember these things:\n{context}\n"
+            context = f"The user's input causes you remember these things:\n{context}\n\nIf referencing a file, paper, or website, cite sources.\n"
         else:
             context = ""
         working_directory = self.agent.working_directory
@@ -209,57 +263,56 @@ class Interactions:
                 helper_agent_name = self.agent.AGENT_CONFIG["settings"][
                     "helper_agent_name"
                 ]
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = f"{str(datetime.now())} Conversation"
-        c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation = c.get_conversation()
         if "conversation_results" in kwargs:
-            conversation_results = int(kwargs["conversation_results"])
+            try:
+                conversation_results = int(kwargs["conversation_results"])
+            except:
+                conversation_results = 5
         else:
-            conversation_results = int(top_results) if top_results > 0 else 5
+            try:
+                conversation_results = int(top_results) if top_results > 0 else 5
+            except:
+                conversation_results = 5
         conversation_history = ""
         if "interactions" in conversation:
             if conversation["interactions"] != []:
-                total_results = len(conversation["interactions"])
-                # Get the last conversation_results interactions from the conversation
-                new_conversation_history = []
-                # Strip out any interactions where the message starts with [ACTIVITY]
                 activity_history = [
                     interaction
                     for interaction in conversation["interactions"]
-                    if interaction["message"].startswith("[ACTIVITY]")
+                    if str(interaction["message"]).startswith("[ACTIVITY]")
                 ]
+                activities = []
+                for activity in activity_history:
+                    if "audio response" not in activity["message"]:
+                        activities.append(activity)
                 if len(activity_history) > 5:
                     activity_history = activity_history[-5:]
-                conversation["interactions"] = [
-                    interaction
-                    for interaction in conversation["interactions"]
-                    if not interaction["message"].startswith("[ACTIVITY]")
-                ]
-                if total_results > conversation_results:
-                    new_conversation_history = conversation["interactions"][
-                        total_results - conversation_results : total_results
-                    ]
-                else:
-                    new_conversation_history = conversation["interactions"]
-
-                for interaction in new_conversation_history:
-                    timestamp = (
-                        interaction["timestamp"] if "timestamp" in interaction else ""
-                    )
-                    role = interaction["role"] if "role" in interaction else ""
-                    message = interaction["message"] if "message" in interaction else ""
-                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
-                    # Strip code blocks out of the message
-                    message = regex.sub(r"(```.*?```)", "", message)
-                    conversation_history += f"{timestamp} {role}: {message} \n "
+                interactions = []
+                for interaction in conversation["interactions"]:
+                    if (
+                        not str(interaction["message"]).startswith("<audio controls>")
+                        and not str(interaction["message"]).startswith("[ACTIVITY]")
+                        and not str(interaction["message"]).startswith("[SUBACTIVITY]")
+                    ):
+                        timestamp = (
+                            interaction["timestamp"]
+                            if "timestamp" in interaction
+                            else ""
+                        )
+                        role = interaction["role"] if "role" in interaction else ""
+                        message = (
+                            interaction["message"] if "message" in interaction else ""
+                        )
+                        message = regex.sub(r"(```.*?```)", "", message)
+                        interactions.append(f"{timestamp} {role}: {message} \n ")
+                if len(interactions) > 0:
+                    interactions = interactions[-conversation_results:]
+                    conversation_history = "\n".join(interactions)
                 conversation_history += "\nThe assistant's recent activities:\n"
                 for activity in activity_history:
                     timestamp = activity["timestamp"]
                     role = activity["role"]
-                    message = activity["message"]
+                    message = str(activity["message"]).replace("[ACTIVITY]", "")
                     conversation_history += f"{timestamp} {role}: {message} \n "
         persona = ""
         if "persona" in prompt_args:
@@ -389,6 +442,7 @@ class Interactions:
         browse_links: bool = False,
         persist_context_in_history: bool = False,
         images: list = [],
+        searching: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
         **kwargs,
@@ -424,6 +478,14 @@ class Interactions:
             )
             del kwargs["browse_links"]
         websearch = False
+        websearch_depth = 3
+        conversation_results = 5
+        if "conversation_results" in kwargs:
+            try:
+                conversation_results = int(kwargs["conversation_results"])
+            except:
+                conversation_results = 5
+            del kwargs["conversation_results"]
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
             websearch = (
                 str(self.agent.AGENT_CONFIG["settings"]["websearch"]).lower() == "true"
@@ -440,18 +502,12 @@ class Interactions:
         if "websearch" in kwargs:
             websearch = True if str(kwargs["websearch"]).lower() == "true" else False
             del kwargs["websearch"]
-        websearch_depth = 3
         if "websearch_depth" in kwargs:
             try:
                 websearch_depth = int(kwargs["websearch_depth"])
             except:
                 websearch_depth = 3
             del kwargs["websearch_depth"]
-        if "conversation_name" in kwargs:
-            conversation_name = kwargs["conversation_name"]
-        if conversation_name == "":
-            conversation_name = datetime.now().strftime("%Y-%m-%d")
-        c = Conversations(conversation_name=conversation_name, user=self.user)
         if "WEBSEARCH_TIMEOUT" in kwargs:
             try:
                 websearch_timeout = int(kwargs["WEBSEARCH_TIMEOUT"])
@@ -459,28 +515,75 @@ class Interactions:
                 websearch_timeout = 0
         else:
             websearch_timeout = 0
-        if browse_links != False and websearch == False:
-            await self.websearch.scrape_websites(
-                user_input=user_input,
-                search_depth=websearch_depth,
-                summarize_content=False,
-                conversation_name=conversation_name,
+        if "conversation_name" in kwargs:
+            conversation_name = kwargs["conversation_name"]
+        if conversation_name == "":
+            conversation_name = "-"
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        async_tasks = []
+        vision_response = ""
+        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
+            if (
+                images != []
+                and self.agent.VISION_PROVIDER != "None"
+                and self.agent.VISION_PROVIDER != ""
+                and self.agent.VISION_PROVIDER != None
+            ):
+                logging.info(f"Getting vision response for images: {images}")
+                message = "Viewing images." if len(images) > 1 else "Viewing image."
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] {message}",
+                )
+                try:
+                    vision_response = await self.agent.vision_inference(
+                        prompt=user_input, images=images
+                    )
+                    logging.info(f"Vision Response: {vision_response}")
+                except Exception as e:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY][ERROR] Unable to view image.",
+                    )
+                    logging.error(f"Error getting vision response: {e}")
+        if self.websearch == None or self.websearch.collection_number == "1":
+            conversation_id = c.get_conversation_id()
+            self.websearch = Websearch(
+                collection_number=str(conversation_id),
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
             )
-        if websearch:
-            if browse_links != False:
-                await self.websearch.scrape_websites(
+        if browse_links != False and websearch == False and searching == False:
+            task = asyncio.create_task(
+                self.websearch.scrape_websites(
                     user_input=user_input,
                     search_depth=websearch_depth,
                     summarize_content=False,
                     conversation_name=conversation_name,
                 )
+            )
+            async_tasks.append(task)
+        # Any other research prompt and action can be added here on bool toggle such as `websearch` and `browse_links`
+        # Add them as asyncio tasks to the async_tasks list
+        if websearch and searching == False:
+            if browse_links != False and searching == False:
+                task = asyncio.create_task(
+                    self.websearch.scrape_websites(
+                        user_input=user_input,
+                        search_depth=websearch_depth,
+                        summarize_content=False,
+                        conversation_name=conversation_name,
+                    )
+                )
+                async_tasks.append(task)
             if user_input == "":
                 if "primary_objective" in kwargs and "task" in kwargs:
                     user_input = f"Primary Objective: {kwargs['primary_objective']}\n\nTask: {kwargs['task']}"
                 else:
                     user_input = ""
             if user_input != "":
-                c.log_interaction(
+                searching_activity_id = c.log_interaction(
                     role=self.agent_name,
                     message=f"[ACTIVITY] Searching for information.",
                 )
@@ -489,81 +592,79 @@ class Interactions:
                     prompt_category="Default",
                     user_input=user_input,
                     context_results=context_results,
+                    conversation_results=4,
                     conversation_name=conversation_name,
                     log_user_input=False,
                     log_output=False,
                     browse_links=False,
                     websearch=False,
                     tts=False,
+                    searching=True,
                 )
                 to_search = re.search(
                     r"\byes\b", str(to_search_or_not_to_search).lower()
                 )
                 if to_search:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] Searching the web.",
-                    )
-                    search_string = await self.run(
+                    search_strings = await self.run(
                         prompt_name="WebSearch",
                         prompt_category="Default",
                         user_input=user_input,
                         context_results=context_results,
+                        conversation_results=10,
                         conversation_name=conversation_name,
                         log_user_input=False,
                         log_output=False,
                         browse_links=False,
                         websearch=False,
                         tts=False,
+                        searching=True,
                     )
-                    await self.websearch.websearch_agent(
-                        user_input=user_input,
-                        search_string=search_string,
-                        websearch_depth=websearch_depth,
-                        websearch_timeout=websearch_timeout,
-                        conversation_name=conversation_name,
-                    )
-                else:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] Decided searching the web is not necessary.",
-                    )
-        vision_response = ""
-        if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
-            vision_provider = self.agent.AGENT_CONFIG["settings"]["vision_provider"]
-            if (
-                images != []
-                and vision_provider != "None"
-                and vision_provider != ""
-                and vision_provider != None
-            ):
-                logging.info(f"Getting vision response for images: {images}")
-                message = (
-                    "Looking at images." if len(images) > 1 else "Looking at image."
-                )
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] {message}",
-                )
-                try:
-                    vision_response = await self.agent.inference(
-                        prompt=user_input, images=images
-                    )
-                    logging.info(f"Vision Response: {vision_response}")
-                except Exception as e:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] Unable to view image.",
-                    )
-                    logging.error(f"Error getting vision response: {e}")
-                    logging.warning("Failed to get vision response.")
+                    if "```json" in search_strings:
+                        search_strings = (
+                            search_strings.split("```json")[1].split("```")[0].strip()
+                        )
+                    elif "```" in search_strings:
+                        search_strings = search_strings.split("```")[1].strip()
+                    try:
+                        search_suggestions = json.loads(search_strings)
+                    except:
+                        keywords = extract_keywords(text=search_string, limit=5)
+                        if keywords:
+                            search_string = " ".join(keywords)
+                            # add month and year to the end of the search string
+                            search_string += f" {datetime.now().strftime('%B %Y')}"
+                        search_suggestions = [
+                            {"search_string_suggestion_1": search_string}
+                        ]
+                    search_strings = []
+                    if search_suggestions != []:
+                        for i in range(1, int(websearch_depth) + 1):
+                            if f"search_string_suggestion_{i}" in search_suggestions:
+                                search_string = search_suggestions[
+                                    f"search_string_suggestion_{i}"
+                                ]
+                                search_strings.append(search_string)
+                                search_task = asyncio.create_task(
+                                    self.websearch.websearch_agent(
+                                        user_input=user_input,
+                                        search_string=search_string,
+                                        websearch_depth=websearch_depth,
+                                        websearch_timeout=websearch_timeout,
+                                        conversation_name=conversation_name,
+                                        activity_id=searching_activity_id,
+                                    )
+                                )
+                                async_tasks.append(search_task)
+        await asyncio.gather(*async_tasks)
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
+            conversation_results=conversation_results,
             prompt=prompt,
             prompt_category=prompt_category,
             conversation_name=conversation_name,
             websearch=websearch,
+            searching=searching,
             vision_response=vision_response,
             **kwargs,
         )
@@ -573,7 +674,6 @@ class Interactions:
             if user_input != "" and persist_context_in_history == False
             else formatted_prompt
         )
-
         if log_user_input:
             c.log_interaction(
                 role="USER",
@@ -588,8 +688,12 @@ class Interactions:
             error = ""
             for err in e:
                 error += f"{err.args}\n{err.name}\n{err.msg}\n"
+            logging.warning(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
             logging.error(f"{self.agent.PROVIDER} Error: {error}")
-            logging.info(f"TOKENS: {tokens} PROMPT CONTENT: {formatted_prompt}")
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY][ERROR] Unable to generate response.",
+            )
             return f"Unable to retrieve response."
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
@@ -605,9 +709,10 @@ class Interactions:
                 self.response = re.sub(
                     r"<image src=(.*?)>", "", self.response, flags=re.DOTALL
                 )
-            if "![" in self.response:
-                self.response = re.sub(
-                    r"!\[.*?\]\(.*?\)", "", self.response, flags=re.DOTALL
+            if log_output:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=self.response,
                 )
             tts = False
             if "tts" in kwargs:
@@ -619,6 +724,10 @@ class Interactions:
                     and agent_settings["tts_provider"] != None
                 ):
                     try:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] Generating audio response.",
+                        )
                         tts_response = await self.agent.text_to_speech(
                             text=self.response
                         )
@@ -632,7 +741,9 @@ class Interactions:
                             with open(audio_path, "wb") as f:
                                 f.write(audio_data)
                             tts_response = f'<audio controls><source src="{AGIXT_URI}/outputs/{self.agent.agent_id}/{file_name}" type="audio/wav"></audio>'
-                        self.response = f"{self.response}\n\n{tts_response}"
+                            c.log_interaction(
+                                role=self.agent_name, message=tts_response
+                            )
                     except Exception as e:
                         logging.warning(f"Failed to get TTS response: {e}")
             if disable_memory != True:
@@ -657,6 +768,10 @@ class Interactions:
                     logging.info(f"Image Generation Decision Response: {create_img}")
                     to_create_image = re.search(r"\byes\b", str(create_img).lower())
                     if to_create_image:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] Generating image.",
+                        )
                         img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {self.response} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
                         image_generation_prompt = await self.agent.inference(
                             prompt=img_prompt
@@ -673,31 +788,48 @@ class Interactions:
                             generated_image = await self.agent.generate_image(
                                 prompt=image_generation_prompt
                             )
-                            self.response = f"{self.response}\n\n![Image generated by {self.agent_name}]({generated_image})"
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"![Image generated by {self.agent_name}]({generated_image})",
+                            )
                         except:
                             logging.warning(
                                 f"Failed to generate image for prompt: {image_generation_prompt}"
                             )
-            if log_output:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=self.response,
-                )
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
                 prompt_args = {
                     "user_input": user_input,
                     "context_results": context_results,
+                    "conversation_results": conversation_results,
                     "conversation_name": conversation_name,
                     "disable_memory": disable_memory,
                     **kwargs,
                 }
+                if "images" in prompt_args:
+                    del prompt_args["images"]
+                if "searching" in prompt_args:
+                    del prompt_args["searching"]
+                if "tts" in prompt_args:
+                    del prompt_args["tts"]
+                if "websearch" in prompt_args:
+                    del prompt_args["websearch"]
+                if "websearch_depth" in prompt_args:
+                    del prompt_args["websearch_depth"]
+                if "browse_links" in prompt_args:
+                    del prompt_args["browse_links"]
+
                 shot_response = await self.run(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_category=prompt_category,
-                    log_user_interaction=False,
+                    log_user_input=False,
+                    log_output=False,
+                    websearch=False,
+                    browse_links=False,
+                    searching=True,
+                    tts=False,
                     **prompt_args,
                 )
                 time.sleep(1)
@@ -803,6 +935,10 @@ class Interactions:
                             except Exception as e:
                                 logging.error(
                                     f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                                )
+                                c.log_interaction(
+                                    role=self.agent_name,
+                                    message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
                                 )
                                 command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
                         if command_output:

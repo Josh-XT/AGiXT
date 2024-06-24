@@ -160,6 +160,8 @@ class agixt_actions(Extensions):
             "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
+            "Disable Command": self.disable_command,
+            "Plan Multistep Task": self.plan_multistep_task,
         }
         user = kwargs["user"] if "user" in kwargs else "user"
         for chain in Chain(user=user).get_chains():
@@ -193,7 +195,7 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             file_name=filename,
             file_content=file_content,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def write_website_to_memory(self, url: str):
@@ -209,7 +211,7 @@ class agixt_actions(Extensions):
         return self.ApiClient.learn_url(
             agent_name=self.agent_name,
             url=url,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def store_long_term_memory(
@@ -246,7 +248,7 @@ class agixt_actions(Extensions):
             query=query,
             article_ids=None,
             max_articles=max_articles,
-            collection_number=0,
+            collection_number="0",
         )
 
     async def read_github_repository(self, repository_url: str):
@@ -263,8 +265,45 @@ class agixt_actions(Extensions):
             agent_name=self.agent_name,
             github_repo=repository_url,
             use_agent_settings=True,
-            collection_number=0,
+            collection_number="0",
         )
+
+    async def disable_command(self, command_name: str):
+        """
+        Disable a command
+
+        Args:
+        command_name (str): The name of the command to disable
+
+        Returns:
+        str: Success message
+        """
+        return self.ApiClient.toggle_command(
+            agent_name=self.agent_name, commands_name=command_name, enable=False
+        )
+
+    async def plan_multistep_task(self, assumed_scope_of_work: str):
+        """
+        Plan a multi-step task
+
+        Args:
+        assumed_scope_of_work (str): The assumed scope of work
+
+        Returns:
+        str: The name of the new chain
+        """
+        user_input = assumed_scope_of_work
+        new_chain = self.ApiClient.plan_task(
+            agent_name=self.agent_name,
+            user_input=user_input,
+            websearch=True,
+            websearch_depth=3,
+            conversation_name=self.conversation_name,
+            log_user_input=False,
+            log_output=False,
+            enable_new_command=True,
+        )
+        return new_chain["message"]
 
     async def create_task_chain(
         self,
@@ -354,7 +393,9 @@ class agixt_actions(Extensions):
             i += 1
         return chain_name
 
-    async def run_chain(self, input_for_task: str = ""):
+    async def run_chain(
+        self, input_for_task: str = "", start_from_step_number: int = 1
+    ):
         """
         Run a chain
 
@@ -364,12 +405,16 @@ class agixt_actions(Extensions):
         Returns:
         str: The response from the chain
         """
+        try:
+            step_number = int(start_from_step_number)
+        except:
+            step_number = 1
         response = await self.ApiClient.run_chain(
             chain_name=self.command_name,
             user_input=input_for_task,
             agent_name=self.agent_name,
             all_responses=False,
-            from_step=1,
+            from_step=step_number,
             chain_args={
                 "conversation_name": self.conversation_name,
             },

@@ -27,6 +27,12 @@ class UserInput(BaseModel):
     injected_memories: Optional[int] = 10
 
 
+class LogInteraction(BaseModel):
+    role: str
+    message: str
+    conversation_name: Optional[str] = ""
+
+
 class Dataset(BaseModel):
     batch_size: int = 5
 
@@ -156,19 +162,19 @@ class ResponseMessage(BaseModel):
 
 class UrlInput(BaseModel):
     url: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class FileInput(BaseModel):
     file_name: str
     file_content: str
-    collection_number: int = 0
+    collection_number: Optional[Any] = "0"
 
 
 class TextMemoryInput(BaseModel):
     user_input: str
     text: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class FeedbackInput(BaseModel):
@@ -226,30 +232,58 @@ class HistoryModel(BaseModel):
 
 class ExternalSource(BaseModel):
     external_source: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class ConversationHistoryModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     conversation_content: List[dict] = []
+
+
+class RenameConversationModel(BaseModel):
+    agent_name: str
+    conversation_name: str
+    new_conversation_name: Optional[str] = "-"
 
 
 class TTSInput(BaseModel):
     text: str
 
 
+class WebhookModel(BaseModel):
+    success: str
+
+
 class ConversationHistoryMessageModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     message: str
 
 
 class UpdateConversationHistoryMessageModel(BaseModel):
-    agent_name: str
+    agent_name: Optional[str] = ""
     conversation_name: str
     message: str
     new_message: str
+
+
+class TaskPlanInput(BaseModel):
+    user_input: str
+    websearch: Optional[bool] = False
+    websearch_depth: Optional[int] = 3
+    conversation_name: Optional[str] = "AGiXT Task Planning"
+    log_user_input: Optional[bool] = True
+    log_output: Optional[bool] = True
+    enable_new_command: Optional[bool] = True
+
+
+class TasksToDo(BaseModel):
+    tasks: List[str]
+
+
+class ChainCommandName(BaseModel):
+    command_name: str
 
 
 class GitHubInput(BaseModel):
@@ -270,7 +304,7 @@ class ArxivInput(BaseModel):
 
 class YoutubeInput(BaseModel):
     video_id: str
-    collection_number: int = 0
+    collection_number: Optional[str] = "0"
 
 
 class CommandExecution(BaseModel):
@@ -286,6 +320,7 @@ class WebhookUser(BaseModel):
     commands: Optional[Dict[str, Any]] = {}
     training_urls: Optional[List[str]] = []
     github_repos: Optional[List[str]] = []
+    zip_file_content: Optional[str] = ""
 
 
 # Auth user models
@@ -296,8 +331,8 @@ class Login(BaseModel):
 
 class Register(BaseModel):
     email: str
-    first_name: str
-    last_name: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
 
 
 class UserInfo(BaseModel):

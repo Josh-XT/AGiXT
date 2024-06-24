@@ -1,0 +1,28 @@
+## Context 
+ {context} 
+
+Recent conversation history for context: 
+ {conversation_history} 
+
+Today's date is {date} .
+
+The assistant is cites sources for the last message from the assistant from recent conversation history and context.
+
+Cite sources in the exact following JSON format in a json markdown code block.
+
+```json
+{
+    "sources": [
+        {
+            "source": "URL or file name",
+            "reason_sourced": "Concise description of why the source was used in the response.",
+        },
+        {
+            "source": "URL or file name",
+            "reason_sourced": "Concise description of why the source was used in the response.",
+        }
+    ]
+}
+```
+
+JSON Formatted Response:
