@@ -1,9 +1,11 @@
 import os
+import re
 import sys
 import subprocess
 import random
 import argparse
 import platform
+import socket
 
 try:
     from tzlocal import get_localzone
@@ -17,6 +19,10 @@ except ImportError:
         [sys.executable, "-m", "pip", "install", "python-dotenv"], check=True
     )
     from dotenv import load_dotenv
+try:
+    import win32com.client as wim
+except ImportError:
+    wim = None
 
 
 def prompt_user(prompt, default=None):
@@ -182,6 +188,12 @@ def get_default_env_vars():
         "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
         "UVICORN_WORKERS": "10",
         "AGIXT_AUTO_UPDATE": "true",
+        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091",
+        "DEFAULT_MODEL": "QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF",
+        "VISION_MODEL": "deepseek-ai/deepseek-vl-1.3b-chat",
+        "LLM_MAX_TOKENS": "32768",
+        "WHISPER_MODEL": "base.en",
+        "GPU_LAYERS": "0",
     }
 
 
@@ -225,9 +237,123 @@ def set_environment(env_updates=None):
     return env_vars
 
 
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
+
+
+def start_ezlocalai():
+    load_dotenv()
+    env = get_default_env_vars()
+    uri = env["EZLOCALAI_URI"]
+    api_key = env["AGIXT_API_KEY"]
+    default_model = env["DEFAULT_MODEL"]
+    vision_model = env["VISION_MODEL"]
+    llm_max_tokens = env["LLM_MAX_TOKENS"]
+    whisper_model = env["WHISPER_MODEL"]
+    nvidia_gpu = False
+    if not os.path.exists("ezlocalai"):
+        run_shell_command("git clone https://github.com/DevXT-LLC/ezlocalai ezlocalai")
+    else:
+        run_shell_command("cd ezlocalai && git pull && cd ..")
+    total_vram, free_vram = get_cuda_vram()
+    # if free vram is greater than 16gb, use 33 GPU layers
+    gpu_layers = int(env["GPU_LAYERS"])
+    if free_vram == 0:
+        gpu_layers = 0
+    if free_vram > 0 and gpu_layers == -1:
+        if free_vram > 16 * 1024:
+            gpu_layers = 33
+        elif free_vram > 8 * 1024:
+            gpu_layers = 16
+        elif free_vram > 4 * 1024:
+            gpu_layers = 8
+        elif free_vram > 2 * 1024:
+            gpu_layers = 0
+    with open("ezlocalai/.env", "r") as file:
+        lines = file.readlines()
+    with open("ezlocalai/.env", "w") as file:
+        for line in lines:
+            if line.startswith("EZLOCALAI_API_KEY="):
+                file.write(f"EZLOCALAI_API_KEY={api_key}\n")
+            elif line.startswith("EZLOCALAI_URI="):
+                file.write(f"EZLOCALAI_URI={uri}\n")
+            elif line.startswith("DEFAULT_MODEL="):
+                file.write(f"DEFAULT_MODEL={default_model}\n")
+            elif line.startswith("VISION_MODEL="):
+                file.write(f"VISION_MODEL={vision_model}\n")
+            elif line.startswith("LLM_MAX_TOKENS="):
+                file.write(f"LLM_MAX_TOKENS={llm_max_tokens}\n")
+            elif line.startswith("WHISPER_MODEL="):
+                file.write(f"WHISPER_MODEL={whisper_model}\n")
+            elif line.startswith("GPU_LAYERS="):
+                file.write(f"GPU_LAYERS={gpu_layers}\n")
+            else:
+                file.write(line)
+    if platform.system() == "Windows":
+        wmi = wim.GetObject("winmgmts:")
+        for video_controller in wmi.InstancesOf("Win32_VideoController"):
+            if "NVIDIA" in video_controller.Name:
+                nvidia_gpu = True
+    elif platform.system() == "Linux":
+        cmd = "lspci | grep 'VGA' | grep 'NVIDIA'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        gpu_name_match = re.search(r"NVIDIA\s+([^:]+)", result.stdout)
+        if gpu_name_match:
+            nvidia_gpu = True
+    if nvidia_gpu and total_vram > 0:
+        run_shell_command(
+            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml down && docker-compose -f docker-compose-cuda.yml build && docker-compose -f docker-compose-cuda.yml up -d"
+        )
+    else:
+        run_shell_command(
+            "cd ezlocalai && docker-compose down && docker-compose build && docker-compose up -d"
+        )
+
+
+def get_cuda_vram():
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        lines = result.stdout.strip().split("\n")
+        if len(lines) == 0:
+            return 0, 0
+        total_vram, free_vram = map(int, lines[0].split(","))
+        return total_vram, free_vram
+    except FileNotFoundError:
+        print("nvidia-smi not found. No CUDA support.")
+        return 0, 0
+    except subprocess.CalledProcessError as e:
+        print(f"nvidia-smi failed with error: {e.stderr}")
+        return 0, 0
+    except Exception as e:
+        print(f"Error getting CUDA information: {e}")
+        return 0, 0
+
+
 if __name__ == "__main__":
     check_prerequisites()
     parser = argparse.ArgumentParser(description="AGiXT Environment Setup")
+    parser.add_argument(
+        "--with-ezlocalai",
+        help="Start EZLocalAI",
+        action="store_true",
+        required=False,
+    )
     # Add arguments for each environment variable
     for key, value in get_default_env_vars().items():
         parser.add_argument(
