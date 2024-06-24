@@ -155,11 +155,41 @@ class Chain:
             .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
             .first()
         )
+        if not chain:
+            # Check if it is a global
+            chain = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name == chain_name,
+                    ChainDB.user_id
+                    == session.query(User)
+                    .filter(User.email == DEFAULT_USER)
+                    .first()
+                    .id,
+                )
+                .first()
+            )
+        if not chain:
+            logging.error(f"Chain {chain_name} not found.")
+            return
         agent = (
             session.query(Agent)
             .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
             .first()
         )
+        if not agent:
+            agent = (
+                session.query(Agent)
+                .filter(
+                    Agent.name == agent_name,
+                    Agent.user_id
+                    == session.query(User)
+                    .filter(User.email == DEFAULT_USER)
+                    .first()
+                    .id,
+                )
+                .first()
+            )
         if "prompt_category" in prompt:
             prompt_category = prompt["prompt_category"]
         else:
@@ -176,6 +206,19 @@ class Chain:
                 )
                 .first()
             )
+            if not target:
+                target = (
+                    session.query(Prompt)
+                    .filter(
+                        Prompt.name == prompt["prompt_name"],
+                        Prompt.user_id
+                        == session.query(User)
+                        .filter(User.email == DEFAULT_USER)
+                        .first()
+                        .id,
+                    )
+                    .first()
+                )
             target_type = "prompt"
         elif prompt_type.lower() == "chain":
             argument_key = "chain_name"
@@ -189,6 +232,19 @@ class Chain:
                 )
                 .first()
             )
+            if not target:
+                target = (
+                    session.query(ChainDB)
+                    .filter(
+                        ChainDB.name == prompt[argument_key],
+                        ChainDB.user_id
+                        == session.query(User)
+                        .filter(User.email == DEFAULT_USER)
+                        .first()
+                        .id,
+                    )
+                    .first()
+                )
             target_type = "chain"
         elif prompt_type.lower() == "command":
             argument_key = "command_name"
