@@ -1,12 +1,12 @@
 import asyncio
 import os
 from pathlib import Path
-import subprocess
 
 try:
     import google.generativeai as genai  # Primary import attempt
 except ImportError:
     import sys
+    import subprocess
 
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "google-generativeai"]
@@ -14,15 +14,16 @@ except ImportError:
     import google.generativeai as genai  # Import again after installation
 
 try:
-    from gtts import gTTS
+    import gtts as ts
 except ImportError:
     import sys
+    import subprocess
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
-    from gtts import gTTS
+    import gtts as ts
 
+from pydub import AudioSegment
 import uuid
-from Globals import getenv
 
 
 class GoogleProvider:
@@ -85,10 +86,14 @@ class GoogleProvider:
             return f"Gemini Error: {e}"
 
     async def text_to_speech(self, text: str):
-        # Generate MP3 using gTTS
-        tts = gTTS(text)
+        tts = ts.gTTS(text)
         mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
         tts.save(mp3_path)
-        file_name = os.path.basename(mp3_path)
-        output_url = f"{getenv('AGIXT_URI')}/outputs/{file_name}"
-        return output_url
+        wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
+        audio = AudioSegment.from_mp3(mp3_path)
+        audio.export(wav_path, format="wav")
+        os.remove(mp3_path)
+        with open(wav_path, "rb") as f:
+            audio_content = f.read()
+        os.remove(wav_path)
+        return audio_content
