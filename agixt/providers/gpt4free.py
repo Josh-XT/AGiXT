@@ -4,7 +4,7 @@ import random
 from g4f.Provider import (
     DeepInfra,
     FreeGpt,
-    GptGo,
+    Liaobots,
 )
 
 
@@ -33,14 +33,19 @@ class Gpt4freeProvider:
                 ],
             },
             {
-                "name": "GptGo",
-                "class": GptGo,
+                "name": "Liaobots",
+                "class": Liaobots,
                 "models": [
+                    "gemini-pro",
                     "gpt-3.5-turbo",
+                    "claude-2.1",
+                    "claude-3-sonnet-20240229",
+                    "claude-3-opus-20240229",
                 ],
             },
         ]
         self.failures = []
+        self.provider_failure_count = 0
 
     @staticmethod
     def services():
@@ -80,7 +85,14 @@ class Gpt4freeProvider:
                 else:
                     return "No available providers. Unable to retrieve response."
             else:
-                return "All providers exhausted. Unable to retrieve response."
+                # Try all providers 3 times before fully failing.
+                self.provider_failure_count += 1
+                self.failures = []
+                if self.provider_failure_count < 3:
+                    return await self.inference(
+                        prompt=prompt, tokens=tokens, images=images
+                    )
+                return "All providers have failed. Unable to retrieve response."
 
     def get_available_providers(self):
         available_providers = []
