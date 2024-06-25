@@ -3,13 +3,10 @@ import asyncio
 import random
 from g4f.Provider import (
     HuggingChat,
-    ChatgptAi,
     DeepInfra,
-    ChatBase,
     Liaobots,
     FreeGpt,
     GptGo,
-    Gpt6,
 )
 
 
@@ -17,8 +14,8 @@ class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
-        self.provider = ChatgptAi
-        self.provider_name = "ChatgptAi"
+        self.provider = FreeGpt
+        self.provider_name = "FreeGpt"
         self.providers = [
             {
                 "name": "HuggingChat",
@@ -31,13 +28,6 @@ class Gpt4freeProvider:
                 ],
             },
             {
-                "name": "ChatgptAi",
-                "class": ChatgptAi,
-                "models": [
-                    "gpt-3.5-turbo",
-                ],
-            },
-            {
                 "name": "DeepInfra",
                 "class": DeepInfra,
                 "models": [
@@ -46,17 +36,14 @@ class Gpt4freeProvider:
                 ],
             },
             {
-                "name": "ChatBase",
-                "class": ChatBase,
-                "models": [
-                    "gpt-3.5-turbo",
-                ],
-            },
-            {
                 "name": "Liaobots",
                 "class": Liaobots,
                 "models": [
-                    "gpt-4",
+                    "claude-3.5-sonnet",
+                    "gpt-4o",
+                    "gpt-4o-free",
+                    "gpt-4-turbo",
+                    "claude-3-opus",
                 ],
             },
             {
@@ -69,13 +56,6 @@ class Gpt4freeProvider:
             {
                 "name": "GptGo",
                 "class": GptGo,
-                "models": [
-                    "gpt-3.5-turbo",
-                ],
-            },
-            {
-                "name": "Gpt6",
-                "class": Gpt6,
                 "models": [
                     "gpt-3.5-turbo",
                 ],
