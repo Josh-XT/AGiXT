@@ -847,8 +847,9 @@ class AGiXT:
                 )
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if os.path.normpath(file_path).startswith(self.agent_workspace):
-                with open(file_path, "r") as f:
+            fp = os.path.normpath(file_path)
+            if fp.startswith(self.agent_workspace):
+                with open(fp, "r") as f:
                     file_content = f.read()
                 # Check how many lines are in the file content
                 lines = file_content.split("\n")
@@ -857,13 +858,13 @@ class AGiXT:
                         await file_reader.write_text_to_memory(
                             user_input=user_input,
                             text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
-                            external_source=f"file {file_path}",
+                            external_source=f"file {fp}",
                         )
                 else:
                     await file_reader.write_text_to_memory(
                         user_input=user_input,
                         text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
-                        external_source=f"file {file_path}",
+                        external_source=f"file {fp}",
                     )
                 response = f"Read [{file_name}]({file_url}) into memory."
             else:

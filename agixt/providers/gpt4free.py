@@ -21,6 +21,7 @@ class Gpt4freeProvider:
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-v2"
         self.provider = None
+        self.provider_name = None
         self.providers = [
             {
                 "name": "ChatgptNext",
@@ -118,41 +119,40 @@ class Gpt4freeProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         # Provider data is a list of providers for the selected model
-        provider = None
-        provider_name = None
-        model = None
         if not self.provider:
             for p in self.providers:
                 if self.AI_MODEL in p["models"]:
                     # Make sure the provider is not on the failure list
                     if p["name"] in [f["provider"] for f in self.failures]:
                         continue
-                    provider = p["class"]
-                    provider_name = p["name"]
+                    self.provider = p["class"]
+                    self.provider_name = p["name"]
                     # If the provider has no models, skip it
                     if p["models"] == []:
                         continue
-                    self.provider = provider
                     model = random.choice(p["models"])
                     self.AI_MODEL = model
                     break
-        logging.info(f"[Gpt4Free] Using provider: {provider_name} with model: {model}")
+        logging.info(
+            f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
+        )
         try:
             return (
                 await asyncio.gather(
-                    provider.create_async(
-                        model=model,
+                    self.provider.create_async(
+                        model=self.AI_MODEL,
                         messages=[{"role": "user", "content": prompt}],
                     )
                 )
             )[0]
         except Exception as e:
             logging.error(f"[Gpt4Free] {e}")
-            self.failures.append({"provider": provider_name, "model": model})
-            provider_count = len(provider_name)
-            if len(self.failures) < provider_count:
+            self.failures.append(
+                {"provider": self.provider_name, "model": self.AI_MODEL}
+            )
+            if len(self.failures) < len(self.providers):
                 for provider in self.providers:
-                    if provider_name not in self.failures:
+                    if self.provider_name not in self.failures:
                         provider_models = provider["models"]
                         if not isinstance(provider_models, list):
                             provider_models = [provider_models]
@@ -170,6 +170,7 @@ class Gpt4freeProvider:
                             f"[Gpt4Free] Switching to provider: {provider['name']} with model: {model}"
                         )
                         self.provider = provider["class"]
+                        self.provider_name = provider["name"]
                         self.AI_MODEL = model
                         break
                 return await self.inference(prompt=prompt, tokens=tokens, images=images)
