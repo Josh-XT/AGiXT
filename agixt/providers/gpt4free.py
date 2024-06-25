@@ -17,11 +17,11 @@ from g4f.Provider import (
 
 
 class Gpt4freeProvider:
-    def __init__(self, AI_MODEL: str = "claude-v2", **kwargs):
+    def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-v2"
-        self.provider = None
-        self.provider_name = None
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
+        self.provider = ChatgptNext
+        self.provider_name = "ChatgptNext"
         self.providers = [
             {
                 "name": "ChatgptNext",
@@ -104,12 +104,6 @@ class Gpt4freeProvider:
                     "gpt-3.5-turbo",
                 ],
             },
-        ]
-        self.models = [
-            "gpt-3.5-turbo",
-            "claude-v2",
-            "gemini",
-            "gemini-pro",
         ]
         self.failures = []
 
