@@ -148,7 +148,6 @@ services:
       - ./agixt/prompts:/agixt/prompts
       - ./agixt/chains:/agixt/chains
       - ./agixt/memories:/agixt/memories
-      - ./agixt/conversations:/agixt/conversations
       - ./agixt/registration_requirements.json:/agixt/registration_requirements.json
       - /var/run/docker.sock:/var/run/docker.sock
   streamlit:

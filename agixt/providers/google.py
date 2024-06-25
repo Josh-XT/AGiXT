@@ -22,7 +22,7 @@ except ImportError:
     from gtts import gTTS
 
 import uuid
-import base64
+from Globals import getenv
 
 
 class GoogleProvider:
@@ -89,36 +89,6 @@ class GoogleProvider:
         tts = gTTS(text)
         mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
         tts.save(mp3_path)
-
-        # Convert MP3 to 16kHz WAV using ffmpeg
-        wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
-        ffmpeg_command = [
-            "ffmpeg",
-            "-i",
-            mp3_path,
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            wav_path,
-        ]
-
-        try:
-            subprocess.run(ffmpeg_command, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error during conversion: {e.stderr.decode()}")
-            raise
-
-        # Read the WAV file
-        with open(wav_path, "rb") as wav_file:
-            audio_data = wav_file.read()
-
-        # Clean up temporary files
-        os.remove(mp3_path)
-        os.remove(wav_path)
-
-        # Encode audio data to base64
-        audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-        return audio_base64
+        file_name = os.path.basename(mp3_path)
+        output_url = f"{getenv('AGIXT_URI')}/outputs/{file_name}"
+        return output_url
