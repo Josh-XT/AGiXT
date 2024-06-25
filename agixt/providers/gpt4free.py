@@ -2,7 +2,6 @@ import logging
 import asyncio
 import random
 from g4f.Provider import (
-    ChatgptNext,
     HuggingChat,
     ChatgptDemo,
     GptForLove,
@@ -20,16 +19,9 @@ class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
-        self.provider = ChatgptNext
-        self.provider_name = "ChatgptNext"
+        self.provider = ChatgptDemo
+        self.provider_name = "ChatgptDemo"
         self.providers = [
-            {
-                "name": "ChatgptNext",
-                "class": ChatgptNext,
-                "models": [
-                    "gpt-3.5-turbo",
-                ],
-            },
             {
                 "name": "HuggingChat",
                 "class": HuggingChat,
@@ -113,20 +105,6 @@ class Gpt4freeProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         # Provider data is a list of providers for the selected model
-        if not self.provider:
-            for p in self.providers:
-                if self.AI_MODEL in p["models"]:
-                    # Make sure the provider is not on the failure list
-                    if p["name"] in [f["provider"] for f in self.failures]:
-                        continue
-                    self.provider = p["class"]
-                    self.provider_name = p["name"]
-                    # If the provider has no models, skip it
-                    if p["models"] == []:
-                        continue
-                    model = random.choice(p["models"])
-                    self.AI_MODEL = model
-                    break
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
         )
@@ -146,27 +124,30 @@ class Gpt4freeProvider:
             )
             if len(self.failures) < len(self.providers):
                 for provider in self.providers:
-                    if self.provider_name not in self.failures:
-                        provider_models = provider["models"]
-                        if not isinstance(provider_models, list):
-                            provider_models = [provider_models]
-                        # Remove any models that have failed
-                        for failure in self.failures:
-                            if failure["provider"] == provider["name"]:
-                                if failure["model"] in provider_models:
-                                    # delete the model from the list for the provider
-                                    provider_models.remove(failure["model"])
-                        if len(provider_models) > 0:
+                    for failure in self.failures:
+                        if failure["provider"] == provider["name"]:
                             # Skip this provider and try another
                             continue
-                        model = random.choice(provider_models)
-                        logging.info(
-                            f"[Gpt4Free] Switching to provider: {provider['name']} with model: {model}"
-                        )
-                        self.provider = provider["class"]
-                        self.provider_name = provider["name"]
-                        self.AI_MODEL = model
-                        break
+                    provider_models = provider["models"]
+                    if not isinstance(provider_models, list):
+                        provider_models = [provider_models]
+                    # Remove any models that have failed
+                    for failure in self.failures:
+                        if failure["provider"] == provider["name"]:
+                            if failure["model"] in provider_models:
+                                # delete the model from the list for the provider
+                                provider_models.remove(failure["model"])
+                    if len(provider_models) > 0:
+                        # Skip this provider and try another
+                        continue
+                    model = random.choice(provider_models)
+                    logging.info(
+                        f"[Gpt4Free] Switching to provider: {provider['name']} with model: {model}"
+                    )
+                    self.provider = provider["class"]
+                    self.provider_name = provider["name"]
+                    self.AI_MODEL = model
+                    break
                 return await self.inference(prompt=prompt, tokens=tokens, images=images)
             else:
                 return "Unable to retrieve response."
