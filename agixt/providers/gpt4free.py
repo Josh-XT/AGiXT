@@ -127,7 +127,7 @@ class Gpt4freeProvider:
                                 del provider_models[
                                     provider_models.index(failure["model"])
                                 ]
-                    if len(provider_models) > 0:
+                    if provider_models == []:
                         # Skip this provider and try another
                         continue
                     logging.info(
