@@ -12,7 +12,9 @@ from g4f.Provider import (
 
 class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
-        self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
+        # Breaking changes were made after g4f v0.2.6.2
+        # Unable to get it to work in containers in newer versions.
+        self.requirements = ["g4f==0.2.6.2"]
         self.AI_MODEL = "gpt-4o"
         self.provider = Liaobots
         self.provider_name = "Liaobots"
@@ -41,9 +43,10 @@ class Gpt4freeProvider:
                 "name": "Liaobots",
                 "class": Liaobots,
                 "models": [
-                    "claude-3-opus-20240229",
                     "gpt-4o",
-                    "gpt-4-turbo",
+                    "claude-3-opus-20240229",
+                    "claude-3-sonnet-20240229",
+                    "gemini-pro",
                 ],
             },
             {
@@ -82,34 +85,6 @@ class Gpt4freeProvider:
                     "provider": "OpenAI",
                     "tokenLimit": 7800,
                 },
-                "gpt-3.5-turbo": {
-                    "id": "gpt-3.5-turbo",
-                    "name": "GPT-3.5-Turbo",
-                    "maxLength": 48000,
-                    "tokenLimit": 14000,
-                    "context": "16K",
-                },
-                "gpt-4-turbo": {
-                    "id": "gpt-4-turbo-preview",
-                    "name": "GPT-4-Turbo",
-                    "maxLength": 260000,
-                    "tokenLimit": 126000,
-                    "context": "128K",
-                },
-                "gpt-4": {
-                    "id": "gpt-4-plus",
-                    "name": "GPT-4-Plus",
-                    "maxLength": 130000,
-                    "tokenLimit": 31000,
-                    "context": "32K",
-                },
-                "gpt-4-0613": {
-                    "id": "gpt-4-0613",
-                    "name": "GPT-4-0613",
-                    "maxLength": 60000,
-                    "tokenLimit": 15000,
-                    "context": "16K",
-                },
                 "gemini-pro": {
                     "id": "gemini-pro",
                     "name": "Gemini-Pro",
@@ -130,27 +105,6 @@ class Gpt4freeProvider:
                     "maxLength": 800000,
                     "tokenLimit": 200000,
                     "context": "200K",
-                },
-                "claude-2.1": {
-                    "id": "claude-2.1",
-                    "name": "Claude-2.1-200k",
-                    "maxLength": 800000,
-                    "tokenLimit": 200000,
-                    "context": "200K",
-                },
-                "claude-2.0": {
-                    "id": "claude-2.0",
-                    "name": "Claude-2.0-100k",
-                    "maxLength": 400000,
-                    "tokenLimit": 100000,
-                    "context": "100K",
-                },
-                "claude-instant-1": {
-                    "id": "claude-instant-1",
-                    "name": "Claude-instant-1",
-                    "maxLength": 400000,
-                    "tokenLimit": 100000,
-                    "context": "100K",
                 },
             }
         try:
