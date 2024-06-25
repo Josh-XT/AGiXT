@@ -25,10 +25,15 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Monitor Your Usage](#monitor-your-usage)
   - [Key Features 🗝️](#key-features-️)
   - [Quick Start Guide](#quick-start-guide)
-    - [Windows and Mac Prerequisites](#windows-and-mac-prerequisites)
-    - [Linux Prerequisites](#linux-prerequisites)
-    - [Download and Install](#download-and-install)
-    - [Running and Updating AGiXT](#running-and-updating-agixt)
+    - [Operating System Prerequisites](#operating-system-prerequisites)
+      - [Windows and Mac Prerequisites](#windows-and-mac-prerequisites)
+      - [Linux Prerequisites](#linux-prerequisites)
+  - [Installation](#installation)
+  - [Usage](#usage)
+    - [Command-line Options](#command-line-options)
+  - [Docker Deployment](#docker-deployment)
+  - [Troubleshooting](#troubleshooting)
+  - [Security Considerations](#security-considerations)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
   - [Other Repositories](#other-repositories)
@@ -61,81 +66,146 @@ The features that AGiXT provides cover a wide range of services and are used for
 
 ## Quick Start Guide
 
-### Windows and Mac Prerequisites
+### Operating System Prerequisites
+
+Provide the following prerequisites based on the Operating System you use.
+
+#### Windows and Mac Prerequisites
 
 - [Git](https://git-scm.com/downloads)
 - [Docker Desktop](https://docs.docker.com/docker-for-windows/install/)
-- [PowerShell 7.X](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell?view=powershell-7.4)
+- [Python 3.10.x](https://www.python.org/downloads/)
 
-### Linux Prerequisites
+#### Linux Prerequisites
 
 - [Git](https://git-scm.com/downloads)
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
-- [PowerShell 7.X](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell?view=powershell-7.4) (Optional if you want to use the launcher script, but not required)
+- [Python 3.10.x](https://www.python.org/downloads/)
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (if using local models on GPU)
 
-### Download and Install
+## Installation
 
-Open a PowerShell terminal and run the following to download and install AGiXT:
-
-Windows and Mac:
+If you're using Linux, you may need to prefix the `python` command with `sudo` depending on your system configuration.
 
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
 cd AGiXT
-./AGiXT.ps1
+python start.py
 ```
 
-Linux:
+The script will check for Docker and Docker Compose installation:
+
+- On Linux, it will attempt to install them if missing (requires sudo privileges).
+- On macOS and Windows, it will provide instructions to download and install Docker Desktop.
+
+## Usage
+
+Run the script with Python:
 
 ```bash
-git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT
-sudo pwsh ./AGiXT.ps1
+python start.py
 ```
 
-When you run the `AGiXT.ps1` script for the first time, it will create a `.env` file automatically. There are a few questions asked on first run to help you get started. The default options are recommended for most users.
-
-For advanced environment variable setup, see the [Environment Variable Setup](https://josh-xt.github.io/AGiXT/1-Getting%20started/1-Environment%20Variables.html) documentation for guidance on setup.
+To run AGiXT with ezLocalai, use the `--with-ezlocalai` flag:
 
 ```bash
-    ___   _______ _  ________
-   /   | / ____(_) |/ /_  __/
-  / /| |/ / __/ /|   / / /
- / ___ / /_/ / //   | / /
-/_/  |_\____/_//_/|_|/_/
-
--------------------------------
-Visit our documentation at https://AGiXT.com
-Welcome to the AGiXT Environment Setup!
-Would you like AGiXT to auto update? (y/n - default: y):
-Would you like to set an API Key for AGiXT? Enter it if so, otherwise press enter to proceed. (default is blank):
-Enter the number of AGiXT workers to run (default: 10):
+python start.py --with-ezlocalai
 ```
 
-After the environment setup is complete, you will have the following options:
+You can also use command-line arguments to set specific environment variables to run in different ways. For example, to use the development branch and enable auto-updates, run:
 
 ```bash
-1. Run AGiXT (Stable - Recommended!)
-2. Run AGiXT (Development)
-3. Run Backend Only (Development)
-4. Exit
-Enter your choice: 
+python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai
 ```
 
-Choose Option 1 to run AGiXT with the latest stable release. This is the recommended option for most users. If you're not actively developing AGiXT, this is the option you should choose.
-
-### Running and Updating AGiXT
-
-Any time you want to run or update AGiXT, run the following commands from your `AGiXT` directory:
-
-```bash
-./AGiXT.ps1
-```
-
-- Access the web interface at <http://localhost:8501>
+- Access the AGiXT Management interface at <http://localhost:8501> to create and manage your agents, prompts, chains, and configurations.
+- Access the AGiXT Interactive interface at <http://localhost:3437> to interact with your configured agents.
 - Access the AGiXT API documentation at <http://localhost:7437>
+
+### Command-line Options
+
+The script supports setting any of the environment variables via command-line arguments. Here's a detailed list of available options:
+
+1. `--agixt-api-key`: Set the AGiXT API key (automatically generated if not provided)
+2. `--agixt-uri`: Set the AGiXT URI (default: `http://localhost:7437`)
+3. `--agixt-agent`: Set the default AGiXT agent (default: `AGiXT`)
+4. `--agixt-branch`: Choose between `stable` and `dev` branches
+5. `--agixt-file-upload-enabled`: Enable or disable file uploads (default: `true`)
+6. `--agixt-voice-input-enabled`: Enable or disable voice input (default: `true`)
+7. `--agixt-footer-message`: Set the footer message (default: `Powered by AGiXT`)
+8. `--agixt-require-api-key`: Require API key for access (default: `false`)
+9. `--agixt-rlhf`: Enable or disable reinforcement learning from human feedback (default: `true`)
+10. `--agixt-show-selection`: Set which selectors to show in the UI (default: `conversation,agent`)
+11. `--agixt-show-agent-bar`: Show or hide the agent bar in the UI (default: `true`)
+12. `--agixt-show-app-bar`: Show or hide the app bar in the UI (default: `true`)
+13. `--agixt-conversation-mode`: Set the conversation mode (default: `select`)
+14. `--allowed-domains`: Set allowed domains for API access (default: `*`)
+15. `--app-description`: Set the application description
+16. `--app-name`: Set the application name (default: `AGiXT Chat`)
+17. `--app-uri`: Set the application URI (default: `http://localhost:3437`)
+18. `--streamlit-app-uri`: Set the Streamlit app URI (default: `http://localhost:8501`)
+19. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
+20. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
+21. `--disabled-providers`: Set disabled providers (comma-separated list)
+22. `--disabled-extensions`: Set disabled extensions (comma-separated list)
+23. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
+24. `--github-client-id`: Set GitHub client ID for authentication
+25. `--github-client-secret`: Set GitHub client secret for authentication
+26. `--google-client-id`: Set Google client ID for authentication
+27. `--google-client-secret`: Set Google client secret for authentication
+28. `--microsoft-client-id`: Set Microsoft client ID for authentication
+29. `--microsoft-client-secret`: Set Microsoft client secret for authentication
+30. `--tz`: Set the timezone (default: system timezone)
+31. `--interactive-mode`: Set the interactive mode (default: `chat`)
+32. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
+33. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
+34. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
+35. `--database-name`: Set the database name (default: `models/agixt`)
+36. `--log-level`: Set the logging level (default: `INFO`)
+37. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
+38. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
+39. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
+
+Options specific to ezLocalai:
+
+1. `--with-ezlocalai`: Start AGiXT with ezLocalai integration.
+2. `--ezlocalai-uri`: Set the ezLocalai URI (default: `http://{local_ip}:8091`)
+3. `--default-model`: Set the default language model for ezLocalai (default: `QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF`)
+4. `--vision-model`: Set the vision model for ezLocalai (default: `deepseek-ai/deepseek-vl-1.3b-chat`)
+5. `--llm-max-tokens`: Set the maximum number of tokens for language models (default: `32768`)
+6. `--whisper-model`: Set the Whisper model for speech recognition (default: `base.en`)
+7. `--gpu-layers`: Set the number of GPU layers to use (automatically determined based on available VRAM but can be modified.) (default: `-1` for all)
+
+For a full list of options with their current values, run:
+
+```bash
+python start.py --help
+```
+
+## Docker Deployment
+
+After setting up the environment variables and ensuring Docker and Docker Compose are installed, the script will:
+
+1. Stop any running AGiXT Docker containers
+2. Pull the latest Docker images (if auto-update is enabled)
+3. Start the AGiXT services using Docker Compose
+
+## Troubleshooting
+
+- If the script fails to run on Linux, run it with `sudo`.
+- If you encounter any issues with Docker installation:
+  - On Linux, ensure you have sudo privileges and that your system is up to date.
+  - On macOS and Windows, follow the instructions to install Docker Desktop manually if the script cannot install it automatically.
+- Check the Docker logs for any error messages if the containers fail to start.
+- Verify that all required ports are available and not in use by other services.
+- If the `python` command is not recognized, try using `python3` instead.
+
+## Security Considerations
+
+- The `AGIXT_API_KEY` is automatically generated if not provided. Ensure to keep this key secure and do not share it publicly.
+- When using authentication providers (GitHub, Google, Microsoft), ensure that the client IDs and secrets are kept confidential.
+- Be cautious when enabling file uploads and voice input, as these features may introduce potential security risks if not properly managed.
 
 ## Configuration
 

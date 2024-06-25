@@ -1,12 +1,12 @@
 import asyncio
 import os
 from pathlib import Path
+import subprocess
 
 try:
     import google.generativeai as genai  # Primary import attempt
 except ImportError:
     import sys
-    import subprocess
 
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "google-generativeai"]
@@ -14,17 +14,15 @@ except ImportError:
     import google.generativeai as genai  # Import again after installation
 
 try:
-    import gtts as ts
+    from gtts import gTTS
 except ImportError:
     import sys
-    import subprocess
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
-    import gtts as ts
+    from gtts import gTTS
 
-from pydub import AudioSegment
-from Globals import getenv
 import uuid
+import base64
 
 
 class GoogleProvider:
@@ -87,13 +85,40 @@ class GoogleProvider:
             return f"Gemini Error: {e}"
 
     async def text_to_speech(self, text: str):
-        tts = ts.gTTS(text)
+        # Generate MP3 using gTTS
+        tts = gTTS(text)
         mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
         tts.save(mp3_path)
+
+        # Convert MP3 to 16kHz WAV using ffmpeg
         wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
-        audio = AudioSegment.from_mp3(mp3_path)
-        audio = audio.set_frame_rate(16000)
-        audio.export(wav_path, format="wav")
+        ffmpeg_command = [
+            "ffmpeg",
+            "-i",
+            mp3_path,
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            wav_path,
+        ]
+
+        try:
+            subprocess.run(ffmpeg_command, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error during conversion: {e.stderr.decode()}")
+            raise
+
+        # Read the WAV file
+        with open(wav_path, "rb") as wav_file:
+            audio_data = wav_file.read()
+
+        # Clean up temporary files
         os.remove(mp3_path)
-        audio_url = f"{getenv('AGIXT_URI')}/outputs/{os.path.basename(wav_path)}"
-        return audio_url
+        os.remove(wav_path)
+
+        # Encode audio data to base64
+        audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+        return audio_base64
