@@ -13,9 +13,9 @@ class Gpt4freeProvider:
         # Breaking changes were made after g4f v0.2.6.2
         # Unable to get it to work in containers in newer versions.
         self.requirements = ["g4f==0.2.6.2"]
-        self.AI_MODEL = "gpt-3.5-turbo"
-        self.provider = FreeGpt
-        self.provider_name = "FreeGpt"
+        self.AI_MODEL = "gemini-pro"
+        self.provider = Liaobots
+        self.provider_name = "Liaobots"
         self.providers = [
             {
                 "name": "DeepInfra",
