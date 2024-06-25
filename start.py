@@ -167,6 +167,7 @@ def get_default_env_vars():
     machine_tz = get_localzone()
     return {
         "AGIXT_API_KEY": "",
+        "STREAMLIT_AGIXT_URI": "http://agixt:7437",
         "AGIXT_URI": "http://localhost:7437",
         "AGIXT_AGENT": "AGiXT",
         "AGIXT_BRANCH": "stable",
