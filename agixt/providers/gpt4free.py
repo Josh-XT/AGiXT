@@ -3,7 +3,6 @@ import asyncio
 import random
 from g4f.Provider import (
     HuggingChat,
-    ChatgptDemo,
     GptForLove,
     ChatgptAi,
     DeepInfra,
@@ -19,8 +18,8 @@ class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
-        self.provider = ChatgptDemo
-        self.provider_name = "ChatgptDemo"
+        self.provider = GptForLove
+        self.provider_name = "GptForLove"
         self.providers = [
             {
                 "name": "HuggingChat",
@@ -30,13 +29,6 @@ class Gpt4freeProvider:
                     "mistralai/Mistral-7B-Instruct-v0.1",
                     "openchat/openchat_3.5",
                     "meta-llama/Llama-2-70b-chat-hf",
-                ],
-            },
-            {
-                "name": "ChatgptDemo",
-                "class": ChatgptDemo,
-                "models": [
-                    "gpt-3.5-turbo",
                 ],
             },
             {
@@ -124,10 +116,6 @@ class Gpt4freeProvider:
             )
             if len(self.failures) < len(self.providers):
                 for provider in self.providers:
-                    for failure in self.failures:
-                        if failure["provider"] == provider["name"]:
-                            # Skip this provider and try another
-                            continue
                     provider_models = provider["models"]
                     if not isinstance(provider_models, list):
                         provider_models = [provider_models]
@@ -136,10 +124,15 @@ class Gpt4freeProvider:
                         if failure["provider"] == provider["name"]:
                             if failure["model"] in provider_models:
                                 # delete the model from the list for the provider
-                                provider_models.remove(failure["model"])
+                                del provider_models[
+                                    provider_models.index(failure["model"])
+                                ]
                     if len(provider_models) > 0:
                         # Skip this provider and try another
                         continue
+                    logging.info(
+                        f"[Gpt4Free] Available models: {provider_models} for provider: {provider['name']}"
+                    )
                     model = random.choice(provider_models)
                     logging.info(
                         f"[Gpt4Free] Switching to provider: {provider['name']} with model: {model}"
