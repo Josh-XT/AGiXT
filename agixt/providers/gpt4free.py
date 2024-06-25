@@ -1,11 +1,12 @@
-from g4f.client import Client
 import logging
 import asyncio
+from g4f.Provider import RetryProvider
+from g4f.models import ModelUtils
 
 
 class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gemini-pro", **kwargs):
-        self.requirements = ["g4f"]
+        self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gemini-pro"
 
     @staticmethod
@@ -13,33 +14,30 @@ class Gpt4freeProvider:
         return ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        client = Client()
-        models = ["gemini-pro", "gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
-            task = asyncio.create_task(
-                client.chat.completions.create(
-                    model=self.AI_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=False,
-                )
+            model = ModelUtils.convert[self.AI_MODEL]
+        except:
+            model = ModelUtils.convert["gemini-pro"]
+        provider = model.best_provider
+        if provider:
+            append_model = f" and model: {model.name}" if model.name else ""
+            logging.info(
+                f"[Gpt4Free] Using provider: {provider.__name__}{append_model}"
             )
-            response = asyncio.gather(task)
-            return str(response.choices[0].message.content)
-        except Exception as e:
-            logging.warning(f"gpt4free API Error: {e}")
-            for model in models:
-                try:
-                    task = asyncio.create_task(
-                        client.chat.completions.create(
-                            model=model,
-                            messages=[{"role": "user", "content": prompt}],
-                            stream=False,
-                        )
+        try:
+            return (
+                await asyncio.gather(
+                    provider.create_async(
+                        model=model.name,
+                        messages=[{"role": "user", "content": prompt}],
                     )
-                    response = asyncio.gather(task)
-                    return str(response.choices[0].message.content)
-                except Exception as e:
-                    logging.warning(f"gpt4free API Error: {e}")
-                    continue
-        return "Unable to retrieve a response from the gpt4free provider."
+                )
+            )[0]
+        except Exception as e:
+            raise e
+        finally:
+            if provider and isinstance(provider, RetryProvider):
+                if hasattr(provider, "exceptions"):
+                    for provider_name in provider.exceptions:
+                        error = provider.exceptions[provider_name]
+                        logging.error(f"[Gpt4Free] {provider_name}: {error}")
