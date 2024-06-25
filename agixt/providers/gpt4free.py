@@ -1,13 +1,13 @@
 import logging
 import asyncio
-from g4f.Provider import RetryProvider
-from g4f.models import ModelUtils
+from g4f.models import ModelUtils, _all_models
 
 
 class Gpt4freeProvider:
-    def __init__(self, AI_MODEL: str = "gemini-pro", **kwargs):
+    def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "gemini-pro"
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
+        self.failures = []
 
     @staticmethod
     def services():
@@ -17,7 +17,7 @@ class Gpt4freeProvider:
         try:
             model = ModelUtils.convert[self.AI_MODEL]
         except:
-            model = ModelUtils.convert["gemini-pro"]
+            model = ModelUtils.convert["gpt-3.5-turbo"]
         provider = model.best_provider
         if provider:
             append_model = f" and model: {model.name}" if model.name else ""
@@ -34,10 +34,14 @@ class Gpt4freeProvider:
                 )
             )[0]
         except Exception as e:
-            raise e
-        finally:
-            if provider and isinstance(provider, RetryProvider):
-                if hasattr(provider, "exceptions"):
-                    for provider_name in provider.exceptions:
-                        error = provider.exceptions[provider_name]
-                        logging.error(f"[Gpt4Free] {provider_name}: {error}")
+            logging.error(f"[Gpt4Free] {e}")
+            # Add model to failure list and try again.
+            self.failures.append(model.name)
+            if len(self.failures) < len(_all_models):
+                for model in _all_models:
+                    if model not in self.failures:
+                        self.AI_MODEL = model
+                        break
+                return await self.inference(prompt=prompt, tokens=tokens, images=images)
+            else:
+                return "Unable to retrieve response."
