@@ -4,9 +4,9 @@ from g4f.models import ModelUtils, _all_models
 
 
 class Gpt4freeProvider:
-    def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
+    def __init__(self, AI_MODEL: str = "claude-3-sonnet", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-sonnet"
         self.failures = []
 
     @staticmethod
@@ -17,7 +17,7 @@ class Gpt4freeProvider:
         try:
             model = ModelUtils.convert[self.AI_MODEL]
         except:
-            model = ModelUtils.convert["gpt-3.5-turbo"]
+            model = ModelUtils.convert["claude-3-sonnet"]
         provider = model.best_provider
         if provider:
             append_model = f" and model: {model.name}" if model.name else ""
@@ -37,7 +37,7 @@ class Gpt4freeProvider:
             logging.error(f"[Gpt4Free] {e}")
             # Add model to failure list and try again.
             self.failures.append(model.name)
-            if len(self.failures) < len(_all_models):
+            if len(self.failures) <= len(_all_models):
                 for model in _all_models:
                     if model not in self.failures:
                         self.AI_MODEL = model
