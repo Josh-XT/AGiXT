@@ -2,9 +2,7 @@ import logging
 import asyncio
 import random
 from g4f.Provider import (
-    HuggingChat,
     DeepInfra,
-    Liaobots,
     FreeGpt,
     GptGo,
 )
@@ -15,38 +13,16 @@ class Gpt4freeProvider:
         # Breaking changes were made after g4f v0.2.6.2
         # Unable to get it to work in containers in newer versions.
         self.requirements = ["g4f==0.2.6.2"]
-        self.AI_MODEL = "gpt-4o"
-        self.provider = Liaobots
-        self.provider_name = "Liaobots"
+        self.AI_MODEL = "gpt-3.5-turbo"
+        self.provider = FreeGpt
+        self.provider_name = "FreeGpt"
         self.providers = [
-            {
-                "name": "HuggingChat",
-                "class": HuggingChat,
-                "models": [
-                    "HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1",
-                    "mistralai/Mixtral-8x7B-Instruct-v0.1",
-                    "mistralai/Mistral-7B-Instruct-v0.2",
-                    "openchat/openchat_3.5",
-                    "meta-llama/Llama-3-70B-Instruct",
-                    "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO",
-                ],
-            },
             {
                 "name": "DeepInfra",
                 "class": DeepInfra,
                 "models": [
                     "meta-llama/Meta-Llama-3-70B-Instruct",
                     "Qwen/Qwen2-72B-Instruct",
-                ],
-            },
-            {
-                "name": "Liaobots",
-                "class": Liaobots,
-                "models": [
-                    "gpt-4o",
-                    "claude-3-opus-20240229",
-                    "claude-3-sonnet-20240229",
-                    "gemini-pro",
                 ],
             },
             {
@@ -74,39 +50,6 @@ class Gpt4freeProvider:
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
         )
-        if self.provider_name == "Liaobots":
-            self.provider.models = {
-                "gpt-4o": {
-                    "context": "8K",
-                    "id": "gpt-4o-free",
-                    "maxLength": 31200,
-                    "model": "ChatGPT",
-                    "name": "GPT-4o-free",
-                    "provider": "OpenAI",
-                    "tokenLimit": 7800,
-                },
-                "gemini-pro": {
-                    "id": "gemini-pro",
-                    "name": "Gemini-Pro",
-                    "maxLength": 120000,
-                    "tokenLimit": 30000,
-                    "context": "32K",
-                },
-                "claude-3-opus-20240229": {
-                    "id": "claude-3-opus-20240229",
-                    "name": "Claude-3-Opus",
-                    "maxLength": 800000,
-                    "tokenLimit": 200000,
-                    "context": "200K",
-                },
-                "claude-3-sonnet-20240229": {
-                    "id": "claude-3-sonnet-20240229",
-                    "name": "Claude-3-Sonnet",
-                    "maxLength": 800000,
-                    "tokenLimit": 200000,
-                    "context": "200K",
-                },
-            }
         try:
             return (
                 await asyncio.gather(
