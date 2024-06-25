@@ -3,7 +3,6 @@ import asyncio
 import random
 from g4f.Provider import (
     HuggingChat,
-    GptForLove,
     ChatgptAi,
     DeepInfra,
     ChatBase,
@@ -18,8 +17,8 @@ class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-3.5-turbo"
-        self.provider = GptForLove
-        self.provider_name = "GptForLove"
+        self.provider = ChatgptAi
+        self.provider_name = "ChatgptAi"
         self.providers = [
             {
                 "name": "HuggingChat",
@@ -29,13 +28,6 @@ class Gpt4freeProvider:
                     "mistralai/Mistral-7B-Instruct-v0.1",
                     "openchat/openchat_3.5",
                     "meta-llama/Llama-2-70b-chat-hf",
-                ],
-            },
-            {
-                "name": "GptForLove",
-                "class": GptForLove,
-                "models": [
-                    "gpt-3.5-turbo",
                 ],
             },
             {
@@ -96,7 +88,6 @@ class Gpt4freeProvider:
         return ["llm"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
-        # Provider data is a list of providers for the selected model
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
         )
@@ -115,32 +106,41 @@ class Gpt4freeProvider:
                 {"provider": self.provider_name, "model": self.AI_MODEL}
             )
             if len(self.failures) < len(self.providers):
-                for provider in self.providers:
-                    provider_models = provider["models"]
-                    if not isinstance(provider_models, list):
-                        provider_models = [provider_models]
-                    # Remove any models that have failed
-                    for failure in self.failures:
-                        if failure["provider"] == provider["name"]:
-                            if failure["model"] in provider_models:
-                                # delete the model from the list for the provider
-                                del provider_models[
-                                    provider_models.index(failure["model"])
-                                ]
-                    if provider_models == []:
-                        # Skip this provider and try another
-                        continue
-                    logging.info(
-                        f"[Gpt4Free] Available models: {provider_models} for provider: {provider['name']}"
-                    )
-                    model = random.choice(provider_models)
-                    logging.info(
-                        f"[Gpt4Free] Switching to provider: {provider['name']} with model: {model}"
-                    )
+                available_providers = self.get_available_providers()
+                if available_providers:
+                    provider = random.choice(available_providers)
                     self.provider = provider["class"]
                     self.provider_name = provider["name"]
-                    self.AI_MODEL = model
-                    break
-                return await self.inference(prompt=prompt, tokens=tokens, images=images)
+                    self.AI_MODEL = random.choice(provider["models"])
+                    logging.info(
+                        f"[Gpt4Free] Switching to provider: {self.provider_name} with model: {self.AI_MODEL}"
+                    )
+                    return await self.inference(
+                        prompt=prompt, tokens=tokens, images=images
+                    )
+                else:
+                    return "No available providers. Unable to retrieve response."
             else:
-                return "Unable to retrieve response."
+                return "All providers exhausted. Unable to retrieve response."
+
+    def get_available_providers(self):
+        available_providers = []
+        for provider in self.providers:
+            provider_models = provider["models"]
+            if not isinstance(provider_models, list):
+                provider_models = [provider_models]
+            # Remove any models that have failed
+            available_models = [
+                model
+                for model in provider_models
+                if not any(
+                    failure["provider"] == provider["name"]
+                    and failure["model"] == model
+                    for failure in self.failures
+                )
+            ]
+            if available_models:
+                provider_copy = provider.copy()
+                provider_copy["models"] = available_models
+                available_providers.append(provider_copy)
+        return available_providers
