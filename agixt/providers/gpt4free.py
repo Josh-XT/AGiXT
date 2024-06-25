@@ -1,4 +1,4 @@
-from g4f.client import AsyncClient
+from g4f.client import Client
 import logging
 import asyncio
 
@@ -14,10 +14,10 @@ class Gpt4freeProvider:
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
         asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        client = AsyncClient()
+        client = Client()
         models = ["gemini-pro", "gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
-            response = await client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=self.AI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
@@ -27,7 +27,7 @@ class Gpt4freeProvider:
             logging.warning(f"gpt4free API Error: {e}")
             for model in models:
                 try:
-                    response = await client.chat.completions.create(
+                    response = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "user", "content": prompt}],
                         stream=False,
