@@ -17,21 +17,27 @@ class Gpt4freeProvider:
         client = Client()
         models = ["gemini-pro", "gpt-4-turbo", "gpt-4", "mixtral-8x7b", "mistral-7b"]
         try:
-            response = client.chat.completions.create(
-                model=self.AI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                stream=False,
+            task = asyncio.create_task(
+                client.chat.completions.create(
+                    model=self.AI_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False,
+                )
             )
+            response = asyncio.gather(task)
             return str(response.choices[0].message.content)
         except Exception as e:
             logging.warning(f"gpt4free API Error: {e}")
             for model in models:
                 try:
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "user", "content": prompt}],
-                        stream=False,
+                    task = asyncio.create_task(
+                        client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "user", "content": prompt}],
+                            stream=False,
+                        )
                     )
+                    response = asyncio.gather(task)
                     return str(response.choices[0].message.content)
                 except Exception as e:
                     logging.warning(f"gpt4free API Error: {e}")
