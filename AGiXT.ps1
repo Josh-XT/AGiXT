@@ -15,6 +15,10 @@ if( !(Test-Path "$(Get-Location)\.env") ) {
     Write-Host "Welcome to the AGiXT Environment Setup!"
     $env:AGIXT_AUTO_UPDATE = Read-Host "Would you like AGiXT to auto update? (y/n - default: y)"
     $env:AGIXT_API_KEY = Read-Host "Would you like to set an API Key for AGiXT? Enter it if so, otherwise press enter to proceed. (default is blank)"
+    # if AGIXT_API_KEY is blank, create a random string of letters and numbers
+    if ([string]::IsNullOrEmpty($env:AGIXT_API_KEY)) {
+        $env:AGIXT_API_KEY = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | ForEach-Object {[char]$_})
+    }
     $env:UVICORN_WORKERS = Read-Host "Enter the number of AGiXT workers to run (default: 10)"
     $env:AGIXT_AUTO_UPDATE = $env:AGIXT_AUTO_UPDATE.ToLower()
     if ([string]::IsNullOrEmpty($env:AGIXT_AUTO_UPDATE) -or $env:AGIXT_AUTO_UPDATE -eq "y" -or $env:AGIXT_AUTO_UPDATE -eq "yes") { $env:AGIXT_AUTO_UPDATE = "true" } else { $env:AGIXT_AUTO_UPDATE = "false" }  

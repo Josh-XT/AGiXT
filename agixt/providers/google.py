@@ -23,6 +23,7 @@ except ImportError:
     import gtts as ts
 
 from pydub import AudioSegment
+from Globals import getenv
 import uuid
 
 
@@ -91,9 +92,8 @@ class GoogleProvider:
         tts.save(mp3_path)
         wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
         audio = AudioSegment.from_mp3(mp3_path)
+        audio = audio.set_frame_rate(16000)
         audio.export(wav_path, format="wav")
         os.remove(mp3_path)
-        with open(wav_path, "rb") as f:
-            audio_content = f.read()
-        os.remove(wav_path)
-        return audio_content
+        audio_url = f"{getenv('AGIXT_URI')}/outputs/{os.path.basename(wav_path)}"
+        return audio_url
