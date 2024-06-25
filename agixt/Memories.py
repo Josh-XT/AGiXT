@@ -345,8 +345,6 @@ class Memories:
                         documents=chunk,
                     )
                 except:
-                    logging.warning(f"Error writing to memory: {chunk}")
-                    # Try again 5 times before giving up
                     self.failures += 1
                     for i in range(5):
                         try:

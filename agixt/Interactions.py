@@ -628,7 +628,7 @@ class Interactions:
                     try:
                         search_suggestions = json.loads(search_strings)
                     except:
-                        keywords = extract_keywords(text=search_string, limit=5)
+                        keywords = extract_keywords(text=str(search_strings), limit=5)
                         if keywords:
                             search_string = " ".join(keywords)
                             # add month and year to the end of the search string
