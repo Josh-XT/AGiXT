@@ -57,7 +57,7 @@ if getenv("EZLOCALAI_URI") == "http://localhost:8091/v1/":
         "translation_provider": "default",
         "image_provider": "None",
         "vision_provider": "None",
-        "AI_MODEL": "claude-3-sonnet",
+        "AI_MODEL": "claude-v2",
         "AI_TEMPERATURE": "0.7",
         "AI_TOP_P": "1",
         "MAX_TOKENS": "4096",
