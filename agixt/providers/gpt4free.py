@@ -20,6 +20,7 @@ class Gpt4freeProvider:
     def __init__(self, AI_MODEL: str = "claude-v2", **kwargs):
         self.requirements = ["g4f"]  # Breaking changes were made after g4f v0.2.6.2
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-v2"
+        self.provider = None
         self.providers = [
             {
                 "name": "ChatgptNext",
@@ -130,7 +131,9 @@ class Gpt4freeProvider:
                 # If the provider has no models, skip it
                 if p["models"] == []:
                     continue
-                model = p
+                self.provider = provider
+                model = random.choice(p["models"])
+                self.AI_MODEL = model
                 break
         logging.info(f"[Gpt4Free] Using provider: {provider_name} with model: {model}")
         try:
