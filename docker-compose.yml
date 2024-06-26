@@ -228,7 +228,7 @@ services:
     ports:
       - "8501:8501"
   agixtinteractive:
-    image: joshxt/agixt-interactive:main
+    image: joshxt/agixt-interactive:latest
     init: true
     environment:
       NEXT_TELEMETRY_DISABLED: 1
