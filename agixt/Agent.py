@@ -342,7 +342,10 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        return answer.replace("\_", "_")
+        answer = answer.replace("\_", "_")
+        if answer.endswith("\n\n"):
+            answer = answer[:-2]
+        return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
@@ -352,7 +355,10 @@ class Agent:
         answer = await self.VISION_PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        return answer.replace("\_", "_")
+        answer = answer.replace("\_", "_")
+        if answer.endswith("\n\n"):
+            answer = answer[:-2]
+        return answer
 
     def embeddings(self, input) -> np.ndarray:
         return self.embedder(input=input)
