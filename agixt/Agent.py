@@ -342,7 +342,7 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = answer.replace("\_", "_")
+        answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
         return answer
@@ -355,7 +355,7 @@ class Agent:
         answer = await self.VISION_PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = answer.replace("\_", "_")
+        answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
         return answer
