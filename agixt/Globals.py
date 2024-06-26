@@ -45,7 +45,7 @@ def get_tokens(text: str) -> int:
 
 DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
 
-if getenv("EZLOCALAI_URI") == "http://localhost:8091/v1/":
+if getenv("EZLOCALAI_API_KEY") == "":
     DEFAULT_SETTINGS = {
         "provider": "gpt4free",
         "mode": "prompt",

@@ -206,7 +206,7 @@ def get_default_env_vars():
         "LOG_FORMAT": "%(asctime)s | %(levelname)s | %(message)s",
         "UVICORN_WORKERS": "10",
         "AGIXT_AUTO_UPDATE": "true",
-        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091",
+        "EZLOCALAI_URI": f"http://{get_local_ip()}:8091/v1/",
         "DEFAULT_MODEL": "QuantFactory/dolphin-2.9.2-qwen2-7b-GGUF",
         "VISION_MODEL": "deepseek-ai/deepseek-vl-1.3b-chat",
         "LLM_MAX_TOKENS": "32768",
