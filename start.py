@@ -246,17 +246,17 @@ def set_environment(env_updates=None):
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
-        command = f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
+        command = f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
     else:
         command = (
-            f"docker-compose -f {dockerfile} down && docker-compose -f {dockerfile} up"
+            f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} up"
         )
     print("Press Ctrl+C to stop the containers and exit.")
     try:
         run_shell_command(command)
     except KeyboardInterrupt:
         print("\nStopping AGiXT containers...")
-        run_shell_command(f"docker-compose -f {dockerfile} down")
+        run_shell_command(f"docker-compose -f {dockerfile} stop")
         print("AGiXT containers stopped.")
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e}")
@@ -377,11 +377,11 @@ def start_ezlocalai():
             nvidia_gpu = True
     if nvidia_gpu and total_vram > 0:
         run_shell_command(
-            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml down && docker-compose -f docker-compose-cuda.yml build && docker-compose -f docker-compose-cuda.yml up -d"
+            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml stop && docker-compose -f docker-compose-cuda.yml build && docker-compose -f docker-compose-cuda.yml up -d"
         )
     else:
         run_shell_command(
-            "cd ezlocalai && docker-compose down && docker-compose build && docker-compose up -d"
+            "cd ezlocalai && docker-compose stop && docker-compose build && docker-compose up -d"
         )
 
 
