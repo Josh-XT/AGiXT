@@ -166,6 +166,7 @@ The script supports setting any of the environment variables via command-line ar
 37. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
 38. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
 39. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
+40. `--with-streamlit`: Enable or disable the Streamlit UI (default: `true`)
 
 Options specific to ezLocalai:
 
