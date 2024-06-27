@@ -151,7 +151,11 @@ def run_shell_command(command):
     )
 
     while True:
-        output = process.stdout.readline()
+        try:
+            output = process.stdout.readline()
+        except:
+            print("View the logs in docker with 'docker-compose logs'")
+            break
         if output == "" and process.poll() is not None:
             break
         if output:
