@@ -46,6 +46,7 @@ class GoogleProvider:
         return ["llm", "tts", "vision"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
+        new_max_tokens = int(self.MAX_TOKENS) - tokens
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
         try:
@@ -57,7 +58,6 @@ class GoogleProvider:
                 model_name=self.AI_MODEL if not images else "gemini-pro-vision",
                 generation_config=generation_config,
             )
-            new_max_tokens = int(self.MAX_TOKENS) - tokens
             new_prompt = []
             if images:
                 for image in images:
