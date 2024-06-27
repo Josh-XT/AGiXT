@@ -440,7 +440,7 @@ class MagicalAuth:
                     user_preference.pref_value = value
         session.commit()
         session.close()
-        return "User updated successfully"
+        return "User updated successfully."
 
     def delete_user(self):
         user = verify_api_key(self.token)

@@ -86,12 +86,10 @@ async def send_magic_link(request: Request, login: Login):
     response_model=Detail,
     summary="Update user details",
 )
-def update_user(update: UserInfo, request: Request, authorization: str = Header(None)):
-    response = request.json()
+async def update_user(request: Request, authorization: str = Header(None)):
+    data = await request.json()
     user = MagicalAuth(token=authorization).update_user(
-        ip_address=request.client.host,
-        **update.model_dump(),
-        **response,
+        ip_address=request.client.host, **data
     )
     return Detail(detail=user)
 
