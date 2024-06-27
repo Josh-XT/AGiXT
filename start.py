@@ -212,6 +212,8 @@ def get_default_env_vars():
         "LLM_MAX_TOKENS": "32768",
         "WHISPER_MODEL": "base.en",
         "GPU_LAYERS": "0",
+        "WITH_STREAMLIT": "true",
+        "WITH_EZLOCALAI": "false",
     }
 
 
@@ -245,6 +247,16 @@ def set_environment(env_updates=None):
     dockerfile = "docker-compose.yml"
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
+    if str(env_vars["WITH_STREAMLIT"]).lower() == "true":
+        if env_vars["AGIXT_BRANCH"] != "stable":
+            dockerfile = "docker-compose-dev.yml"
+        else:
+            dockerfile = "docker-compose.yml"
+    else:
+        if env_vars["AGIXT_BRANCH"] != "stable":
+            dockerfile = "docker-compose-nostreamlit-dev.yml"
+        else:
+            dockerfile = "docker-compose-nostreamlit.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
         command = f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
     else:
@@ -418,6 +430,9 @@ if __name__ == "__main__":
         else:
             auto_update = "false"
         env_updates["AGIXT_AUTO_UPDATE"] = auto_update
+    if args.with_ezlocalai == True:
+        print("Starting ezLocalai, this can take several minutes...")
+        start_ezlocalai()
     # Apply updates and restart server
-    print("Please wait while AGiXT is starting, this can take several...")
+    print("Please wait while AGiXT is starting, this can take several minutes...")
     set_environment(env_updates=env_updates)
