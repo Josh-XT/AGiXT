@@ -244,6 +244,9 @@ def set_environment(env_updates=None):
     )
     with open(".env", "w") as file:
         file.write(env_file_content)
+    if str(env_vars["WITH_EZLOCALAI"]).lower() == "true":
+        print("Starting ezLocalai, this can take several minutes...")
+        start_ezlocalai()
     dockerfile = "docker-compose.yml"
     if env_vars["AGIXT_BRANCH"] != "stable":
         dockerfile = "docker-compose-dev.yml"
@@ -400,12 +403,6 @@ def start_ezlocalai():
 if __name__ == "__main__":
     check_prerequisites()
     parser = argparse.ArgumentParser(description="AGiXT Environment Setup")
-    parser.add_argument(
-        "--with-ezlocalai",
-        help="Start EZLocalAI",
-        action="store_true",
-        required=False,
-    )
     # Add arguments for each environment variable
     for key, value in get_default_env_vars().items():
         parser.add_argument(
@@ -423,16 +420,14 @@ if __name__ == "__main__":
     # Check if .env file exists and if AGIXT_AUTO_UPDATE is not set via command line
     if not os.path.exists(".env") and "AGIXT_AUTO_UPDATE" not in env_updates:
         auto_update = prompt_user(
-            "Would you like AGiXT to auto update? (Y for yes, N for no)", "y"
+            "Would you like AGiXT to auto update when this script is run in the future? (Y for yes, N for no)",
+            "y",
         )
         if auto_update.lower() == "y" or auto_update.lower() == "yes":
             auto_update = "true"
         else:
             auto_update = "false"
         env_updates["AGIXT_AUTO_UPDATE"] = auto_update
-    if args.with_ezlocalai == True:
-        print("Starting ezLocalai, this can take several minutes...")
-        start_ezlocalai()
     # Apply updates and restart server
     print("Please wait while AGiXT is starting, this can take several minutes...")
     set_environment(env_updates=env_updates)
