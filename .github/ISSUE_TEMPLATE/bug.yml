@@ -39,11 +39,11 @@ body:
           required: true
         - label: 'I am NOT trying to run AGiXT outside of docker, the only supported method to run it.'
           required: true
-        - label: 'PowerShell 7.X is installed and the version in use on the host machine.'
+        - label: 'Python 3.10.X is installed and the version in use on the host machine.'
           required: true
-        - label: 'Docker is installed and running on the host machine.'
+        - label: 'The latest version of Docker is installed and running on the host machine.'
           required: true
-        - label: 'I am using the latest version of AGiXT.'
+        - label: 'I am using the latest stable version of AGiXT.'
           required: true
         - label: 'I have provided enough information for the maintainers to reproduce and diagnose the issue.'
           required: true
