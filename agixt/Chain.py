@@ -289,7 +289,8 @@ class Chain:
         target_id = target.id
         argument_value = prompt[argument_key]
         prompt_arguments = prompt.copy()
-        del prompt_arguments[argument_key]
+        if argument_key in prompt_arguments:
+            del prompt_arguments[argument_key]
         chain_step = ChainStep(
             chain_id=chain.id,
             step_number=step_number,
@@ -357,7 +358,8 @@ class Chain:
             prompt_name = prompt.get("prompt_name")
             prompt_category = prompt.get("prompt_category", "Default")
             del prompt_args["prompt_name"]
-            del prompt_args["prompt_category"]
+            if "prompt_category" in prompt_args:
+                del prompt_args["prompt_category"]
             prompt_obj = (
                 session.query(Prompt)
                 .filter(
@@ -371,7 +373,11 @@ class Chain:
                 target_prompt_id = prompt_obj.id
         elif prompt_type == "Chain":
             chain_name = prompt.get("chain_name")
-            del prompt_args["chain_name"]
+            if "chain" in prompt:
+                chain_name = prompt.get("chain")
+                del prompt_args["chain"]
+            if "chain_name" in prompt_args:
+                del prompt_args["chain_name"]
             chain_obj = (
                 session.query(ChainDB)
                 .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
