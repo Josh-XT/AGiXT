@@ -344,10 +344,10 @@ class Chain:
         target_chain_id = None
         target_command_id = None
         target_prompt_id = None
+        prompt_args = prompt.copy()
         if prompt_type == "Command":
             command_name = prompt.get("command_name")
-            command_args = prompt.copy()
-            del command_args["command_name"]
+            del prompt_args["command_name"]
             command = (
                 session.query(Command).filter(Command.name == command_name).first()
             )
@@ -355,9 +355,9 @@ class Chain:
                 target_command_id = command.id
         elif prompt_type == "Prompt":
             prompt_name = prompt.get("prompt_name")
-            prompt_category = prompt_name = prompt.get("prompt_name", "Default")
-            prompt_args = prompt.copy()
+            prompt_category = prompt.get("prompt_category", "Default")
             del prompt_args["prompt_name"]
+            del prompt_args["prompt_category"]
             prompt_obj = (
                 session.query(Prompt)
                 .filter(
@@ -371,8 +371,7 @@ class Chain:
                 target_prompt_id = prompt_obj.id
         elif prompt_type == "Chain":
             chain_name = prompt.get("chain_name")
-            chain_args = prompt.copy()
-            del chain_args["chain_name"]
+            del prompt_args["chain_name"]
             chain_obj = (
                 session.query(ChainDB)
                 .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
