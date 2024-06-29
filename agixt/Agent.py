@@ -424,6 +424,7 @@ class Agent:
                     provider_id=global_agent.provider_id,
                 )
                 session.add(agent)
+                session.commit()
                 agent_settings = (
                     session.query(AgentSettingModel)
                     .filter_by(agent_id=global_agent.id)
@@ -436,6 +437,7 @@ class Agent:
                         value=setting.value,
                     )
                     session.add(agent_setting)
+                session.commit()
                 agent_commands = (
                     session.query(AgentCommand)
                     .filter_by(agent_id=global_agent.id)
