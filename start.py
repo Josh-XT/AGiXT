@@ -265,11 +265,9 @@ def set_environment(env_updates=None):
         else:
             dockerfile = "docker-compose-nostreamlit.yml"
     if str(env_vars["AGIXT_AUTO_UPDATE"]).lower() == "true":
-        command = f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up"
+        command = f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} pull && docker-compose -f {dockerfile} up -d"
     else:
-        command = (
-            f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} up"
-        )
+        command = f"docker-compose -f {dockerfile} stop && docker-compose -f {dockerfile} up -d"
     print("Press Ctrl+C to stop the containers and exit.")
     try:
         run_shell_command(command)
