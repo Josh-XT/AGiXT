@@ -432,7 +432,6 @@ class Interactions:
             conversation_history=conversation_history,
             persona=persona,
             import_files=file_contents,
-            output_url=f"{self.outputs}/{c.get_conversation_id()}/",
             **args,
         )
         tokens = get_tokens(formatted_prompt)
