@@ -257,7 +257,7 @@ class Interactions:
             )
         if context != [] and context != "":
             context = "\n".join(context)
-            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` .** .\n"
+            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user.** .\n"
         else:
             context = ""
         working_directory = self.agent.working_directory
