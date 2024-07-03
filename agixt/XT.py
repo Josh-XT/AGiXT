@@ -1836,7 +1836,7 @@ class AGiXT:
             file_preview = "\n".join(lines)
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Analyzing data from file.",
+                message=f"[ACTIVITY] Analyzing data from file `{file_name}`.",
             )
         code_interpreter = await self.inference(
             user_input=user_input,
@@ -1883,13 +1883,25 @@ class AGiXT:
             conversation_name=conversation_name,
         )
         if not code_execution.startswith("Error"):
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Data analysis complete.",
+            # Write to conversation memories
+            collection_id = c.get_conversation_id()
+            file_reader = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=collection_id,
+                ApiClient=self.ApiClient,
+                user=self.user_email,
+            )
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            file_name_string = ", ".join(file_names)
+            await file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=f"Results from data analysis on {file_name_string} at {timestamp}:\n{code_execution}",
+                external_source=f"files {file_name_string}",
             )
             c.log_interaction(
                 role=self.agent_name,
-                message=f"## Results from analyzing data:\n{code_execution}",
+                message=f"[ACTIVITY] Writing report on analysis.",
             )
         else:
             self.failures += 1

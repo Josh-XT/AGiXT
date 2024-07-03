@@ -140,14 +140,18 @@ class Interactions:
             conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
         conversation = c.get_conversation()
+        conversation_id = c.get_conversation_id()
+        conversation_outputs = (
+            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
+        )
         if top_results == 0:
             context = []
         else:
             if user_input:
                 if self.websearch == None or self.websearch.collection_number == "1":
-                    conversation_id = c.get_conversation_id()
+
                     self.websearch = Websearch(
-                        collection_number=str(conversation_id),
+                        collection_number=conversation_id,
                         agent=self.agent,
                         user=self.user,
                         ApiClient=self.ApiClient,
@@ -249,11 +253,11 @@ class Interactions:
             context.append([kwargs["context"]])
         if vision_response != "":
             context.append(
-                f"{self.agent_name}'s visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
+                f"The assistant's visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
             )
         if context != [] and context != "":
             context = "\n".join(context)
-            context = f"The user's input causes you remember these things:\n{context}\n\nIf referencing a file, paper, or website, cite sources.\n"
+            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` .** .\n"
         else:
             context = ""
         working_directory = self.agent.working_directory
@@ -409,6 +413,7 @@ class Interactions:
             "conversation_history",
             "persona",
             "import_files",
+            "output_url",
         ]
         args = kwargs.copy()
         for arg in kwargs:
@@ -427,6 +432,7 @@ class Interactions:
             conversation_history=conversation_history,
             persona=persona,
             import_files=file_contents,
+            output_url=f"{self.outputs}/{c.get_conversation_id()}/",
             **args,
         )
         tokens = get_tokens(formatted_prompt)
@@ -520,6 +526,7 @@ class Interactions:
         if conversation_name == "":
             conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
+        conversation_id = c.get_conversation_id()
         async_tasks = []
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
@@ -547,9 +554,8 @@ class Interactions:
                     )
                     logging.error(f"Error getting vision response: {e}")
         if self.websearch == None or self.websearch.collection_number == "1":
-            conversation_id = c.get_conversation_id()
             self.websearch = Websearch(
-                collection_number=str(conversation_id),
+                collection_number=conversation_id,
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -668,6 +674,11 @@ class Interactions:
             vision_response=vision_response,
             **kwargs,
         )
+        if self.outputs in formatted_prompt:
+            # Anonymize AGiXT server URL to LLM
+            formatted_prompt = formatted_prompt.replace(
+                self.outputs, f"http://localhost:7437/outputs/{self.agent.agent_id}"
+            )
         logging.info(f"Formatted Prompt: {formatted_prompt}")
         log_message = (
             user_input
@@ -695,6 +706,10 @@ class Interactions:
                 message=f"[ACTIVITY][ERROR] Unable to generate response.",
             )
             return f"Unable to retrieve response."
+        # Deanonymize AGiXT server URL to send back to the user
+        self.response = self.response.replace(
+            f"http://localhost:7437/outputs/{self.agent.agent_id}", self.outputs
+        )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
