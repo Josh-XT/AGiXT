@@ -605,11 +605,18 @@ class MagicalAuth:
             return {}
         decrypted_preferences = {}
         for key, value in user_preferences.items():
-            if "password" in key.lower():
-                value = decrypt(self.encryption_key, value)
-            elif "api_key" in key.lower():
-                value = decrypt(self.encryption_key, value)
-            elif "_secret" in key.lower():
-                value = decrypt(self.encryption_key, value)
+            if (
+                value != "password"
+                and value != ""
+                and value is not None
+                and value != "string"
+                and value != "text"
+            ):
+                if "password" in key.lower():
+                    value = decrypt(self.encryption_key, value)
+                elif "api_key" in key.lower():
+                    value = decrypt(self.encryption_key, value)
+                elif "_secret" in key.lower():
+                    value = decrypt(self.encryption_key, value)
             decrypted_preferences[key] = value
         return decrypted_preferences
