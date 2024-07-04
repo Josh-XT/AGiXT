@@ -249,12 +249,15 @@ class MagicalAuth:
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
+        expiration = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) + timedelta(days=1)
         self.token = jwt.encode(
             {
                 "sub": str(user.id),
                 "email": self.email,
                 "admin": user.admin,
-                "exp": datetime.utcnow() + timedelta(hours=24),
+                "exp": expiration,
             },
             self.encryption_key,
             algorithm="HS256",
