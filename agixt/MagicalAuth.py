@@ -146,6 +146,14 @@ def send_email(
     return None
 
 
+def encrypt(key: str, data: str):
+    return jwt.encode({"data": data}, key, algorithm="HS256")
+
+
+def decrypt(key: str, data: str):
+    return jwt.decode(data, key, algorithms=["HS256"])["data"]
+
+
 class MagicalAuth:
     def __init__(self, token: str = None):
         encryption_key = getenv("AGIXT_API_KEY")
@@ -424,6 +432,12 @@ class MagicalAuth:
             .all()
         )
         for key, value in kwargs.items():
+            if "password" in key.lower():
+                value = encrypt(self.encryption_key, value)
+            if "api_key" in key.lower():
+                value = encrypt(self.encryption_key, value)
+            if "_secret" in key.lower():
+                value = encrypt(self.encryption_key, value)
             if key in allowed_keys:
                 setattr(user, key, value)
             else:
@@ -584,3 +598,18 @@ class MagicalAuth:
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         return user_preferences
+
+    def get_decrypted_user_preferences(self):
+        user_preferences = self.get_user_preferences()
+        if not user_preferences:
+            return {}
+        decrypted_preferences = {}
+        for key, value in user_preferences.items():
+            if "password" in key.lower():
+                value = decrypt(self.encryption_key, value)
+            elif "api_key" in key.lower():
+                value = decrypt(self.encryption_key, value)
+            elif "_secret" in key.lower():
+                value = decrypt(self.encryption_key, value)
+            decrypted_preferences[key] = value
+        return decrypted_preferences
