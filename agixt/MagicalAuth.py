@@ -574,13 +574,23 @@ class MagicalAuth:
         if not user_preferences:
             return {}
         if "subscription" in user_requirements:
-            if "subscription" not in user_preferences:
-                user_preferences["subscription"] = "none"
-            if str(user_preferences["subscription"]).lower() != "none":
-                if user.is_active is False:
-                    raise HTTPException(
-                        status_code=402, detail=user_preferences["subscription"]
-                    )
+            api_key = getenv("STRIPE_API_KEY")
+            if api_key:
+                import stripe
+
+                stripe.api_key = api_key
+                if "subscription" not in user_preferences:
+                    stripe_customer = stripe.Customer.create(email=user.email)
+                    user_preferences["subscription"] = stripe_customer["id"]
+                if str(user_preferences["subscription"]).lower() != "none":
+                    if user.is_active is False:
+                        session = stripe.CustomerSession.create(
+                            customer=user_preferences["subscription"],
+                            components={"pricing_table": {"enabled": True}},
+                        )
+                        raise HTTPException(
+                            status_code=402, detail=user_preferences["subscription"]
+                        )
         session.close()
         if "email" in user_preferences:
             del user_preferences["email"]
