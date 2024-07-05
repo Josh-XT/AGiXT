@@ -570,6 +570,7 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
+        session.close()
         user_requirements = self.registration_requirements()
         if not user_preferences:
             return {}
@@ -595,7 +596,6 @@ class MagicalAuth:
                                 "customer_session": c_session,
                             },
                         )
-        session.close()
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
