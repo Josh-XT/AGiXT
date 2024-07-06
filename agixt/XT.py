@@ -584,7 +584,6 @@ class AGiXT:
             user_input = f"Learn from the information from these websites:\n {url_str} "
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
-            search_depth=scrape_depth,
             summarize_content=summarize_content,
             conversation_name=conversation_name,
         )
