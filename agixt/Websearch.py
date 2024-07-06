@@ -283,12 +283,7 @@ class Websearch:
                             if not str(pick_a_link).lower().startswith("none"):
                                 logging.info(f"AI has decided to click: {pick_a_link}")
                                 task = asyncio.create_task(
-                                    Websearch(
-                                        collection_number=self.collection_number,
-                                        agent=self.agent,
-                                        user=self.user,
-                                        ApiClient=self.ApiClient,
-                                    ).recursive_browsing(
+                                    self.recursive_browsing(
                                         user_input=user_input,
                                         links=pick_a_link,
                                         conversation_name=conversation_name,
@@ -358,12 +353,7 @@ class Websearch:
                             message=f"[SUBACTIVITY][{activity_id}] Browsing [{url}]({url}).",
                         )
                     task = asyncio.create_task(
-                        Websearch(
-                            collection_number=self.collection_number,
-                            agent=self.agent,
-                            user=self.user,
-                            ApiClient=self.ApiClient,
-                        ).get_web_content(
+                        self.get_web_content(
                             url=url,
                             conversation_id=conversation_id,
                             agent_browsing=agent_browsing,
@@ -409,12 +399,9 @@ class Websearch:
                         message=f"[SUBACTIVITY][{activity_id}] Browsing [{link}]({link}).",
                     )
                     task = asyncio.create_task(
-                        Websearch(
-                            collection_number=self.collection_number,
-                            agent=self.agent,
-                            user=self.user,
-                            ApiClient=self.ApiClient,
-                        ).get_web_content(url=link, summarize_content=summarize_content)
+                        self.get_web_content(
+                            url=link, summarize_content=summarize_content
+                        )
                     )
                     tasks.append(task)
                     scraped_links.append(link)
@@ -611,12 +598,7 @@ class Websearch:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
                     task = asyncio.create_task(
-                        Websearch(
-                            collection_number=self.collection_number,
-                            agent=self.agent,
-                            user=self.user,
-                            ApiClient=self.ApiClient,
-                        ).recursive_browsing(
+                        self.recursive_browsing(
                             user_input=user_input,
                             links=links,
                             conversation_name=conversation_name,
