@@ -367,7 +367,6 @@ class Websearch:
     async def scrape_websites(
         self,
         user_input: str = "",
-        search_depth: int = 0,
         summarize_content: bool = False,
         conversation_name: str = "",
     ):
