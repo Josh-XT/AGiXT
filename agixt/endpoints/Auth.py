@@ -51,6 +51,8 @@ def log_in(
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
+    logging.info(f"Forwarded for: {request.headers.get('X-Forwarded-For')}")
+    logging.info(f"Client IP: {request.client.host}")
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user_data = auth.login(ip_address=client_ip)
     user_preferences = auth.get_user_preferences()
