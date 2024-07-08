@@ -51,7 +51,8 @@ def log_in(
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
-    user_data = auth.login(ip_address=request.client.host)
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+    user_data = auth.login(ip_address=client_ip)
     user_preferences = auth.get_user_preferences()
     return {
         "email": user_data.email,
@@ -71,10 +72,11 @@ async def send_magic_link(request: Request, login: Login):
     auth = MagicalAuth()
     data = await request.json()
     referrer = None
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     if "referrer" in data:
         referrer = data["referrer"]
     magic_link = auth.send_magic_link(
-        ip_address=request.client.host, login=login, referrer=referrer
+        ip_address=client_ip, login=login, referrer=referrer
     )
     return Detail(detail=magic_link)
 
@@ -88,9 +90,8 @@ async def send_magic_link(request: Request, login: Login):
 )
 async def update_user(request: Request, authorization: str = Header(None)):
     data = await request.json()
-    user = MagicalAuth(token=authorization).update_user(
-        ip_address=request.client.host, **data
-    )
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+    user = MagicalAuth(token=authorization).update_user(ip_address=client_ip, **data)
     return Detail(detail=user)
 
 
@@ -231,10 +232,11 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
 async def oauth_login(request: Request, provider: str):
     data = await request.json()
     auth = MagicalAuth()
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     magic_link = auth.sso(
         provider=provider.lower(),
         code=data["code"],
-        ip_address=request.client.host,
+        ip_address=client_ip,
         referrer=data["referrer"] if "referrer" in data else getenv("MAGIC_LINK_URL"),
     )
     return {"detail": magic_link, "email": auth.email, "token": auth.token}
