@@ -37,6 +37,11 @@ def execute_python_code(code: str, agent_id: str = "") -> str:
     # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
+    # check if ``` is on the first or last line and remove it
+    if code.startswith("```"):
+        code = code.split("\n", 1)[1]
+    if code.endswith("```"):
+        code = code[:-3]
     temp_file_name = f"{str(uuid.uuid4())}.py"
     temp_file = os.path.join(docker_working_dir, temp_file_name)
     logging.info(f"Writing Python code to temporary file: {temp_file}")

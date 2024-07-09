@@ -1466,7 +1466,6 @@ class AGiXT:
         await self.analyze_csv(
             user_input=new_prompt,
             conversation_name=conversation_name,
-            file_content=None,
         )
         if mode == "command" and command_name and command_variable:
             try:
@@ -1787,6 +1786,7 @@ class AGiXT:
         user_input: str,
         conversation_name: str,
         file_content=None,
+        file_name="",
     ):
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
         conversation_workspace = os.path.join(
@@ -1796,7 +1796,6 @@ class AGiXT:
         if not os.path.exists(conversation_workspace):
             os.makedirs(conversation_workspace)
         file_names = []
-        file_name = ""
         file_path = conversation_workspace
         if not file_content:
             files = os.listdir(conversation_workspace)
@@ -1948,6 +1947,7 @@ class AGiXT:
                 return await self.analyze_csv(
                     user_input=user_input,
                     conversation_name=conversation_name,
+                    file_name=file_name,
                     file_content=file_content,
                 )
             else:
