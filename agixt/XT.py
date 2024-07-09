@@ -1937,7 +1937,7 @@ class AGiXT:
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
         if "![" in code_execution:
-            image_name = code_execution.split("[")[1].split("]")[0]
+            image_name = f"{uuid.uuid4().hex}.png"
             image_data = code_execution.split(",")[1]
             image_data = base64.b64decode(image_data)
             image_path = os.path.join(conversation_workspace, image_name)
