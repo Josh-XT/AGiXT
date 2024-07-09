@@ -1911,7 +1911,6 @@ class AGiXT:
             code_execution = await self.execute_command(
                 command_name="Execute Python Code",
                 command_args={"code": code_verification, "text": file_content},
-                conversation_name=conversation_name,
             )
         except Exception as e:
             code_execution = f"Error: {e}"
