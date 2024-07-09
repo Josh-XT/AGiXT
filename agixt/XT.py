@@ -1795,6 +1795,7 @@ class AGiXT:
             os.makedirs(conversation_workspace)
         file_names = []
         file_name = ""
+        file_path = conversation_workspace
         if not file_content:
             files = os.listdir(conversation_workspace)
             logging.info(f"Files in conversation workspace: {files}")
@@ -1905,11 +1906,15 @@ class AGiXT:
             voice_response=False,
         )
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
-        code_execution = await self.execute_command(
-            command_name="Execute Python Code",
-            command_args={"code": code_verification, "text": file_content},
-            conversation_name=conversation_name,
-        )
+        try:
+            code_execution = await self.execute_command(
+                command_name="Execute Python Code",
+                command_args={"code": code_verification, "text": file_content},
+                conversation_name=conversation_name,
+            )
+        except Exception as e:
+            code_execution = f"Error: {e}"
+            logging.error(f"Error executing code: {code_execution}")
         if not code_execution.startswith("Error"):
             # Write to conversation memories
             collection_id = c.get_conversation_id()
