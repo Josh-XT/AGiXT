@@ -909,13 +909,13 @@ class AGiXT:
         conversation_workspace = os.path.normpath(
             os.path.join(self.agent_workspace, conversation_id)
         )
+        os.makedirs(conversation_workspace, exist_ok=True)
         file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
         file_path = os.path.join(conversation_workspace, file_name)
         full_path = os.path.normpath(os.path.join(conversation_workspace, file_name))
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
         if not full_path.startswith(conversation_workspace):
             raise Exception("Path given not allowed")
         if url.startswith("http"):
