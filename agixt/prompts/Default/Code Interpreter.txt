@@ -41,5 +41,3 @@ You are working the with file at {import_file} . Use this exact file path in any
 ```
 
 User's input: {user_input} 
-
-```python

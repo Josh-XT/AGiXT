@@ -1916,7 +1916,7 @@ class AGiXT:
                 command_args={"code": code_verification, "text": file_content},
             )
         except Exception as e:
-            code_execution = f"Error: {e}"
+            code_execution = "Error processing data."
             logging.error(f"Error executing code: {code_execution}")
         if code_execution.startswith("Error"):
             self.failures += 1
