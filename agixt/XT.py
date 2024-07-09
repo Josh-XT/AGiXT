@@ -933,7 +933,7 @@ class AGiXT:
             if not full_path.startswith(conversation_workspace):
                 raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
-                f.write(file_data)
+                f.write(full_path)
             url = f"{self.outputs}/{conversation_id}/{file_name}"
             return {"file_name": file_name, "file_url": url}
 
