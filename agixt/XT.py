@@ -888,7 +888,7 @@ class AGiXT:
         return response
 
     async def download_file_to_workspace(
-        self, url: str, file_name: str = "", conversation_id: str = ""
+        self, url: str, file_name: str = "", conversation_id: str = "0"
     ):
         """
         Download a file from a URL to the workspace
