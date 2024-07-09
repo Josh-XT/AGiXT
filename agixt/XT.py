@@ -1915,28 +1915,7 @@ class AGiXT:
         except Exception as e:
             code_execution = f"Error: {e}"
             logging.error(f"Error executing code: {code_execution}")
-        if not code_execution.startswith("Error"):
-            # Write to conversation memories
-            collection_id = c.get_conversation_id()
-            file_reader = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number=collection_id,
-                ApiClient=self.ApiClient,
-                user=self.user_email,
-            )
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            file_name_string = ", ".join(file_names)
-            await file_reader.write_text_to_memory(
-                user_input=user_input,
-                text=f"Results from data analysis on {file_name_string} at {timestamp}:\n{code_execution}",
-                external_source=f"files {file_name_string}",
-            )
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Writing report on analysis.",
-            )
-        else:
+        if code_execution.startswith("Error"):
             self.failures += 1
             if self.failures < 3:
                 c.log_interaction(
@@ -1954,4 +1933,9 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
+        c.log_interaction(role=self.agent_name, message=code_execution)
+        c.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Writing report on analysis.",
+        )
         return code_execution
