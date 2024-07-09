@@ -914,7 +914,6 @@ class AGiXT:
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        file_path = os.path.join(conversation_workspace, file_name)
         full_path = os.path.normpath(os.path.join(conversation_workspace, file_name))
         if not full_path.startswith(conversation_workspace):
             raise Exception("Path given not allowed")
@@ -1805,6 +1804,7 @@ class AGiXT:
             if len(csv_files) == 0:
                 return ""
             activities = c.get_activities(limit=20)["activities"]
+            logging.info(f"Activities: {activities}")
             if len(activities) == 0:
                 return ""
             likely_files = []
@@ -1812,10 +1812,7 @@ class AGiXT:
                 if ".csv" in activity["message"]:
                     if "`" in activity["message"]:
                         likely_files.append(activity["message"].split("`")[1])
-            logging.info(f"Likely files: {likely_files}")
-            if len(likely_files) == 0:
-                return ""
-            elif len(likely_files) == 1:
+            if len(likely_files) == 1:
                 file_name = likely_files[0]
                 file_path = os.path.join(conversation_workspace, file_name)
                 file_content = open(file_path, "r").read()
