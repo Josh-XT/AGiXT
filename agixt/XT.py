@@ -1765,10 +1765,13 @@ class AGiXT:
         file_content=None,
     ):
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
+        conversation_workspace = os.path.join(
+            self.agent_workspace, c.get_conversation_id()
+        )
         file_names = []
         file_name = ""
         if not file_content:
-            files = os.listdir(self.agent_workspace)
+            files = os.listdir(conversation_workspace)
             # Check if any files are csv files, if not, return empty string
             csv_files = [file for file in files if file.endswith(".csv")]
             if len(csv_files) == 0:
@@ -1785,7 +1788,7 @@ class AGiXT:
                 return ""
             elif len(likely_files) == 1:
                 file_name = likely_files[0]
-                file_path = os.path.join(self.agent_workspace, file_name)
+                file_path = os.path.join(conversation_workspace, file_name)
                 file_content = open(file_path, "r").read()
             else:
                 file_determination = await self.inference(
@@ -1805,7 +1808,7 @@ class AGiXT:
                         file_names.append(file)
                 if len(file_names) == 1:
                     file_name = file_names[0]
-                    file_path = os.path.join(self.agent_workspace, file_name)
+                    file_path = os.path.join(conversation_workspace, file_name)
                     file_content = open(file_path, "r").read()
             if file_name == "":
                 return ""
@@ -1815,10 +1818,10 @@ class AGiXT:
             import_files = ""
             for file in file_names:
                 if import_files == "":
-                    import_files = f"`{self.agent_workspace}/{file}`"
+                    import_files = f"`{conversation_workspace}/{file}`"
                 else:
-                    import_files += f", `{self.agent_workspace}/{file}`"
-                file_path = os.path.join(self.agent_workspace, file)
+                    import_files += f", `{conversation_workspace}/{file}`"
+                file_path = os.path.join(conversation_workspace, file)
                 file_content = open(file_path, "r").read()
                 lines = file_content.split("\n")
                 lines = lines[:2]
