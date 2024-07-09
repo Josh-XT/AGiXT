@@ -906,16 +906,17 @@ class AGiXT:
             file_type = url.split(".")[-1]
         if not file_type:
             file_type = "txt"
+        conversation_workspace = os.path.normpath(
+            os.path.join(self.agent_workspace, conversation_id)
+        )
         file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        file_path = os.path.join(self.agent_workspace, conversation_id, file_name)
-        full_path = os.path.normpath(
-            os.path.join(self.agent_workspace, conversation_id, file_name)
-        )
+        file_path = os.path.join(conversation_workspace, file_name)
+        full_path = os.path.normpath(os.path.join(conversation_workspace, file_name))
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        if not full_path.startswith(self.agent_workspace):
+        if not full_path.startswith(conversation_workspace):
             raise Exception("Path given not allowed")
         if url.startswith("http"):
             return {"file_name": file_name, "file_url": url}
@@ -927,9 +928,9 @@ class AGiXT:
                 file_type = file_name.split(".")[-1]
                 file_data = base64.b64decode(url)
             full_path = os.path.normpath(
-                os.path.join(self.agent_workspace, conversation_id, file_name)
+                os.path.join(conversation_workspace, file_name)
             )
-            if not full_path.startswith(self.agent_workspace):
+            if not full_path.startswith(conversation_workspace):
                 raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
                 f.write(file_data)
