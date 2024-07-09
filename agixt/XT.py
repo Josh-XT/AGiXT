@@ -1937,11 +1937,10 @@ class AGiXT:
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
         if "![" in code_execution:
-            # If the code execution is an image, save it to the workspace
-            image_url = code_execution.split("(")[1].split(")")[0]
-            image_name = image_url.split("/")[-1]
+            image_name = code_execution.split("[")[1].split("]")[0]
+            image_data = code_execution.split(",")[1]
+            image_data = base64.b64decode(image_data)
             image_path = os.path.join(conversation_workspace, image_name)
-            image_data = requests.get(image_url).content
             with open(image_path, "wb") as f:
                 f.write(image_data)
             code_execution = (
