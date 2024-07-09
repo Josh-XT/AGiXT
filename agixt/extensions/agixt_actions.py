@@ -14,7 +14,7 @@ import asyncio
 
 
 def install_docker_image():
-    docker_image = "joshxt/safeexecute:latest"
+    docker_image = "joshxt/safeexecute:main"
     client = docker.from_env()
     try:
         client.images.get(docker_image)
@@ -27,7 +27,7 @@ def install_docker_image():
 
 
 def execute_python_code(code: str, agent_id: str = "") -> str:
-    docker_image = "joshxt/safeexecute:latest"
+    docker_image = "joshxt/safeexecute:main"
     docker_working_dir = f"/agixt/WORKSPACE/{agent_id}"
     os.makedirs(docker_working_dir, exist_ok=True)
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")

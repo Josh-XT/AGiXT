@@ -906,6 +906,8 @@ class AGiXT:
             file_type = url.split(".")[-1]
         if not file_type:
             file_type = "txt"
+        if not conversation_id:
+            conversation_id = "1"
         conversation_workspace = os.path.normpath(
             os.path.join(self.agent_workspace, conversation_id)
         )
