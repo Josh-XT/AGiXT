@@ -21,5 +21,3 @@ User's input: {user_input}
 ```python
 {code}
 ```
-
-```python
