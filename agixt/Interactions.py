@@ -260,7 +260,7 @@ class Interactions:
             context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user.** .\n"
         else:
             context = ""
-        working_directory = self.agent.working_directory
+        working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
         if "helper_agent_name" not in kwargs:
             if "helper_agent_name" in self.agent.AGENT_CONFIG["settings"]:

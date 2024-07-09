@@ -1936,6 +1936,17 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
+        if "![" in code_execution:
+            # If the code execution is an image, save it to the workspace
+            image_url = code_execution.split("(")[1].split(")")[0]
+            image_name = image_url.split("/")[-1]
+            image_path = os.path.join(conversation_workspace, image_name)
+            image_data = requests.get(image_url).content
+            with open(image_path, "wb") as f:
+                f.write(image_data)
+            code_execution = (
+                f"![{image_name}]({self.outputs}/{conversation_name}/{image_name})"
+            )
         c.log_interaction(role=self.agent_name, message=code_execution)
         c.log_interaction(
             role=self.agent_name,
