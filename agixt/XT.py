@@ -1768,6 +1768,9 @@ class AGiXT:
         conversation_workspace = os.path.join(
             self.agent_workspace, c.get_conversation_id()
         )
+        # if the folder doesnt exist, create it
+        if not os.path.exists(conversation_workspace):
+            os.makedirs(conversation_workspace)
         file_names = []
         file_name = ""
         if not file_content:
