@@ -1790,14 +1790,17 @@ class AGiXT:
         conversation_workspace = os.path.join(
             self.agent_workspace, c.get_conversation_id()
         )
+        logging.info(f"Conversation workspace: {conversation_workspace}")
         if not os.path.exists(conversation_workspace):
             os.makedirs(conversation_workspace)
         file_names = []
         file_name = ""
         if not file_content:
             files = os.listdir(conversation_workspace)
+            logging.info(f"Files in conversation workspace: {files}")
             # Check if any files are csv files, if not, return empty string
             csv_files = [file for file in files if file.endswith(".csv")]
+            logging.info(f"CSV files in conversation workspace: {csv_files}")
             if len(csv_files) == 0:
                 return ""
             activities = c.get_activities(limit=20)["activities"]
@@ -1808,6 +1811,7 @@ class AGiXT:
                 if ".csv" in activity["message"]:
                     if "`" in activity["message"]:
                         likely_files.append(activity["message"].split("`")[1])
+            logging.info(f"Likely files: {likely_files}")
             if len(likely_files) == 0:
                 return ""
             elif len(likely_files) == 1:
