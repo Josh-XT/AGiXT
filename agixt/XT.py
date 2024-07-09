@@ -1792,9 +1792,8 @@ class AGiXT:
         file_name="",
     ):
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        conversation_workspace = os.path.join(
-            self.agent_workspace, c.get_conversation_id()
-        )
+        conversation_id = c.get_conversation_id()
+        conversation_workspace = os.path.join(self.agent_workspace, conversation_id)
         logging.info(f"Conversation workspace: {conversation_workspace}")
         if not os.path.exists(conversation_workspace):
             os.makedirs(conversation_workspace)
@@ -1910,14 +1909,10 @@ class AGiXT:
             voice_response=False,
         )
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
-        try:
-            code_execution = await self.execute_command(
-                command_name="Execute Python Code",
-                command_args={"code": code_verification, "text": file_content},
-            )
-        except Exception as e:
-            code_execution = "Error processing data."
-            logging.error(f"Error executing code: {code_execution}")
+        code_execution = await self.execute_command(
+            command_name="Execute Python Code",
+            command_args={"code": code_verification, "text": file_content},
+        )
         if code_execution.startswith("Error"):
             self.failures += 1
             if self.failures < 3:
@@ -1944,7 +1939,7 @@ class AGiXT:
             with open(image_path, "wb") as f:
                 f.write(image_data)
             code_execution = (
-                f"![{image_name}]({self.outputs}/{conversation_name}/{image_name})"
+                f"![{image_name}]({self.outputs}/{conversation_id}/{image_name})"
             )
         c.log_interaction(role=self.agent_name, message=code_execution)
         c.log_interaction(
