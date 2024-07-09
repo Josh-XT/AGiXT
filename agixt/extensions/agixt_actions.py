@@ -42,6 +42,8 @@ def execute_python_code(code: str, agent_id: str = "") -> str:
         code = code.split("\n", 1)[1]
     if code.endswith("```"):
         code = code[:-3]
+    if code.endswith("```python"):
+        code = code[:-9]
     temp_file_name = f"{str(uuid.uuid4())}.py"
     temp_file = os.path.join(docker_working_dir, temp_file_name)
     logging.info(f"Writing Python code to temporary file: {temp_file}")
