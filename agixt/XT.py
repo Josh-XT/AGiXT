@@ -334,17 +334,20 @@ class AGiXT:
                 role=self.agent_name,
                 message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
             )
-        response = await Extensions(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            conversation_name=f"{command_name} Execution History",
-            ApiClient=self.ApiClient,
-            api_key=self.api_key,
-            user=self.user_email,
-        ).execute_command(
-            command_name=command_name,
-            command_args=command_args,
-        )
+        try:
+            response = await Extensions(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                conversation_name=f"{command_name} Execution History",
+                ApiClient=self.ApiClient,
+                api_key=self.api_key,
+                user=self.user_email,
+            ).execute_command(
+                command_name=command_name,
+                command_args=command_args,
+            )
+        except Exception as e:
+            response = f"Error executing command: {e}"
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
