@@ -44,5 +44,3 @@ CSV file previews:
 {file_preview}
 
 User's input: {user_input} 
-
-```python
