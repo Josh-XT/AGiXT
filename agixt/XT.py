@@ -627,13 +627,17 @@ class AGiXT:
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
             file_data = await self.download_file_to_workspace(
-                url=file_url, file_name=file_name
+                url=file_url, file_name=file_name, conversation_id=collection_id
             )
             file_name = file_data["file_name"]
-            file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            file_path = os.path.normpath(
+                os.path.join(self.agent_workspace, collection_id, file_name)
+            )
         logging.info(f"File path: {file_path}")
         if not file_path.startswith(self.agent_workspace):
-            file_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            file_path = os.path.normpath(
+                os.path.join(self.agent_workspace, collection_id, file_name)
+            )
             logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
         c = Conversations(conversation_name=conversation_name, user=self.user_email)
@@ -663,7 +667,7 @@ class AGiXT:
                         "--convert-to",
                         "pdf",
                         "--outdir",
-                        self.agent_workspace,
+                        os.path.dirname(file_path),
                         file_path,
                     ],
                     stdout=subprocess.PIPE,
@@ -697,7 +701,9 @@ class AGiXT:
         elif file_path.endswith(".zip"):
             extracted_zip_folder_name = f"extracted_{file_name.replace('.zip', '_zip')}"
             new_folder = os.path.normpath(
-                os.path.join(self.agent_workspace, extracted_zip_folder_name)
+                os.path.join(
+                    self.agent_workspace, collection_id, extracted_zip_folder_name
+                )
             )
             if new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
@@ -706,7 +712,7 @@ class AGiXT:
                 for root, dirs, files in os.walk(new_folder):
                     for name in files:
                         current_folder = root.replace(new_folder, "")
-                        output_url = f"{self.outputs}/{extracted_zip_folder_name}/{current_folder}/{name}"
+                        output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
                         logging.info(f"Output URL: {output_url}")
                         await self.learn_from_file(
                             file_url=output_url,
@@ -734,7 +740,7 @@ class AGiXT:
                     csv_file_name = os.path.basename(file_path)
                     df.to_csv(file_path, index=False)
                     csv_files.append(
-                        f"[{csv_file_name}]({self.outputs}/{csv_file_name})"
+                        f"[{csv_file_name}]({self.outputs}/{collection_id}/{csv_file_name})"
                     )
                     await self.learn_from_file(
                         file_url=f"{self.outputs}/{csv_file_name}",
@@ -751,7 +757,7 @@ class AGiXT:
                 csv_file_name = os.path.basename(file_path)
                 df.to_csv(file_path, index=False)
                 return await self.learn_from_file(
-                    file_url=f"{self.outputs}/{csv_file_name}",
+                    file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
                     file_name=csv_file_name,
                     user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
                     collection_id=collection_id,
@@ -881,7 +887,9 @@ class AGiXT:
             )
         return response
 
-    async def download_file_to_workspace(self, url: str, file_name: str = ""):
+    async def download_file_to_workspace(
+        self, url: str, file_name: str = "", conversation_id: str = ""
+    ):
         """
         Download a file from a URL to the workspace
 
@@ -902,8 +910,11 @@ class AGiXT:
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        file_path = os.path.join(self.agent_workspace, file_name)
-        full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+        file_path = os.path.join(self.agent_workspace, conversation_id, file_name)
+        full_path = os.path.normpath(
+            os.path.join(self.agent_workspace, conversation_id, file_name)
+        )
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
         if not full_path.startswith(self.agent_workspace):
             raise Exception("Path given not allowed")
         if url.startswith("http"):
@@ -915,12 +926,14 @@ class AGiXT:
             else:
                 file_type = file_name.split(".")[-1]
                 file_data = base64.b64decode(url)
-            full_path = os.path.normpath(os.path.join(self.agent_workspace, file_name))
+            full_path = os.path.normpath(
+                os.path.join(self.agent_workspace, conversation_id, file_name)
+            )
             if not full_path.startswith(self.agent_workspace):
                 raise Exception("Path given not allowed")
             with open(file_path, "wb") as f:
                 f.write(file_data)
-            url = f"{self.outputs}/{file_name}"
+            url = f"{self.outputs}/{conversation_id}/{file_name}"
             return {"file_name": file_name, "file_url": url}
 
     async def plan_task(
@@ -1360,7 +1373,9 @@ class AGiXT:
                                             file_data = response.content
                                             file_path = os.path.normpath(
                                                 os.path.join(
-                                                    self.agent_workspace, file_name
+                                                    self.agent_workspace,
+                                                    conversation_id,
+                                                    file_name,
                                                 )
                                             )
                                             if file_path.startswith(
@@ -1371,7 +1386,7 @@ class AGiXT:
                                                 files.append(
                                                     {
                                                         "file_name": file_name,
-                                                        "file_url": f"{self.outputs}/{file_name}",
+                                                        "file_url": f"{self.outputs}/{conversation_id}/{file_name}",
                                                     }
                                                 )
                                         else:
@@ -1383,17 +1398,22 @@ class AGiXT:
                                 if key != "audio_url":
                                     files.append(
                                         await self.download_file_to_workspace(
-                                            url=url, file_name=file_name
+                                            url=url,
+                                            file_name=file_name,
+                                            conversation_id=conversation_id,
                                         )
                                     )
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
-                                        await self.download_file_to_workspace(url=url)
+                                        await self.download_file_to_workspace(
+                                            url=url, conversation_id=conversation_id
+                                        )
                                     )
                                     full_path = os.path.normpath(
                                         os.path.join(
                                             self.agent_workspace,
+                                            conversation_id,
                                             audio_file_info["file_name"],
                                         )
                                     )
@@ -1401,6 +1421,7 @@ class AGiXT:
                                         raise Exception("Path given not allowed")
                                     audio_file_path = os.path.join(
                                         self.agent_workspace,
+                                        conversation_id,
                                         audio_file_info["file_name"],
                                     )
                                     if os.path.normpath(audio_file_path).startswith(
@@ -1408,6 +1429,7 @@ class AGiXT:
                                     ):
                                         wav_file = os.path.join(
                                             self.agent_workspace,
+                                            conversation_id,
                                             f"{uuid.uuid4().hex}.wav",
                                         )
                                         AudioSegment.from_file(
@@ -1768,7 +1790,6 @@ class AGiXT:
         conversation_workspace = os.path.join(
             self.agent_workspace, c.get_conversation_id()
         )
-        # if the folder doesnt exist, create it
         if not os.path.exists(conversation_workspace):
             os.makedirs(conversation_workspace)
         file_names = []
