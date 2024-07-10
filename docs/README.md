@@ -229,22 +229,23 @@ Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/reposit
 
 ```mermaid
 graph TD
-    A[User Input] --> B[Multi-modal Input Handler]
+    Start[Start] --> IA[Initialize Agent]
+    IA --> IM[Initialize Memories]
+    IM --> A[User Input]
+    A --> B[Multi-modal Input Handler]
     B --> B1{Input Type?}
-    B1 -->|Text| C[Process messages]
+    B1 -->|Text| C[Process Text Input]
     B1 -->|Voice| STT[Speech-to-Text Conversion]
     B1 -->|Image| VIS[Vision Processing]
     B1 -->|File Upload| F[Handle file uploads]
     STT --> C
     VIS --> C
     F --> C
-    C --> D[Extract settings and args]
-    D --> E[Override Agent settings]
-    E --> G[Handle URLs]
-    G --> H[Analyze CSV data]
-    H --> I[Initialize Agent]
-    I --> J[Initialize Memories]
-    J --> K{Mode?}
+    C --> D[Set default settings using Agent Settings]
+    D --> E[Override Agent settings if applicable]
+    E --> G[Handle URLs and Websearch if applicable]
+    G --> H[Data Analysis if applicable]
+    H --> K{Mode?}
     K -->|Command| L[Execute Command]
     K -->|Chain| M[Execute Chain]
     K -->|Prompt| N[Run Inference]
@@ -261,14 +262,6 @@ graph TD
     TTS --> VAudio[Voice Audio Response]
     Q --> IMG_GEN[Image Generation]
     IMG_GEN --> GImg[Generated Image]
-
-    subgraph PM[Process Messages]
-        C1[Extract settings and args]
-        C2[Process content]
-        C3[Handle audio transcription]
-        C4[Handle GitHub repos]
-        C1 --> C2 --> C3 --> C4
-    end
     
     subgraph HF[Handle File Uploads]
         F1[Download files to workspace]
@@ -277,19 +270,20 @@ graph TD
         F1 --> F2 --> F3
     end
     
-    subgraph HU[Handle URLs]
+    subgraph HU[Handle URLs in User Input]
         G1[Learn from websites]
-        G2[Update Memories]
-        G1 --> G2
+        G2[Handle GitHub Repositories if applicable]
+        G3[Update Memories]
+        G1 --> G2 --> G3
     end
     
-    subgraph AC[Analyze CSV Data]
+    subgraph AC[Data Analysis]
         H1[Identify CSV files]
         H2[Determine file to analyze]
         H3[Generate and verify Python code]
         H4[Execute Python code]
         H5{Execution successful?}
-        H6[Store analysis results]
+        H6[Update memories with results from data analysis]
         H7[Attempt code fix]
         H1 --> H2 --> H3 --> H4 --> H5
         H5 -->|Yes| H6
@@ -297,7 +291,7 @@ graph TD
         H7 --> H4
     end
     
-    subgraph IA[Initialize Agent]
+    subgraph IA[Agent Initialization]
         I1[Load agent config]
         I2[Set up AI provider]
         I3[Set up other providers]
@@ -316,8 +310,7 @@ graph TD
     subgraph EC[Execute Command]
         L1[Prepare command args]
         L2[Call execute_command]
-        L3[Handle voice response if enabled]
-        L1 --> L2 --> L3
+        L1 --> L2
     end
     
     subgraph EX[Execute Chain]
@@ -325,20 +318,17 @@ graph TD
         M2[Execute chain steps]
         M3[Handle dependencies]
         M4[Update chain responses]
-        M5[Handle voice response if enabled]
-        M1 --> M2 --> M3 --> M4 --> M5
+        M1 --> M2 --> M3 --> M4
     end
     
     subgraph RI[Run Inference]
         N1[Handle vision if images processed]
         N2[Browse websites in user input if enabled]
         N3[Handle websearch if enabled]
-        N4[Handle autonomous command execution if enabled]
-        N5[Retrieve relevant memories]
-        N6[Format prompt]
-        N7[Call inference method]
-        N8[Handle voice response if enabled]
-        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8
+        N4[Retrieve relevant memories]
+        N5[Format prompt]
+        N6[Call inference method]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6
     end
 
     subgraph WS[Websearch]
@@ -347,7 +337,7 @@ graph TD
         W3[Scrape websites]
         W4[Recursive browsing]
         W5[Summarize content]
-        W6[Update agent memory]
+        W6[Update agent memories]
         W1 --> W2 --> W3 --> W4 --> W5 --> W6
     end
 
@@ -373,8 +363,8 @@ graph TD
     end
 
     N3 --> W1
-    N6 --> PR1
-    N7 --> P1
+    N5 --> PR1
+    N6 --> P1
     TTS --> P2
     STT --> P3
     VIS --> P4
