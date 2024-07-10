@@ -1467,7 +1467,7 @@ class AGiXT:
             summarize_content=False,
             conversation_name=conversation_name,
         )
-        await self.analyze_csv(
+        data_analysis = await self.analyze_csv(
             user_input=new_prompt,
             conversation_name=conversation_name,
         )
@@ -1519,6 +1519,7 @@ class AGiXT:
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
+                data_analysis=data_analysis,
                 **prompt_args,
             )
         try:
@@ -1960,23 +1961,10 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
-        # c.log_interaction(role=self.agent_name, message=code_execution)
-        # Save memory of the code execution
-        file_reader = FileReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=conversation_id,
-            ApiClient=self.ApiClient,
-            user=self.user_email,
-        )
+                return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        await file_reader.write_text_to_memory(
-            user_input=user_input,
-            text=f"**REFERENCE THE FOLLOWING OUTPUT FOR DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} from {timestamp}**\n\n{code_execution}",
-            external_source=f"data analysis on {import_files if len(file_names) > 1 else file_path}",
-        )
         c.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Writing report on analysis.",
         )
-        return code_execution
+        return f"**REFERENCE THE FOLLOWING OUTPUT FOR DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} from {timestamp}**\n\n{code_execution}"
