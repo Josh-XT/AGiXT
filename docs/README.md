@@ -321,14 +321,15 @@ graph TD
     
     subgraph RI[Run Inference]
         N1[Prepare inference args]
-        N2[Retrieve relevant memories]
-        N3[Format prompt]
-        N4[Call inference method]
-        N5[Handle websearch if enabled]
-        N6[Handle browse_links if enabled]
-        N7[Handle voice response if enabled]
-        N8[Update Memories with response]
-        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8
+        N2[Handle browse_links if enabled]
+        N3[Handle websearch if enabled]
+        N4[Execute commands if any]
+        N5[Retrieve relevant memories]
+        N6[Format prompt]
+        N7[Call inference method]
+        N8[Handle voice response if enabled]
+        N9[Update Memories with response]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8 --> N9
     end
 
     subgraph WS[Websearch]
@@ -361,8 +362,8 @@ graph TD
         T[Log agent activities]
     end
 
-    N5 --> W1
-    N3 --> PR1
+    N3 --> W1
+    N6 --> PR1
     I2 --> P1
     I3 --> P1
 
@@ -375,5 +376,5 @@ graph TD
     M --> T
     N --> T
 
-    style U fill:#f96,stroke:#333,stroke-width:4px
+    style U fill:#0000FF,stroke:#333,stroke-width:4px
 ```
