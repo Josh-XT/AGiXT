@@ -268,6 +268,16 @@ class UpdateConversationHistoryMessageModel(BaseModel):
     new_message: str
 
 
+class UpdateMessageModel(BaseModel):
+    conversation_name: str
+    message_id: str
+    new_message: str
+
+
+class DeleteMessageModel(BaseModel):
+    conversation_name: str
+
+
 class TaskPlanInput(BaseModel):
     user_input: str
     websearch: Optional[bool] = False
