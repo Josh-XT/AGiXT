@@ -255,6 +255,10 @@ class Interactions:
             context.append(
                 f"The assistant's visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
             )
+        if "data_analysis" in kwargs:
+            context.append(
+                f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
+            )
         if context != [] and context != "":
             context = "\n".join(context)
             context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user.** .\n"
