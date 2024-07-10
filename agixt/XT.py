@@ -1890,7 +1890,8 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
-        code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
+        if "```python" in code_interpreter:
+            code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
         # Step 5 - Verify the code is good before executing it.
@@ -1914,7 +1915,8 @@ class AGiXT:
             voice_response=False,
         )
         # Split out the python code
-        code_verification = code_verification.split("```python")[1].split("```")[0]
+        if "```python" in code_verification:
+            code_verification = code_verification.split("```python")[1].split("```")[0]
         if "```python" in code_verification:
             code_verification = code_verification.split("```python")[1].split("```")[0]
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
