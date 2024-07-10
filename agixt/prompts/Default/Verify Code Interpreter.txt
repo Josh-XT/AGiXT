@@ -9,9 +9,11 @@ We built python code to build a visualization for the user's input.
 
 User's input: {user_input} 
 
-**Ensure the code does not modify the file system, if it does, remove the portion of the code that does.**
+**Ensure the code does not modify the file system outside of the working directory at {working_directory} , if it does, remove the portion of the code that does.**
 
-**Make sure the final output of the code is a visualization. The functions final return should be a print of base64 image markdown string that can be displayed on a website parsing markdown code. Example `print('![Generated Image](data:image/png;base64,IMAGE_CONTENT)')`**
+**Any files saved to {working_directory} will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**
+
+**Make sure the output contains visualizations! It must end with a print for the output to show!**
 
 **Confirm that the code follows the rules and CSV format. Return full updated code without placeholders that is confirmed.**
 
