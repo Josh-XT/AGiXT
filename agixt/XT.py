@@ -1909,10 +1909,39 @@ class AGiXT:
             voice_response=False,
         )
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
-        code_execution = await self.execute_command(
-            command_name="Execute Python Code",
-            command_args={"code": code_verification, "text": file_content},
-        )
+        try:
+            code_execution = await self.execute_command(
+                command_name="Execute Python Code",
+                command_args={"code": code_verification, "text": file_content},
+            )
+        except Exception as e:
+            # Need to prompt LLM to figure out what the problem was and try again.
+            # We are trying to do data analysis on the CSV file and ran into an error, rewrite the code to fix the error.
+            # Step 6.5 - Fix the code if it failed to execute.
+            fixed_code = await self.inference(
+                user_input=user_input,
+                prompt_category="Default",
+                prompt_name="Fix Code",
+                file_preview=file_preview,
+                import_file=import_files if len(file_names) > 1 else file_path,
+                code=code_verification,
+                code_error=str(e),
+                conversation_name=conversation_name,
+                log_user_input=False,
+                log_output=False,
+                browse_links=False,
+                websearch=False,
+                websearch_depth=0,
+                voice_response=False,
+            )
+            try:
+                code_execution = await self.execute_command(
+                    command_name="Execute Python Code",
+                    command_args={"code": fixed_code, "text": file_content},
+                )
+            except Exception as e:
+                code_execution = "Error executing code."
+                logging.error(f"Error executing code: {e}")
         if code_execution.startswith("Error"):
             self.failures += 1
             if self.failures < 3:
@@ -1931,16 +1960,6 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
-        if "![" in code_execution:
-            image_name = f"{uuid.uuid4().hex}.png"
-            image_data = code_execution.split(",")[1]
-            image_data = base64.b64decode(image_data)
-            image_path = os.path.join(conversation_workspace, image_name)
-            with open(image_path, "wb") as f:
-                f.write(image_data)
-            code_execution = (
-                f"![{image_name}]({self.outputs}/{conversation_id}/{image_name})"
-            )
         c.log_interaction(role=self.agent_name, message=code_execution)
         c.log_interaction(
             role=self.agent_name,
