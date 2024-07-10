@@ -38,6 +38,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
   - [Documentation](#documentation)
   - [Other Repositories](#other-repositories)
   - [History](#history)
+  - [Workflow](#workflow)
 
 ## ⚠️ Disclaimers
 
@@ -223,3 +224,156 @@ Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/reposit
 ## History
 
 ![Star History Chart](https://api.star-history.com/svg?repos=Josh-XT/AGiXT&type=Dat)
+
+## Workflow
+
+```mermaid
+graph TD
+    A[User Input] --> B[Initialize variables and settings]
+    B --> C[Process messages]
+    C --> D[Extract settings and args]
+    D --> E[Override Agent settings]
+    E --> F[Handle file uploads]
+    F --> G[Handle URLs]
+    G --> H[Analyze CSV data]
+    H --> I[Initialize Agent]
+    I --> J[Initialize Memories]
+    J --> K{Mode?}
+    K -->|Command| L[Execute Command]
+    K -->|Chain| M[Execute Chain]
+    K -->|Prompt| N[Run Inference]
+    
+    L --> O[Prepare response]
+    M --> O
+    N --> O
+    
+    O --> P[Calculate tokens]
+    P --> Q[Format response]
+    Q --> R[Response]
+    R --> U[Log final response]
+    
+    subgraph PM[Process Messages]
+        C1[Extract settings and args]
+        C2[Process content]
+        C3[Handle audio transcription]
+        C4[Handle GitHub repos]
+        C1 --> C2 --> C3 --> C4
+    end
+    
+    subgraph HF[Handle File Uploads]
+        F1[Download files to workspace]
+        F2[Learn from files]
+        F3[Update Memories]
+        F1 --> F2 --> F3
+    end
+    
+    subgraph HU[Handle URLs]
+        G1[Learn from websites]
+        G2[Update Memories]
+        G1 --> G2
+    end
+    
+    subgraph AC[Analyze CSV Data]
+        H1[Identify CSV files]
+        H2[Determine file to analyze]
+        H3[Generate and verify Python code]
+        H4[Execute Python code]
+        H5{Execution successful?}
+        H6[Store analysis results]
+        H7[Attempt code fix]
+        H1 --> H2 --> H3 --> H4 --> H5
+        H5 -->|Yes| H6
+        H5 -->|No| H7
+        H7 --> H4
+    end
+    
+    subgraph IA[Initialize Agent]
+        I1[Load agent config]
+        I2[Set up AI provider]
+        I3[Set up other providers]
+        I4[Load available commands]
+        I5[Set up working directory]
+        I1 --> I2 --> I3 --> I4 --> I5
+    end
+    
+    subgraph IM[Initialize Memories]
+        J1[Set up Chroma client]
+        J2[Initialize embedding provider]
+        J3[Prepare memory collection]
+        J1 --> J2 --> J3
+    end
+    
+    subgraph EC[Execute Command]
+        L1[Prepare command args]
+        L2[Call execute_command]
+        L3[Handle voice response if enabled]
+        L1 --> L2 --> L3
+    end
+    
+    subgraph EX[Execute Chain]
+        M1[Load chain data]
+        M2[Execute chain steps]
+        M3[Handle dependencies]
+        M4[Update chain responses]
+        M5[Handle voice response if enabled]
+        M1 --> M2 --> M3 --> M4 --> M5
+    end
+    
+    subgraph RI[Run Inference]
+        N1[Prepare inference args]
+        N2[Retrieve relevant memories]
+        N3[Format prompt]
+        N4[Call inference method]
+        N5[Handle websearch if enabled]
+        N6[Handle browse_links if enabled]
+        N7[Handle voice response if enabled]
+        N8[Update Memories with response]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8
+    end
+
+    subgraph WS[Websearch]
+        W1[Initiate web search]
+        W2[Perform search query]
+        W3[Scrape websites]
+        W4[Recursive browsing]
+        W5[Summarize content]
+        W6[Update agent memory]
+        W1 --> W2 --> W3 --> W4 --> W5 --> W6
+    end
+
+    subgraph PR[Providers]
+        P1[Load provider module]
+        P2[Initialize provider class]
+        P3[Install requirements]
+        P4[Execute provider method]
+        P1 --> P2 --> P3 --> P4
+    end
+
+    subgraph PT[Prompts]
+        PR1[Get prompt]
+        PR2[Extract prompt args]
+        PR3[Format prompt]
+        PR1 --> PR2 --> PR3
+    end
+
+    subgraph CL[Conversation Logging]
+        S[Log user input]
+        T[Log agent activities]
+    end
+
+    N5 --> W1
+    N3 --> PR1
+    I2 --> P1
+    I3 --> P1
+
+    A --> S
+    C --> T
+    F --> T
+    G --> T
+    H --> T
+    L --> T
+    M --> T
+    N --> T
+
+    style U fill:#f96,stroke:#333,stroke-width:4px
+```
