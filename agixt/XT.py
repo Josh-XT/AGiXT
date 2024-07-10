@@ -347,7 +347,8 @@ class AGiXT:
                 command_args=command_args,
             )
         except Exception as e:
-            response = f"Error executing command: {e}"
+            logging.error(f"Error executing command: {e}")
+            response = f"Error executing command `{command_name}`."
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
