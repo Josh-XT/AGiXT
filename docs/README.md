@@ -229,12 +229,18 @@ Check out the other AGiXT repositories at <https://github.com/orgs/AGiXT/reposit
 
 ```mermaid
 graph TD
-    A[User Input] --> B[Initialize variables and settings]
-    B --> C[Process messages]
+    A[User Input] --> B[Multi-modal Input Handler]
+    B --> B1{Input Type?}
+    B1 -->|Text| C[Process messages]
+    B1 -->|Voice| STT[Speech-to-Text Conversion]
+    B1 -->|Image| VIS[Vision Processing]
+    B1 -->|File Upload| F[Handle file uploads]
+    STT --> C
+    VIS --> C
+    F --> C
     C --> D[Extract settings and args]
     D --> E[Override Agent settings]
-    E --> F[Handle file uploads]
-    F --> G[Handle URLs]
+    E --> G[Handle URLs]
     G --> H[Analyze CSV data]
     H --> I[Initialize Agent]
     I --> J[Initialize Memories]
@@ -249,9 +255,13 @@ graph TD
     
     O --> P[Calculate tokens]
     P --> Q[Format response]
-    Q --> R[Response]
+    Q --> R[Text Response]
     R --> U[Log final response]
-    
+    Q --> TTS[Text-to-Speech Conversion]
+    TTS --> VAudio[Voice Audio Response]
+    Q --> IMG_GEN[Image Generation]
+    IMG_GEN --> GImg[Generated Image]
+
     subgraph PM[Process Messages]
         C1[Extract settings and args]
         C2[Process content]
@@ -320,16 +330,15 @@ graph TD
     end
     
     subgraph RI[Run Inference]
-        N1[Prepare inference args]
-        N2[Handle browse_links if enabled]
+        N1[Handle vision if images processed]
+        N2[Browse websites in user input if enabled]
         N3[Handle websearch if enabled]
-        N4[Execute commands if any]
+        N4[Handle autonomous command execution if enabled]
         N5[Retrieve relevant memories]
         N6[Format prompt]
         N7[Call inference method]
         N8[Handle voice response if enabled]
-        N9[Update Memories with response]
-        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8 --> N9
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7 --> N8
     end
 
     subgraph WS[Websearch]
@@ -343,11 +352,12 @@ graph TD
     end
 
     subgraph PR[Providers]
-        P1[Load provider module]
-        P2[Initialize provider class]
-        P3[Install requirements]
-        P4[Execute provider method]
-        P1 --> P2 --> P3 --> P4
+        P1[LLM Provider]
+        P2[TTS Provider]
+        P3[STT Provider]
+        P4[Vision Provider]
+        P5[Image Generation Provider]
+        P6[Embedding Provider]
     end
 
     subgraph PT[Prompts]
@@ -364,8 +374,12 @@ graph TD
 
     N3 --> W1
     N6 --> PR1
-    I2 --> P1
-    I3 --> P1
+    N7 --> P1
+    TTS --> P2
+    STT --> P3
+    VIS --> P4
+    IMG_GEN --> P5
+    J2 --> P6
 
     A --> S
     C --> T
