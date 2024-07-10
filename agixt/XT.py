@@ -1890,6 +1890,9 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
+        code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
+        if "```python" in code_interpreter:
+            code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
         # Step 5 - Verify the code is good before executing it.
         code_verification = await self.inference(
             user_input=user_input,
@@ -1968,6 +1971,6 @@ class AGiXT:
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
         c.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Writing report on analysis.",
+            message=f"[ACTIVITY] Data analysis complete.",
         )
         return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER**\n\n{code_execution}"
