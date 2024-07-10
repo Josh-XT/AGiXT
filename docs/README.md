@@ -241,8 +241,7 @@ graph TD
     STT --> C
     VIS --> C
     F --> C
-    C --> D[Set default settings using Agent Settings]
-    D --> E[Override Agent settings if applicable]
+    C --> E[Override Agent settings if applicable]
     E --> G[Handle URLs and Websearch if applicable]
     G --> H[Data Analysis if applicable]
     H --> K{Mode?}
@@ -322,13 +321,10 @@ graph TD
     end
     
     subgraph RI[Run Inference]
-        N1[Handle vision if images processed]
-        N2[Browse websites in user input if enabled]
-        N3[Handle websearch if enabled]
-        N4[Retrieve relevant memories]
-        N5[Format prompt]
-        N6[Call inference method]
-        N1 --> N2 --> N3 --> N4 --> N5 --> N6
+        N1[Format prompt]
+        N2[Inject relevant memories]
+        N3[Call inference method to LLM provider]
+        N1 --> N2 --> N3
     end
 
     subgraph WS[Websearch]
@@ -362,9 +358,15 @@ graph TD
         T[Log agent activities]
     end
 
-    N3 --> W1
-    N5 --> PR1
-    N6 --> P1
+    F --> HF
+    G --> HU
+    G --> WS
+    H --> AC
+    L --> EC
+    M --> EX
+    N --> RI
+    N1 --> PT
+    N3 --> P1
     TTS --> P2
     STT --> P3
     VIS --> P4
