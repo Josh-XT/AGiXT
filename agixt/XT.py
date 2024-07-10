@@ -1910,6 +1910,10 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
+        # Split out the python code
+        code_verification = code_verification.split("```python")[1].split("```")[0]
+        if "```python" in code_verification:
+            code_verification = code_verification.split("```python")[1].split("```")[0]
         # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
         try:
             code_execution = await self.execute_command(
@@ -1962,7 +1966,6 @@ class AGiXT:
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Writing report on analysis.",
