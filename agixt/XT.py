@@ -1916,9 +1916,8 @@ class AGiXT:
                 command_args={"code": code_verification, "text": file_content},
             )
         except Exception as e:
-            # Need to prompt LLM to figure out what the problem was and try again.
-            # We are trying to do data analysis on the CSV file and ran into an error, rewrite the code to fix the error.
             # Step 6.5 - Fix the code if it failed to execute.
+            # Need to prompt LLM to figure out what the problem was and try again.
             fixed_code = await self.inference(
                 user_input=user_input,
                 prompt_category="Default",
@@ -1961,7 +1960,21 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
-        c.log_interaction(role=self.agent_name, message=code_execution)
+        # c.log_interaction(role=self.agent_name, message=code_execution)
+        # Save memory of the code execution
+        file_reader = FileReader(
+            agent_name=self.agent_name,
+            agent_config=self.agent.AGENT_CONFIG,
+            collection_number=conversation_id,
+            ApiClient=self.ApiClient,
+            user=self.user_email,
+        )
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file_reader.write_text_to_memory(
+            user_input=user_input,
+            text=f"**REFERENCE THE FOLLOWING OUTPUT FOR DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} from {timestamp}**\n\n{code_execution}",
+            memory_name=f"data analysis on {import_files if len(file_names) > 1 else file_path}",
+        )
         c.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Writing report on analysis.",
