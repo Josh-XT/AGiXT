@@ -1967,4 +1967,4 @@ class AGiXT:
             role=self.agent_name,
             message=f"[ACTIVITY] Writing report on analysis.",
         )
-        return f"**REFERENCE THE FOLLOWING OUTPUT FOR DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} from {timestamp}**\n\n{code_execution}"
+        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER**\n\n{code_execution}"
