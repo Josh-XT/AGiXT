@@ -1973,7 +1973,7 @@ class AGiXT:
         file_reader.write_text_to_memory(
             user_input=user_input,
             text=f"**REFERENCE THE FOLLOWING OUTPUT FOR DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} from {timestamp}**\n\n{code_execution}",
-            memory_name=f"data analysis on {import_files if len(file_names) > 1 else file_path}",
+            external_source=f"data analysis on {import_files if len(file_names) > 1 else file_path}",
         )
         c.log_interaction(
             role=self.agent_name,
