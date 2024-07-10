@@ -9,6 +9,8 @@ from Models import (
     ResponseMessage,
     LogInteraction,
     RenameConversationModel,
+    UpdateMessageModel,
+    DeleteMessageModel,
 )
 import json
 from datetime import datetime
@@ -133,6 +135,43 @@ async def update_history_message(
         new_message=history.new_message,
     )
     return ResponseMessage(message=f"Message updated.")
+
+
+@app.put(
+    "/api/conversation/message/{message_id}",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_by_id(
+    message_id: str,
+    history: UpdateMessageModel,
+    user=Depends(verify_api_key),
+) -> ResponseMessage:
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).update_message_by_id(
+        message_id=message_id,
+        new_message=history.new_message,
+    )
+    return ResponseMessage(message=f"Message updated.")
+
+
+@app.delete(
+    "/api/conversation/message/{message_id}",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_by_id(
+    message_id: str,
+    history: DeleteMessageModel,
+    user=Depends(verify_api_key),
+):
+    Conversations(
+        conversation_name=history.conversation_name, user=user
+    ).delete_message_by_id(
+        message_id=message_id,
+    )
+    return ResponseMessage(message=f"Message deleted.")
 
 
 @app.post(
