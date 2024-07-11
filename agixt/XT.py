@@ -1801,6 +1801,16 @@ class AGiXT:
             os.makedirs(conversation_workspace)
         file_names = []
         file_path = conversation_workspace
+        if "```csv" in user_input and file_name == "":
+            file_name = f"{uuid.uuid4().hex}.csv"
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Saving CSV data to file `{file_name}`.",
+            )
+            file_content = user_input.split("```csv")[1].split("```")[0]
+            file_path = os.path.join(conversation_workspace, file_name)
+            with open(file_path, "w") as f:
+                f.write(file_content)
         if not file_content:
             files = os.listdir(conversation_workspace)
             logging.info(f"Files in conversation workspace: {files}")
