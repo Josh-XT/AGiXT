@@ -404,7 +404,6 @@ class AGiXT:
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
-                        conversation_name=self.conversation_name,
                         voice_response=False,
                     )
                 elif prompt_type == "prompt":
@@ -1752,7 +1751,6 @@ class AGiXT:
                     prompt_name="Determine File",
                     directory_listing="\n".join(csv_files),
                     conversation_results=10,
-                    conversation_name=self.conversation_name,
                     log_user_input=False,
                     log_output=False,
                     voice_response=False,
@@ -1805,7 +1803,6 @@ class AGiXT:
             ),
             import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
-            conversation_name=self.conversation_name,
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -1829,7 +1826,6 @@ class AGiXT:
             import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
             code=code_interpreter,
-            conversation_name=self.conversation_name,
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -1859,7 +1855,6 @@ class AGiXT:
                 import_file=import_files if len(file_names) > 1 else file_path,
                 code=code_verification,
                 code_error=str(e),
-                conversation_name=self.conversation_name,
                 log_user_input=False,
                 log_output=False,
                 browse_links=False,
