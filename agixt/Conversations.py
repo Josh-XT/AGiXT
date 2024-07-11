@@ -552,8 +552,9 @@ class Conversations:
             .first()
         )
         if not conversation:
-            session.close()
-            return None
+            conversation = Conversation(name=self.conversation_name, user_id=user_id)
+            session.add(conversation)
+            session.commit()
         conversation_id = str(conversation.id)
         session.close()
         return conversation_id
