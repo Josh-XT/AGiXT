@@ -214,7 +214,6 @@ async def rename_conversation(
         response = await agixt.inference(
             user_input=f"Rename conversation",
             prompt_name="Name Conversation",
-            conversation_name=rename.conversation_name,
             conversation_list="\n".join(conversation_list),
             conversation_results=10,
             websearch=False,
@@ -235,7 +234,6 @@ async def rename_conversation(
                 response = await agixt.inference(
                     user_input=f"**Do not use {new_name}!**",
                     prompt_name="Name Conversation",
-                    conversation_name=rename.conversation_name,
                     conversation_list="\n".join(conversation_list),
                     conversation_results=10,
                     websearch=False,

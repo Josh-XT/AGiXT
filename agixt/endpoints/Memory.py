@@ -175,7 +175,6 @@ async def learn_file(
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
-        conversation_name=f"Agent Training on {datetime.now().strftime('%Y-%m-%d')} by {user}",
     )
     return ResponseMessage(message=response)
 
@@ -621,7 +620,6 @@ async def rlhf(
         input_kind="positive" if data.positive == True else "negative",
         assistant_response=data.message,
         feedback=data.feedback,
-        conversation_name=data.conversation_name,
         log_user_input=False,
         log_output=False,
     )

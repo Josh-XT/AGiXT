@@ -373,7 +373,6 @@ async def plan_task(
         user_input=task.user_input,
         websearch=task.websearch,
         websearch_depth=task.websearch_depth,
-        conversation_name=task.conversation_name,
         log_user_input=task.log_user_input,
         log_output=task.log_output,
         enable_new_command=task.enable_new_command,

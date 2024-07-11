@@ -56,6 +56,10 @@ class AGiXT:
         self.chain = Chain(user=self.user_email)
         self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
+        self.conversation_workspace = os.path.join(
+            self.agent_workspace, self.conversation_id
+        )
+        os.makedirs(self.conversation_workspace, exist_ok=True)
         self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         self.failures = 0
 
@@ -141,7 +145,6 @@ class AGiXT:
         user_input: str,
         prompt_category: str = "Default",
         prompt_name: str = "Custom Input",
-        conversation_name: str = "",
         images: list = [],
         injected_memories: int = 10,
         conversation_results: int = 10,
@@ -161,7 +164,6 @@ class AGiXT:
             prompt_name (str): Name of the prompt to use
             injected_memories (int): Number of memories to inject into the conversation
             conversation_results (int): Number of interactions to inject into the conversation
-            conversation_name (str): Name of the conversation
             browse_links (bool): Whether to browse links in the response
             images (list): List of image file paths
             shots (int): Number of responses to generate
@@ -185,6 +187,8 @@ class AGiXT:
         if "tts" in kwargs:
             voice_response = str(kwargs["tts"]).lower() == "true"
             del kwargs["tts"]
+        if "conversation_name" in kwargs:
+            del kwargs["conversation_name"]
         return await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
@@ -192,7 +196,7 @@ class AGiXT:
             context_results=injected_memories,
             conversation_results=conversation_results,
             shots=shots,
-            conversation_name=conversation_name,
+            conversation_name=self.conversation_name,
             browse_links=browse_links,
             images=images,
             tts=voice_response,
@@ -201,7 +205,7 @@ class AGiXT:
             **kwargs,
         )
 
-    async def generate_image(self, prompt: str, conversation_name: str = ""):
+    async def generate_image(self, prompt: str):
         """
         Generate an image from a prompt
 
@@ -211,21 +215,15 @@ class AGiXT:
         Returns:
             str: URL of the generated image
         """
-        if conversation_name != "" and conversation_name != None:
-            c = Conversations(
-                conversation_name=conversation_name,
-                user=self.user_email,
-            )
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Generating image.",
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Generating image.",
+        )
         return await self.agent.generate_image(prompt=prompt)
 
     async def text_to_speech(
         self,
         text: str,
-        conversation_name: str = "",
         log_output: bool = False,
     ):
         """
@@ -233,18 +231,15 @@ class AGiXT:
 
         Args:
             text (str): Text to convert to speech
-            conversation_name (str): Name of the conversation
             log_output (bool): Whether to log the output
 
         Returns:
             str: URL of the generated audio
         """
-        if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Generating audio response.",
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Generating audio response.",
+        )
         tts_url = await self.agent.text_to_speech(text=text)
         if not str(tts_url).startswith("http"):
             file_type = "wav"
@@ -258,60 +253,53 @@ class AGiXT:
                 f.write(audio_data)
             tts_url = f"{self.outputs}/{file_name}"
         if log_output:
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
             )
         return tts_url
 
-    async def audio_to_text(self, audio_path: str, conversation_name: str = ""):
+    async def audio_to_text(self, audio_path: str):
         """
         Audio to Text transcription
 
         Args:
             audio_path (str): Path to the audio file
-            conversation_name (str): Name of the conversation
 
         Returns
             str: Transcription of the audio
         """
-        if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Transcribing recorded audio.",
-            )
-            # Start a timer
-            start = time.time()
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Transcribing recorded audio.",
+        )
+        # Start a timer
+        start = time.time()
         response = await self.agent.transcribe_audio(audio_path=audio_path)
-        if conversation_name != "" and conversation_name != None:
-            # End the timer
-            end = time.time()
-            elapsed_time = end - start
-            elapsed_time = "{:.2f}".format(elapsed_time)
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"Transcribed audio in {elapsed_time} seconds.",
-            )
+        # End the timer
+        end = time.time()
+        elapsed_time = end - start
+        elapsed_time = "{:.2f}".format(elapsed_time)
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"Transcribed audio in {elapsed_time} seconds.",
+        )
         return response
 
-    async def translate_audio(self, audio_path: str, conversation_name: str = ""):
+    async def translate_audio(self, audio_path: str):
         """
         Translate an audio file
 
         Args:
             audio_path (str): Path to the audio file
-            conversation_name (str): Name of the conversation
 
         Returns
             str: Translation of the audio
         """
-        if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"Translating audio.",
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Translating audio.",
+        )
         response = await self.agent.translate_audio(audio_path=audio_path)
         return response
 
@@ -319,7 +307,6 @@ class AGiXT:
         self,
         command_name: str,
         command_args: dict,
-        conversation_name: str = "",
         voice_response: bool = False,
         log_output: bool = False,
     ):
@@ -329,24 +316,21 @@ class AGiXT:
         Args:
             command_name (str): Name of the command to execute
             command_args (dict): Arguments for the command
-            conversation_name (str): Name of the conversation
             voice_response (bool): Whether to generate a voice response
             log_output (bool): Whether to log the output
 
         Returns:
             str: Response from the command
         """
-        if conversation_name != "" and conversation_name != None:
-            c = Conversations(conversation_name=conversation_name, user=self.user_email)
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
+        )
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                conversation_name=f"{command_name} Execution History",
+                conversation_name=self.conversation_name,
                 ApiClient=self.ApiClient,
                 api_key=self.api_key,
                 user=self.user_email,
@@ -365,11 +349,10 @@ class AGiXT:
             ):
                 await self.text_to_speech(
                     text=response,
-                    conversation_name=conversation_name,
                     log_output=log_output,
                 )
         if log_output:
-            c.log_interaction(role=self.agent_name, message=response)
+            self.conversation.log_interaction(role=self.agent_name, message=response)
         return response
 
     async def run_chain_step(
@@ -380,18 +363,11 @@ class AGiXT:
         user_input="",
         agent_override="",
         chain_args={},
-        conversation_name="",
     ):
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
         if step:
             if "prompt_type" in step:
-                c = None
-                if conversation_name != "":
-                    c = Conversations(
-                        conversation_name=conversation_name,
-                        user=self.user_email,
-                    )
                 if agent_override != "":
                     agent_name = agent_override
                 else:
@@ -421,23 +397,21 @@ class AGiXT:
                 if "conversation" in args:
                     args["conversation_name"] = args["conversation"]
                 if prompt_type == "command":
-                    if conversation_name != "" and conversation_name != None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
-                        )
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Executing command `{step['prompt']['command_name']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
+                    )
                     result = await self.execute_command(
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
-                        conversation_name=conversation_name,
+                        conversation_name=self.conversation_name,
                         voice_response=False,
                     )
                 elif prompt_type == "prompt":
-                    if conversation_name != "" and conversation_name != None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Running prompt: {prompt_name} with args:\n```json\n{json.dumps(args, indent=2)}```",
-                        )
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Running prompt: {prompt_name} with args:\n```json\n{json.dumps(args, indent=2)}```",
+                    )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
                     if "user_input" in args:
@@ -451,11 +425,10 @@ class AGiXT:
                             **args,
                         )
                 elif prompt_type == "chain":
-                    if conversation_name != "" and conversation_name != None:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Running chain: {args['chain']} with args:\n```json\n{json.dumps(args, indent=2)}```",
-                        )
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] Running chain: {args['chain']} with args:\n```json\n{json.dumps(args, indent=2)}```",
+                    )
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
                     if "user_input" in args:
@@ -502,7 +475,6 @@ class AGiXT:
         from_step=1,
         chain_args={},
         log_user_input=False,
-        conversation_name="",
         voice_response=False,
     ):
         chain_data = self.chain.get_chain(chain_name=chain_name)
@@ -510,20 +482,15 @@ class AGiXT:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=self.user_email,
-        )
         if log_user_input:
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role="USER",
                 message=user_input,
             )
-        if conversation_name != "":
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Running chain `{chain_name}`.",
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Running chain `{chain_name}`.",
+        )
         response = ""
         step_responses = []
         logging.info(f"Chain data: {chain_data}")
@@ -550,7 +517,6 @@ class AGiXT:
                         user_input=user_input,
                         agent_override=agent_override,
                         chain_args=chain_args,
-                        conversation_name=conversation_name,
                     )
                     step_responses.append(task)
         logging.info(f"Step responses: {step_responses}")
@@ -558,24 +524,20 @@ class AGiXT:
             response = step_responses[-1]
         if response == None:
             return f"Chain failed to complete, it failed on step {step_data['step']}. You can resume by starting the chain from the step that failed with chain ID {chain_run_id}."
-        c.log_interaction(role=self.agent_name, message=response)
+        self.conversation.log_interaction(role=self.agent_name, message=response)
         if "tts_provider" in self.agent_settings and voice_response:
             if (
                 self.agent_settings["tts_provider"] != "None"
                 and self.agent_settings["tts_provider"] != ""
                 and self.agent_settings["tts_provider"] != None
             ):
-                await self.text_to_speech(
-                    text=response, conversation_name=conversation_name, log_output=True
-                )
+                await self.text_to_speech(text=response, log_output=True)
         return response
 
     async def learn_from_websites(
         self,
         urls: list = [],
-        scrape_depth: int = 3,
         summarize_content: bool = False,
-        conversation_name: str = "",
     ):
         """
         Scrape a website and summarize the content
@@ -584,7 +546,6 @@ class AGiXT:
             urls (list): List of URLs to scrape
             scrape_depth (int): Depth to scrape each URL
             summarize_content (bool): Whether to summarize the content
-            conversation_name (str): Name of the conversation
 
         Returns:
             str: Agent response with a list of scraped links
@@ -597,7 +558,7 @@ class AGiXT:
         response = await self.agent_interactions.websearch.scrape_websites(
             user_input=user_input,
             summarize_content=summarize_content,
-            conversation_name=conversation_name,
+            conversation_name=self.conversation_name,
         )
         return "I have read the information from the websites into my memory."
 
@@ -607,7 +568,6 @@ class AGiXT:
         file_name: str = "",
         user_input: str = "",
         collection_id: str = "1",
-        conversation_name: str = "",
     ):
         """
         Learn from a file
@@ -617,18 +577,10 @@ class AGiXT:
             file_name (str): Name of the file
             user_input (str): User input to the agent
             collection_id (str): Collection ID to save the file to
-            conversation_name (str): Name of the conversation
 
         Returns:
             str: Response from the agent
         """
-        logging.info(f"Learning from file: {file_url}")
-        logging.info(f"File name: {file_name}")
-        logging.info(f"User input: {user_input}")
-        logging.info(f"Collection ID: {collection_id}")
-        logging.info(f"Conversation name: {conversation_name}")
-        logging.info(f"Agent workspace: {self.agent_workspace}")
-        logging.info(f"Outputs: {self.outputs}")
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
@@ -639,7 +591,7 @@ class AGiXT:
         else:
             logging.info(f"{file_url} does not start with {self.outputs}")
             file_data = await self.download_file_to_workspace(
-                url=file_url, file_name=file_name, conversation_id=collection_id
+                url=file_url, file_name=file_name
             )
             file_name = file_data["file_name"]
             file_path = os.path.normpath(
@@ -652,13 +604,8 @@ class AGiXT:
             )
             logging.info(f"Corrected file path: {file_path}")
         file_type = file_name.split(".")[-1]
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        if (
-            conversation_name != ""
-            and conversation_name != None
-            and file_type not in ["jpg", "jpeg", "png", "gif"]
-        ):
-            c.log_interaction(
+        if file_type not in ["jpg", "jpeg", "png", "gif"]:
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Reading [{file_name}]({file_url}) into memory.",
             )
@@ -666,11 +613,10 @@ class AGiXT:
             # Convert it to a PDF
             pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
             file_name = str(file_name).replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            if conversation_name != "" and conversation_name != None:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
-                )
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
+            )
             try:
                 subprocess.run(
                     [
@@ -731,7 +677,6 @@ class AGiXT:
                             file_name=name,
                             user_input=user_input,
                             collection_id=collection_id,
-                            conversation_name=conversation_name,
                         )
                 response = f"Extracted the content of the zip file [{file_name}]({file_url}) and read them into memory."
             else:
@@ -759,7 +704,6 @@ class AGiXT:
                         file_name=csv_file_name,
                         user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
                         collection_id=collection_id,
-                        conversation_name=conversation_name,
                     )
                 str_csv_files = ", ".join(csv_files)
                 response = f"Separated the content of the spreadsheet called `{file_name}` into {x} files called {str_csv_files} and read them into memory."
@@ -773,7 +717,6 @@ class AGiXT:
                     file_name=csv_file_name,
                     user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
                     collection_id=collection_id,
-                    conversation_name=conversation_name,
                 )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
             file_content = docx2txt.process(file_path)
@@ -806,11 +749,10 @@ class AGiXT:
         ):
             audio = AudioSegment.from_file(file_path)
             audio.export(file_path, format="wav")
-            if conversation_name != "" and conversation_name != None:
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
-                )
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
+            )
             audio_response = await self.audio_to_text(audio_path=file_path)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
@@ -836,11 +778,10 @@ class AGiXT:
                 and self.agent.VISION_PROVIDER != ""
                 and self.agent.VISION_PROVIDER != None
             ):
-                if conversation_name != "" and conversation_name != None:
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
-                    )
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Uploaded `{file_name}` ![Uploaded {file_name}]({file_url})",
+                )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     vision_response = await self.agent.vision_inference(
@@ -888,20 +829,17 @@ class AGiXT:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
                 )
-        if conversation_name != "" and conversation_name != None:
-            c.log_interaction(
-                role=self.agent_name,
-                message=(
-                    f"[ACTIVITY] {response}"
-                    if "[ERROR]" not in response
-                    else f"[ACTIVITY]{response}"
-                ),
-            )
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=(
+                f"[ACTIVITY] {response}"
+                if "[ERROR]" not in response
+                else f"[ACTIVITY]{response}"
+            ),
+        )
         return response
 
-    async def download_file_to_workspace(
-        self, url: str, file_name: str = "", conversation_id: str = "0"
-    ):
+    async def download_file_to_workspace(self, url: str, file_name: str = ""):
         """
         Download a file from a URL to the workspace
 
@@ -918,18 +856,17 @@ class AGiXT:
             file_type = url.split(".")[-1]
         if not file_type:
             file_type = "txt"
-        if not conversation_id:
-            conversation_id = "1"
-        conversation_workspace = os.path.normpath(
-            os.path.join(self.agent_workspace, conversation_id)
-        )
-        os.makedirs(conversation_workspace, exist_ok=True)
+        self.conversation_id
+        if not self.conversation_id:
+            self.conversation_id = "1"
         file_name = f"{uuid.uuid4().hex}.{file_type}" if file_name == "" else file_name
         file_name = "".join(c if c.isalnum() else "_" for c in file_name)
         file_extension = file_name.split("_")[-1]
         file_name = file_name.replace(f"_{file_extension}", f".{file_extension}")
-        full_path = os.path.normpath(os.path.join(conversation_workspace, file_name))
-        if not full_path.startswith(conversation_workspace):
+        full_path = os.path.normpath(
+            os.path.join(self.conversation_workspace, file_name)
+        )
+        if not full_path.startswith(self.conversation_workspace):
             raise Exception("Path given not allowed")
         if url.startswith("http"):
             return {"file_name": file_name, "file_url": url}
@@ -941,13 +878,13 @@ class AGiXT:
                 file_type = file_name.split(".")[-1]
                 file_data = base64.b64decode(url)
             full_path = os.path.normpath(
-                os.path.join(conversation_workspace, file_name)
+                os.path.join(self.conversation_workspace, file_name)
             )
-            if not full_path.startswith(conversation_workspace):
+            if not full_path.startswith(self.conversation_workspace):
                 raise Exception("Path given not allowed")
             with open(full_path, "wb") as f:
                 f.write(file_data)
-            url = f"{self.outputs}/{conversation_id}/{file_name}"
+            url = f"{self.outputs}/{self.conversation_id}/{file_name}"
             return {"file_name": file_name, "file_url": url}
 
     async def plan_task(
@@ -955,7 +892,6 @@ class AGiXT:
         user_input: str,
         websearch: bool = False,
         websearch_depth: int = 3,
-        conversation_name: str = "",
         log_user_input: bool = True,
         log_output: bool = True,
         enable_new_command: bool = True,
@@ -967,7 +903,6 @@ class AGiXT:
         user_input (str): User input to the agent
         websearch (bool): Whether to include web research in the chain
         websearch_depth (int): Depth of web research to include
-        conversation_name (str): Name of the conversation to log activity to
         log_user_input (bool): Whether to log the user input
         log_output (bool): Whether to log the output
         enable_new_command (bool): Whether to enable the new command for the agent
@@ -975,13 +910,12 @@ class AGiXT:
         Returns:
         str: The name of the created chain
         """
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
         if log_user_input:
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role="USER",
                 message=user_input,
             )
-        c.log_interaction(
+        self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Determining primary objective.",
         )
@@ -991,7 +925,6 @@ class AGiXT:
             user_input=user_input,
             agent_override=self.agent_name,
             log_user_input=False,
-            conversation_name=conversation_name,
         )
         chain_name = await self.inference(
             user_input=user_input,
@@ -1000,14 +933,13 @@ class AGiXT:
             prompt_name="Title a Chain",
             log_output=False,
             log_user_input=False,
-            conversation_name=conversation_name,
         )
         chain_title = await self.convert_to_pydantic_model(
             input_string=chain_name,
             model=ChainCommandName,
         )
         chain_name = chain_title.command_name
-        c.log_interaction(
+        self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Breaking objective into a list of tasks.",
         )
@@ -1023,14 +955,13 @@ class AGiXT:
             injected_memories=10,
             log_output=False,
             log_user_input=False,
-            conversation_name=conversation_name,
         )
         task_list = await self.convert_to_pydantic_model(
             input_string=numbered_list_of_tasks,
             model=TasksToDo,
         )
         self.chain.add_chain(chain_name=chain_name)
-        c.log_interaction(
+        self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Creating new command `{chain_name}`.",
         )
@@ -1053,7 +984,7 @@ class AGiXT:
         )
         i += 1
         for task in task_list.tasks:
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Planning task `{x}` of `{total_tasks}`.",
             )
@@ -1097,7 +1028,7 @@ class AGiXT:
         else:
             message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nIf you are able to enable the command, I can execute it for you. Alternatively, you can execute the command manually."
         if log_output:
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=message,
             )
@@ -1111,7 +1042,6 @@ class AGiXT:
         self,
         chain_name: str,
         user_input: str,
-        conversation_name: str = "",
         log_user_input: bool = True,
         log_output: bool = True,
         enable_new_command: bool = True,
@@ -1122,7 +1052,6 @@ class AGiXT:
         Args:
         chain_name (str): Name of the chain to update
         user_input (str): User input to the agent
-        conversation_name (str): Name of the conversation
         log_user_input (bool): Whether to log the user input
         log_output (bool): Whether to log the output
 
@@ -1137,7 +1066,6 @@ class AGiXT:
         self.chain.delete_chain(chain_name=chain_name)
         return await self.plan_task(
             user_input=user_input,
-            conversation_name=conversation_name,
             log_user_input=log_user_input,
             log_output=log_output,
             enable_new_command=enable_new_command,
@@ -1153,9 +1081,9 @@ class AGiXT:
         Returns:
             dict: Chat completion response
         """
-        conversation_name = prompt.user
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        conversation_id = c.get_conversation_id()
+        # conversation_name = prompt.user
+        c = self.conversation
+        conversation_id = self.conversation_id
         urls = []
         files = []
         new_prompt = ""
@@ -1414,15 +1342,12 @@ class AGiXT:
                                         await self.download_file_to_workspace(
                                             url=url,
                                             file_name=file_name,
-                                            conversation_id=conversation_id,
                                         )
                                     )
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
-                                        await self.download_file_to_workspace(
-                                            url=url, conversation_id=conversation_id
-                                        )
+                                        await self.download_file_to_workspace(url=url)
                                     )
                                     full_path = os.path.normpath(
                                         os.path.join(
@@ -1453,32 +1378,24 @@ class AGiXT:
                                         )
                                         transcribed_audio = await self.audio_to_text(
                                             audio_path=wav_file,
-                                            conversation_name=conversation_name,
                                         )
                                         new_prompt += transcribed_audio
         # Add user input to conversation
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
-        conversation_id = c.get_conversation_id()
         for file in files:
             await self.learn_from_file(
                 file_url=file["file_url"],
                 file_name=file["file_name"],
                 user_input=new_prompt,
-                collection_id=conversation_id,
-                conversation_name=conversation_name,
+                collection_id=self.conversation_id,
             )
         await self.learn_from_websites(
             urls=urls,
-            scrape_depth=3,
             summarize_content=False,
-            conversation_name=conversation_name,
         )
-        data_analysis = await self.analyze_csv(
-            user_input=new_prompt,
-            conversation_name=conversation_name,
-        )
+        data_analysis = await self.analyze_csv(user_input=new_prompt)
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -1492,7 +1409,6 @@ class AGiXT:
             response = await self.execute_command(
                 command_name=self.agent_settings["command_name"],
                 command_args=command_args,
-                conversation_name=conversation_name,
                 voice_response=tts,
             )
         elif mode == "chain" and chain_name:
@@ -1511,7 +1427,6 @@ class AGiXT:
                 agent_override=self.agent_name,
                 chain_args=chain_args,
                 log_user_input=False,
-                conversation_name=conversation_name,
                 voice_response=tts,
             )
         elif mode == "prompt":
@@ -1519,7 +1434,6 @@ class AGiXT:
                 user_input=new_prompt,
                 prompt_name=prompt_name,
                 prompt_category=prompt_category,
-                conversation_name=conversation_name,
                 injected_memories=context_results,
                 conversation_results=conversation_results,
                 shots=prompt.n,
@@ -1539,7 +1453,7 @@ class AGiXT:
                 response = "Unable to retrieve response."
                 logging.error(f"Error getting response: {response}")
         res_model = {
-            "id": conversation_name,
+            "id": self.conversation_id,
             "object": "chat.completion",
             "created": int(time.time()),
             "model": self.agent_name,
@@ -1567,7 +1481,6 @@ class AGiXT:
         user_inputs: List[str] = [],
         prompt_category: str = "Default",
         prompt_name: str = "Ask Questions",
-        conversation_name: str = "",
         images: list = [],
         injected_memories: int = 5,
         batch_size: int = 10,
@@ -1591,7 +1504,6 @@ class AGiXT:
                     user_input=user_input,
                     prompt_category=prompt_category,
                     prompt_name=prompt_name,
-                    conversation_name=conversation_name,
                     images=images,
                     injected_memories=injected_memories,
                     browse_links=browse_links,
@@ -1797,37 +1709,30 @@ class AGiXT:
     async def analyze_csv(
         self,
         user_input: str,
-        conversation_name: str,
         file_content=None,
         file_name="",
     ):
-        c = Conversations(conversation_name=conversation_name, user=self.user_email)
-        conversation_id = c.get_conversation_id()
-        conversation_workspace = os.path.join(self.agent_workspace, conversation_id)
-        logging.info(f"Conversation workspace: {conversation_workspace}")
-        if not os.path.exists(conversation_workspace):
-            os.makedirs(conversation_workspace)
         file_names = []
-        file_path = conversation_workspace
+        file_path = self.conversation_workspace
         if "```csv" in user_input and file_name == "":
             file_name = f"{uuid.uuid4().hex}.csv"
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Saving CSV data to file `{file_name}`.",
             )
             file_content = user_input.split("```csv")[1].split("```")[0]
-            file_path = os.path.join(conversation_workspace, file_name)
+            file_path = os.path.join(self.conversation_workspace, file_name)
             with open(file_path, "w") as f:
                 f.write(file_content)
         if not file_content:
-            files = os.listdir(conversation_workspace)
+            files = os.listdir(self.conversation_workspace)
             logging.info(f"Files in conversation workspace: {files}")
             # Check if any files are csv files, if not, return empty string
             csv_files = [file for file in files if file.endswith(".csv")]
             logging.info(f"CSV files in conversation workspace: {csv_files}")
             if len(csv_files) == 0:
                 return ""
-            activities = c.get_activities(limit=20)["activities"]
+            activities = self.conversation.get_activities(limit=20)["activities"]
             logging.info(f"Activities: {activities}")
             if len(activities) == 0:
                 return ""
@@ -1838,7 +1743,7 @@ class AGiXT:
                         likely_files.append(activity["message"].split("`")[1])
             if len(likely_files) == 1:
                 file_name = likely_files[0]
-                file_path = os.path.join(conversation_workspace, file_name)
+                file_path = os.path.join(self.conversation_workspace, file_name)
                 file_content = open(file_path, "r").read()
             else:
                 file_determination = await self.inference(
@@ -1847,7 +1752,7 @@ class AGiXT:
                     prompt_name="Determine File",
                     directory_listing="\n".join(csv_files),
                     conversation_results=10,
-                    conversation_name=conversation_name,
+                    conversation_name=self.conversation_name,
                     log_user_input=False,
                     log_output=False,
                     voice_response=False,
@@ -1858,7 +1763,7 @@ class AGiXT:
                         file_names.append(file)
                 if len(file_names) == 1:
                     file_name = file_names[0]
-                    file_path = os.path.join(conversation_workspace, file_name)
+                    file_path = os.path.join(self.conversation_workspace, file_name)
                     file_content = open(file_path, "r").read()
             if file_name == "":
                 return ""
@@ -1868,17 +1773,17 @@ class AGiXT:
             import_files = ""
             for file in file_names:
                 if import_files == "":
-                    import_files = f"`{conversation_workspace}/{file}`"
+                    import_files = f"`{self.conversation_workspace}/{file}`"
                 else:
-                    import_files += f", `{conversation_workspace}/{file}`"
-                file_path = os.path.join(conversation_workspace, file)
+                    import_files += f", `{self.conversation_workspace}/{file}`"
+                file_path = os.path.join(self.conversation_workspace, file)
                 file_content = open(file_path, "r").read()
                 lines = file_content.split("\n")
                 lines = lines[:2]
                 file_preview = "\n".join(lines)
                 previews.append(f"`{file_path}`\n```csv\n{file_preview}\n```")
             file_preview = "\n".join(previews)
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Analyzing data from multiple files: {import_files}.",
             )
@@ -1886,7 +1791,7 @@ class AGiXT:
             lines = file_content.split("\n")
             lines = lines[:2]
             file_preview = "\n".join(lines)
-            c.log_interaction(
+            self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Analyzing data from file `{file_name}`.",
             )
@@ -1900,7 +1805,7 @@ class AGiXT:
             ),
             import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
-            conversation_name=conversation_name,
+            conversation_name=self.conversation_name,
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -1924,7 +1829,7 @@ class AGiXT:
             import_file=import_files if len(file_names) > 1 else file_path,
             file_preview=file_preview,
             code=code_interpreter,
-            conversation_name=conversation_name,
+            conversation_name=self.conversation_name,
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -1954,7 +1859,7 @@ class AGiXT:
                 import_file=import_files if len(file_names) > 1 else file_path,
                 code=code_verification,
                 code_error=str(e),
-                conversation_name=conversation_name,
+                conversation_name=self.conversation_name,
                 log_user_input=False,
                 log_output=False,
                 browse_links=False,
@@ -1973,23 +1878,22 @@ class AGiXT:
         if code_execution.startswith("Error"):
             self.failures += 1
             if self.failures < 3:
-                c.log_interaction(
+                self.conversation.log_interaction(
                     role=self.agent_name,
                     message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
                 )
                 return await self.analyze_csv(
                     user_input=user_input,
-                    conversation_name=conversation_name,
                     file_name=file_name,
                     file_content=file_content,
                 )
             else:
-                c.log_interaction(
+                self.conversation.log_interaction(
                     role=self.agent_name,
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
-        c.log_interaction(
+        self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Data analysis complete.",
         )
