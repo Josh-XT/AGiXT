@@ -172,12 +172,9 @@ class Memories:
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
         if collection_number != "0":
-            if len(collection_number) > 4:
-                self.collection_name = snake(
-                    f"{self.collection_name}_{collection_number}"
-                )
-            else:
-                self.collection_name = snake(f"{collection_number}")
+            self.collection_name = snake(f"{self.collection_name}_{collection_number}")
+        if len(collection_number) > 4:
+            self.collection_name = snake(f"{collection_number}")
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
