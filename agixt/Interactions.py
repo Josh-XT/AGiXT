@@ -859,27 +859,6 @@ class Interactions:
             )
         return self.response
 
-    def create_command_suggestion_chain(self, agent_name, command_name, command_args):
-        ch = Chain(user=self.user)
-        chains = ch.get_chains()
-        chain_name = f"{agent_name} Command Suggestions"
-        if chain_name in chains:
-            step = int(ch.get_chain(chain_name=chain_name)["steps"][-1]["step"]) + 1
-        else:
-            ch.add_chain(chain_name=chain_name)
-            step = 1
-        ch.add_chain_step(
-            chain_name=chain_name,
-            agent_name=agent_name,
-            step_number=step,
-            prompt_type="Command",
-            prompt={
-                "command_name": command_name,
-                **command_args,
-            },
-        )
-        return f"**The command has been added to a chain called '{agent_name} Command Suggestions' for you to review and execute manually.**"
-
     async def execution_agent(self, conversation_name):
         c = Conversations(conversation_name=conversation_name, user=self.user)
         command_list = [

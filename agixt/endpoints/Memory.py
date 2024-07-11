@@ -483,11 +483,12 @@ async def get_dpo_response(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     agixt = AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
-        conversation_name=user_input.conversation_name,
+        conversation_name=f"DPO on {timestamp}",
     )
     prompt, chosen, rejected = await agixt.dpo(
         question=user_input, injected_memories=int(user_input.injected_memories)

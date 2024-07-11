@@ -25,7 +25,6 @@ class AgentMemoryQuery(BaseModel):
 class UserInput(BaseModel):
     user_input: str
     injected_memories: Optional[int] = 10
-    conversation_name = Optional[str] = ""
 
 
 class LogInteraction(BaseModel):
