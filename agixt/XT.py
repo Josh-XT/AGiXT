@@ -5,7 +5,6 @@ from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName
-from Websearch import Websearch
 from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
 from enum import Enum
@@ -27,17 +26,26 @@ import time
 
 
 class AGiXT:
-    def __init__(self, user: str, agent_name: str, api_key: str):
+    def __init__(
+        self, user: str, agent_name: str, api_key: str, conversation_name: str = None
+    ):
         self.user_email = user.lower()
         if api_key is not None:
-            self.api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
-        else:
-            self.api_key = api_key
+            api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
+        self.api_key = api_key
+        self.conversation = Conversations(
+            conversation_name=conversation_name, user=self.user_email
+        )
+        self.conversation_id = self.conversation.get_conversation_id()
+        self.conversation_name = conversation_name
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
-            agent_name=self.agent_name, user=self.user_email, ApiClient=self.ApiClient
+            agent_name=self.agent_name,
+            user=self.user_email,
+            ApiClient=self.ApiClient,
+            conversation_id=self.conversation_id,
         )
         self.agent = self.agent_interactions.agent
         self.agent_settings = (

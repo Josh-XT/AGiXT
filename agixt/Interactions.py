@@ -33,6 +33,7 @@ class Interactions:
         agent_name: str = "",
         user=DEFAULT_USER,
         ApiClient=None,
+        conversation_id="1",
     ):
         self.ApiClient = ApiClient
         self.user = user
@@ -42,7 +43,7 @@ class Interactions:
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                collection_number="1",
+                collection_number=conversation_id,
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -149,7 +150,6 @@ class Interactions:
         else:
             if user_input:
                 if self.websearch == None or self.websearch.collection_number == "1":
-
                     self.websearch = Websearch(
                         collection_number=conversation_id,
                         agent=self.agent,
@@ -214,7 +214,7 @@ class Interactions:
                 conversation_memories = FileReader(
                     agent_name=self.agent_name,
                     agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=c.get_conversation_id(),
+                    collection_number=conversation_id,
                     ApiClient=self.ApiClient,
                     user=self.user,
                 )

@@ -25,6 +25,7 @@ class AgentMemoryQuery(BaseModel):
 class UserInput(BaseModel):
     user_input: str
     injected_memories: Optional[int] = 10
+    conversation_name = Optional[str] = ""
 
 
 class LogInteraction(BaseModel):
@@ -121,6 +122,7 @@ class RunChain(BaseModel):
     all_responses: Optional[bool] = False
     from_step: Optional[int] = 1
     chain_args: Optional[dict] = {}
+    conversation_name: Optional[str] = ""
 
 
 class RunChainStep(BaseModel):
@@ -128,6 +130,7 @@ class RunChainStep(BaseModel):
     agent_override: Optional[str] = ""
     chain_args: Optional[dict] = {}
     chain_run_id: Optional[str] = ""
+    conversation_name: Optional[str] = ""
 
 
 class StepInfo(BaseModel):
