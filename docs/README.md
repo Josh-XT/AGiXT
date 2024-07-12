@@ -279,9 +279,9 @@ graph TD
     end
     
     subgraph AC[Data Analysis]
-        H1[Identify CSV files]
-        H2[Determine file to analyze]
-        H3[Generate and verify Python code]
+        H1[Identify CSV content in agent workspace or user input]
+        H2[Determine files or content to analyze]
+        H3[Generate and verify Python code for analysis]
         H4[Execute Python code]
         H5{Execution successful?}
         H6[Update memories with results from data analysis]
@@ -304,7 +304,7 @@ graph TD
     subgraph IM[Initialize Memories]
         J1[Initialize vector database]
         J2[Initialize embedding provider]
-        J3[Prepare memory collection]
+        J3[Initialize relevant memory collections]
         J1 --> J2 --> J3
     end
     
