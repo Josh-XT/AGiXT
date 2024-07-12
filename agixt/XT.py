@@ -1751,6 +1751,8 @@ class AGiXT:
                     prompt_name="Determine File",
                     directory_listing="\n".join(csv_files),
                     conversation_results=10,
+                    websearch=False,
+                    browse_links=False,
                     log_user_input=False,
                     log_output=False,
                     voice_response=False,
