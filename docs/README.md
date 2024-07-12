@@ -247,18 +247,18 @@ graph TD
     E --> G[Handle URLs and Websearch if applicable]
     G --> H[Data Analysis if applicable]
     H --> K{Agent Mode?}
-    K -->|Command| L[Execute Command]
-    K -->|Chain| M[Execute Chain]
-    K -->|Prompt| N[Run Inference]
+    K -->|Command| EC[Execute Command]
+    K -->|Chain| EX[Execute Chain]
+    K -->|Prompt| RI[Run Inference]
     
-    L --> O[Prepare response]
-    M --> O
-    N --> O
+    EC --> O[Prepare response]
+    EX --> O
+    RI --> O
     
-    O --> P[Calculate tokens]
-    P --> Q[Format response]
+    O --> Q[Format response]
     Q --> R[Text Response]
-    R --> U[Log final response]
+    R --> P[Calculate tokens]
+    P --> U[Log final response]
     Q --> TTS[Text-to-Speech Conversion]
     TTS --> VAudio[Voice Audio Response]
     Q --> IMG_GEN[Image Generation]
@@ -326,10 +326,13 @@ graph TD
     end
     
     subgraph RI[Run Inference]
-        N1[Format prompt]
-        N2[Inject relevant memories]
-        N3[Call inference method to LLM provider]
-        N1 --> N2 --> N3
+        N1[Get prompt template]
+        N2[Format prompt]
+        N3[Inject relevant memories]
+        N4[Inject conversation history]
+        N5[Inject recent activities]
+        N6[Call inference method to LLM provider]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6
     end
 
     subgraph WS[Websearch]
@@ -351,13 +354,6 @@ graph TD
         P6[Embedding Provider]
     end
 
-    subgraph PT[Prompts]
-        PR1[Get prompt]
-        PR2[Extract prompt args]
-        PR3[Format prompt]
-        PR1 --> PR2 --> PR3
-    end
-
     subgraph CL[Conversation Logging]
         S[Log user input]
         T[Log agent activities]
@@ -367,25 +363,19 @@ graph TD
     G --> HU
     G --> WS
     H --> AC
-    L --> EC
-    M --> EX
-    N --> RI
-    N1 --> PT
-    N3 --> P1
     TTS --> P2
     STT --> P3
     VIS --> P4
     IMG_GEN --> P5
     J2 --> P6
+    N6 --> P1
 
     F --> T
     G --> T
     H --> T
-    L --> T
-    M --> T
-    N --> T
     L3 --> T
     M4 --> T
+    N6 --> T
 
     style U fill:#0000FF,stroke:#333,stroke-width:4px
 ```
