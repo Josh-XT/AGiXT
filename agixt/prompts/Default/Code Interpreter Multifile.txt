@@ -31,9 +31,9 @@ If the user's input doesn't request any specific analysis or asks to surprise th
 
 The CSV previews includes the first 2 lines of each CSV file to help you understand the data structures, the full files are available at the file paths provided to be handled in your code.
 
-**Make sure the final output of the code is a visualization. The functions final return should be a print of base64 image markdown string that can be displayed on a website parsing markdown code. Example `print('![Generated Image](data:image/png;base64,IMAGE_CONTENT)')`**
+**Any files saved to {working_directory} will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**
 
-Any file that you save will be immediately available at the file name you save them with at {output_url} with the file name you used at the end. Reference them!
+**Make sure the output contains visualizations! It must end with a print for the output to show!**
 
 You are working the with files: {import_file} 
 
