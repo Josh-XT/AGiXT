@@ -202,14 +202,18 @@ async def rename_conversation(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    c = Conversations(conversation_name=rename.conversation_name, user=user)
+    agixt = AGiXT(
+        user=user,
+        agent_name=rename.agent_name,
+        api_key=authorization,
+        conversation_name=rename.conversation_name,
+    )
+    c = agixt.conversation
     if rename.new_conversation_name == "-":
-        agixt = AGiXT(user=user, agent_name=rename.agent_name, api_key=authorization)
         conversation_list = c.get_conversations()
         response = await agixt.inference(
             user_input=f"Rename conversation",
             prompt_name="Name Conversation",
-            conversation_name=rename.conversation_name,
             conversation_list="\n".join(conversation_list),
             conversation_results=10,
             websearch=False,
@@ -230,7 +234,6 @@ async def rename_conversation(
                 response = await agixt.inference(
                     user_input=f"**Do not use {new_name}!**",
                     prompt_name="Name Conversation",
-                    conversation_name=rename.conversation_name,
                     conversation_list="\n".join(conversation_list),
                     conversation_results=10,
                     websearch=False,

@@ -69,7 +69,12 @@ def fine_tune_llm(
 ):
     output_path = "./models"
     # Step 1: Build AGiXT dataset
-    agixt = AGiXT(user=user, api_key=api_key, agent_name=agent_name)
+    agixt = AGiXT(
+        user=user,
+        api_key=api_key,
+        agent_name=agent_name,
+        conversation_name=dataset_name,
+    )
     agent_settings = agixt.agent_settings
     if not agent_settings:
         agent_settings = {}
@@ -78,10 +83,9 @@ def fine_tune_llm(
         if "HUGGINGFACE_API_KEY" in agent_settings
         else None
     )
-    response = AGiXT(
-        agent_name=agent_name,
-        api_key=api_key,
-    ).create_dataset_from_memories(dataset_name=dataset_name, batch_size=5)
+    response = agixt.create_dataset_from_memories(
+        dataset_name=dataset_name, batch_size=5
+    )
     dataset_name = (
         response["message"].split("Creation of dataset ")[1].split(" for agent")[0]
     )

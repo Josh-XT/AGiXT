@@ -200,7 +200,12 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    agent = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=agent_prompt.prompt_args["conversation_name"],
+    )
     if "tts" in agent_prompt.prompt_args:
         agent_prompt.prompt_args["voice_response"] = (
             str(agent_prompt.prompt_args["tts"]).lower() == "true"
@@ -358,12 +363,16 @@ async def plan_task(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    agent = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=task.conversation_name,
+    )
     planned_task = await agent.plan_task(
         user_input=task.user_input,
         websearch=task.websearch,
         websearch_depth=task.websearch_depth,
-        conversation_name=task.conversation_name,
         log_user_input=task.log_user_input,
         log_output=task.log_output,
         enable_new_command=task.enable_new_command,
