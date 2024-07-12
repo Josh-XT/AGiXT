@@ -241,10 +241,12 @@ graph TD
     STT --> C
     VIS --> C
     F --> C
+    C --> S[Log user input]
+    C --> T[Log agent activities]
     C --> E[Override Agent settings if applicable]
     E --> G[Handle URLs and Websearch if applicable]
     G --> H[Data Analysis if applicable]
-    H --> K{Mode?}
+    H --> K{Agent Mode?}
     K -->|Command| L[Execute Command]
     K -->|Chain| M[Execute Chain]
     K -->|Prompt| N[Run Inference]
@@ -292,32 +294,35 @@ graph TD
     
     subgraph IA[Agent Initialization]
         I1[Load agent config]
-        I2[Set up AI provider]
-        I3[Set up other providers]
-        I4[Load available commands]
-        I5[Set up working directory]
+        I2[Initialize providers]
+        I3[Load available commands]
+        I4[Initialize Conversation]
+        I5[Initialize agent workspace]
         I1 --> I2 --> I3 --> I4 --> I5
     end
     
     subgraph IM[Initialize Memories]
-        J1[Set up Chroma client]
+        J1[Initialize vector database]
         J2[Initialize embedding provider]
         J3[Prepare memory collection]
         J1 --> J2 --> J3
     end
     
     subgraph EC[Execute Command]
-        L1[Prepare command args]
-        L2[Call execute_command]
-        L1 --> L2
+        L1[Inject user settings]
+        L2[Inject agent extensions settings]
+        L3[Run command]
+        L1 --> L2 --> L3
     end
     
     subgraph EX[Execute Chain]
         M1[Load chain data]
-        M2[Execute chain steps]
-        M3[Handle dependencies]
-        M4[Update chain responses]
-        M1 --> M2 --> M3 --> M4
+        M2[Inject user settings]
+        M3[Inject agent extension settings]
+        M4[Execute chain steps]
+        M5[Handle dependencies]
+        M6[Update chain responses]
+        M1 --> M2 --> M3 --> M4 --> M5 --> M6
     end
     
     subgraph RI[Run Inference]
@@ -373,14 +378,14 @@ graph TD
     IMG_GEN --> P5
     J2 --> P6
 
-    A --> S
-    C --> T
     F --> T
     G --> T
     H --> T
     L --> T
     M --> T
     N --> T
+    L3 --> T
+    M4 --> T
 
     style U fill:#0000FF,stroke:#333,stroke-width:4px
 ```

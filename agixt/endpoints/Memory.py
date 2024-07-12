@@ -7,7 +7,6 @@ from typing import Dict, Any, List
 from Websearch import Websearch
 from XT import AGiXT
 from Memories import Memories
-from Conversations import Conversations
 from readers.github import GithubReader
 from readers.file import FileReader
 from readers.arxiv import ArxivReader
