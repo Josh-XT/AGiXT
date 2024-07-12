@@ -150,7 +150,12 @@ async def learn_file(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     # Strip any path information from the file name
-    agent = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    agent = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=file.collection_number,
+    )
     file.file_name = os.path.basename(file.file_name)
     file_path = os.path.normpath(os.path.join(agent.agent_workspace, file.file_name))
     logging.info(f"File path: {file_path}")
@@ -170,7 +175,6 @@ async def learn_file(
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
-        conversation_name=f"Agent Training on {datetime.now().strftime('%Y-%m-%d')} by {user}",
     )
     return ResponseMessage(message=response)
 
@@ -453,11 +457,13 @@ async def create_dataset(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     batch_size = dataset.batch_size if dataset.batch_size < (int(WORKERS) - 2) else 4
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     asyncio.create_task(
         AGiXT(
             agent_name=agent_name,
             user=user,
             api_key=authorization,
+            conversation_name=f"Dataset Creation on {timestamp}",
         ).create_dataset_from_memories(batch_size=batch_size)
     )
     return ResponseMessage(
@@ -477,7 +483,13 @@ async def get_dpo_response(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
-    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    agixt = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=f"DPO on {timestamp}",
+    )
     prompt, chosen, rejected = await agixt.dpo(
         question=user_input, injected_memories=int(user_input.injected_memories)
     )
@@ -589,12 +601,17 @@ async def rlhf(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    c = Conversations(conversation_name=data.conversation_name, user=user)
+    agixt = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=data.conversation_name,
+    )
+    c = agixt.conversation
     if c.has_received_feedback(message=data.message):
         return ResponseMessage(
             message="Feedback already received for this interaction."
         )
-    agixt = AGiXT(user=user, agent_name=agent_name, api_key=authorization)
     if data.positive == True:
         memory = agixt.agent_interactions.positive_feedback_memories
     else:
@@ -604,7 +621,6 @@ async def rlhf(
         input_kind="positive" if data.positive == True else "negative",
         assistant_response=data.message,
         feedback=data.feedback,
-        conversation_name=data.conversation_name,
         log_user_input=False,
         log_output=False,
     )

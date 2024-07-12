@@ -46,10 +46,12 @@ async def run_chain(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     agent_name = user_input.agent_override if user_input.agent_override else "gpt4free"
+    conversation_name = user_input.conversation_name
     chain_response = await AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
+        conversation_name=conversation_name,
     ).execute_chain(
         chain_name=chain_name,
         user_input=user_input.prompt,
@@ -95,6 +97,7 @@ async def run_chain_step(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
+        conversation_name=user_input.conversation_name,
     ).run_chain_step(
         chain_run_id=user_input.chain_run_id,
         step=step,

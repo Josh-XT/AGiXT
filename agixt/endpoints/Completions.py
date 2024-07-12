@@ -32,7 +32,12 @@ async def chat_completion(
 ):
     # prompt.model is the agent name
     # prompt.user is the conversation name
-    agixt = AGiXT(user=user, agent_name=prompt.model, api_key=authorization)
+    agixt = AGiXT(
+        user=user,
+        agent_name=prompt.model,
+        api_key=authorization,
+        conversation_name=prompt.user,
+    )
     return await agixt.chat_completions(prompt=prompt)
 
 
