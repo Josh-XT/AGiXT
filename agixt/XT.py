@@ -1732,6 +1732,7 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
+        analyzed_input = {}
         if "```json" not in analyze_input and "```" in analyze_input:
             analyze_input = analyze_input.replace("```", "```json", 1)
         if "```json" in analyze_input:
@@ -1745,6 +1746,8 @@ class AGiXT:
                     return ""
             except:
                 return ""
+        if analyzed_input == {}:
+            return ""
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
