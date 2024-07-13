@@ -1394,7 +1394,30 @@ class AGiXT:
             urls=urls,
             summarize_content=False,
         )
-        data_analysis = await self.analyze_csv(user_input=new_prompt)
+        data_analysis = await self.analyze_data(user_input=new_prompt)
+        if data_analysis == "":
+            # Check if there is any math problem in the user input
+            python_code = await self.inference(
+                user_input=new_prompt,
+                prompt_category="Default",
+                prompt_name="Convert Math to Python",
+                log_user_input=False,
+                log_output=False,
+                voice_response=False,
+                browse_links=False,
+                websearch=False,
+            )
+            if "```python" in python_code:
+                # Get content of code block
+                python_code = python_code.split("```python")[1].split("```")[0]
+                try:
+                    new_data_analysis = await self.execute_command(
+                        command_name="Execute Python Code",
+                        command_args={"code": python_code, "text": ""},
+                    )
+                    data_analysis = f"Executed the following code expressed to assist the user:\n```python\n{python_code}\n```\n**REFERENCE THE RESULTS, NOT THE CODE TO THE USER WHEN RESPONDING! THE RESULTS FROM RUNNING THE CODE IS:**\n{new_data_analysis}"
+                except:
+                    data_analysis = ""
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -1705,7 +1728,7 @@ class AGiXT:
 
         return generate_markdown_structure(folder_path=self.agent_workspace)
 
-    async def analyze_csv(
+    async def analyze_data(
         self,
         user_input: str,
         file_content=None,
@@ -1879,7 +1902,7 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
                 )
-                return await self.analyze_csv(
+                return await self.analyze_data(
                     user_input=user_input,
                     file_name=file_name,
                     file_content=file_content,
