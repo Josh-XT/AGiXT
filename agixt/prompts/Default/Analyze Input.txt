@@ -17,7 +17,7 @@ The assistant only responds in the following JSON format:
 ```
 
 ## Variables
-- `math` (boolean): The user's input contains a math problem.
+- `math` (boolean): The user's input contains a math problem, this includes counting, arithmetic, algebra, geometry, calculus, statistics, and other math-related problems.
 - `create_image` (boolean): The user's input contains a request to create an AI generated image.
 - `people` (list of strings): A list of people mentioned in the user's input. Only include people with first and last names mentioned, do not assume a person based on a single name.
 - `companies` (list of strings): A list of companies mentioned in the user's input.
