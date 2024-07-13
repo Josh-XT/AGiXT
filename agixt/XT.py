@@ -309,6 +309,7 @@ class AGiXT:
         command_args: dict,
         voice_response: bool = False,
         log_output: bool = False,
+        log_activities: bool = False,
     ):
         """
         Execute a command with arguments
@@ -318,14 +319,16 @@ class AGiXT:
             command_args (dict): Arguments for the command
             voice_response (bool): Whether to generate a voice response
             log_output (bool): Whether to log the output
+            log_activities (bool): Whether to log the activities
 
         Returns:
             str: Response from the command
         """
-        self.conversation.log_interaction(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
-        )
+        if log_activities:
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
+            )
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
@@ -1394,7 +1397,14 @@ class AGiXT:
             urls=urls,
             summarize_content=False,
         )
-        data_analysis = await self.analyze_csv(user_input=new_prompt)
+        analyze_user_input = True
+        if "analyze_user_input" in self.agent_settings:
+            analyze_user_input = (
+                str(self.agent_settings["analyze_user_input"]).lower() == "true"
+            )
+        data_analysis = ""
+        if analyze_user_input:
+            data_analysis = await self.analyze_data(user_input=new_prompt)
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -1705,7 +1715,90 @@ class AGiXT:
 
         return generate_markdown_structure(folder_path=self.agent_workspace)
 
-    async def analyze_csv(
+    async def execute_code(self, user_input: str):
+        code_execution = ""
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Analyzing data.",
+        )
+        code_interpreter = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Write Code",
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        if "```python" in code_interpreter:
+            code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
+            if "```python" in code_interpreter:
+                code_interpreter = code_interpreter.split("```python")[1].split("```")[
+                    0
+                ]
+            code_verification = await self.inference(
+                user_input=user_input,
+                prompt_category="Default",
+                prompt_name="Verify Code",
+                code=code_interpreter,
+                log_user_input=False,
+                log_output=False,
+                browse_links=False,
+                websearch=False,
+                websearch_depth=0,
+                voice_response=False,
+            )
+            if "```python" in code_verification:
+                code_verification = code_verification.split("```python")[1].split(
+                    "```"
+                )[0]
+                if "```python" in code_verification:
+                    code_verification = code_verification.split("```python")[1].split(
+                        "```"
+                    )[0]
+                try:
+                    code_execution = await self.execute_command(
+                        command_name="Execute Python Code",
+                        command_args={"code": code_verification, "text": ""},
+                    )
+                except Exception as e:
+                    fixed_code = await self.inference(
+                        user_input=user_input,
+                        prompt_category="Default",
+                        prompt_name="Fix Verified Code",
+                        code=code_verification,
+                        code_error=str(e),
+                        log_user_input=False,
+                        log_output=False,
+                        browse_links=False,
+                        websearch=False,
+                        websearch_depth=0,
+                        voice_response=False,
+                    )
+                    code_verification = fixed_code
+                    if "```python" in code_verification:
+                        code_verification = code_verification.split("```python")[
+                            1
+                        ].split("```")[0]
+                        if "```python" in code_verification:
+                            code_verification = code_verification.split("```python")[
+                                1
+                            ].split("```")[0]
+                        try:
+                            code_execution = await self.execute_command(
+                                command_name="Execute Python Code",
+                                command_args={"code": code_verification, "text": ""},
+                            )
+                        except Exception as e:
+                            code_execution = ""
+                            logging.error(f"Error executing code: {e}")
+        if code_execution != "":
+            return f"Executed the following code expressed to assist the user:\n```python\n{code_verification}\n```\n**REFERENCE THE RESULTS, NOT THE CODE TO THE USER WHEN RESPONDING! THE RESULTS FROM RUNNING THE CODE ARE AS FOLLOWS:**\n{code_execution}"
+        return ""
+
+    async def analyze_data(
         self,
         user_input: str,
         file_content=None,
@@ -1730,11 +1823,11 @@ class AGiXT:
             csv_files = [file for file in files if file.endswith(".csv")]
             logging.info(f"CSV files in conversation workspace: {csv_files}")
             if len(csv_files) == 0:
-                return ""
+                return await self.execute_code(user_input=user_input)
             activities = self.conversation.get_activities(limit=20)["activities"]
             logging.info(f"Activities: {activities}")
             if len(activities) == 0:
-                return ""
+                return await self.execute_code(user_input=user_input)
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
@@ -1766,7 +1859,7 @@ class AGiXT:
                     file_path = os.path.join(self.conversation_workspace, file_name)
                     file_content = open(file_path, "r").read()
             if file_name == "":
-                return ""
+                return await self.execute_code(user_input=user_input)
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
@@ -1879,7 +1972,7 @@ class AGiXT:
                     role=self.agent_name,
                     message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
                 )
-                return await self.analyze_csv(
+                return await self.analyze_data(
                     user_input=user_input,
                     file_name=file_name,
                     file_content=file_content,

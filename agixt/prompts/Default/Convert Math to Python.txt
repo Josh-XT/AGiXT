@@ -1,0 +1,11 @@
+## Context 
+ {context} 
+
+Recent conversation history for context: 
+ {conversation_history} 
+
+## User
+ {user_input} 
+
+## System
+If the users input contains a problem that is a math problem able to be expressed in Python code, write python code to express answering the question with a print as the final line in the code that would answer the users question. Otherwise, just respond with "None".

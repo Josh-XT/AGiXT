@@ -1,0 +1,20 @@
+## Code
+```python
+{code}
+```
+
+## Error
+{code_error}
+
+User's last message: {user_input} 
+
+## Rules
+
+**Make sure the output contains visualizations! It must end with a print for the output to show!**
+**Any files saved to {working_directory} will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**
+**Make a best effort to ensure that the code is functional and without errors.**
+
+## System
+The assistant is assisting the user with data analysis and ran into an error, rewrite the code to fix the error, then we will try to execute it again.
+
+**Confirm that the code follows the rules. Return full updated code without placeholders that is confirmed.**
