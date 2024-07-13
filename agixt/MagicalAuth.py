@@ -260,6 +260,8 @@ class MagicalAuth:
         expiration = datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
+        logging.info(f"Current time: {datetime.now()}")
+        logging.info(f"Token expiration: {expiration}")
         self.token = jwt.encode(
             {
                 "sub": str(user.id),
