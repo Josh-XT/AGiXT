@@ -1719,8 +1719,32 @@ class AGiXT:
         code_execution = ""
         self.conversation.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Analyzing data.",
+            message=f"[ACTIVITY] Analyzing.",
         )
+        analyze_input = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Analyze Input",
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        if "```json" not in analyze_input and "```" in analyze_input:
+            analyze_input = analyze_input.replace("```", "```json", 1)
+        if "```json" in analyze_input:
+            analyze_input = analyze_input.split("```json")[1].split("```")[0]
+            try:
+                analyzed_input = json.loads(analyze_input)
+                if "math" in analyzed_input:
+                    if str(analyzed_input["math"]).lower() != "true":
+                        return ""
+                else:
+                    return ""
+            except:
+                return ""
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
