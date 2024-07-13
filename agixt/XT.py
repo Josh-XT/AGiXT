@@ -309,6 +309,7 @@ class AGiXT:
         command_args: dict,
         voice_response: bool = False,
         log_output: bool = False,
+        log_activities: bool = False,
     ):
         """
         Execute a command with arguments
@@ -318,14 +319,16 @@ class AGiXT:
             command_args (dict): Arguments for the command
             voice_response (bool): Whether to generate a voice response
             log_output (bool): Whether to log the output
+            log_activities (bool): Whether to log the activities
 
         Returns:
             str: Response from the command
         """
-        self.conversation.log_interaction(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
-        )
+        if log_activities:
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Executing command `{command_name}` with args:\n```json\n{json.dumps(command_args, indent=2)}```",
+            )
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
@@ -1395,29 +1398,6 @@ class AGiXT:
             summarize_content=False,
         )
         data_analysis = await self.analyze_data(user_input=new_prompt)
-        if data_analysis == "":
-            # Check if there is any math problem in the user input
-            python_code = await self.inference(
-                user_input=new_prompt,
-                prompt_category="Default",
-                prompt_name="Convert Math to Python",
-                log_user_input=False,
-                log_output=False,
-                voice_response=False,
-                browse_links=False,
-                websearch=False,
-            )
-            if "```python" in python_code:
-                # Get content of code block
-                python_code = python_code.split("```python")[1].split("```")[0]
-                try:
-                    new_data_analysis = await self.execute_command(
-                        command_name="Execute Python Code",
-                        command_args={"code": python_code, "text": ""},
-                    )
-                    data_analysis = f"Executed the following code expressed to assist the user:\n```python\n{python_code}\n```\n**REFERENCE THE RESULTS, NOT THE CODE TO THE USER WHEN RESPONDING! THE RESULTS FROM RUNNING THE CODE IS:**\n{new_data_analysis}"
-                except:
-                    data_analysis = ""
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -1728,6 +1708,32 @@ class AGiXT:
 
         return generate_markdown_structure(folder_path=self.agent_workspace)
 
+    async def math_to_python(
+        self,
+        user_input: str,
+    ):
+        python_code = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Convert Math to Python",
+            log_user_input=False,
+            log_output=False,
+            voice_response=False,
+            browse_links=False,
+            websearch=False,
+        )
+        if "```python" in python_code:
+            # Get content of code block
+            python_code = python_code.split("```python")[1].split("```")[0]
+            try:
+                new_data_analysis = await self.execute_command(
+                    command_name="Execute Python Code",
+                    command_args={"code": python_code, "text": ""},
+                )
+                return f"Executed the following code expressed to assist the user:\n```python\n{python_code}\n```\n**REFERENCE THE RESULTS, NOT THE CODE TO THE USER WHEN RESPONDING! THE RESULTS FROM RUNNING THE CODE ARE AS FOLLOWS:**\n{new_data_analysis}"
+            except:
+                return ""
+
     async def analyze_data(
         self,
         user_input: str,
@@ -1753,11 +1759,11 @@ class AGiXT:
             csv_files = [file for file in files if file.endswith(".csv")]
             logging.info(f"CSV files in conversation workspace: {csv_files}")
             if len(csv_files) == 0:
-                return ""
+                return await self.math_to_python(user_input=user_input)
             activities = self.conversation.get_activities(limit=20)["activities"]
             logging.info(f"Activities: {activities}")
             if len(activities) == 0:
-                return ""
+                return await self.math_to_python(user_input=user_input)
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
@@ -1789,7 +1795,7 @@ class AGiXT:
                     file_path = os.path.join(self.conversation_workspace, file_name)
                     file_content = open(file_path, "r").read()
             if file_name == "":
-                return ""
+                return await self.math_to_python(user_input=user_input)
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
