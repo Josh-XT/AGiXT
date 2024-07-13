@@ -1769,9 +1769,10 @@ class AGiXT:
                     if not last_line.startswith("print("):
                         old_last_line = last_line
                         new_last_line = f"print({last_line})"
-                        code_verification = code_verification.replace(
-                            old_last_line, new_last_line
-                        )
+                        code_verification = code_verification.rsplit(old_last_line, 1)[
+                            0
+                        ]
+                        code_verification += new_last_line
                 except Exception as e:
                     logging.error(f"Error adding print statement: {e}")
                 try:
