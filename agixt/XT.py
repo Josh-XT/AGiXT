@@ -1738,15 +1738,15 @@ class AGiXT:
             analyze_input = analyze_input.replace("```", "```json", 1)
         if "```json" in analyze_input:
             analyze_input = analyze_input.split("```json")[1].split("```")[0]
-            try:
-                analyzed_input = json.loads(analyze_input)
-                if "math" in analyzed_input:
-                    if str(analyzed_input["math"]).lower() != "true":
-                        return ""
-                else:
+        try:
+            analyzed_input = json.loads(analyze_input)
+            if "math" in analyzed_input:
+                if str(analyzed_input["math"]).lower() != "true":
                     return ""
-            except:
+            else:
                 return ""
+        except:
+            return ""
         if analyzed_input == {}:
             return ""
         code_interpreter = await self.inference(
