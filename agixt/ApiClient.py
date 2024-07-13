@@ -3,7 +3,7 @@ import jwt
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
 from Globals import getenv
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -33,6 +33,7 @@ def verify_api_key(authorization: str = Header(None)):
                 jwt=authorization,
                 key=auth_key,
                 algorithms=["HS256"],
+                leeway=timedelta(hours=5),
             )
             return token["email"]
         except Exception as e:
@@ -56,6 +57,7 @@ def verify_api_key(authorization: str = Header(None)):
                     jwt=authorization,
                     key=AGIXT_API_KEY,
                     algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
                 )
                 return token["email"]
             except Exception as e:
