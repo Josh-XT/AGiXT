@@ -1733,6 +1733,7 @@ class AGiXT:
             voice_response=False,
         )
         analyzed_input = {}
+        logging.info(f"Analyzed Input: {analyze_input}")
         if "```json" not in analyze_input and "```" in analyze_input:
             analyze_input = analyze_input.replace("```", "```json", 1)
         if "```json" in analyze_input:
