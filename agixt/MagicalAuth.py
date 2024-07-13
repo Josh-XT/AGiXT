@@ -83,6 +83,7 @@ def verify_api_key(authorization: str = Header(None)):
                 jwt=authorization,
                 key=AGIXT_API_KEY,
                 algorithms=["HS256"],
+                leeway=timedelta(hours=5),
             )
             db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
@@ -151,7 +152,12 @@ def encrypt(key: str, data: str):
 
 
 def decrypt(key: str, data: str):
-    return jwt.decode(data, key, algorithms=["HS256"])["data"]
+    return jwt.decode(
+        data,
+        key,
+        algorithms=["HS256"],
+        leeway=timedelta(hours=5),
+    )["data"]
 
 
 class MagicalAuth:
@@ -198,7 +204,10 @@ class MagicalAuth:
         try:
             # Decode jwt
             decoded = jwt.decode(
-                jwt=token, key=self.encryption_key, algorithms=["HS256"]
+                jwt=token,
+                key=self.encryption_key,
+                algorithms=["HS256"],
+                leeway=timedelta(hours=5),
             )
             self.email = decoded["email"]
             self.token = token
@@ -260,8 +269,6 @@ class MagicalAuth:
         expiration = datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
-        logging.info(f"Current time: {datetime.now()}")
-        logging.info(f"Token expiration: {expiration}")
         self.token = jwt.encode(
             {
                 "sub": str(user.id),
@@ -337,7 +344,10 @@ class MagicalAuth:
             )
         try:
             user_info = jwt.decode(
-                jwt=self.token, key=self.encryption_key, algorithms=["HS256"]
+                jwt=self.token,
+                key=self.encryption_key,
+                algorithms=["HS256"],
+                leeway=timedelta(hours=5),
             )
         except:
             self.add_failed_login(ip_address=ip_address)
