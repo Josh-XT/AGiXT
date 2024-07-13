@@ -1761,6 +1761,19 @@ class AGiXT:
                         "```"
                     )[0]
                 try:
+                    last_line = code_verification.split("\n")[-1]
+                    while last_line == "" or last_line == "\n":
+                        split_code = code_verification.rsplit("\n", 1)[0]
+                        last_line = split_code.split("\n")[-1]
+                    if not last_line.startswith("print("):
+                        old_last_line = last_line
+                        new_last_line = f"print({last_line})"
+                        code_verification = code_verification.replace(
+                            old_last_line, new_last_line
+                        )
+                except Exception as e:
+                    logging.error(f"Error adding print statement: {e}")
+                try:
                     code_execution = await self.execute_command(
                         command_name="Execute Python Code",
                         command_args={"code": code_verification, "text": ""},
