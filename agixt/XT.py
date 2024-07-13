@@ -1715,7 +1715,7 @@ class AGiXT:
 
         return generate_markdown_structure(folder_path=self.agent_workspace)
 
-    async def execute_code(self, user_input: str):
+    async def analyze_user_input(self, user_input: str):
         code_execution = ""
         self.conversation.log_interaction(
             role=self.agent_name,
@@ -1869,11 +1869,11 @@ class AGiXT:
             csv_files = [file for file in files if file.endswith(".csv")]
             logging.info(f"CSV files in conversation workspace: {csv_files}")
             if len(csv_files) == 0:
-                return await self.execute_code(user_input=user_input)
+                return await self.analyze_user_input(user_input=user_input)
             activities = self.conversation.get_activities(limit=20)["activities"]
             logging.info(f"Activities: {activities}")
             if len(activities) == 0:
-                return await self.execute_code(user_input=user_input)
+                return await self.analyze_user_input(user_input=user_input)
             likely_files = []
             for activity in activities:
                 if ".csv" in activity["message"]:
@@ -1905,7 +1905,7 @@ class AGiXT:
                     file_path = os.path.join(self.conversation_workspace, file_name)
                     file_content = open(file_path, "r").read()
             if file_name == "":
-                return await self.execute_code(user_input=user_input)
+                return await self.analyze_user_input(user_input=user_input)
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
