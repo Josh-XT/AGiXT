@@ -222,10 +222,10 @@ async def rename_conversation(
             log_user_input=False,
             log_output=False,
         )
+        if "```json" not in response and "```" in response:
+            response = response.replace("```", "```json", 1)
         if "```json" in response:
             response = response.split("```json")[1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[1].strip()
         try:
             response = json.loads(response)
             new_name = response["suggested_conversation_name"]
@@ -242,10 +242,10 @@ async def rename_conversation(
                     log_user_input=False,
                     log_output=False,
                 )
+                if "```json" not in response and "```" in response:
+                    response = response.replace("```", "```json", 1)
                 if "```json" in response:
                     response = response.split("```json")[1].split("```")[0].strip()
-                elif "```" in response:
-                    response = response.split("```")[1].strip()
                 response = json.loads(response)
                 new_name = response["suggested_conversation_name"]
                 if new_name in conversation_list:
