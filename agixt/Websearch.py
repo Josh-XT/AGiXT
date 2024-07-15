@@ -376,13 +376,6 @@ class Websearch:
         if len(links) < 1:
             return ""
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        self.agent_memory = YoutubeReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=self.collection_number,
-            ApiClient=self.ApiClient,
-            user=self.user,
-        )
         activity_id = c.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Browsing links provided by the user.",

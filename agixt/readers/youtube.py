@@ -7,7 +7,7 @@ class YoutubeReader(Memories):
         self,
         agent_name: str = "AGiXT",
         agent_config=None,
-        collection_number: str = 0,
+        collection_number: str = "0",
         ApiClient=None,
         user=None,
         **kwargs,
