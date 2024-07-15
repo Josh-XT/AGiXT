@@ -376,11 +376,10 @@ class Websearch:
         if len(links) < 1:
             return ""
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation_id = c.get_conversation_id()
         self.agent_memory = YoutubeReader(
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
-            collection_number=conversation_id,
+            collection_number=self.collection_number,
             ApiClient=self.ApiClient,
             user=self.user,
         )
@@ -571,6 +570,8 @@ class Websearch:
                     else ""
                 )
                 links = []
+                logging.info(f"Gooogle API Key: {google_api_key}")
+                logging.info(f"Google Search Engine ID: {google_search_engine_id}")
                 if (
                     google_api_key != ""
                     and google_search_engine_id != ""
@@ -584,7 +585,13 @@ class Websearch:
                         google_search_engine_id=google_search_engine_id,
                     )
                 if links == [] or links is None:
-                    links = await self.ddg_search(query=search_string)
+                    search_proxy = getenv("SEARCH_PROXY")
+                    if search_proxy != "":
+                        links = await self.ddg_search(
+                            query=search_string, proxy=search_proxy
+                        )
+                    else:
+                        links = await self.ddg_search(query=search_string)
                     logging.info(
                         f"Found {len(links)} results for {search_string} using DDG."
                     )
