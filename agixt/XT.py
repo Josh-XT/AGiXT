@@ -62,6 +62,7 @@ class AGiXT:
         os.makedirs(self.conversation_workspace, exist_ok=True)
         self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         self.failures = 0
+        self.input_tokens = 0
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -651,6 +652,7 @@ class AGiXT:
         elif file_type == "pdf":
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
+            self.input_tokens += get_tokens(content)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
                 user_input=user_input,
@@ -702,7 +704,7 @@ class AGiXT:
                         f"[{csv_file_name}]({self.outputs}/{collection_id}/{csv_file_name})"
                     )
                     await self.learn_from_file(
-                        file_url=f"{self.outputs}/{csv_file_name}",
+                        file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
                         file_name=csv_file_name,
                         user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
                         collection_id=collection_id,
@@ -722,6 +724,7 @@ class AGiXT:
                 )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
             file_content = docx2txt.process(file_path)
+            self.input_tokens += get_tokens(file_content)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=file_content,
@@ -731,6 +734,7 @@ class AGiXT:
         elif file_type == "csv":
             df = pd.read_csv(file_path)
             df_dict = df.to_dict()
+            self.input_tokens += get_tokens(json.dumps(df_dict))
             for line in df_dict:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
@@ -756,6 +760,7 @@ class AGiXT:
                 message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
             )
             audio_response = await self.audio_to_text(audio_path=file_path)
+            self.input_tokens += get_tokens(audio_response)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
@@ -786,6 +791,7 @@ class AGiXT:
                 )
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+                    self.input_tokens += get_tokens(vision_prompt)
                     vision_response = await self.agent.vision_inference(
                         prompt=vision_prompt, images=[file_url]
                     )
@@ -811,6 +817,7 @@ class AGiXT:
             if fp.startswith(self.agent_workspace):
                 with open(fp, "r") as f:
                     file_content = f.read()
+                self.input_tokens += get_tokens(file_content)
                 # Check how many lines are in the file content
                 lines = file_content.split("\n")
                 if len(lines) > 1:
@@ -1092,6 +1099,7 @@ class AGiXT:
         browse_links = True
         tts = False
         websearch = False
+
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -1454,7 +1462,7 @@ class AGiXT:
                 **prompt_args,
             )
         try:
-            prompt_tokens = get_tokens(new_prompt)
+            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
             total_tokens = int(prompt_tokens) + int(completion_tokens)
         except:
