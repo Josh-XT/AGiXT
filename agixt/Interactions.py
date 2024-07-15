@@ -467,6 +467,15 @@ class Interactions:
                 True if str(kwargs["browse_links"]).lower() == "true" else False
             )
             del kwargs["browse_links"]
+        if "collection_number" in kwargs:
+            collection_number = str(kwargs["collection_number"])
+            self.websearch = Websearch(
+                collection_number=collection_number,
+                agent=self.agent,
+                user=self.user,
+                ApiClient=self.ApiClient,
+            )
+            del kwargs["collection_number"]
         websearch = False
         websearch_depth = 3
         conversation_results = 5
