@@ -25,7 +25,7 @@ logging.basicConfig(
 class Websearch:
     def __init__(
         self,
-        collection_number: str = "1",
+        collection_number: str = "0",
         agent: Agent = None,
         user: str = None,
         ApiClient=None,

@@ -33,7 +33,7 @@ class Interactions:
         agent_name: str = "",
         user=DEFAULT_USER,
         ApiClient=None,
-        collection_id="1",
+        collection_id: str = "0",
     ):
         self.ApiClient = ApiClient
         self.user = user
