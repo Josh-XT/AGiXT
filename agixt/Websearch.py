@@ -585,14 +585,20 @@ class Websearch:
                     )
                 if links == [] or links is None:
                     links = await self.ddg_search(query=search_string)
+                    logging.info(
+                        f"Found {len(links)} results for {search_string} using DDG."
+                    )
+                    if len(links) == 1:
+                        links = []
                 if links == [] or links is None:
+                    logging.info(
+                        f"DDG Search Failed. Trying different search providers."
+                    )
                     links = []
                     content, links = await self.web_search(
                         query=search_string, conversation_id=conversation_id
                     )
-                logging.info(
-                    f"Found {len(links)} results for {search_string} using DDG."
-                )
+
                 if len(links) > websearch_depth:
                     links = links[:websearch_depth]
                 if links is not None and len(links) > 0:
