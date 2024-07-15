@@ -435,7 +435,6 @@ class Websearch:
     async def google_search(
         self,
         query: str,
-        depth: int = 5,
         google_api_key: str = "",
         google_search_engine_id: str = "",
     ) -> List[str]:
@@ -449,9 +448,7 @@ class Websearch:
                 "customsearch", "v1", developerKey=google_api_key, cache_discovery=False
             )
             result = (
-                service.cse()
-                .list(q=query, cx=google_search_engine_id, num=depth)
-                .execute()
+                service.cse().list(q=query, cx=google_search_engine_id, num=5).execute()
             )
             search_results = result.get("items", [])
             search_results_links = [item["link"] for item in search_results]
@@ -575,9 +572,11 @@ class Websearch:
                 ):
                     links = await self.google_search(
                         query=search_string,
-                        depth=websearch_depth,
                         google_api_key=google_api_key,
                         google_search_engine_id=google_search_engine_id,
+                    )
+                    logging.info(
+                        f"Found {len(links)} results for {search_string} using Google."
                     )
                 if links == [] or links is None:
                     search_proxy = getenv("SEARCH_PROXY")
