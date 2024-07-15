@@ -208,7 +208,7 @@ async def learn_url(
         collection_id=url.collection_number,
     )
     url.url = url.url.replace(" ", "%20")
-    response = agent.agent_interactions.websearch.scrape_websites(
+    response = await agent.agent_interactions.websearch.scrape_websites(
         user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
         conversation_name=f"{agent_name} Training on {timestamp}",
     )
