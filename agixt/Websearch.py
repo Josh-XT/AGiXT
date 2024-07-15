@@ -438,11 +438,6 @@ class Websearch:
         google_api_key: str = "",
         google_search_engine_id: str = "",
     ) -> List[str]:
-        if google_api_key == "" or google_search_engine_id == "":
-            google_api_key = getenv("GOOGLE_API_KEY")
-            google_search_engine_id = getenv("GOOGLE_SEARCH_ENGINE_ID")
-        if google_api_key == "" or google_search_engine_id == "":
-            return []
         try:
             service = build(
                 "customsearch", "v1", developerKey=google_api_key, cache_discovery=False
@@ -564,12 +559,7 @@ class Websearch:
                 links = []
                 logging.info(f"Gooogle API Key: {google_api_key}")
                 logging.info(f"Google Search Engine ID: {google_search_engine_id}")
-                if (
-                    google_api_key != ""
-                    and google_search_engine_id != ""
-                    and google_api_key is not None
-                    and google_search_engine_id is not None
-                ):
+                if google_api_key != "" and google_search_engine_id != "":
                     links = await self.google_search(
                         query=search_string,
                         google_api_key=google_api_key,
