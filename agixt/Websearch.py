@@ -445,7 +445,9 @@ class Websearch:
         if google_api_key == "" or google_search_engine_id == "":
             return []
         try:
-            service = build("customsearch", "v1", developerKey=google_api_key)
+            service = build(
+                "customsearch", "v1", developerKey=google_api_key, cache_discovery=False
+            )
             result = (
                 service.cse()
                 .list(q=query, cx=google_search_engine_id, num=depth)
@@ -588,8 +590,6 @@ class Websearch:
                     logging.info(
                         f"Found {len(links)} results for {search_string} using DDG."
                     )
-                    if len(links) == 1:
-                        links = []
                 if links == [] or links is None:
                     logging.info(
                         f"DDG Search Failed. Trying different search providers."
