@@ -25,6 +25,7 @@ from Models import (
     TTSInput,
     TaskPlanInput,
 )
+import logging
 import base64
 import uuid
 import os
@@ -206,6 +207,7 @@ async def prompt_agent(
         api_key=authorization,
         conversation_name=agent_prompt.prompt_args["conversation_name"],
     )
+    logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
     if "tts" in agent_prompt.prompt_args:
         agent_prompt.prompt_args["voice_response"] = (
             str(agent_prompt.prompt_args["tts"]).lower() == "true"
@@ -216,6 +218,10 @@ async def prompt_agent(
             agent_prompt.prompt_args["context_results"]
         )
         del agent_prompt.prompt_args["context_results"]
+    else:
+        agent_prompt.prompt_args["injected_memories"] = 10
+    if "conversation_results" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["conversation_results"] = 10
     response = await agent.inference(
         prompt=agent_prompt.prompt_name,
         **agent_prompt.prompt_args,
