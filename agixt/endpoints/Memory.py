@@ -160,10 +160,10 @@ async def learn_file(
     file_path = os.path.normpath(
         os.path.join(agent.agent_workspace, file.collection_number, file.file_name)
     )
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     logging.info(f"File path: {file_path}")
     if not file_path.startswith(agent.agent_workspace):
         raise Exception("Path given not allowed")
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     try:
         file_content = base64.b64decode(file.file_content)
     except:
