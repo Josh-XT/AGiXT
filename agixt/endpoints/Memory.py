@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from Websearch import Websearch
 from XT import AGiXT
 from Memories import Memories
+from Conversations import Conversations
 from readers.github import GithubReader
 from readers.file import FileReader
 from readers.arxiv import ArxivReader
@@ -200,19 +201,22 @@ async def learn_url(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     timestamp = datetime.now().strftime("%Y-%m-%d")
-    agent = AGiXT(
-        user=user,
-        agent_name=agent_name,
-        api_key=authorization,
-        conversation_name=f"{agent_name} Training on {timestamp}",
-        collection_id=url.collection_number,
-    )
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     url.url = url.url.replace(" ", "%20")
-    response = await agent.agent_interactions.websearch.scrape_websites(
-        user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
-        conversation_name=f"{agent_name} Training on {timestamp}",
+    websearch = Websearch(
+        collection_number=url.collection_number,
+        agent=agent,
+        user=user,
+        ApiClient=ApiClient,
     )
-    agent.conversation.log_interaction(
+    conversation_name = f"{agent_name} Training on {timestamp}"
+    response = await websearch.scrape_websites(
+        user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
+        conversation_name=conversation_name,
+    )
+    c = Conversations(conversation_name=conversation_name, user=user)
+    c.log_interaction(
         role=agent_name,
         message=f"URL [{url.url}]({url.url}) learned on {timestamp} to collection `{url.collection_number}`.",
     )

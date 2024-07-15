@@ -146,7 +146,7 @@ class Websearch:
         self,
         url: str,
         summarize_content=False,
-        conversation_id="1",
+        conversation_id="0",
         agent_browsing=False,
         user_input="",
         conversation_name="",
@@ -317,7 +317,7 @@ class Websearch:
         user_input,
         links,
         conversation_name: str = "",
-        conversation_id="1",
+        conversation_id="0",
         activity_id="",
         agent_browsing: bool = False,
     ):
