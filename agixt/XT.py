@@ -1465,6 +1465,9 @@ class AGiXT:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
             total_tokens = int(prompt_tokens) + int(completion_tokens)
+            logging.info(f"Input tokens: {prompt_tokens}")
+            logging.info(f"Completion tokens: {completion_tokens}")
+            logging.info(f"Total tokens: {total_tokens}")
         except:
             if not response:
                 response = "Unable to retrieve response."
