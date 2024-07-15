@@ -413,6 +413,7 @@ class Memories:
         min_relevance_score: float = 0.0,
     ) -> List[str]:
         global DEFAULT_USER
+        logging.info(f"Collection name: {self.collection_name}")
         default_collection_name = self.collection_name
         default_results = []
         if self.user != DEFAULT_USER:
@@ -430,13 +431,22 @@ class Memories:
                 limit=limit,
                 min_relevance_score=min_relevance_score,
             )
+            logging.info(
+                f"{len(default_results)} default results found in {self.collection_name}"
+            )
         except:
             default_results = []
         self.collection_name = default_collection_name
+        if len(self.collection_number) > 4:
+            self.collection_name = snake(f"{self.collection_number}")
+        logging.info(f"Collection name: {self.collection_name}")
         user_results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
             min_relevance_score=min_relevance_score,
+        )
+        logging.info(
+            f"{len(user_results)} user results found in {self.collection_name}"
         )
         if isinstance(user_results, str):
             user_results = [user_results]
