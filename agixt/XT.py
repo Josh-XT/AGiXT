@@ -1163,6 +1163,11 @@ class AGiXT:
             tts_provider = str(self.agent_settings["tts_provider"]).lower()
             if tts_provider != "none" and tts_provider != "":
                 tts = True
+        analyze_user_input = False
+        if "analyze_user_input" in self.agent_settings:
+            analyze_user_input = (
+                str(self.agent_settings["analyze_user_input"]).lower() == "true"
+            )
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1205,6 +1210,10 @@ class AGiXT:
                 tts = str(message["tts"]).lower() == "true"
             if "websearch" in message:
                 websearch = str(message["websearch"]).lower() == "true"
+            if "analyze_user_input" in message:
+                analyze_user_input = (
+                    str(message["analyze_user_input"]).lower() == "true"
+                )
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
@@ -1405,11 +1414,7 @@ class AGiXT:
             urls=urls,
             summarize_content=False,
         )
-        analyze_user_input = True
-        if "analyze_user_input" in self.agent_settings:
-            analyze_user_input = (
-                str(self.agent_settings["analyze_user_input"]).lower() == "true"
-            )
+
         data_analysis = ""
         if analyze_user_input:
             data_analysis = await self.analyze_data(user_input=new_prompt)
