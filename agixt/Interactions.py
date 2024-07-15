@@ -115,7 +115,6 @@ class Interactions:
         prompt="",
         conversation_name="",
         vision_response: str = "",
-        searching: bool = False,
         **kwargs,
     ):
         if "user_input" in kwargs and user_input == "":
@@ -142,32 +141,17 @@ class Interactions:
         c = Conversations(conversation_name=conversation_name, user=self.user)
         conversation = c.get_conversation()
         conversation_id = c.get_conversation_id()
-        conversation_outputs = (
-            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
-        )
-        if top_results == 0:
-            context = []
-        else:
+        conversation_outputs = f"http://localhost:7437/outputs/{self.agent.agent_id}/{self.conversation_id}/"
+        context = []
+        if int(top_results) > 0:
             if user_input:
-                if self.websearch == None or self.websearch.collection_number == "1":
-                    self.websearch = Websearch(
-                        collection_number=conversation_id,
-                        agent=self.agent,
-                        user=self.user,
-                        ApiClient=self.ApiClient,
-                    )
                 min_relevance_score = 0.3
                 if "min_relevance_score" in kwargs:
                     try:
                         min_relevance_score = float(kwargs["min_relevance_score"])
                     except:
                         min_relevance_score = 0.3
-                context = await self.agent_memory.get_memories(
-                    user_input=user_input,
-                    limit=top_results,
-                    min_relevance_score=min_relevance_score,
-                )
-                context += await self.websearch.agent_memory.get_memories(
+                context += await self.agent_memory.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
@@ -211,14 +195,7 @@ class Interactions:
                             limit=top_results,
                             min_relevance_score=min_relevance_score,
                         )
-                conversation_memories = FileReader(
-                    agent_name=self.agent_name,
-                    agent_config=self.agent.AGENT_CONFIG,
-                    collection_number=conversation_id,
-                    ApiClient=self.ApiClient,
-                    user=self.user,
-                )
-                conversation_context = await conversation_memories.get_memories(
+                conversation_context = await self.websearch.agent_memory.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
@@ -229,10 +206,12 @@ class Interactions:
                     )
                     if int(conversational_context_tokens) < 4000:
                         conversational_results = top_results * 2
-                        conversation_context = await conversation_memories.get_memories(
-                            user_input=user_input,
-                            limit=conversational_results,
-                            min_relevance_score=min_relevance_score,
+                        conversation_context = (
+                            await self.websearch.agent_memory.get_memories(
+                                user_input=user_input,
+                                limit=conversational_results,
+                                min_relevance_score=min_relevance_score,
+                            )
                         )
                         conversational_context_tokens = get_tokens(
                             " ".join(conversation_context)
@@ -240,15 +219,13 @@ class Interactions:
                         if int(conversational_context_tokens) < 4000:
                             conversational_results = conversational_results * 2
                             conversation_context = (
-                                await conversation_memories.get_memories(
+                                await self.websearch.agent_memory.get_memories(
                                     user_input=user_input,
                                     limit=conversational_results,
                                     min_relevance_score=min_relevance_score,
                                 )
                             )
                 context += conversation_context
-            else:
-                context = []
         if "context" in kwargs:
             context.append([kwargs["context"]])
         if vision_response != "":
@@ -464,6 +441,7 @@ class Interactions:
         if shots == 0:
             shots = 1
         shots = int(shots)
+        context_results = 5 if not context_results else int(context_results)
         prompt = "Chat"
         prompt_category = "Default"
         if "prompt_category" in kwargs:
@@ -530,7 +508,6 @@ class Interactions:
         if conversation_name == "":
             conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation_id = c.get_conversation_id()
         async_tasks = []
         vision_response = ""
         if "vision_provider" in self.agent.AGENT_CONFIG["settings"]:
@@ -557,13 +534,6 @@ class Interactions:
                         message=f"[ACTIVITY][ERROR] Unable to view image.",
                     )
                     logging.error(f"Error getting vision response: {e}")
-        if self.websearch == None or self.websearch.collection_number == "1":
-            self.websearch = Websearch(
-                collection_number=conversation_id,
-                agent=self.agent,
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
         if browse_links != False and websearch == False and searching == False:
             task = asyncio.create_task(
                 self.websearch.scrape_websites(

@@ -422,6 +422,8 @@ class Memories:
                 self.collection_name = (
                     f"{self.collection_name}_{self.collection_number}"
                 )
+            if len(self.collection_number) > 4:
+                self.collection_name = snake(f"{self.collection_number}")
         try:
             default_results = await self.get_memories_data(
                 user_input=user_input,
