@@ -38,6 +38,7 @@ class Interactions:
         self.ApiClient = ApiClient
         self.user = user
         self.uri = getenv("AGIXT_URI")
+        self.conversation_id = conversation_id
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
