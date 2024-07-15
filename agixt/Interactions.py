@@ -33,18 +33,17 @@ class Interactions:
         agent_name: str = "",
         user=DEFAULT_USER,
         ApiClient=None,
-        conversation_id="1",
+        collection_id="1",
     ):
         self.ApiClient = ApiClient
         self.user = user
         self.uri = getenv("AGIXT_URI")
-        self.conversation_id = conversation_id
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
-                collection_number=conversation_id,
+                collection_number=collection_id,
                 agent=self.agent,
                 user=self.user,
                 ApiClient=self.ApiClient,
@@ -142,7 +141,9 @@ class Interactions:
         c = Conversations(conversation_name=conversation_name, user=self.user)
         conversation = c.get_conversation()
         conversation_id = c.get_conversation_id()
-        conversation_outputs = f"http://localhost:7437/outputs/{self.agent.agent_id}/{self.conversation_id}/"
+        conversation_outputs = (
+            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
+        )
         context = []
         if int(top_results) > 0:
             if user_input:

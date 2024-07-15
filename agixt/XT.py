@@ -27,7 +27,12 @@ import time
 
 class AGiXT:
     def __init__(
-        self, user: str, agent_name: str, api_key: str, conversation_name: str = None
+        self,
+        user: str,
+        agent_name: str,
+        api_key: str,
+        conversation_name: str = None,
+        collection_id=None,
     ):
         self.user_email = user.lower()
         if api_key is not None:
@@ -40,12 +45,15 @@ class AGiXT:
         self.conversation_name = conversation_name
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
+        self.collection_id = (
+            collection_id if collection_id is not None else self.conversation_id
+        )
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name,
             user=self.user_email,
             ApiClient=self.ApiClient,
-            conversation_id=self.conversation_id,
+            collection_id=self.collection_id,
         )
         self.agent = self.agent_interactions.agent
         self.agent_settings = (

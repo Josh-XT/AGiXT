@@ -148,15 +148,19 @@ async def learn_file(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    # Strip any path information from the file name
+    timestamp = datetime.now().strftime("%Y-%m-%d")
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
-        conversation_name=file.collection_number,
+        conversation_name=f"{agent_name} Training on {timestamp}",
+        collection_id=file.collection_number,
     )
     file.file_name = os.path.basename(file.file_name)
-    file_path = os.path.normpath(os.path.join(agent.agent_workspace, file.file_name))
+    file_path = os.path.normpath(
+        os.path.join(agent.agent_workspace, file.collection_number, file.file_name)
+    )
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     logging.info(f"File path: {file_path}")
     if not file_path.startswith(agent.agent_workspace):
         raise Exception("Path given not allowed")
@@ -168,12 +172,18 @@ async def learn_file(
         f.write(file_content)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logging.info(f"File {file.file_name} uploaded on {timestamp}.")
-    logging.info(f"URL of file: {agent.outputs}/{file.file_name}")
+    logging.info(
+        f"URL of file: {agent.outputs}/{file.collection_number}/{file.file_name}"
+    )
     response = await agent.learn_from_file(
-        file_url=f"{agent.outputs}/{file.file_name}",
+        file_url=f"{agent.outputs}/{file.collection_number}/{file.file_name}",
         file_name=file.file_name,
         user_input=f"File {file.file_name} uploaded on {timestamp}.",
         collection_id=str(file.collection_number),
+    )
+    agent.conversation.log_interaction(
+        role=agent_name,
+        message=f"File [{file.file_name}]({agent.outputs}/{file.collection_number}/{file.file_name}) learned on {timestamp} to collection `{file.collection_number}`.",
     )
     return ResponseMessage(message=response)
 
@@ -189,16 +199,22 @@ async def learn_url(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    url.url = url.url.replace(" ", "%20")
-    response = await Websearch(
-        collection_number=str(url.collection_number),
-        agent=agent,
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    agent = AGiXT(
         user=user,
-        ApiClient=ApiClient,
-    ).scrape_websites(
-        user_input=f"I am browsing {url.url} and collecting data from it to learn more."
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=f"{agent_name} Training on {timestamp}",
+        collection_id=url.collection_number,
+    )
+    url.url = url.url.replace(" ", "%20")
+    response = agent.agent_interactions.websearch.scrape_websites(
+        user_input=f"I am browsing {url.url} and collecting data from it to learn more.",
+        conversation_name=f"{agent_name} Training on {timestamp}",
+    )
+    agent.conversation.log_interaction(
+        role=agent_name,
+        message=f"URL [{url.url}]({url.url}) learned on {timestamp} to collection `{url.collection_number}`.",
     )
     return ResponseMessage(message=response)
 
