@@ -614,6 +614,7 @@ class MagicalAuth:
                             customer=user_preferences["subscription"],
                             components={"pricing_table": {"enabled": True}},
                         )
+                        session.close()
                         raise HTTPException(
                             status_code=402,
                             detail={
@@ -621,6 +622,21 @@ class MagicalAuth:
                                 "customer_session": c_session,
                             },
                         )
+                    else:
+                        subscription = stripe.Subscription.retrieve(
+                            user_preferences["subscription"]
+                        )
+                        if subscription.status != "active":
+                            user.is_active = False
+                            session.commit()
+                            session.close()
+                            raise HTTPException(
+                                status_code=402,
+                                detail={
+                                    "message": f"No active subscription.",
+                                    "subscription": subscription,
+                                },
+                            )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
