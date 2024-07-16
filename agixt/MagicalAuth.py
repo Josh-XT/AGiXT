@@ -617,10 +617,11 @@ class MagicalAuth:
         if "missing_requirements" in user_preferences:
             del user_preferences["missing_requirements"]
         missing_requirements = []
-        for key, value in user_requirements.items():
-            if key not in user_preferences:
-                if key != "subscription":
-                    missing_requirements.append({key: value})
+        if user_requirements:
+            for key, value in user_requirements.items():
+                if key not in user_preferences:
+                    if key != "subscription":
+                        missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         return user_preferences
