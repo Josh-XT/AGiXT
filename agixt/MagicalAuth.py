@@ -584,10 +584,13 @@ class MagicalAuth:
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
         session.close()
         user_requirements = self.registration_requirements()
+        logging.info(f"User Requirements: {user_requirements}")
+        logging.info(f"User Preferences: {user_preferences}")
         if not user_preferences:
             user_preferences = {}
         if "subscription" in user_requirements:
             api_key = getenv("STRIPE_API_KEY")
+            logging.info(f"Key: {api_key}")
             if api_key:
                 import stripe
 
@@ -595,6 +598,16 @@ class MagicalAuth:
                 if "subscription" not in user_preferences:
                     stripe_customer = stripe.Customer.create(email=user.email)
                     user_preferences["subscription"] = stripe_customer["id"]
+                    user_preference = UserPreferences(
+                        user_id=user.id,
+                        pref_key="subscription",
+                        pref_value=stripe_customer["id"],
+                    )
+                    session.add(user_preference)
+                    session.commit()
+                    user = session.query(User).filter(User.id == user.id).first()
+                    user.is_active = False
+                    session.commit()
                 if str(user_preferences["subscription"]).lower() != "none":
                     if user.is_active is False:
                         c_session = stripe.CustomerSession.create(
@@ -624,6 +637,7 @@ class MagicalAuth:
                         missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
+        session.close()
         return user_preferences
 
     def get_decrypted_user_preferences(self):
