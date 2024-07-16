@@ -443,6 +443,14 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == user.id)
             .all()
         )
+        if "subscription" in kwargs:
+            del kwargs["subscription"]
+        if "email" in kwargs:
+            del kwargs["email"]
+        if "input_tokens" in kwargs:
+            del kwargs["input_tokens"]
+        if "output_tokens" in kwargs:
+            del kwargs["output_tokens"]
         for key, value in kwargs.items():
             if "password" in key.lower():
                 value = encrypt(self.encryption_key, value)
@@ -466,7 +474,7 @@ class MagicalAuth:
                     )
                     session.add(user_preference)
                 else:
-                    user_preference.pref_value = value
+                    user_preference.pref_value = str(value)
         session.commit()
         session.close()
         return "User updated successfully."
@@ -680,20 +688,54 @@ class MagicalAuth:
             decrypted_preferences[key] = value
         return decrypted_preferences
 
-    def update_token_count(self, input_tokens: int = 0, output_tokens: int = 0):
+    def get_token_counts(self):
         user = verify_api_key(self.token)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
-        preferences = self.get_user_preferences()
-        current_input_tokens = (
-            0 if "input_tokens" not in preferences else int(preferences["input_tokens"])
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
         )
-        current_output_tokens = (
-            0
-            if "output_tokens" not in preferences
-            else int(preferences["output_tokens"])
-        )
+        session.close()
+        input_tokens = 0
+        output_tokens = 0
+        found_input_tokens = False
+        found_output_tokens = False
+        for preference in user_preferences:
+            if preference.pref_key == "input_tokens":
+                input_tokens = int(preference.pref_value)
+                found_input_tokens = True
+            if preference.pref_key == "output_tokens":
+                output_tokens = int(preference.pref_value)
+                found_output_tokens = True
+        if not found_input_tokens:
+            user_preference = UserPreferences(
+                user_id=user.id,
+                pref_key="input_tokens",
+                pref_value=str(input_tokens),
+            )
+            session.add(user_preference)
+        if not found_output_tokens:
+            user_preference = UserPreferences(
+                user_id=user.id,
+                pref_key="output_tokens",
+                pref_value=str(output_tokens),
+            )
+            session.add(user_preference)
+        session.commit()
+        session.close()
+        return {"input_tokens": input_tokens, "output_tokens": output_tokens}
+
+    def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
+        user = verify_api_key(self.token)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        session = get_session()
+        counts = self.get_token_counts()
+        current_input_tokens = int(counts["input_tokens"])
+        current_output_tokens = int(counts["output_tokens"])
         updated_input_tokens = current_input_tokens + input_tokens
         updated_output_tokens = current_output_tokens + output_tokens
         user_preferences = (
@@ -701,29 +743,11 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == user.id)
             .all()
         )
-        found_input_tokens = False
-        found_output_tokens = False
         for preference in user_preferences:
             if preference.pref_key == "input_tokens":
-                preference.pref_value = updated_input_tokens
-                found_input_tokens = True
+                preference.pref_value = str(updated_input_tokens)
             if preference.pref_key == "output_tokens":
-                preference.pref_value = updated_output_tokens
-                found_output_tokens = True
-        if not found_input_tokens:
-            user_preference = UserPreferences(
-                user_id=user.id,
-                pref_key="input_tokens",
-                pref_value=updated_input_tokens,
-            )
-            session.add(user_preference)
-        if not found_output_tokens:
-            user_preference = UserPreferences(
-                user_id=user.id,
-                pref_key="output_tokens",
-                pref_value=updated_output_tokens,
-            )
-            session.add(user_preference)
+                preference.pref_value = str(updated_output_tokens)
         session.commit()
         session.close()
         return {
