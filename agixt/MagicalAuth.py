@@ -585,7 +585,7 @@ class MagicalAuth:
         session.close()
         user_requirements = self.registration_requirements()
         if not user_preferences:
-            return {}
+            user_preferences = {}
         if "subscription" in user_requirements:
             api_key = getenv("STRIPE_API_KEY")
             if api_key:
