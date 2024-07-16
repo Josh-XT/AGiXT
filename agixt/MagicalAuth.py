@@ -623,8 +623,10 @@ class MagicalAuth:
                             },
                         )
                     else:
+                        customer_id = user_preferences["subscription"]
+                        stripe_customer = stripe.Customer.retrieve(customer_id)
                         subscription = stripe.Subscription.retrieve(
-                            user_preferences["subscription"]
+                            stripe_customer["subscriptions"]["data"][0]["id"]
                         )
                         if subscription.status != "active":
                             user.is_active = False
@@ -677,3 +679,54 @@ class MagicalAuth:
                     value = decrypt(self.encryption_key, value)
             decrypted_preferences[key] = value
         return decrypted_preferences
+
+    def update_token_count(self, input_tokens: int = 0, output_tokens: int = 0):
+        user = verify_api_key(self.token)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        session = get_session()
+        preferences = self.get_user_preferences()
+        current_input_tokens = (
+            0 if "input_tokens" not in preferences else int(preferences["input_tokens"])
+        )
+        current_output_tokens = (
+            0
+            if "output_tokens" not in preferences
+            else int(preferences["output_tokens"])
+        )
+        updated_input_tokens = current_input_tokens + input_tokens
+        updated_output_tokens = current_output_tokens + output_tokens
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == user.id)
+            .all()
+        )
+        found_input_tokens = False
+        found_output_tokens = False
+        for preference in user_preferences:
+            if preference.pref_key == "input_tokens":
+                preference.pref_value = updated_input_tokens
+                found_input_tokens = True
+            if preference.pref_key == "output_tokens":
+                preference.pref_value = updated_output_tokens
+                found_output_tokens = True
+        if not found_input_tokens:
+            user_preference = UserPreferences(
+                user_id=user.id,
+                pref_key="input_tokens",
+                pref_value=updated_input_tokens,
+            )
+            session.add(user_preference)
+        if not found_output_tokens:
+            user_preference = UserPreferences(
+                user_id=user.id,
+                pref_key="output_tokens",
+                pref_value=updated_output_tokens,
+            )
+            session.add(user_preference)
+        session.commit()
+        session.close()
+        return {
+            "input_tokens": updated_input_tokens,
+            "output_tokens": updated_output_tokens,
+        }
