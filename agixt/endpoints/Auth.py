@@ -213,8 +213,6 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
                 session.commit()
             name = name.split(" ")
             user.is_active = True
-            user.first_name = name[0]
-            user.last_name = name[1]
             session.commit()
             session.close()
             return {"success": "true"}
