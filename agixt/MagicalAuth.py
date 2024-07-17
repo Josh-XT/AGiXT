@@ -719,6 +719,7 @@ class MagicalAuth:
                 pref_value=str(input_tokens),
             )
             session.add(user_preference)
+            session.commit()
         if not found_output_tokens:
             user_preference = UserPreferences(
                 user_id=user.id,
@@ -726,7 +727,7 @@ class MagicalAuth:
                 pref_value=str(output_tokens),
             )
             session.add(user_preference)
-        session.commit()
+            session.commit()
         session.close()
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
