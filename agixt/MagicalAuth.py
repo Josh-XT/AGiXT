@@ -433,9 +433,6 @@ class MagicalAuth:
         return mfa_token
 
     def update_user(self, **kwargs):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
@@ -481,9 +478,6 @@ class MagicalAuth:
         return "User updated successfully."
 
     def delete_user(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
         user.is_active = False
@@ -552,9 +546,7 @@ class MagicalAuth:
         else:
             mfa_token = user.mfa_token
             user_oauth = (
-                session.query(UserOAuth)
-                .filter(UserOAuth.user_id == self.user_id)
-                .first()
+                session.query(UserOAuth).filter(UserOAuth.user_id == user.id).first()
             )
             if user_oauth:
                 user_oauth.access_token = access_token
@@ -583,9 +575,6 @@ class MagicalAuth:
         return requirements
 
     def get_user_preferences(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
         user_preferences = (
@@ -698,9 +687,6 @@ class MagicalAuth:
         return decrypted_preferences
 
     def get_token_counts(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         user_preferences = (
             session.query(UserPreferences)
@@ -738,9 +724,6 @@ class MagicalAuth:
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         counts = self.get_token_counts()
         current_input_tokens = int(counts["input_tokens"])
