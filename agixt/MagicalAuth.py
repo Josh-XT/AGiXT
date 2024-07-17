@@ -605,7 +605,6 @@ class MagicalAuth:
             user_preferences["output_tokens"] = 0
         if "subscription" in user_requirements and user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            logging.info(f"Key: {api_key}")
             if api_key:
                 import stripe
 
