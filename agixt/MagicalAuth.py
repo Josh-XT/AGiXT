@@ -214,6 +214,7 @@ class MagicalAuth:
         except:
             self.email = None
             self.token = None
+        self.user_id = get_user_id(self.email) if self.email else None
 
     def user_exists(self, email: str = None):
         self.email = email.lower()
@@ -241,7 +242,7 @@ class MagicalAuth:
             return 0
         failed_logins = (
             session.query(FailedLogins)
-            .filter(FailedLogins.user_id == user.id)
+            .filter(FailedLogins.user_id == self.user_id)
             .filter(FailedLogins.created_at >= datetime.now() - timedelta(hours=24))
             .count()
         )
@@ -436,11 +437,11 @@ class MagicalAuth:
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
-        user = session.query(User).filter(User.id == user.id).first()
+        user = session.query(User).filter(User.id == self.user_id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         if "subscription" in kwargs:
@@ -484,7 +485,7 @@ class MagicalAuth:
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
-        user = session.query(User).filter(User.id == user.id).first()
+        user = session.query(User).filter(User.id == self.user_id).first()
         user.is_active = False
         session.commit()
         session.close()
@@ -551,7 +552,9 @@ class MagicalAuth:
         else:
             mfa_token = user.mfa_token
             user_oauth = (
-                session.query(UserOAuth).filter(UserOAuth.user_id == user.id).first()
+                session.query(UserOAuth)
+                .filter(UserOAuth.user_id == self.user_id)
+                .first()
             )
             if user_oauth:
                 user_oauth.access_token = access_token
@@ -586,7 +589,7 @@ class MagicalAuth:
         session = get_session()
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
@@ -698,7 +701,7 @@ class MagicalAuth:
         session = get_session()
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         input_tokens = 0
@@ -743,7 +746,7 @@ class MagicalAuth:
         updated_output_tokens = current_output_tokens + output_tokens
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         for preference in user_preferences:
