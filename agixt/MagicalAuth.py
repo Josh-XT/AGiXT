@@ -701,7 +701,6 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == user.id)
             .all()
         )
-        session.close()
         input_tokens = 0
         output_tokens = 0
         found_input_tokens = False
