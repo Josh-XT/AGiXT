@@ -1,6 +1,7 @@
 import os
 import time
 import datetime
+import requests
 from Extensions import Extensions
 
 try:
@@ -606,18 +607,33 @@ class github(Extensions):
         str: The repositories of the user
         """
         try:
-            user = self.gh.get_user(username)
-            repos = user.get_repos()
+            all_repos = []
+            page = 1
+            while True:
+                response = requests.get(
+                    f"https://api.github.com/users/{username}/repos?type=all&page={page}",
+                    headers={
+                        "Authorization": f"token {self.GITHUB_API_KEY}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                )
+                repos = response.json()
+                if not repos:
+                    break
+                all_repos.extend(repos)
+                page += 1
+
             repo_list = []
-            for repo in repos:
-                repo_list.append(repo.name)
+            for repo in all_repos:
+                repo_name = repo["full_name"]
+                if not repo["archived"]:
+                    repo_list.append(repo_name)
+
             self.failures = 0
             return f"Repositories for GitHub user {username}:\n\n" + "\n".join(repo_list)
-        except RateLimitExceededException:
+        except requests.exceptions.RequestException as e:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
                 return await self.get_repos(username)
-            return "Error: GitHub API rate limit exceeded. Please try again later."
-        except Exception as e:
             return f"Error: {str(e)}"
