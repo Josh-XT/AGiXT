@@ -48,6 +48,7 @@ class github(Extensions):
             "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
             "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
             "Close Github Issue": self.close_issue,
+            "Get Github User Repositories": self.get_repos,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -590,6 +591,33 @@ class github(Extensions):
                 self.failures += 1
                 time.sleep(5)
                 return await self.close_ticket(repo_url, issue_number)
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def get_repos(self, username: str) -> str:
+        """
+        Get the repositories of a GitHub user
+
+        Args:
+        username (str): The username of the GitHub user
+
+        Returns:
+        str: The repositories of the user
+        """
+        try:
+            user = self.gh.get_user(username)
+            repos = user.get_repos()
+            repo_list = []
+            for repo in repos:
+                repo_list.append(repo.name)
+            self.failures = 0
+            return f"Repositories for GitHub user {username}:\n\n" + "\n".join(repo_list)
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.get_repos(username)
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
