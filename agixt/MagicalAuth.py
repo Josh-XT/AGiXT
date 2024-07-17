@@ -603,8 +603,7 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
-        logging.info(f"User Preferences: {user_preferences}")
-        if "subscription" in user_requirements:
+        if "subscription" in user_requirements and user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
             logging.info(f"Key: {api_key}")
             if api_key:
@@ -677,6 +676,7 @@ class MagicalAuth:
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         session.close()
+        logging.info(f"User Preferences: {user_preferences}")
         return user_preferences
 
     def get_decrypted_user_preferences(self):
