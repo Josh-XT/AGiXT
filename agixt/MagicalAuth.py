@@ -717,7 +717,7 @@ class MagicalAuth:
                 found_output_tokens = True
         if not found_input_tokens:
             user_preference = UserPreferences(
-                user_id=user.id,
+                user_id=self.user_id,
                 pref_key="input_tokens",
                 pref_value=str(input_tokens),
             )
