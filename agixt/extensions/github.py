@@ -49,7 +49,7 @@ class github(Extensions):
             "Add Comment to Github Repository Issue": self.add_comment_to_repo_issue,
             "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
             "Close Github Issue": self.close_issue,
-            "Get Github User Repositories": self.get_repos,
+            "Get List of My Github Repositories": self.get_my_repos,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
