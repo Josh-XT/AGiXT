@@ -210,14 +210,18 @@ class MagicalAuth:
                 leeway=timedelta(hours=5),
             )
             self.email = decoded["email"]
+            self.user_id = decoded["sub"]
             self.token = token
         except:
             self.email = None
             self.token = None
-        self.user_id = get_user_id(self.email) if self.email else None
+            self.user_id = None
 
     def validate_user(self):
         if self.user_id is None:
+            logging.info(f"Email: {self.email}")
+            logging.info(f"Token: {self.token}")
+            logging.info(f"User ID: {self.user_id}")
             raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
         return True
 
