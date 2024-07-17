@@ -216,6 +216,11 @@ class MagicalAuth:
             self.token = None
         self.user_id = get_user_id(self.email) if self.email else None
 
+    def validate_user(self):
+        if self.user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
+        return True
+
     def user_exists(self, email: str = None):
         self.email = email.lower()
         session = get_session()
@@ -433,6 +438,7 @@ class MagicalAuth:
         return mfa_token
 
     def update_user(self, **kwargs):
+        self.validate_user()
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
@@ -585,14 +591,13 @@ class MagicalAuth:
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
         session.close()
         user_requirements = self.registration_requirements()
-        logging.info(f"User Requirements: {user_requirements}")
-        logging.info(f"User Preferences: {user_preferences}")
         if not user_preferences:
             user_preferences = {}
         if "input_tokens" not in user_preferences:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
+        logging.info(f"User Preferences: {user_preferences}")
         if "subscription" in user_requirements:
             api_key = getenv("STRIPE_API_KEY")
             logging.info(f"Key: {api_key}")
@@ -669,6 +674,7 @@ class MagicalAuth:
         return user_preferences
 
     def get_decrypted_user_preferences(self):
+        self.validate_user()
         user_preferences = self.get_user_preferences()
         if not user_preferences:
             return {}
@@ -728,6 +734,7 @@ class MagicalAuth:
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
+        self.validate_user()
         session = get_session()
         counts = self.get_token_counts()
         current_input_tokens = int(counts["input_tokens"])
