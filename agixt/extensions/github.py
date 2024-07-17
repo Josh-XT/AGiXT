@@ -50,6 +50,7 @@ class github(Extensions):
             "Add Comment to Github Repository Pull Request": self.add_comment_to_repo_pull_request,
             "Close Github Issue": self.close_issue,
             "Get List of My Github Repositories": self.get_my_repos,
+            "Get List of Github Repositories by Username": self.get_user_repos,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -599,7 +600,7 @@ class github(Extensions):
     async def get_my_repos(self) -> str:
         """
         Get all repositories that the token is associated with the owner owning or collaborating on repositories.
-        
+
         Returns:
         str: Repository list separated by new lines.
         """
@@ -631,4 +632,44 @@ class github(Extensions):
                 self.failures += 1
                 time.sleep(5)
                 return await self.get_repos()
+            return f"Error: {str(e)}"
+
+    async def get_user_repos(self, username):
+        """
+        Get all repositories that the user owns or is a collaborator on.
+
+        Args:
+        username (str): The username of the user to get repositories for.
+
+        Returns:
+        str: Repository list separated by new lines.
+        """
+        try:
+            all_repos = []
+            page = 1
+            while True:
+                response = requests.get(
+                    f"https://api.github.com/users/{username}/repos?type=all&page={page}",
+                    headers={
+                        "Authorization": f"token {self.GITHUB_API_KEY}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                )
+                repos = response.json()
+                if not repos:
+                    break
+                all_repos.extend(repos)
+                page += 1
+            repo_list = []
+            for repo in all_repos:
+                repo_name = repo["full_name"]
+                if not repo["archived"]:
+                    repo_list.append(repo_name)
+            self.failures = 0
+            return f"Repositories for {username}:\n\n" + "\n".join(repo_list)
+        except requests.exceptions.RequestException as e:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.get_user_repos(username)
             return f"Error: {str(e)}"
