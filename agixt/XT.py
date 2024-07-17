@@ -39,7 +39,6 @@ class AGiXT:
         if api_key is not None:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
         self.api_key = api_key
-        self.auth = MagicalAuth(token=api_key)
         self.conversation = Conversations(
             conversation_name=conversation_name, user=self.user_email
         )
@@ -1487,7 +1486,8 @@ class AGiXT:
             if not response:
                 response = "Unable to retrieve response."
                 logging.error(f"Error getting response: {response}")
-        self.auth.increase_token_counts(
+        auth = MagicalAuth(token=self.api_key)
+        auth.increase_token_counts(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
         )
