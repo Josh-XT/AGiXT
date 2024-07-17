@@ -214,6 +214,12 @@ class MagicalAuth:
         except:
             self.email = None
             self.token = None
+        self.user_id = get_user_id(self.email) if self.email else None
+
+    def validate_user(self):
+        if self.user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
+        return True
 
     def user_exists(self, email: str = None):
         self.email = email.lower()
@@ -241,7 +247,7 @@ class MagicalAuth:
             return 0
         failed_logins = (
             session.query(FailedLogins)
-            .filter(FailedLogins.user_id == user.id)
+            .filter(FailedLogins.user_id == self.user_id)
             .filter(FailedLogins.created_at >= datetime.now() - timedelta(hours=24))
             .count()
         )
@@ -432,15 +438,13 @@ class MagicalAuth:
         return mfa_token
 
     def update_user(self, **kwargs):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+        self.validate_user()
         session = get_session()
-        user = session.query(User).filter(User.id == user.id).first()
+        user = session.query(User).filter(User.id == self.user_id).first()
         allowed_keys = list(UserInfo.__annotations__.keys())
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         if "subscription" in kwargs:
@@ -468,7 +472,7 @@ class MagicalAuth:
                 )
                 if user_preference is None:
                     user_preference = UserPreferences(
-                        user_id=user.id,
+                        user_id=self.user_id,
                         pref_key=key,
                         pref_value=value,
                     )
@@ -480,11 +484,8 @@ class MagicalAuth:
         return "User updated successfully."
 
     def delete_user(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
-        user = session.query(User).filter(User.id == user.id).first()
+        user = session.query(User).filter(User.id == self.user_id).first()
         user.is_active = False
         session.commit()
         session.close()
@@ -580,22 +581,23 @@ class MagicalAuth:
         return requirements
 
     def get_user_preferences(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
         session.close()
         user_requirements = self.registration_requirements()
-        logging.info(f"User Requirements: {user_requirements}")
-        logging.info(f"User Preferences: {user_preferences}")
         if not user_preferences:
             user_preferences = {}
+        if "input_tokens" not in user_preferences:
+            user_preferences["input_tokens"] = 0
+        if "output_tokens" not in user_preferences:
+            user_preferences["output_tokens"] = 0
+        logging.info(f"User Preferences: {user_preferences}")
         if "subscription" in user_requirements:
             api_key = getenv("STRIPE_API_KEY")
             logging.info(f"Key: {api_key}")
@@ -629,7 +631,9 @@ class MagicalAuth:
                             session.commit()
                             pref = (
                                 session.query(UserPreferences)
-                                .filter_by(user_id=user.id, pref_key="subscription")
+                                .filter_by(
+                                    user_id=self.user_id, pref_key="subscription"
+                                )
                                 .first()
                             )
                             try:
@@ -670,6 +674,7 @@ class MagicalAuth:
         return user_preferences
 
     def get_decrypted_user_preferences(self):
+        self.validate_user()
         user_preferences = self.get_user_preferences()
         if not user_preferences:
             return {}
@@ -692,16 +697,12 @@ class MagicalAuth:
         return decrypted_preferences
 
     def get_token_counts(self):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
-        session.close()
         input_tokens = 0
         output_tokens = 0
         found_input_tokens = False
@@ -715,26 +716,25 @@ class MagicalAuth:
                 found_output_tokens = True
         if not found_input_tokens:
             user_preference = UserPreferences(
-                user_id=user.id,
+                user_id=self.user_id,
                 pref_key="input_tokens",
                 pref_value=str(input_tokens),
             )
             session.add(user_preference)
+            session.commit()
         if not found_output_tokens:
             user_preference = UserPreferences(
-                user_id=user.id,
+                user_id=self.user_id,
                 pref_key="output_tokens",
                 pref_value=str(output_tokens),
             )
             session.add(user_preference)
-        session.commit()
+            session.commit()
         session.close()
         return {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
     def increase_token_counts(self, input_tokens: int = 0, output_tokens: int = 0):
-        user = verify_api_key(self.token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+        self.validate_user()
         session = get_session()
         counts = self.get_token_counts()
         current_input_tokens = int(counts["input_tokens"])
@@ -743,7 +743,7 @@ class MagicalAuth:
         updated_output_tokens = current_output_tokens + output_tokens
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user.id)
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
         for preference in user_preferences:
