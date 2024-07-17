@@ -469,7 +469,7 @@ class MagicalAuth:
                 )
                 if user_preference is None:
                     user_preference = UserPreferences(
-                        user_id=user.id,
+                        user_id=self.user_id,
                         pref_key=key,
                         pref_value=value,
                     )
@@ -587,6 +587,7 @@ class MagicalAuth:
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
         user_preferences = (
             session.query(UserPreferences)
             .filter(UserPreferences.user_id == self.user_id)
@@ -632,7 +633,9 @@ class MagicalAuth:
                             session.commit()
                             pref = (
                                 session.query(UserPreferences)
-                                .filter_by(user_id=user.id, pref_key="subscription")
+                                .filter_by(
+                                    user_id=self.user_id, pref_key="subscription"
+                                )
                                 .first()
                             )
                             try:
@@ -725,7 +728,7 @@ class MagicalAuth:
             session.commit()
         if not found_output_tokens:
             user_preference = UserPreferences(
-                user_id=user.id,
+                user_id=self.user_id,
                 pref_key="output_tokens",
                 pref_value=str(output_tokens),
             )
