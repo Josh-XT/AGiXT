@@ -589,6 +589,10 @@ class MagicalAuth:
         logging.info(f"User Preferences: {user_preferences}")
         if not user_preferences:
             user_preferences = {}
+        if "input_tokens" not in user_preferences:
+            user_preferences["input_tokens"] = 0
+        if "output_tokens" not in user_preferences:
+            user_preferences["output_tokens"] = 0
         if "subscription" in user_requirements:
             api_key = getenv("STRIPE_API_KEY")
             logging.info(f"Key: {api_key}")
