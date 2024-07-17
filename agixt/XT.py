@@ -7,6 +7,7 @@ from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName
 from datetime import datetime
 from typing import Type, get_args, get_origin, Union, List
+from MagicalAuth import MagicalAuth
 from enum import Enum
 from pydantic import BaseModel
 import pdfplumber
@@ -38,6 +39,7 @@ class AGiXT:
         if api_key is not None:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
         self.api_key = api_key
+        self.auth = MagicalAuth(token=api_key)
         self.conversation = Conversations(
             conversation_name=conversation_name, user=self.user_email
         )
@@ -1477,6 +1479,10 @@ class AGiXT:
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
+            self.auth.increase_token_counts(
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens,
+            )
             total_tokens = int(prompt_tokens) + int(completion_tokens)
             logging.info(f"Input tokens: {prompt_tokens}")
             logging.info(f"Completion tokens: {completion_tokens}")

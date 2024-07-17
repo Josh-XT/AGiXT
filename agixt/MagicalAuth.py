@@ -604,18 +604,7 @@ class MagicalAuth:
 
                 stripe.api_key = api_key
                 if "subscription" not in user_preferences:
-                    stripe_customer = stripe.Customer.create(email=user.email)
-                    user_preferences["subscription"] = stripe_customer["id"]
-                    user_preference = UserPreferences(
-                        user_id=user.id,
-                        pref_key="subscription",
-                        pref_value=stripe_customer["id"],
-                    )
-                    session.add(user_preference)
-                    session.commit()
-                    user = session.query(User).filter(User.id == user.id).first()
-                    user.is_active = False
-                    session.commit()
+                    user_preferences["subscription"] = "None"
                 if str(user_preferences["subscription"]).lower() != "none":
                     if user.is_active is False:
                         c_session = stripe.CustomerSession.create(
@@ -631,11 +620,25 @@ class MagicalAuth:
                             },
                         )
                     else:
-                        customer_id = user_preferences["subscription"]
-                        stripe_customer = stripe.Customer.retrieve(customer_id)
-                        subscription = stripe.Subscription.retrieve(
-                            stripe_customer["subscriptions"]["data"][0]["id"]
-                        )
+                        try:
+                            subscription = stripe.Subscription.retrieve(
+                                user_preferences["subscription"]
+                            )
+                        except:
+                            user.is_active = False
+                            session.commit()
+                            pref = (
+                                session.query(UserPreferences)
+                                .filter_by(user_id=user.id, pref_key="subscription")
+                                .first()
+                            )
+                            try:
+                                session.delete(pref)
+                                session.commit()
+                            except:
+                                logging.info("No record to delete.")
+                            session.close()
+                            return self.get_user_preferences()
                         if subscription.status != "active":
                             user.is_active = False
                             session.commit()
