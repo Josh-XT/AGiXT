@@ -214,7 +214,7 @@ class MagicalAuth:
             self.email = None
             self.token = None
             self.user_id = None
-        if self.token == encryption_key:
+        if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
             self.token = token
