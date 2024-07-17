@@ -596,22 +596,19 @@ class github(Extensions):
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def get_repos(self, username: str) -> str:
+    async def get_my_repos(self) -> str:
         """
-        Get the repositories of a GitHub user
-
-        Args:
-        username (str): The username of the GitHub user
-
+        Get all repositories that the token is associated with the owner owning or collaborating on repositories.
+        
         Returns:
-        str: The repositories of the user
+        str: Repository list separated by new lines.
         """
         try:
             all_repos = []
             page = 1
             while True:
                 response = requests.get(
-                    f"https://api.github.com/users/{username}/repos?type=all&page={page}",
+                    f"https://api.github.com/user/repos?type=all&page={page}",
                     headers={
                         "Authorization": f"token {self.GITHUB_API_KEY}",
                         "Accept": "application/vnd.github.v3+json",
@@ -622,18 +619,16 @@ class github(Extensions):
                     break
                 all_repos.extend(repos)
                 page += 1
-
             repo_list = []
             for repo in all_repos:
                 repo_name = repo["full_name"]
                 if not repo["archived"]:
                     repo_list.append(repo_name)
-
             self.failures = 0
-            return f"Repositories for GitHub user {username}:\n\n" + "\n".join(repo_list)
+            return f"Repositories:\n\n" + "\n".join(repo_list)
         except requests.exceptions.RequestException as e:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
-                return await self.get_repos(username)
+                return await self.get_repos()
             return f"Error: {str(e)}"
