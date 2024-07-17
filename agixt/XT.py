@@ -1487,14 +1487,10 @@ class AGiXT:
             if not response:
                 response = "Unable to retrieve response."
                 logging.error(f"Error getting response: {response}")
-        
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.info(f"Unable to increase token counts: {e}")
+        self.auth.increase_token_counts(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+        )
         res_model = {
             "id": self.conversation_id,
             "object": "chat.completion",
