@@ -165,7 +165,7 @@ class MagicalAuth:
         encryption_key = getenv("AGIXT_API_KEY")
         self.link = getenv("MAGIC_LINK_URL")
         self.encryption_key = f'{encryption_key}{datetime.now().strftime("%Y%m%d")}'
-        self.token = (
+        token = (
             str(token)
             .replace("%2B", "+")
             .replace("%2F", "/")
@@ -199,8 +199,6 @@ class MagicalAuth:
             if token
             else None
         )
-        if self.token:
-            self.token = str(self.token).replace("Bearer ", "").replace("bearer ", "")
         try:
             # Decode jwt
             decoded = jwt.decode(
@@ -216,6 +214,10 @@ class MagicalAuth:
             self.email = None
             self.token = None
             self.user_id = None
+        if self.token == encryption_key:
+            self.email = getenv("DEFAULT_USER")
+            self.user_id = get_user_id(self.email)
+            self.token = token
 
     def validate_user(self):
         if self.user_id is None:
