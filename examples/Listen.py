@@ -1,4 +1,4 @@
-from datetime import datetime
+import datetime
 from io import BytesIO
 import subprocess
 import threading
@@ -8,7 +8,8 @@ import wave
 import time
 import sys
 import os
-
+import signal
+import traceback
 
 try:
     import pyaudio
@@ -41,7 +42,9 @@ except ImportError:
     from pocketsphinx import Pocketsphinx, get_model_path
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filename="agixt_listen.log",
 )
 
 
@@ -54,16 +57,20 @@ class AGiXTListen:
         conversation_name="",
         whisper_model="base.en",
         wake_word="hey assistant",
-        wake_functions=None,
     ):
         self.sdk = AGiXTSDK(base_uri=server, api_key=api_key)
         self.agent_name = agent_name
         self.wake_word = wake_word.lower()
-        self.wake_functions = wake_functions or {"chat": self.default_voice_chat}
-        if not conversation_name:
-            self.conversation_name = datetime.now().strftime("%Y-%m-%d")
-        else:
-            self.conversation_name = conversation_name
+        self.wake_functions = {"chat": self.default_voice_chat}
+        self.conversation_name = conversation_name or datetime.datetime.now().strftime(
+            "%Y-%m-%d"
+        )
+        self.conversation_history = self.sdk.get_conversation(
+            agent_name=self.agent_name,
+            conversation=self.conversation_name,
+            limit=20,
+            page=1,
+        )
         self.TRANSCRIPTION_MODEL = whisper_model
         self.audio = pyaudio.PyAudio()
         self.w = WhisperModel(
@@ -73,6 +80,7 @@ class AGiXTListen:
         self.input_recording_thread = None
         self.output_recording_thread = None
         self.wake_word_thread = None
+        self.conversation_check_thread = None
         self.vad = webrtcvad.Vad(3)  # Aggressiveness is 3 (highest)
         self.ps = Pocketsphinx(
             hmm=get_model_path("en-us"),
@@ -80,15 +88,21 @@ class AGiXTListen:
             keyphrase=self.wake_word,
             kws_threshold=1e-20,
         )
+        self.is_speaking_activity = False
 
     def transcribe_audio(self, audio_path, translate=False):
-        segments, _ = self.w.transcribe(
-            audio_path,
-            task="transcribe" if not translate else "translate",
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
-        )
-        return " ".join(segment.text for segment in segments)
+        try:
+            segments, _ = self.w.transcribe(
+                audio_path,
+                task="transcribe" if not translate else "translate",
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+            )
+            return " ".join(segment.text for segment in segments)
+        except Exception as e:
+            logging.error(f"Error in transcribe_audio: {str(e)}")
+            logging.debug(traceback.format_exc())
+            return ""
 
     def text_to_speech(self, text):
         try:
@@ -108,14 +122,15 @@ class AGiXTListen:
             stream.stop_stream()
             stream.close()
         except Exception as e:
-            logging.error(f"Error in text-to-speech conversion: {e}")
+            logging.error(f"Error in text-to-speech conversion: {str(e)}")
+            logging.debug(traceback.format_exc())
 
     def continuous_record_and_transcribe(self, is_input):
         CHUNK = 1024
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
         RATE = 16000
-        RECORD_SECONDS = 60  # Record in 1-minute chunks
+        RECORD_SECONDS = 60  # 60-second chunks for continuous recording
         stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
@@ -128,43 +143,55 @@ class AGiXTListen:
         logging.info(
             f"Starting continuous recording and transcription for {audio_type} audio..."
         )
-        while self.is_recording:
-            frames = []
-            start_time = datetime.now()
-            for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-                if not self.is_recording:
-                    break
-                data = stream.read(CHUNK) if is_input else stream.write(b"\x00" * CHUNK)
-                if is_input:
-                    frames.append(data)
-                else:
-                    frames.append(data if data is not None else b"\x00" * CHUNK)
-            end_time = datetime.now()
-            if frames:  # Only process if we have recorded some audio
-                audio_data = b"".join(frames)
-                date_folder = start_time.strftime("%Y-%m-%d")
-                os.makedirs(date_folder, exist_ok=True)
-                filename = f"{date_folder}/{audio_type}_{start_time.strftime('%H-%M-%S')}-{end_time.strftime('%H-%M-%S')}.wav"
-                with wave.open(filename, "wb") as wf:
-                    wf.setnchannels(CHANNELS)
-                    wf.setsampwidth(self.audio.get_sample_size(FORMAT))
-                    wf.setframerate(RATE)
-                    wf.writeframes(audio_data)
-                transcription = self.transcribe_audio(filename)
-                # save to agent memories if length of the transcription is greater than 10
-                if len(transcription) > 10:
-                    memory_text = f"Content of {audio_type} voice transcription from {start_time} to {end_time}:\n{transcription}"
-                    self.sdk.learn_text(
-                        agent_name=self.agent_name,
-                        user_input=transcription,
-                        text=memory_text,
-                        collection_number=self.conversation_name,
-                    )
-                    logging.info(
-                        f"Saved {audio_type} transcription to agent memories: {filename}"
-                    )
-        stream.stop_stream()
-        stream.close()
+        try:
+            while self.is_recording:
+                frames = []
+                start_time = datetime.datetime.now()
+                for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+                    if not self.is_recording:
+                        break
+                    if is_input:
+                        data = stream.read(CHUNK)
+                        frames.append(data)
+                    else:
+                        if not self.is_speaking_activity:
+                            data = stream.write(b"\x00" * CHUNK)
+                            frames.append(data if data is not None else b"\x00" * CHUNK)
+                        else:
+                            # Skip recording when speaking activity messages
+                            stream.write(b"\x00" * CHUNK)
+                if frames:
+                    self.process_audio_chunk(frames, is_input, start_time)
+        except Exception as e:
+            logging.error(f"Error in continuous recording and transcription: {str(e)}")
+            logging.debug(traceback.format_exc())
+        finally:
+            stream.stop_stream()
+            stream.close()
+
+    def process_audio_chunk(self, frames, is_input, start_time):
+        audio_data = b"".join(frames)
+        audio_type = "input" if is_input else "output"
+        date_folder = start_time.strftime("%Y-%m-%d")
+        os.makedirs(date_folder, exist_ok=True)
+        filename = f"{date_folder}/{audio_type}_{start_time.strftime('%H-%M-%S')}.wav"
+        with wave.open(filename, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))
+            wf.setframerate(16000)
+            wf.writeframes(audio_data)
+        transcription = self.transcribe_audio(filename)
+        if len(transcription) > 10:
+            memory_text = f"Content of {audio_type} voice transcription from {start_time}:\n{transcription}"
+            self.sdk.learn_text(
+                agent_name=self.agent_name,
+                user_input=transcription,
+                text=memory_text,
+                collection_number=self.conversation_name,
+            )
+            logging.info(
+                f"Saved {audio_type} transcription to agent memories: {filename}"
+            )
 
     def default_voice_chat(self, text):
         logging.info(f"Sending text to agent: {text}")
@@ -176,7 +203,6 @@ class AGiXTListen:
         )
 
     def process_wake_word(self):
-        # Capture a few seconds of audio after wake word detection
         CHUNK = 1024
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
@@ -193,12 +219,10 @@ class AGiXTListen:
         for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
             data = stream.read(CHUNK)
             frames.append(data)
-
         stream.stop_stream()
         stream.close()
         audio_data = b"".join(frames)
         transcription = self.transcribe_audio(BytesIO(audio_data))
-        # Process the transcription with the appropriate wake function
         for wake_word, wake_function in self.wake_functions.items():
             if wake_word.lower() in transcription.lower():
                 response = wake_function(transcription)
@@ -206,7 +230,6 @@ class AGiXTListen:
                     self.text_to_speech(response)
                 break
         else:
-            # If no wake word is found, use the default chat function
             response = self.default_voice_chat(transcription)
             if response:
                 self.text_to_speech(response)
@@ -216,6 +239,7 @@ class AGiXTListen:
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
         RATE = 16000
+
         stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
@@ -238,6 +262,33 @@ class AGiXTListen:
         stream.stop_stream()
         stream.close()
 
+    def check_conversation_updates(self):
+        while self.is_recording:
+            time.sleep(2)  # Check every 2 seconds
+            new_history = self.sdk.get_conversation(
+                agent_name=self.agent_name,
+                conversation=self.conversation_name,
+                limit=20,
+                page=1,
+            )
+
+            new_entries = [
+                entry for entry in new_history if entry not in self.conversation_history
+            ]
+
+            for entry in new_entries:
+                if entry.startswith("[ACTIVITY]"):
+                    activity_message = entry.split("[ACTIVITY]")[1].strip()
+                    logging.info(f"Received activity message: {activity_message}")
+                    self.speak_activity(activity_message)
+
+            self.conversation_history = new_history
+
+    def speak_activity(self, message):
+        self.is_speaking_activity = True
+        self.text_to_speech(message)
+        self.is_speaking_activity = False
+
     def start_recording(self):
         self.is_recording = True
         self.input_recording_thread = threading.Thread(
@@ -247,9 +298,13 @@ class AGiXTListen:
             target=self.continuous_record_and_transcribe, args=(False,)
         )
         self.wake_word_thread = threading.Thread(target=self.listen_for_wake_word)
+        self.conversation_check_thread = threading.Thread(
+            target=self.check_conversation_updates
+        )
         self.input_recording_thread.start()
         self.output_recording_thread.start()
         self.wake_word_thread.start()
+        self.conversation_check_thread.start()
 
     def stop_recording(self):
         self.is_recording = False
@@ -259,6 +314,8 @@ class AGiXTListen:
             self.output_recording_thread.join()
         if self.wake_word_thread:
             self.wake_word_thread.join()
+        if self.conversation_check_thread:
+            self.conversation_check_thread.join()
 
     def voice_chat(self, text):
         logging.info(f"Sending text to agent: {text}")
@@ -270,13 +327,22 @@ class AGiXTListen:
             conversation_results=10,
         )
 
+    def graceful_shutdown(self, signum, frame):
+        logging.info("Received shutdown signal. Stopping recording...")
+        self.stop_recording()
+        logging.info("Recording stopped. Exiting...")
+        sys.exit(0)
+
     def listen(self):
+        signal.signal(signal.SIGINT, self.graceful_shutdown)
+        signal.signal(signal.SIGTERM, self.graceful_shutdown)
         self.start_recording()
         try:
             while True:
                 time.sleep(1)
-        except KeyboardInterrupt:
-            logging.info("Stopping the recording...")
+        except Exception as e:
+            logging.error(f"Unexpected error in listen method: {str(e)}")
+            logging.debug(traceback.format_exc())
         finally:
             self.stop_recording()
             logging.info("Recording stopped.")
@@ -293,7 +359,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--api_key", default="", help="AGiXT API key")
     parser.add_argument("--agent_name", default="gpt4free", help="Name of the agent")
-    parser.add_argument("--conversation_name", help="Name of the conversation")
+    parser.add_argument(
+        "--conversation_name", default="", help="Name of the conversation"
+    )
     parser.add_argument(
         "--whisper_model", default="base.en", help="Whisper model for transcription"
     )
@@ -303,17 +371,16 @@ if __name__ == "__main__":
         help="Wake word to trigger the assistant",
     )
     args = parser.parse_args()
-    listener = AGiXTListen(
-        server=args.server,
-        api_key=args.api_key,
-        agent_name=args.agent_name,
-        whisper_model=args.whisper_model,
-        wake_word=args.wake_word,
-    )
     try:
-        listener.start_recording()
-    except KeyboardInterrupt:
-        logging.info("Stopping the recording...")
-    finally:
-        listener.stop_recording()
-        logging.info("Recording stopped.")
+        listener = AGiXTListen(
+            server=args.server,
+            api_key=args.api_key,
+            agent_name=args.agent_name,
+            conversation_name=args.conversation_name,
+            whisper_model=args.whisper_model,
+            wake_word=args.wake_word,
+        )
+        listener.listen()
+    except Exception as e:
+        logging.error(f"Error initializing or running AGiXTListen: {str(e)}")
+        logging.debug(traceback.format_exc())
