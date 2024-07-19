@@ -239,7 +239,6 @@ class AGiXTListen:
         FORMAT = pyaudio.paInt16
         CHANNELS = 1
         RATE = 16000
-
         stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
@@ -271,17 +270,14 @@ class AGiXTListen:
                 limit=20,
                 page=1,
             )
-
             new_entries = [
                 entry for entry in new_history if entry not in self.conversation_history
             ]
-
             for entry in new_entries:
                 if entry.startswith("[ACTIVITY]"):
                     activity_message = entry.split("[ACTIVITY]")[1].strip()
                     logging.info(f"Received activity message: {activity_message}")
                     self.speak_activity(activity_message)
-
             self.conversation_history = new_history
 
     def speak_activity(self, message):
