@@ -123,10 +123,17 @@ async def learn_text(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
+    if len(data.collection_number) > 4:
+        conversation = Conversations(
+            conversation_name=data.collection_number, user=user
+        )
+        collection_number = conversation.get_conversation_id()
+    else:
+        collection_number = str(data.collection_number)
     memory = Memories(
         agent_name=agent_name,
         agent_config=agent_config,
-        collection_number=str(data.collection_number),
+        collection_number=collection_number,
         ApiClient=ApiClient,
         user=user,
     )
