@@ -1,29 +1,21 @@
-import base64
-import threading
-import sys
-import subprocess
-import wave
-import os
-import uuid
+from datetime import datetime, timedelta
 from io import BytesIO
-from datetime import datetime
+import subprocess
+import threading
+import requests
 import logging
+import wave
+import time
+import sys
+import os
+
 
 try:
     import pyaudio
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "pyaudio"])
     import pyaudio
-try:
-    import webrtcvad
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "webrtcvad"])
-    import webrtcvad
-try:
-    import numpy as np
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
-    import numpy as np
+
 try:
     from agixtsdk import AGiXTSDK
 except ImportError:
@@ -36,7 +28,21 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "faster-whisper"])
     from faster_whisper import WhisperModel
 
-audio = pyaudio.PyAudio()
+try:
+    import webrtcvad
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "webrtcvad"])
+    import webrtcvad
+
+try:
+    from pocketsphinx import Pocketsphinx, get_model_path
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pocketsphinx"])
+    from pocketsphinx import Pocketsphinx, get_model_path
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 class AGiXTListen:
@@ -46,160 +52,320 @@ class AGiXTListen:
         api_key="",
         agent_name="gpt4free",
         whisper_model="",
-        wake_functions={},
+        wake_word="hey assistant",
+        wake_functions=None,
     ):
         self.sdk = AGiXTSDK(base_uri=server, api_key=api_key)
         self.agent_name = agent_name
-        self.wake_functions = (
-            wake_functions
-            if wake_functions != {}
-            else {
-                "chat": self.voice_chat,
-                "instruct": self.voice_instruct,
-            }
-        )
+        self.wake_word = wake_word.lower()
+        self.wake_functions = wake_functions or {"chat": self.default_voice_chat}
         self.conversation_name = datetime.now().strftime("%Y-%m-%d")
         self.TRANSCRIPTION_MODEL = whisper_model
-
-    def transcribe_audio(
-        self,
-        audio_path,
-        translate=False,
-    ):
+        self.audio = pyaudio.PyAudio()
         self.w = WhisperModel(
             self.TRANSCRIPTION_MODEL, download_root="models", device="cpu"
         )
+        self.is_recording = False
+        self.input_recording_thread = None
+        self.output_recording_thread = None
+        self.wake_word_thread = None
+        self.vad = webrtcvad.Vad(3)  # Aggressiveness is 3 (highest)
+        self.ps = Pocketsphinx(
+            hmm=get_model_path("en-us"),
+            lm=False,
+            keyphrase=self.wake_word,
+            kws_threshold=1e-20,
+        )
+
+    def transcribe_audio(self, audio_path, translate=False):
         segments, _ = self.w.transcribe(
             audio_path,
             task="transcribe" if not translate else "translate",
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
         )
-        segments = list(segments)
-        user_input = ""
-        for segment in segments:
-            user_input += segment.text
-        logging.info(f"[STT] Transcribed User Input: {user_input}")
-        for wake_word, wake_function in self.wake_functions.items():
-            if wake_word.lower() in user_input.lower():
-                print("Wake word detected! Executing wake function...")
-                if wake_function:
-                    response = wake_function(user_input)
-                else:
-                    response = self.voice_chat(text=user_input)
-                if response:
-                    tts_response = self.sdk.execute_command(
-                        agent_name=self.agent_name,
-                        command_name="Translate Text to Speech",
-                        command_args={
-                            "text": response,
-                        },
-                        conversation_name=datetime.now().strftime("%Y-%m-%d"),
-                    )
-                    tts_response = tts_response.replace("#GENERATED_AUDIO:", "")
-                    generated_audio = base64.b64decode(tts_response)
-                    stream = audio.open(
-                        format=pyaudio.paInt16,
-                        channels=1,
-                        rate=16000,
-                        output=True,
-                    )
-                    stream.write(generated_audio)
-                    stream.stop_stream()
-                    stream.close()
-        return user_input
+        return " ".join(segment.text for segment in segments)
 
-    def process_audio_data(self, frames, rms_threshold=500):
-        audio_data = b"".join(frames)
-        audio_np = np.frombuffer(audio_data, dtype=np.int16)
-        rms = np.sqrt(np.mean(audio_np**2))
-        if rms > rms_threshold:
-            buffer = BytesIO()
-            with wave.open(buffer, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(audio.get_sample_size(pyaudio.paInt16))
-                wf.setframerate(16000)
-                wf.writeframes(b"".join(frames))
-            wav_buffer = buffer.getvalue()
-            file_path = os.path.join(os.getcwd(), f"{uuid.uuid4().hex}.wav")
-            with open(file_path, "wb") as f:
-                f.write(wav_buffer)
-            thread = threading.Thread(
-                target=self.transcribe_audio,
-                args=(file_path, False),
+    def text_to_speech(self, text):
+        try:
+            tts_url = self.sdk.text_to_speech(
+                agent_name=self.agent_name,
+                text=text,
             )
-            thread.start()
+            response = requests.get(tts_url)
+            generated_audio = response.content
+            stream = self.audio.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                output=True,
+            )
+            stream.write(generated_audio)
+            stream.stop_stream()
+            stream.close()
+        except Exception as e:
+            logging.error(f"Error in text-to-speech conversion: {e}")
 
-    def listen(self):
-        print("Listening for wake word...")
-        vad = webrtcvad.Vad(1)
-        stream = audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=16000,
-            input=True,
-            frames_per_buffer=320,
+    def continuous_record_and_transcribe(self, is_input):
+        CHUNK = 1024
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        RATE = 16000
+        RECORD_SECONDS = 60  # Record in 1-minute chunks
+        stream = self.audio.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=is_input,
+            output=not is_input,
+            frames_per_buffer=CHUNK,
         )
-        frames = []
-        silence_frames = 0
-        while True:
-            data = stream.read(320)
-            frames.append(data)
-            is_speech = vad.is_speech(data, 16000)
-            if not is_speech:
-                silence_frames += 1
-                if silence_frames > 1 * 16000 / 320:
-                    self.process_audio_data(frames)
-                    frames = []  # Clear frames after processing
-                    silence_frames = 0
-            else:
-                silence_frames = 0
+        audio_type = "input" if is_input else "output"
+        logging.info(
+            f"Starting continuous recording and transcription for {audio_type} audio..."
+        )
+        while self.is_recording:
+            frames = []
+            start_time = datetime.now()
+            for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+                if not self.is_recording:
+                    break
+                data = stream.read(CHUNK) if is_input else stream.write(b"\x00" * CHUNK)
+                if is_input:
+                    frames.append(data)
+                else:
+                    frames.append(data if data is not None else b"\x00" * CHUNK)
+            end_time = datetime.now()
+            if frames:  # Only process if we have recorded some audio
+                audio_data = b"".join(frames)
+                date_folder = start_time.strftime("%Y-%m-%d")
+                os.makedirs(date_folder, exist_ok=True)
+                filename = f"{date_folder}/{audio_type}_{start_time.strftime('%H-%M-%S')}-{end_time.strftime('%H-%M-%S')}.wav"
+                with wave.open(filename, "wb") as wf:
+                    wf.setnchannels(CHANNELS)
+                    wf.setsampwidth(self.audio.get_sample_size(FORMAT))
+                    wf.setframerate(RATE)
+                    wf.writeframes(audio_data)
+                transcription = self.transcribe_audio(filename)
+                with open(f"{filename}.txt", "w") as f:
+                    f.write(transcription)
 
-    # Wake function take one input only, the transcribed text.
-    def voice_chat(self, text):
-        print(f"Sending text to agent: {text}")
-        text_response = self.sdk.chat(
+                logging.info(
+                    f"Saved {audio_type} audio file and transcription: {filename}"
+                )
+        stream.stop_stream()
+        stream.close()
+
+    def default_voice_chat(self, text):
+        logging.info(f"Sending text to agent: {text}")
+        return self.sdk.chat(
             agent_name=self.agent_name,
             user_input=text,
             conversation=self.conversation_name,
             context_results=6,
         )
-        return text_response
 
-    def voice_instruct(self, text):
-        print(f"Sending text to agent: {text}")
-        text_response = self.sdk.instruct(
+    def process_wake_word(self):
+        # Capture a few seconds of audio after wake word detection
+        CHUNK = 1024
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        RATE = 16000
+        RECORD_SECONDS = 5
+
+        stream = self.audio.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            frames_per_buffer=CHUNK,
+        )
+
+        frames = []
+        for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+            data = stream.read(CHUNK)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+
+        audio_data = b"".join(frames)
+        transcription = self.transcribe_audio(BytesIO(audio_data))
+
+        # Process the transcription with the appropriate wake function
+        for wake_word, wake_function in self.wake_functions.items():
+            if wake_word.lower() in transcription.lower():
+                response = wake_function(transcription)
+                if response:
+                    self.text_to_speech(response)
+                break
+        else:
+            # If no wake word is found, use the default chat function
+            response = self.default_voice_chat(transcription)
+            if response:
+                self.text_to_speech(response)
+
+    def listen_for_wake_word(self):
+        CHUNK = 480  # 30ms at 16kHz
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        RATE = 16000
+        stream = self.audio.open(
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RATE,
+            input=True,
+            frames_per_buffer=CHUNK,
+        )
+        logging.info(f"Listening for wake word: '{self.wake_word}'")
+        while self.is_recording:
+            frame = stream.read(CHUNK)
+            is_speech = self.vad.is_speech(frame, RATE)
+
+            if is_speech:
+                self.ps.start_utt()
+                self.ps.process_raw(frame, False, False)
+                if self.ps.hyp():
+                    logging.info(f"Wake word detected: {self.wake_word}")
+                    self.process_wake_word()
+                self.ps.end_utt()
+        stream.stop_stream()
+        stream.close()
+
+    def get_transcription_for_timerange(self, start_time, end_time, audio_type="both"):
+        start_datetime = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+        end_datetime = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
+        transcriptions = []
+        current_date = start_datetime.date()
+        while current_date <= end_datetime.date():
+            date_folder = current_date.strftime("%Y-%m-%d")
+            if os.path.exists(date_folder):
+                for filename in os.listdir(date_folder):
+                    if filename.endswith(".txt"):
+                        file_start_str = filename.split("_")[-1].split("-")[0]
+                        file_end_str = (
+                            filename.split("_")[-1].split("-")[1].split(".")[0]
+                        )
+                        file_start = datetime.strptime(
+                            f"{current_date} {file_start_str}", "%Y-%m-%d %H:%M:%S"
+                        )
+                        file_end = datetime.strptime(
+                            f"{current_date} {file_end_str}", "%Y-%m-%d %H:%M:%S"
+                        )
+                        if file_start <= end_datetime and file_end >= start_datetime:
+                            if (
+                                audio_type == "both"
+                                or (
+                                    audio_type == "input"
+                                    and filename.startswith("input")
+                                )
+                                or (
+                                    audio_type == "output"
+                                    and filename.startswith("output")
+                                )
+                            ):
+                                with open(
+                                    os.path.join(date_folder, filename), "r"
+                                ) as f:
+                                    transcriptions.append(f.read())
+            current_date += timedelta(days=1)
+        return "\n".join(transcriptions)
+
+    def start_recording(self):
+        self.is_recording = True
+        self.input_recording_thread = threading.Thread(
+            target=self.continuous_record_and_transcribe, args=(True,)
+        )
+        self.output_recording_thread = threading.Thread(
+            target=self.continuous_record_and_transcribe, args=(False,)
+        )
+        self.wake_word_thread = threading.Thread(target=self.listen_for_wake_word)
+        self.input_recording_thread.start()
+        self.output_recording_thread.start()
+        self.wake_word_thread.start()
+
+    def stop_recording(self):
+        self.is_recording = False
+        if self.input_recording_thread:
+            self.input_recording_thread.join()
+        if self.output_recording_thread:
+            self.output_recording_thread.join()
+        if self.wake_word_thread:
+            self.wake_word_thread.join()
+
+    def voice_chat(self, text):
+        logging.info(f"Sending text to agent: {text}")
+        return self.sdk.chat(
             agent_name=self.agent_name,
             user_input=text,
             conversation=self.conversation_name,
+            context_results=10,
+            conversation_results=10,
         )
-        return text_response
+
+    def listen(self):
+        self.start_recording()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logging.info("Stopping the recording...")
+        finally:
+            self.stop_recording()
+            logging.info("Recording stopped.")
 
 
-# AGiXTListen is a class that listens for a wake word and then executes an AGiXT function.
-# The default wake function is to use the AGiXT instruct function which will prompt the agent to use available commands before responding.
-# Example usage:
-# python Listen.py --server http://localhost:7437 --agent_name gpt4free --api_key 1234
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-    # Your AGiXT server URL
-    parser.add_argument("--server", default="http://localhost:7437")
-    # Your AGiXT API key
-    parser.add_argument("--api_key", default="")
-    # The name of the agent that will be listening
-    parser.add_argument("--agent_name", default="gpt4free")
-    # Setting a model will force transcription to happen locally instead of over API.
-    # Low resource devices like Raspberry Pi Zero W cannot run Whisper and will need to use API.
-    # Models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large, large-v1
-    parser.add_argument("--whisper_model", default="")
+    parser = argparse.ArgumentParser(
+        description="AGiXT Voice Assistant with Continuous Recording"
+    )
+    parser.add_argument(
+        "--server", default="http://localhost:7437", help="AGiXT server URL"
+    )
+    parser.add_argument("--api_key", default="", help="AGiXT API key")
+    parser.add_argument("--agent_name", default="gpt4free", help="Name of the agent")
+    parser.add_argument(
+        "--whisper_model", default="base", help="Whisper model for transcription"
+    )
+    parser.add_argument(
+        "--wake_word",
+        default="hey assistant",
+        help="Wake word to trigger the assistant",
+    )
+    parser.add_argument(
+        "--start_time",
+        help="Start time for transcription retrieval (YYYY-MM-DD HH:MM:SS)",
+    )
+    parser.add_argument(
+        "--end_time", help="End time for transcription retrieval (YYYY-MM-DD HH:MM:SS)"
+    )
+    parser.add_argument(
+        "--audio_type",
+        choices=["input", "output", "both"],
+        default="both",
+        help="Type of audio to retrieve transcriptions for",
+    )
     args = parser.parse_args()
     listener = AGiXTListen(
         server=args.server,
         api_key=args.api_key,
         agent_name=args.agent_name,
         whisper_model=args.whisper_model,
-        wake_functions={},
+        wake_word=args.wake_word,
     )
-    listener.listen()
+    if args.start_time and args.end_time:
+        transcriptions = listener.get_transcription_for_timerange(
+            args.start_time, args.end_time, args.audio_type
+        )
+        print(f"Transcriptions for the specified time range ({args.audio_type}):")
+        print(transcriptions)
+    else:
+        try:
+            listener.start_recording()
+        except KeyboardInterrupt:
+            logging.info("Stopping the recording...")
+        finally:
+            listener.stop_recording()
+            logging.info("Recording stopped.")
