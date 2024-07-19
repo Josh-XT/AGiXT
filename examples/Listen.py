@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 import subprocess
 import threading
@@ -238,45 +238,6 @@ class AGiXTListen:
         stream.stop_stream()
         stream.close()
 
-    def get_transcription_for_timerange(self, start_time, end_time, audio_type="both"):
-        start_datetime = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-        end_datetime = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-        transcriptions = []
-        current_date = start_datetime.date()
-        while current_date <= end_datetime.date():
-            date_folder = current_date.strftime("%Y-%m-%d")
-            if os.path.exists(date_folder):
-                for filename in os.listdir(date_folder):
-                    if filename.endswith(".txt"):
-                        file_start_str = filename.split("_")[-1].split("-")[0]
-                        file_end_str = (
-                            filename.split("_")[-1].split("-")[1].split(".")[0]
-                        )
-                        file_start = datetime.strptime(
-                            f"{current_date} {file_start_str}", "%Y-%m-%d %H:%M:%S"
-                        )
-                        file_end = datetime.strptime(
-                            f"{current_date} {file_end_str}", "%Y-%m-%d %H:%M:%S"
-                        )
-                        if file_start <= end_datetime and file_end >= start_datetime:
-                            if (
-                                audio_type == "both"
-                                or (
-                                    audio_type == "input"
-                                    and filename.startswith("input")
-                                )
-                                or (
-                                    audio_type == "output"
-                                    and filename.startswith("output")
-                                )
-                            ):
-                                with open(
-                                    os.path.join(date_folder, filename), "r"
-                                ) as f:
-                                    transcriptions.append(f.read())
-            current_date += timedelta(days=1)
-        return "\n".join(transcriptions)
-
     def start_recording(self):
         self.is_recording = True
         self.input_recording_thread = threading.Thread(
@@ -341,19 +302,6 @@ if __name__ == "__main__":
         default="hey assistant",
         help="Wake word to trigger the assistant",
     )
-    parser.add_argument(
-        "--start_time",
-        help="Start time for transcription retrieval (YYYY-MM-DD HH:MM:SS)",
-    )
-    parser.add_argument(
-        "--end_time", help="End time for transcription retrieval (YYYY-MM-DD HH:MM:SS)"
-    )
-    parser.add_argument(
-        "--audio_type",
-        choices=["input", "output", "both"],
-        default="both",
-        help="Type of audio to retrieve transcriptions for",
-    )
     args = parser.parse_args()
     listener = AGiXTListen(
         server=args.server,
@@ -362,17 +310,10 @@ if __name__ == "__main__":
         whisper_model=args.whisper_model,
         wake_word=args.wake_word,
     )
-    if args.start_time and args.end_time:
-        transcriptions = listener.get_transcription_for_timerange(
-            args.start_time, args.end_time, args.audio_type
-        )
-        print(f"Transcriptions for the specified time range ({args.audio_type}):")
-        print(transcriptions)
-    else:
-        try:
-            listener.start_recording()
-        except KeyboardInterrupt:
-            logging.info("Stopping the recording...")
-        finally:
-            listener.stop_recording()
-            logging.info("Recording stopped.")
+    try:
+        listener.start_recording()
+    except KeyboardInterrupt:
+        logging.info("Stopping the recording...")
+    finally:
+        listener.stop_recording()
+        logging.info("Recording stopped.")
