@@ -51,7 +51,8 @@ class AGiXTListen:
         server="http://localhost:7437",
         api_key="",
         agent_name="gpt4free",
-        whisper_model="",
+        conversation_name="",
+        whisper_model="base.en",
         wake_word="hey assistant",
         wake_functions=None,
     ):
@@ -59,7 +60,10 @@ class AGiXTListen:
         self.agent_name = agent_name
         self.wake_word = wake_word.lower()
         self.wake_functions = wake_functions or {"chat": self.default_voice_chat}
-        self.conversation_name = datetime.now().strftime("%Y-%m-%d")
+        if not conversation_name:
+            self.conversation_name = datetime.now().strftime("%Y-%m-%d")
+        else:
+            self.conversation_name = conversation_name
         self.TRANSCRIPTION_MODEL = whisper_model
         self.audio = pyaudio.PyAudio()
         self.w = WhisperModel(
@@ -147,12 +151,18 @@ class AGiXTListen:
                     wf.setframerate(RATE)
                     wf.writeframes(audio_data)
                 transcription = self.transcribe_audio(filename)
-                with open(f"{filename}.txt", "w") as f:
-                    f.write(transcription)
-
-                logging.info(
-                    f"Saved {audio_type} audio file and transcription: {filename}"
-                )
+                # save to agent memories if length of the transcription is greater than 10
+                if len(transcription) > 10:
+                    memory_text = f"Content of {audio_type} voice transcription from {start_time} to {end_time}:\n{transcription}"
+                    self.sdk.learn_text(
+                        agent_name=self.agent_name,
+                        user_input=transcription,
+                        text=memory_text,
+                        collection_number=self.conversation_name,
+                    )
+                    logging.info(
+                        f"Saved {audio_type} transcription to agent memories: {filename}"
+                    )
         stream.stop_stream()
         stream.close()
 
@@ -172,7 +182,6 @@ class AGiXTListen:
         CHANNELS = 1
         RATE = 16000
         RECORD_SECONDS = 5
-
         stream = self.audio.open(
             format=FORMAT,
             channels=CHANNELS,
@@ -180,7 +189,6 @@ class AGiXTListen:
             input=True,
             frames_per_buffer=CHUNK,
         )
-
         frames = []
         for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
             data = stream.read(CHUNK)
@@ -188,10 +196,8 @@ class AGiXTListen:
 
         stream.stop_stream()
         stream.close()
-
         audio_data = b"".join(frames)
         transcription = self.transcribe_audio(BytesIO(audio_data))
-
         # Process the transcription with the appropriate wake function
         for wake_word, wake_function in self.wake_functions.items():
             if wake_word.lower() in transcription.lower():
@@ -326,8 +332,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--api_key", default="", help="AGiXT API key")
     parser.add_argument("--agent_name", default="gpt4free", help="Name of the agent")
+    parser.add_argument("--conversation_name", help="Name of the conversation")
     parser.add_argument(
-        "--whisper_model", default="base", help="Whisper model for transcription"
+        "--whisper_model", default="base.en", help="Whisper model for transcription"
     )
     parser.add_argument(
         "--wake_word",
