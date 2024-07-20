@@ -110,6 +110,15 @@ def get_user_id(user: str):
     return user_id
 
 
+def get_user_by_email(email: str):
+    session = get_session()
+    user = session.query(User).filter(User.email == email).first()
+    if not user:
+        session.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+    return user
+
+
 def send_email(
     email: str,
     subject: str,
@@ -231,9 +240,9 @@ class MagicalAuth:
         self.email = email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
-        session.close()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        session.close()
         return True
 
     def add_failed_login(self, ip_address):
@@ -270,11 +279,12 @@ class MagicalAuth:
         self.email = login.email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
-        session.close()
         if user is None:
+            session.close()
             raise HTTPException(status_code=404, detail="User not found")
         if not pyotp.TOTP(user.mfa_token).verify(login.token):
             self.add_failed_login(ip_address=ip_address)
+            session.close()
             raise HTTPException(
                 status_code=401, detail="Invalid MFA token. Please try again."
             )
@@ -336,8 +346,10 @@ class MagicalAuth:
                 body=f"<a href='{magic_link}'>Click here to log in</a>",
             )
         else:
+            session.close()
             return magic_link
         # Upon clicking the link, the front end will call the login method and save the email and encrypted_id in the session
+        session.close()
         return f"A login link has been sent to {self.email}, please check your email and click the link to log in. The link will expire in 24 hours."
 
     def login(self, ip_address):
@@ -347,13 +359,13 @@ class MagicalAuth:
         :param ip_address: IP address of the user
         :return: User object
         """
-        session = get_session()
         failures = self.count_failed_logins()
         if failures >= 50:
             raise HTTPException(
                 status_code=429,
                 detail="Too many failed login attempts today. Please try again tomorrow.",
             )
+        session = get_session()
         try:
             user_info = jwt.decode(
                 jwt=self.token,
@@ -363,6 +375,7 @@ class MagicalAuth:
             )
         except:
             self.add_failed_login(ip_address=ip_address)
+            session.close()
             raise HTTPException(
                 status_code=401,
                 detail="Invalid login token. Please log out and try again.",
