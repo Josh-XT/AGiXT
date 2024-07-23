@@ -226,7 +226,7 @@ services:
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
       TZ: ${TZ:-America/New_York}
     volumes:
-      - ./agixt/WORKSPACE:/app/WORKSPACE
+      - ./WORKSPACE:/app/WORKSPACE
     ports:
       - "8501:8501"
   agixtinteractive:
