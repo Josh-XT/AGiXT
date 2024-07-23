@@ -1795,9 +1795,9 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
-        logging.info(f"Code Interpreter: {code_interpreter}")
         if "```" not in code_interpreter:
             code_interpreter = f"```python\n{code_interpreter}\n```"
+        logging.info(f"Code Interpreter: {code_interpreter}")
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
             if "```python" in code_interpreter:
@@ -1816,6 +1816,8 @@ class AGiXT:
                 websearch_depth=0,
                 voice_response=False,
             )
+            if "```" not in code_verification:
+                code_verification = f"```python\n{code_verification}\n```"
             logging.info(f"Code Verification: {code_verification}")
             if "```python" in code_verification:
                 code_verification = code_verification.split("```python")[1].split(
@@ -1859,6 +1861,8 @@ class AGiXT:
                         websearch_depth=0,
                         voice_response=False,
                     )
+                    if "```" not in fixed_code:
+                        fixed_code = f"```python\n{fixed_code}\n```"
                     logging.info(f"Fixed Code: {fixed_code}")
                     code_verification = fixed_code
                     if "```python" in code_verification:
