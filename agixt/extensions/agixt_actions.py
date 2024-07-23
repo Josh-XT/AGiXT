@@ -26,12 +26,15 @@ def install_docker_image():
     return client
 
 
-def execute_python_code(code: str, agent_id: str = "") -> str:
+def execute_python_code(
+    code: str, agent_id: str = "", conversation_id: str = ""
+) -> str:
     docker_image = "joshxt/safeexecute:main"
-    docker_working_dir = f"/agixt/WORKSPACE/{agent_id}"
+    docker_working_dir = f"/agixt/WORKSPACE/{agent_id}/{conversation_id}"
     os.makedirs(docker_working_dir, exist_ok=True)
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
-    host_working_dir = os.path.join(host_working_dir, agent_id)
+    host_working_dir = os.path.join(host_working_dir, agent_id, conversation_id)
+    os.makedirs(host_working_dir, exist_ok=True)
     # Check if there are any package requirements in the code to install
     package_requirements = re.findall(r"pip install (.*)", code)
     # Strip out python code blocks if they exist in the code
@@ -182,6 +185,9 @@ class agixt_actions(Extensions):
         )
         self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
+        self.conversation_id = (
+            kwargs["conversation_id"] if "conversation_id" in kwargs else ""
+        )
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.failures = 0
 
@@ -770,8 +776,10 @@ class agixt_actions(Extensions):
             csv_headers = [header.strip() for header in csv_content_header.split(",")]
             # Replace the first line with the comma separated headers
             text = ",".join(csv_headers) + "\n" + "\n".join(text.split("\n")[1:])
-            filename = "data.csv"
-            filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+            filename = f"{str(uuid.uuid4())}.csv"
+            filepath = os.path.join(
+                self.WORKING_DIRECTORY, agent_id, self.conversation_id, filename
+            )
             with open(filepath, "w") as f:
                 f.write(text)
         agents = self.ApiClient.get_agents()
@@ -779,7 +787,9 @@ class agixt_actions(Extensions):
         for agent in agents:
             if agent["name"] == self.agent_name:
                 agent_id = str(agent["id"])
-        execution_response = execute_python_code(code=code, agent_id=agent_id)
+        execution_response = execute_python_code(
+            code=code, agent_id=agent_id, conversation_id=self.conversation_id
+        )
         return execution_response
 
     async def get_mindmap(self, task: str):

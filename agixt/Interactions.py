@@ -900,6 +900,8 @@ class Interactions:
                                     agent_name=self.agent_name,
                                     agent_config=self.agent.AGENT_CONFIG,
                                     conversation_name=conversation_name,
+                                    conversation_id=c.get_conversation_id(),
+                                    agent_id=self.agent.agent_id,
                                     ApiClient=self.ApiClient,
                                     user=self.user,
                                 )
