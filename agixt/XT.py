@@ -343,8 +343,10 @@ class AGiXT:
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
+                agent_id=self.agent.agent_id,
                 agent_config=self.agent.AGENT_CONFIG,
                 conversation_name=self.conversation_name,
+                conversation_id=self.conversation_id,
                 ApiClient=self.ApiClient,
                 api_key=self.api_key,
                 user=self.user_email,
