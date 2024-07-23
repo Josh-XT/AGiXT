@@ -11,57 +11,95 @@ from ApiClient import Chain
 import logging
 import docker
 import asyncio
+import platform
 
 
 def install_docker_image():
     docker_image = "joshxt/safeexecute:main"
-    client = docker.from_env()
     try:
-        client.images.get(docker_image)
-        logging.info(f"Image '{docker_image}' found locally")
-    except:
-        logging.info(f"Installing docker image '{docker_image}' from Docker Hub")
-        client.images.pull(docker_image)
-        logging.info(f"Image '{docker_image}' installed")
+        client = docker.from_env()
+        try:
+            client.images.get(docker_image)
+            logging.info(f"Image '{docker_image}' found locally")
+        except docker.errors.ImageNotFound:
+            logging.info(f"Installing docker image '{docker_image}' from Docker Hub")
+            try:
+                client.images.pull(docker_image)
+                logging.info(f"Image '{docker_image}' installed")
+            except docker.errors.APIError as e:
+                logging.error(f"Error pulling Docker image: {str(e)}")
+                raise
+    except docker.errors.DockerException as e:
+        logging.error(f"Error connecting to Docker: {str(e)}")
+        raise
     return client
 
 
 def execute_python_code(
     code: str, agent_id: str = "", conversation_id: str = ""
 ) -> str:
+    logging.info(f"Operating System: {platform.system()} {platform.release()}")
+
     docker_image = "joshxt/safeexecute:main"
     docker_working_dir = f"/agixt/WORKSPACE/{agent_id}/{conversation_id}"
     os.makedirs(docker_working_dir, exist_ok=True)
     host_working_dir = os.getenv("WORKING_DIRECTORY", "/agixt/WORKSPACE")
     host_working_dir = os.path.join(host_working_dir, agent_id, conversation_id)
     os.makedirs(host_working_dir, exist_ok=True)
-    # Check if there are any package requirements in the code to install
+
+    logging.info(f"Host working directory: {host_working_dir}")
+    logging.info(f"Docker working directory: {docker_working_dir}")
+    logging.info(
+        f"WORKING_DIRECTORY environment variable: {os.getenv('WORKING_DIRECTORY', 'Not set')}"
+    )
+
+    if platform.system() == "Linux":
+        import pwd
+
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        logging.info(f"Current user: {current_user}")
+        logging.info(
+            f"Host working directory permissions: {oct(os.stat(host_working_dir).st_mode)[-3:]}"
+        )
+
+    logging.info(
+        f"Checking write permissions for {docker_working_dir}: {os.access(docker_working_dir, os.W_OK)}"
+    )
+
     package_requirements = re.findall(r"pip install (.*)", code)
-    # Strip out python code blocks if they exist in the code
     if "```python" in code:
         code = code.split("```python")[1].split("```")[0]
-    # check if ``` is on the first or last line and remove it
     if code.startswith("```"):
         code = code.split("\n", 1)[1]
     if code.endswith("\n```python"):
         code = code.rsplit("\n", 1)[0]
     if code.endswith("```"):
         code = code.rsplit("\n", 1)[0]
+
     temp_file_name = f"{str(uuid.uuid4())}.py"
     temp_file = os.path.join(docker_working_dir, temp_file_name)
     logging.info(f"Writing Python code to temporary file: {temp_file}")
-    with open(temp_file, "w") as f:
-        f.write(code)
-    logging.info(
-        f"Temporary file written. Checking if the file exists: {os.path.exists(temp_file)}"
-    )
+    try:
+        with open(temp_file, "w") as f:
+            f.write(code)
+        logging.info(
+            f"Temporary file written. Checking if the file exists: {os.path.exists(temp_file)}"
+        )
+        if platform.system() == "Linux":
+            logging.info(
+                f"Temporary file permissions: {oct(os.stat(temp_file).st_mode)[-3:]}"
+            )
+    except Exception as e:
+        logging.error(f"Error writing temporary file: {str(e)}")
+        return f"Error: {str(e)}"
+
     try:
         client = install_docker_image()
-        # Install the required packages in the container
+
         for package in package_requirements:
             try:
                 logging.info(f"Installing package '{package}' in container")
-                client.containers.run(
+                container = client.containers.run(
                     docker_image,
                     f"pip install {package}",
                     volumes={
@@ -72,31 +110,38 @@ def execute_python_code(
                     stdout=True,
                     remove=True,
                 )
-            except Exception as e:
+                logging.info(
+                    f"Package installation output: {container.decode('utf-8')}"
+                )
+            except docker.errors.ContainerError as e:
                 logging.error(f"Error installing package '{package}': {str(e)}")
                 return f"Error: {str(e)}"
-        # Run the Python code in the container
-        container = client.containers.run(
-            docker_image,
-            f"python {os.path.join(docker_working_dir, temp_file_name)}",
-            volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
-            working_dir=docker_working_dir,
-            stderr=True,
-            stdout=True,
-            detach=True,
-        )
-        # Wait for the container to finish and capture the logs
-        result = container.wait()
-        logs = container.logs().decode("utf-8")
-        container.remove()
-        if result["StatusCode"] != 0:
-            logging.error(f"Error executing Python code: {logs}")
-            return f"Error: {logs}"
-        logging.info(f"Python code executed successfully. Logs: {logs}")
-        logs = str(logs)
-        if logs.endswith("\n"):
-            logs = logs[:-1]
-        return logs
+
+        try:
+            container = client.containers.run(
+                docker_image,
+                f"python {os.path.join(docker_working_dir, temp_file_name)}",
+                volumes={host_working_dir: {"bind": docker_working_dir, "mode": "rw"}},
+                working_dir=docker_working_dir,
+                stderr=True,
+                stdout=True,
+                detach=True,
+            )
+
+            result = container.wait()
+            logs = container.logs().decode("utf-8")
+            container.remove()
+            if result["StatusCode"] != 0:
+                logging.error(f"Error executing Python code: {logs}")
+                return f"Error: {logs}"
+            logging.info(f"Python code executed successfully. Logs: {logs}")
+            logs = str(logs)
+            if logs.endswith("\n"):
+                logs = logs[:-1]
+            return logs
+        except docker.errors.ContainerError as e:
+            logging.error(f"Error running container: {str(e)}")
+            return f"Error: {str(e)}"
     except Exception as e:
         logging.error(f"Error executing Python code: {str(e)}")
         return f"Error: {str(e)}"
