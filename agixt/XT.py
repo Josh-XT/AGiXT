@@ -1796,6 +1796,8 @@ class AGiXT:
             voice_response=False,
         )
         logging.info(f"Code Interpreter: {code_interpreter}")
+        if "```" not in code_interpreter:
+            code_interpreter = f"```python\n{code_interpreter}\n```"
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
             if "```python" in code_interpreter:
