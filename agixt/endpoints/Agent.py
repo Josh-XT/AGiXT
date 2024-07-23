@@ -192,11 +192,12 @@ async def get_agentconfig(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
     for key, value in agent_config["settings"].items():
+        upper_key = str(key).upper()
         if (
-            key.endswith("_KEY")
-            or key.endswith("_PASSWORD")
-            or key.endswith("_SECRET")
-            or key.endswith("_TOKEN")
+            upper_key.endswith("_KEY")
+            or upper_key.endswith("_PASSWORD")
+            or upper_key.endswith("_SECRET")
+            or upper_key.endswith("_TOKEN")
         ):
             agent_config["settings"][key] = "HIDDEN"
     return {"agent": agent_config}
