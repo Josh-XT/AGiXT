@@ -596,6 +596,7 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+        file_content = ""
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
@@ -662,8 +663,10 @@ class AGiXT:
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
+            file_content += f"Content from PDF uploaded named `{file_name}`:\n"
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
+                file_content += content
             self.input_tokens += get_tokens(content)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
@@ -679,6 +682,7 @@ class AGiXT:
                     self.agent_workspace, collection_id, extracted_zip_folder_name
                 )
             )
+            file_content += f"Content from the zip file uploaded named `{file_name}`:\n"
             if new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=new_folder)
@@ -688,7 +692,8 @@ class AGiXT:
                         current_folder = root.replace(new_folder, "")
                         output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
                         logging.info(f"Output URL: {output_url}")
-                        await self.learn_from_file(
+                        file_content += f"Content from file uploaded named `{name}`:\n"
+                        file_content += await self.learn_from_file(
                             file_url=output_url,
                             file_name=name,
                             user_input=user_input,
@@ -701,6 +706,9 @@ class AGiXT:
                 )
         elif file_type == "xlsx" or file_type == "xls":
             df = pd.read_excel(file_path)
+            file_content += (
+                f"Content from the spreadsheet uploaded named `{file_name}`:\n"
+            )
             # Check if the spreadsheet has multiple sheets
             if isinstance(df, dict):
                 sheet_names = list(df.keys())
@@ -715,7 +723,8 @@ class AGiXT:
                     csv_files.append(
                         f"[{csv_file_name}]({self.outputs}/{collection_id}/{csv_file_name})"
                     )
-                    await self.learn_from_file(
+                    file_content += f"Content from sheet `{sheet_name}`:\n"
+                    file_content += await self.learn_from_file(
                         file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
                         file_name=csv_file_name,
                         user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
@@ -735,11 +744,13 @@ class AGiXT:
                     collection_id=collection_id,
                 )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
-            file_content = docx2txt.process(file_path)
-            self.input_tokens += get_tokens(file_content)
+            content = docx2txt.process(file_path)
+            file_content += f"Content from the document uploaded named `{file_name}`:\n"
+            file_content += content
+            self.input_tokens += get_tokens(content)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
-                text=file_content,
+                text=content,
                 external_source=f"file {file_path}",
             )
             response = f"Read [{file_name}]({file_url}) into memory."
@@ -755,6 +766,8 @@ class AGiXT:
                     text=message,
                     external_source=f"file {file_path}",
                 )
+            file_content += f"Content from the CSV uploaded named `{file_name}`:\n"
+            file_content += json.dumps(df_dict)
             response = f"Read [{file_name}]({file_url}) into memory."
         elif (
             file_type == "wav"
@@ -772,6 +785,10 @@ class AGiXT:
                 message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
             )
             audio_response = await self.audio_to_text(audio_path=file_path)
+            file_content += (
+                f"Transcription from the audio file uploaded named `{file_name}`:\n"
+            )
+            file_content += audio_response
             self.input_tokens += get_tokens(audio_response)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
@@ -807,6 +824,8 @@ class AGiXT:
                     vision_response = await self.agent.vision_inference(
                         prompt=vision_prompt, images=[file_url]
                     )
+                    file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
+                    file_content += vision_response
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     await file_reader.write_text_to_memory(
                         user_input=user_input,
@@ -828,10 +847,14 @@ class AGiXT:
             fp = os.path.normpath(file_path)
             if fp.startswith(self.agent_workspace):
                 with open(fp, "r") as f:
-                    file_content = f.read()
-                self.input_tokens += get_tokens(file_content)
+                    content = f.read()
+                file_content += (
+                    f"Content from file uploaded named `{file_name}` at {timestamp}:\n"
+                )
+                file_content += content
+                self.input_tokens += get_tokens(content)
                 # Check how many lines are in the file content
-                lines = file_content.split("\n")
+                lines = content.split("\n")
                 if len(lines) > 1:
                     for line_number, line in enumerate(lines):
                         await file_reader.write_text_to_memory(
@@ -842,7 +865,7 @@ class AGiXT:
                 else:
                     await file_reader.write_text_to_memory(
                         user_input=user_input,
-                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
                         external_source=f"file {fp}",
                     )
                 response = f"Read [{file_name}]({file_url}) into memory."
@@ -858,7 +881,7 @@ class AGiXT:
                 else f"[ACTIVITY]{response}"
             ),
         )
-        return response
+        return file_content
 
     async def download_file_to_workspace(self, url: str, file_name: str = ""):
         """
@@ -1415,18 +1438,26 @@ class AGiXT:
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
+        file_contents = []
         for file in files:
-            await self.learn_from_file(
+            content = await self.learn_from_file(
                 file_url=file["file_url"],
                 file_name=file["file_name"],
                 user_input=new_prompt,
                 collection_id=self.conversation_id,
             )
+            file_contents.append(content)
+        if file_contents:
+            file_content = "\n".join(file_contents)
+            file_tokens = get_tokens(file_content)
+            current_input_tokens = file_tokens + self.input_tokens
+        else:
+            file_content = ""
+            current_input_tokens = self.input_tokens
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
         )
-
         data_analysis = ""
         if analyze_user_input:
             data_analysis = await self.analyze_data(user_input=new_prompt)
@@ -1464,6 +1495,9 @@ class AGiXT:
                 voice_response=tts,
             )
         elif mode == "prompt":
+            if current_input_tokens < self.agent.max_input_tokens:
+                if file_content:
+                    prompt_args["uploaded_file_data"] = file_content
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
