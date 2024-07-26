@@ -1439,6 +1439,7 @@ class AGiXT:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
+        current_input_tokens = get_tokens(new_prompt)
         for file in files:
             content = await self.learn_from_file(
                 file_url=file["file_url"],
@@ -1450,7 +1451,7 @@ class AGiXT:
         if file_contents:
             file_content = "\n".join(file_contents)
             file_tokens = get_tokens(file_content)
-            current_input_tokens = file_tokens + self.input_tokens
+            current_input_tokens = file_tokens + current_input_tokens
         else:
             file_content = ""
             current_input_tokens = self.input_tokens
