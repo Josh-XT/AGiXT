@@ -193,7 +193,7 @@ async def learn_file(
         role=agent_name,
         message=f"File [{file.file_name}]({agent.outputs}/{file.collection_number}/{file.file_name}) learned on {timestamp} to collection `{file.collection_number}`.",
     )
-    return ResponseMessage(message=response)
+    return ResponseMessage(message="Learning from file completed.")
 
 
 @app.post(
