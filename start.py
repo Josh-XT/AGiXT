@@ -449,12 +449,6 @@ def get_cuda_vram():
 def start_ezlocalai():
     load_dotenv()
     env = get_default_env_vars()
-    uri = env["EZLOCALAI_URI"]
-    api_key = env["AGIXT_API_KEY"]
-    default_model = env["DEFAULT_MODEL"]
-    vision_model = env["VISION_MODEL"]
-    llm_max_tokens = env["LLM_MAX_TOKENS"]
-    whisper_model = env["WHISPER_MODEL"]
     nvidia_gpu = False
     if not os.path.exists("ezlocalai"):
         run_shell_command("git clone https://github.com/DevXT-LLC/ezlocalai ezlocalai")
@@ -474,37 +468,10 @@ def start_ezlocalai():
             gpu_layers = 8
         elif free_vram > 2 * 1024:
             gpu_layers = 0
-    with open("ezlocalai/.env", "r") as file:
-        lines = file.readlines()
+    with open(".env", "r") as file:
+        env_content = file.read()
     with open("ezlocalai/.env", "w") as file:
-        for line in lines:
-            if line.startswith("EZLOCALAI_API_KEY="):
-                file.write(f"EZLOCALAI_API_KEY={api_key}\n")
-            elif line.startswith("EZLOCALAI_URI="):
-                file.write(f"EZLOCALAI_URI={uri}\n")
-            elif line.startswith("DEFAULT_MODEL="):
-                file.write(f"DEFAULT_MODEL={default_model}\n")
-            elif line.startswith("VISION_MODEL="):
-                file.write(f"VISION_MODEL={vision_model}\n")
-            elif line.startswith("LLM_MAX_TOKENS="):
-                file.write(f"LLM_MAX_TOKENS={llm_max_tokens}\n")
-            elif line.startswith("WHISPER_MODEL="):
-                file.write(f"WHISPER_MODEL={whisper_model}\n")
-            elif line.startswith("GPU_LAYERS="):
-                file.write(f"GPU_LAYERS={gpu_layers}\n")
-            else:
-                file.write(line)
-    set_environment(
-        env_updates={
-            "EZLOCALAI_URI": uri,
-            "EZLOCALAI_API_KEY": api_key,
-            "DEFAULT_MODEL": default_model,
-            "VISION_MODEL": vision_model,
-            "LLM_MAX_TOKENS": llm_max_tokens,
-            "WHISPER_MODEL": whisper_model,
-            "GPU_LAYERS": gpu_layers,
-        }
-    )
+        file.write(env_content)
     if platform.system() == "Windows":
         wmi = wim.GetObject("winmgmts:")
         for video_controller in wmi.InstancesOf("Win32_VideoController"):
