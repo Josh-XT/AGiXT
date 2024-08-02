@@ -673,7 +673,7 @@ async def rlhf(
     )
     c.log_interaction(
         role=agent_name,
-        message=f"[ACTIVITY][FEEDBACK] {response_message}",
+        message=f"[ACTIVITY][INFO] {response_message}",
     )
     c.toggle_feedback_received(message=data.message)
     return ResponseMessage(message=response_message)
