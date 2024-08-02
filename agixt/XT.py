@@ -458,7 +458,6 @@ class AGiXT:
                             if "chain_args" in args
                             else {"conversation_name": args["conversation_name"]}
                         ),
-                        conversation_name=args["conversation_name"],
                         log_user_input=False,
                         voice_response=False,
                     )
