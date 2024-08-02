@@ -2105,4 +2105,4 @@ class AGiXT:
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
-        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER**\n\n{code_execution}"
+        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"
