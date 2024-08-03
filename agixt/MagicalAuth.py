@@ -21,6 +21,7 @@ from sendgrid.helpers.mail import (
     Disposition,
     Mail,
 )
+from sqlalchemy.dialects.postgresql import UUID
 import pyotp
 import requests
 import logging
@@ -762,7 +763,11 @@ class MagicalAuth:
         updated_output_tokens = current_output_tokens + output_tokens
         user_preferences = (
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == self.user_id)
+            .filter(
+                UserPreferences.user_id == UUID(self.user_id)
+                if getenv("DATABASE_TYPE") != "sqlite"
+                else self.user_id
+            )
             .all()
         )
         for preference in user_preferences:
