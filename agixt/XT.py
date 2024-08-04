@@ -583,9 +583,9 @@ class AGiXT:
             df = pd.read_csv(file_path)
             df_dict = df.to_dict("records")
             self.input_tokens += get_tokens(json.dumps(df_dict))
-            for line in df_dict:
+            for item in df_dict:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
                 await file_reader.write_text_to_memory(
                     user_input=f"{user_input}\n{message}",
                     text=message,
