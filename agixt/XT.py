@@ -576,6 +576,58 @@ class AGiXT:
         )
         return "I have read the information from the websites into my memory."
 
+    async def learn_spreadsheet(self, user_input, file_path, file_reader: FileReader):
+        file_name = os.path.basename(file_path)
+        file_type = str(file_name).split(".")[-1]
+        if file_type.lower() == "csv":
+            df = pd.read_csv(file_path)
+            df_dict = df.to_dict("records")
+            self.input_tokens += get_tokens(json.dumps(df_dict))
+            for item in df_dict:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
+                await file_reader.write_text_to_memory(
+                    user_input=f"{user_input}\n{message}",
+                    text=message,
+                    external_source=f"file {file_path}",
+                )
+        else:
+            xl = pd.ExcelFile(file_path)
+            if len(xl.sheet_names) > 1:
+                sheet_count = len(xl.sheet_names)
+                for i, sheet_name in enumerate(xl.sheet_names, 1):
+                    df = xl.parse(sheet_name)
+                    csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                    csv_file_name = os.path.basename(csv_file_path)
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] ({i+1}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                    )
+                    df.to_csv(csv_file_path, index=False)
+                    message = await self.learn_spreadsheet(
+                        user_input=user_input,
+                        file_path=csv_file_path,
+                        file_reader=file_reader,
+                    )
+                    self.conversation.log_interaction(
+                        role=self.agent_name, message=f"[ACTIVITY] {message}"
+                    )
+            else:
+                df = pd.read_excel(file_path)
+                csv_file_path = file_path.replace(f".{file_type}", ".csv")
+                csv_file_name = os.path.basename(csv_file_path)
+                df.to_csv(csv_file_path, index=False)
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Converted `{file_name}` to CSV file `{csv_file_name}`.",
+                )
+                message = await self.learn_spreadsheet(
+                    user_input=user_input,
+                    file_path=csv_file_path,
+                    file_reader=file_reader,
+                )
+        return f"Read [{file_name}]({file_path}) into memory."
+
     async def learn_from_file(
         self,
         file_url: str = "",
@@ -658,7 +710,7 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        disallowed_types = ["exe", "bin", "rar", "ppt", "pptx"]
+        disallowed_types = ["exe", "bin", "rar"]
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
@@ -703,45 +755,6 @@ class AGiXT:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
                 )
-        elif file_type == "xlsx" or file_type == "xls":
-            df = pd.read_excel(file_path)
-            file_content += (
-                f"Content from the spreadsheet uploaded named `{file_name}`:\n"
-            )
-            # Check if the spreadsheet has multiple sheets
-            if isinstance(df, dict):
-                sheet_names = list(df.keys())
-                x = 0
-                csv_files = []
-                for sheet_name in sheet_names:
-                    x += 1
-                    df = pd.read_excel(file_path, sheet_name=sheet_name)
-                    file_path = file_path.replace(f".{file_type}", f"_{x}.csv")
-                    csv_file_name = os.path.basename(file_path)
-                    df.to_csv(file_path, index=False)
-                    csv_files.append(
-                        f"[{csv_file_name}]({self.outputs}/{collection_id}/{csv_file_name})"
-                    )
-                    file_content += f"Content from sheet `{sheet_name}`:\n"
-                    file_content += await self.learn_from_file(
-                        file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
-                        file_name=csv_file_name,
-                        user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
-                        collection_id=collection_id,
-                    )
-                str_csv_files = ", ".join(csv_files)
-                response = f"Separated the content of the spreadsheet called `{file_name}` into {x} files called {str_csv_files} and read them into memory."
-            else:
-                # Save it as a CSV file and run this function again
-                file_path = file_path.replace(f".{file_type}", ".csv")
-                csv_file_name = os.path.basename(file_path)
-                df.to_csv(file_path, index=False)
-                return await self.learn_from_file(
-                    file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
-                    file_name=csv_file_name,
-                    user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
-                    collection_id=collection_id,
-                )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
             content = docx2txt.process(file_path)
             file_content += f"Content from the document uploaded named `{file_name}`:\n"
@@ -753,21 +766,12 @@ class AGiXT:
                 external_source=f"file {file_path}",
             )
             response = f"Read [{file_name}]({file_url}) into memory."
-        elif file_type == "csv":
-            df = pd.read_csv(file_path)
-            df_dict = df.to_dict()
-            self.input_tokens += get_tokens(json.dumps(df_dict))
-            for line in df_dict:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
-                await file_reader.write_text_to_memory(
-                    user_input=f"{user_input}\n{message}",
-                    text=message,
-                    external_source=f"file {file_path}",
-                )
-            file_content += f"Content from the CSV uploaded named `{file_name}`:\n"
-            file_content += json.dumps(df_dict)
-            response = f"Read [{file_name}]({file_url}) into memory."
+        elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
+            response = await self.learn_spreadsheet(
+                user_input=user_input,
+                file_path=file_path,
+                file_reader=file_reader,
+            )
         elif (
             file_type == "wav"
             or file_type == "mp3"
