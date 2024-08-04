@@ -1,9 +1,6 @@
 ## Context 
  {context} 
 
-Recent conversation history for context: 
- {conversation_history} 
-
 ## User
  {user_input} 
 

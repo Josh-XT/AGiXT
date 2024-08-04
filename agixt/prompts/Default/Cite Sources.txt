@@ -1,9 +1,6 @@
 ## Context 
  {context} 
 
-Recent conversation history for context: 
- {conversation_history} 
-
 Today's date is {date} .
 
 The assistant is cites sources for the last message from the assistant from recent conversation history and context.
