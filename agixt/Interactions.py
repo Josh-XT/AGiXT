@@ -242,9 +242,18 @@ class Interactions:
             context.append(
                 f"The user uploaded these files for the assistant to analyze:\n{kwargs['uploaded_file_data']}\n"
             )
+        persona = ""
+        if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
+            persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
+        if "persona" in self.agent.AGENT_CONFIG["settings"]:
+            persona = self.agent.AGENT_CONFIG["settings"]["persona"]
+        if persona != "":
+            context.append(
+                f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
+            )
         if context != [] and context != "":
             context = "\n".join(context)
-            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user.** .\n"
+            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** .\n"
         else:
             context = ""
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
@@ -305,12 +314,6 @@ class Interactions:
                     role = activity["role"]
                     message = str(activity["message"]).replace("[ACTIVITY]", "")
                     conversation_history += f"{timestamp} {role}: {message} \n "
-        persona = ""
-        if "persona" in prompt_args:
-            if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
-                persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
-            if "persona" in self.agent.AGENT_CONFIG["settings"]:
-                persona = self.agent.AGENT_CONFIG["settings"]["persona"]
         if prompt_name == "Chat with Commands" and self.agent_commands == "":
             prompt_name = "Chat"
         file_contents = ""
