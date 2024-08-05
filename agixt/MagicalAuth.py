@@ -461,7 +461,7 @@ class MagicalAuth:
         self.validate_user()
         session = get_session()
         user = session.query(User).filter(User.id == self.user_id).first()
-        allowed_keys = self.get_allowed_keys()
+        allowed_keys = list(UserInfo.__annotations__.keys())
         user_preferences = (
             session.query(UserPreferences)
             .filter(UserPreferences.user_id == self.user_id)
@@ -483,23 +483,22 @@ class MagicalAuth:
             if "_secret" in key.lower():
                 value = encrypt(self.encryption_key, value)
             if key in allowed_keys:
-                if key == "first_name" or key == "last_name":
-                    setattr(user, key, value)
-                else:
-                    # Check if there is a user preference record, create one if not, update if so.
-                    user_preference = next(
-                        (x for x in user_preferences if x.pref_key == key),
-                        None,
+                setattr(user, key, value)
+            else:
+                # Check if there is a user preference record, create one if not, update if so.
+                user_preference = next(
+                    (x for x in user_preferences if x.pref_key == key),
+                    None,
+                )
+                if user_preference is None:
+                    user_preference = UserPreferences(
+                        user_id=self.user_id,
+                        pref_key=key,
+                        pref_value=value,
                     )
-                    if user_preference is None:
-                        user_preference = UserPreferences(
-                            user_id=self.user_id,
-                            pref_key=key,
-                            pref_value=value,
-                        )
-                        session.add(user_preference)
-                    else:
-                        user_preference.pref_value = str(value)
+                    session.add(user_preference)
+                else:
+                    user_preference.pref_value = str(value)
         session.commit()
         session.close()
         return "User updated successfully."
