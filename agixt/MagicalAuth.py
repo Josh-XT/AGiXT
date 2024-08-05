@@ -21,7 +21,6 @@ from sendgrid.helpers.mail import (
     Disposition,
     Mail,
 )
-from sqlalchemy.dialects.postgresql import UUID
 import pyotp
 import requests
 import logging
@@ -760,20 +759,33 @@ class MagicalAuth:
         current_output_tokens = int(counts["output_tokens"])
         updated_input_tokens = current_input_tokens + input_tokens
         updated_output_tokens = current_output_tokens + output_tokens
-        user_preferences = (
-            session.query(UserPreferences)
-            .filter(
-                UserPreferences.user_id == UUID(self.user_id)
-                if getenv("DATABASE_TYPE") != "sqlite"
-                else self.user_id
-            )
-            .all()
+        user_preferences = self.get_user_preferences()
+        user_preference = next(
+            (x for x in user_preferences if x.pref_key == "input_tokens"),
+            None,
         )
-        for preference in user_preferences:
-            if preference.pref_key == "input_tokens":
-                preference.pref_value = str(updated_input_tokens)
-            if preference.pref_key == "output_tokens":
-                preference.pref_value = str(updated_output_tokens)
+        if user_preference is None:
+            user_preference = UserPreferences(
+                user_id=self.user_id,
+                pref_key="input_tokens",
+                pref_value=str(updated_input_tokens),
+            )
+            session.add(user_preference)
+        else:
+            user_preference.pref_value = str(updated_input_tokens)
+        user_preference = next(
+            (x for x in user_preferences if x.pref_key == "output_tokens"),
+            None,
+        )
+        if user_preference is None:
+            user_preference = UserPreferences(
+                user_id=self.user_id,
+                pref_key="output_tokens",
+                pref_value=str(updated_output_tokens),
+            )
+            session.add(user_preference)
+        else:
+            user_preference.pref_value = str(updated_output_tokens)
         session.commit()
         session.close()
         return {
