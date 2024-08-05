@@ -25,32 +25,23 @@ jobs:
       platforms: linux/amd64,linux/arm64/v8
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-  test-agixt:
+  test-agixt-postgres:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/tests.ipynb
+      notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
       database-type: "postgresql"
       report-name: "agixt-postgres-tests"
-      additional-python-dependencies: agixtsdk
+      additional-python-dependencies: openai requests agixtsdk qrcode
     needs: build-agixt
   test-agixt-sqlite:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/tests.ipynb
+      notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
       database-type: "sqlite"
       report-name: "agixt-sqlite-tests"
-      additional-python-dependencies: agixtsdk
-    needs: build-agixt
-  test-completions:
-    uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
-    with:
-      notebook: tests/completions-tests.ipynb
-      image: ${{ needs.build-agixt.outputs.primary-image }}
-      port: "7437"
-      report-name: "completions-tests"
-      additional-python-dependencies: openai requests python-dotenv
+      additional-python-dependencies: openai requests agixtsdk qrcode
     needs: build-agixt

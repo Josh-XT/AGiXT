@@ -343,8 +343,10 @@ class AGiXT:
         try:
             response = await Extensions(
                 agent_name=self.agent_name,
+                agent_id=self.agent.agent_id,
                 agent_config=self.agent.AGENT_CONFIG,
                 conversation_name=self.conversation_name,
+                conversation_id=self.conversation_id,
                 ApiClient=self.ApiClient,
                 api_key=self.api_key,
                 user=self.user_email,
@@ -456,7 +458,6 @@ class AGiXT:
                             if "chain_args" in args
                             else {"conversation_name": args["conversation_name"]}
                         ),
-                        conversation_name=args["conversation_name"],
                         log_user_input=False,
                         voice_response=False,
                     )
@@ -575,6 +576,58 @@ class AGiXT:
         )
         return "I have read the information from the websites into my memory."
 
+    async def learn_spreadsheet(self, user_input, file_path, file_reader: FileReader):
+        file_name = os.path.basename(file_path)
+        file_type = str(file_name).split(".")[-1]
+        if file_type.lower() == "csv":
+            df = pd.read_csv(file_path)
+            df_dict = df.to_dict("records")
+            self.input_tokens += get_tokens(json.dumps(df_dict))
+            for item in df_dict:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
+                await file_reader.write_text_to_memory(
+                    user_input=f"{user_input}\n{message}",
+                    text=message,
+                    external_source=f"file {file_path}",
+                )
+        else:
+            xl = pd.ExcelFile(file_path)
+            if len(xl.sheet_names) > 1:
+                sheet_count = len(xl.sheet_names)
+                for i, sheet_name in enumerate(xl.sheet_names, 1):
+                    df = xl.parse(sheet_name)
+                    csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                    csv_file_name = os.path.basename(csv_file_path)
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] ({i+1}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                    )
+                    df.to_csv(csv_file_path, index=False)
+                    message = await self.learn_spreadsheet(
+                        user_input=user_input,
+                        file_path=csv_file_path,
+                        file_reader=file_reader,
+                    )
+                    self.conversation.log_interaction(
+                        role=self.agent_name, message=f"[ACTIVITY] {message}"
+                    )
+            else:
+                df = pd.read_excel(file_path)
+                csv_file_path = file_path.replace(f".{file_type}", ".csv")
+                csv_file_name = os.path.basename(csv_file_path)
+                df.to_csv(csv_file_path, index=False)
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Converted `{file_name}` to CSV file `{csv_file_name}`.",
+                )
+                message = await self.learn_spreadsheet(
+                    user_input=user_input,
+                    file_path=csv_file_path,
+                    file_reader=file_reader,
+                )
+        return f"Read [{file_name}]({file_path}) into memory."
+
     async def learn_from_file(
         self,
         file_url: str = "",
@@ -594,6 +647,7 @@ class AGiXT:
         Returns:
             str: Response from the agent
         """
+        file_content = ""
         if file_name == "":
             file_name = file_url.split("/")[-1]
         if file_url.startswith(self.outputs):
@@ -656,12 +710,14 @@ class AGiXT:
             ApiClient=self.ApiClient,
             user=self.user_email,
         )
-        disallowed_types = ["exe", "bin", "rar", "ppt", "pptx"]
+        disallowed_types = ["exe", "bin", "rar"]
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
         elif file_type == "pdf":
+            file_content += f"Content from PDF uploaded named `{file_name}`:\n"
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
+                file_content += content
             self.input_tokens += get_tokens(content)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
@@ -677,6 +733,7 @@ class AGiXT:
                     self.agent_workspace, collection_id, extracted_zip_folder_name
                 )
             )
+            file_content += f"Content from the zip file uploaded named `{file_name}`:\n"
             if new_folder.startswith(self.agent_workspace):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=new_folder)
@@ -686,7 +743,8 @@ class AGiXT:
                         current_folder = root.replace(new_folder, "")
                         output_url = f"{self.outputs}/{collection_id}/{extracted_zip_folder_name}/{current_folder}/{name}"
                         logging.info(f"Output URL: {output_url}")
-                        await self.learn_from_file(
+                        file_content += f"Content from file uploaded named `{name}`:\n"
+                        file_content += await self.learn_from_file(
                             file_url=output_url,
                             file_name=name,
                             user_input=user_input,
@@ -697,63 +755,23 @@ class AGiXT:
                 response = (
                     f"[ERROR] I was unable to read the file called `{file_name}`."
                 )
-        elif file_type == "xlsx" or file_type == "xls":
-            df = pd.read_excel(file_path)
-            # Check if the spreadsheet has multiple sheets
-            if isinstance(df, dict):
-                sheet_names = list(df.keys())
-                x = 0
-                csv_files = []
-                for sheet_name in sheet_names:
-                    x += 1
-                    df = pd.read_excel(file_path, sheet_name=sheet_name)
-                    file_path = file_path.replace(f".{file_type}", f"_{x}.csv")
-                    csv_file_name = os.path.basename(file_path)
-                    df.to_csv(file_path, index=False)
-                    csv_files.append(
-                        f"[{csv_file_name}]({self.outputs}/{collection_id}/{csv_file_name})"
-                    )
-                    await self.learn_from_file(
-                        file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
-                        file_name=csv_file_name,
-                        user_input=f"Original file: {file_name}\nSheet: {sheet_name}\nNew file: {csv_file_name}\n{user_input}",
-                        collection_id=collection_id,
-                    )
-                str_csv_files = ", ".join(csv_files)
-                response = f"Separated the content of the spreadsheet called `{file_name}` into {x} files called {str_csv_files} and read them into memory."
-            else:
-                # Save it as a CSV file and run this function again
-                file_path = file_path.replace(f".{file_type}", ".csv")
-                csv_file_name = os.path.basename(file_path)
-                df.to_csv(file_path, index=False)
-                return await self.learn_from_file(
-                    file_url=f"{self.outputs}/{collection_id}/{csv_file_name}",
-                    file_name=csv_file_name,
-                    user_input=f"Original file: {file_name}\nNew file: {csv_file_name}\n{user_input}",
-                    collection_id=collection_id,
-                )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
-            file_content = docx2txt.process(file_path)
-            self.input_tokens += get_tokens(file_content)
+            content = docx2txt.process(file_path)
+            file_content += f"Content from the document uploaded named `{file_name}`:\n"
+            file_content += content
+            self.input_tokens += get_tokens(content)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
-                text=file_content,
+                text=content,
                 external_source=f"file {file_path}",
             )
             response = f"Read [{file_name}]({file_url}) into memory."
-        elif file_type == "csv":
-            df = pd.read_csv(file_path)
-            df_dict = df.to_dict()
-            self.input_tokens += get_tokens(json.dumps(df_dict))
-            for line in df_dict:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(df_dict[line], indent=2)}```\n"
-                await file_reader.write_text_to_memory(
-                    user_input=f"{user_input}\n{message}",
-                    text=message,
-                    external_source=f"file {file_path}",
-                )
-            response = f"Read [{file_name}]({file_url}) into memory."
+        elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
+            response = await self.learn_spreadsheet(
+                user_input=user_input,
+                file_path=file_path,
+                file_reader=file_reader,
+            )
         elif (
             file_type == "wav"
             or file_type == "mp3"
@@ -770,6 +788,10 @@ class AGiXT:
                 message=f"[ACTIVITY] Transcribing audio file [{file_name}]({file_url}) into memory.",
             )
             audio_response = await self.audio_to_text(audio_path=file_path)
+            file_content += (
+                f"Transcription from the audio file uploaded named `{file_name}`:\n"
+            )
+            file_content += audio_response
             self.input_tokens += get_tokens(audio_response)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
@@ -805,6 +827,8 @@ class AGiXT:
                     vision_response = await self.agent.vision_inference(
                         prompt=vision_prompt, images=[file_url]
                     )
+                    file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
+                    file_content += vision_response
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     await file_reader.write_text_to_memory(
                         user_input=user_input,
@@ -826,10 +850,14 @@ class AGiXT:
             fp = os.path.normpath(file_path)
             if fp.startswith(self.agent_workspace):
                 with open(fp, "r") as f:
-                    file_content = f.read()
-                self.input_tokens += get_tokens(file_content)
+                    content = f.read()
+                file_content += (
+                    f"Content from file uploaded named `{file_name}` at {timestamp}:\n"
+                )
+                file_content += content
+                self.input_tokens += get_tokens(content)
                 # Check how many lines are in the file content
-                lines = file_content.split("\n")
+                lines = content.split("\n")
                 if len(lines) > 1:
                     for line_number, line in enumerate(lines):
                         await file_reader.write_text_to_memory(
@@ -840,7 +868,7 @@ class AGiXT:
                 else:
                     await file_reader.write_text_to_memory(
                         user_input=user_input,
-                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{file_content}",
+                        text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
                         external_source=f"file {fp}",
                     )
                 response = f"Read [{file_name}]({file_url}) into memory."
@@ -856,7 +884,7 @@ class AGiXT:
                 else f"[ACTIVITY]{response}"
             ),
         )
-        return response
+        return file_content
 
     async def download_file_to_workspace(self, url: str, file_name: str = ""):
         """
@@ -1413,18 +1441,27 @@ class AGiXT:
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
         c.log_interaction(role="USER", message=new_prompt)
+        file_contents = []
+        current_input_tokens = get_tokens(new_prompt)
         for file in files:
-            await self.learn_from_file(
+            content = await self.learn_from_file(
                 file_url=file["file_url"],
                 file_name=file["file_name"],
                 user_input=new_prompt,
                 collection_id=self.conversation_id,
             )
+            file_contents.append(content)
+        if file_contents:
+            file_content = "\n".join(file_contents)
+            file_tokens = get_tokens(file_content)
+            current_input_tokens = file_tokens + current_input_tokens
+        else:
+            file_content = ""
+            current_input_tokens = self.input_tokens
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
         )
-
         data_analysis = ""
         if analyze_user_input:
             data_analysis = await self.analyze_data(user_input=new_prompt)
@@ -1462,6 +1499,9 @@ class AGiXT:
                 voice_response=tts,
             )
         elif mode == "prompt":
+            if current_input_tokens < self.agent.max_input_tokens:
+                if file_content:
+                    prompt_args["uploaded_file_data"] = file_content
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1793,6 +1833,8 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
+        if "```" not in code_interpreter:
+            code_interpreter = f"```python\n{code_interpreter}\n```"
         logging.info(f"Code Interpreter: {code_interpreter}")
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
@@ -1812,6 +1854,8 @@ class AGiXT:
                 websearch_depth=0,
                 voice_response=False,
             )
+            if "```" not in code_verification:
+                code_verification = f"```python\n{code_verification}\n```"
             logging.info(f"Code Verification: {code_verification}")
             if "```python" in code_verification:
                 code_verification = code_verification.split("```python")[1].split(
@@ -1855,6 +1899,8 @@ class AGiXT:
                         websearch_depth=0,
                         voice_response=False,
                     )
+                    if "```" not in fixed_code:
+                        fixed_code = f"```python\n{fixed_code}\n```"
                     logging.info(f"Fixed Code: {fixed_code}")
                     code_verification = fixed_code
                     if "```python" in code_verification:
@@ -2062,8 +2108,4 @@ class AGiXT:
                     message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
                 )
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
-        self.conversation.log_interaction(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Data analysis complete.",
-        )
-        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER**\n\n{code_execution}"
+        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"

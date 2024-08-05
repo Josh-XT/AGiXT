@@ -111,13 +111,13 @@ python start.py
 To run AGiXT with ezLocalai, use the `--with-ezlocalai` flag:
 
 ```bash
-python start.py --with-ezlocalai
+python start.py --with-ezlocalai true
 ```
 
 You can also use command-line arguments to set specific environment variables to run in different ways. For example, to use the development branch and enable auto-updates, run:
 
 ```bash
-python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai
+python start.py --agixt-branch dev --agixt-auto-update true --with-ezlocalai true
 ```
 
 - Access the AGiXT Management interface at <http://localhost:8501> to create and manage your agents, prompts, chains, and configurations.
