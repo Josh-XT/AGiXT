@@ -52,5 +52,5 @@ jobs:
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
       report-name: "endpoint-tests"
-      additional-python-dependencies: openai requests python-dotenv
+      additional-python-dependencies: openai requests python-dotenv agixtsdk
     needs: build-agixt
