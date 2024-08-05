@@ -45,31 +45,22 @@ jobs:
             ghcr.io/${{ steps.extract_info.outputs.github_user }}/${{ steps.extract_info.outputs.repo_name }}:dev
             ghcr.io/${{ steps.extract_info.outputs.github_user }}/${{ steps.extract_info.outputs.repo_name }}:${{ github.sha }}
 
-  test-agixt:
+  test-agixt-postgres:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/tests.ipynb
+      notebook: tests/endpoint-tests.ipynb
       image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
       report-name: "agixt-postgres-tests"
-      additional-python-dependencies: agixtsdk
+      additional-python-dependencies: openai requests agixtsdk
     needs: build-agixt
   test-agixt-sqlite:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/tests.ipynb
+      notebook: tests/endpoint-tests.ipynb
       image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
       database-type: "sqlite"
       report-name: "agixt-sqlite-tests"
-      additional-python-dependencies: agixtsdk
+      additional-python-dependencies: openai requests agixtsdk
     needs: build-agixt
-  test-completions:
-      uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
-      with:
-        notebook: tests/completions-tests.ipynb
-        image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
-        port: "7437"
-        report-name: "completions-tests"
-        additional-python-dependencies: openai requests python-dotenv
-      needs: build-agixt
