@@ -832,12 +832,15 @@ class agixt_actions(Extensions):
         filename (str): The filename
 
         Returns:
-        str: The preview of the CSV file consisting of the first 2 lines
+        str: The preview of the CSV file consisting of the first 2-5 lines
         """
         filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
         with open(filepath, "r") as f:
             lines = f.readlines()
-        lines = lines[:2]
+        if len(lines) > 5:
+            lines = lines[:5]
+        else:
+            lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
@@ -849,10 +852,13 @@ class agixt_actions(Extensions):
         text (str): The text
 
         Returns:
-        str: The preview of the CSV text consisting of the first 2 lines
+        str: The preview of the CSV text consisting of the first 2-5 lines
         """
         lines = text.split("\n")
-        lines = lines[:2]
+        if len(lines) > 5:
+            lines = lines[:5]
+        else:
+            lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
