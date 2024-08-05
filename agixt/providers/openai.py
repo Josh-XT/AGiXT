@@ -23,7 +23,7 @@ class OpenaiProvider:
         OPENAI_API_KEY: str = "",
         AI_MODEL: str = "gpt-4o",
         API_URI: str = "https://api.openai.com/v1",
-        MAX_TOKENS: int = 4096,
+        MAX_TOKENS: int = 128000,
         AI_TEMPERATURE: float = 0.7,
         AI_TOP_P: float = 0.7,
         WAIT_BETWEEN_REQUESTS: int = 1,
@@ -37,7 +37,7 @@ class OpenaiProvider:
         self.AI_MODEL = AI_MODEL if AI_MODEL else "gpt-4o"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 4096
+        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 128000
         self.API_URI = API_URI if API_URI else "https://api.openai.com/v1"
         self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
         self.WAIT_BETWEEN_REQUESTS = (

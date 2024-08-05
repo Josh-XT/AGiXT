@@ -230,19 +230,6 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append([kwargs["context"]])
-        if vision_response != "":
-            context.append(
-                f"The assistant's visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
-            )
-        if "data_analysis" in kwargs:
-            context.append(
-                f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
-            )
-        if context != [] and context != "":
-            context = "\n".join(context)
-            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user.** .\n"
-        else:
-            context = ""
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
         if "helper_agent_name" not in kwargs:
@@ -301,12 +288,36 @@ class Interactions:
                     role = activity["role"]
                     message = str(activity["message"]).replace("[ACTIVITY]", "")
                     conversation_history += f"{timestamp} {role}: {message} \n "
+        if conversation_history != "":
+            context.append(
+                f"### Recent Activities and Conversation History\n{conversation_history}\n"
+            )
         persona = ""
-        if "persona" in prompt_args:
-            if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
-                persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
-            if "persona" in self.agent.AGENT_CONFIG["settings"]:
-                persona = self.agent.AGENT_CONFIG["settings"]["persona"]
+        if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
+            persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
+        if "persona" in self.agent.AGENT_CONFIG["settings"]:
+            persona = self.agent.AGENT_CONFIG["settings"]["persona"]
+        if persona != "":
+            context.append(
+                f"## Persona\n**The assistant follows a persona and uses the following guidelines and information to remain in character.**\n{persona}\n"
+            )
+        if "uploaded_file_data" in kwargs:
+            context.append(
+                f"The user uploaded these files for the assistant to analyze:\n{kwargs['uploaded_file_data']}\n"
+            )
+        if vision_response != "":
+            context.append(
+                f"The assistant's visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
+            )
+        if "data_analysis" in kwargs:
+            context.append(
+                f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
+            )
+        if context != [] and context != "":
+            context = "\n".join(context)
+            context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** .\n"
+        else:
+            context = ""
         if prompt_name == "Chat with Commands" and self.agent_commands == "":
             prompt_name = "Chat"
         file_contents = ""
@@ -900,6 +911,8 @@ class Interactions:
                                     agent_name=self.agent_name,
                                     agent_config=self.agent.AGENT_CONFIG,
                                     conversation_name=conversation_name,
+                                    conversation_id=c.get_conversation_id(),
+                                    agent_id=self.agent.agent_id,
                                     ApiClient=self.ApiClient,
                                     user=self.user,
                                 )

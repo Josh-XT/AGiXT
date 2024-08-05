@@ -48,13 +48,15 @@ async def run_command(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
-    agent_config = Agent(
-        agent_name=agent_name, user=user, ApiClient=ApiClient
-    ).get_agent_config()
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.get_agent_config()
+    c = Conversations(conversation_name=command.conversation_name)
     command_output = await Extensions(
         agent_name=agent_name,
         agent_config=agent_config,
+        agent_id=agent.agent_id,
         conversation_name=command.conversation_name,
+        conversation_id=c.get_conversation_id(),
         ApiClient=ApiClient,
         api_key=authorization,
         user=user,

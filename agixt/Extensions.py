@@ -17,8 +17,10 @@ class Extensions:
     def __init__(
         self,
         agent_name="",
+        agent_id=None,
         agent_config=None,
         conversation_name="",
+        conversation_id=None,
         ApiClient=None,
         api_key=None,
         user=DEFAULT_USER,
@@ -26,6 +28,8 @@ class Extensions:
         self.agent_config = agent_config
         self.agent_name = agent_name if agent_name else "gpt4free"
         self.conversation_name = conversation_name
+        self.conversation_id = conversation_id
+        self.agent_id = agent_id
         self.ApiClient = ApiClient
         self.api_key = api_key
         self.commands = self.load_commands()
@@ -149,6 +153,8 @@ class Extensions:
             "agent_name": self.agent_name,
             "command_name": command_name,
             "conversation_name": self.conversation_name,
+            "conversation_id": self.conversation_id,
+            "agent_id": self.agent_id,
             "enabled_commands": self.get_enabled_commands(),
             "ApiClient": self.ApiClient,
             "api_key": self.api_key,

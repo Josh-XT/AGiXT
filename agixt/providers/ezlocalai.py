@@ -23,7 +23,7 @@ class EzlocalaiProvider:
         self,
         EZLOCALAI_API_KEY: str = "None",
         EZLOCALAI_API_URI: str = getenv("EZLOCALAI_URI"),
-        AI_MODEL: str = "TheBloke/phi-2-dpo-GGUF",
+        AI_MODEL: str = "ezlocalai",
         MAX_TOKENS: int = 8192,
         AI_TEMPERATURE: float = 1.33,
         AI_TOP_P: float = 0.95,
@@ -32,7 +32,7 @@ class EzlocalaiProvider:
         **kwargs,
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "TheBloke/phi-2-dpo-GGUF"
+        self.AI_MODEL = AI_MODEL if AI_MODEL else "ezlocalai"
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 8192
         if not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"

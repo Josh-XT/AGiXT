@@ -109,6 +109,10 @@ async def update_agent_settings(
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
+    new_settings = {}
+    for key in settings.settings:
+        if settings.settings[key] != "HIDDEN":
+            new_settings[key] = settings.settings[key]
     update_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).update_agent_config(new_config=settings.settings, config_key="settings")
@@ -187,6 +191,15 @@ async def get_agentconfig(
     agent_config = Agent(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).get_agent_config()
+    for key, value in agent_config["settings"].items():
+        upper_key = str(key).upper()
+        if (
+            upper_key.endswith("_KEY")
+            or upper_key.endswith("_PASSWORD")
+            or upper_key.endswith("_SECRET")
+            or upper_key.endswith("_TOKEN")
+        ):
+            agent_config["settings"][key] = "HIDDEN"
     return {"agent": agent_config}
 
 
