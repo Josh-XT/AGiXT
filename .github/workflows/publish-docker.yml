@@ -45,12 +45,12 @@ jobs:
       report-name: "agixt-sqlite-tests"
       additional-python-dependencies: agixtsdk
     needs: build-agixt
-  test-completions:
+  test-endpoints:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
     with:
-      notebook: tests/completions-tests.ipynb
+      notebook: tests/endpoint-tests.ipynb
       image: ${{ needs.build-agixt.outputs.primary-image }}
       port: "7437"
-      report-name: "completions-tests"
+      report-name: "endpoint-tests"
       additional-python-dependencies: openai requests python-dotenv
     needs: build-agixt
