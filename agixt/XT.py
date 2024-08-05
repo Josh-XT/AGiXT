@@ -2007,7 +2007,10 @@ class AGiXT:
             )
         else:
             lines = file_content.split("\n")
-            lines = lines[:2]
+            if len(lines) > 5:
+                lines = lines[:5]
+            else:
+                lines = lines[:2]
             file_preview = "\n".join(lines)
             self.conversation.log_interaction(
                 role=self.agent_name,
