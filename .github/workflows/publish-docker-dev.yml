@@ -51,6 +51,7 @@ jobs:
       notebook: tests/endpoint-tests.ipynb
       image: ghcr.io/${{ needs.build-agixt.outputs.github_user }}/${{ needs.build-agixt.outputs.repo_name }}:${{ github.sha }}
       port: "7437"
+      database-type: "postgresql"
       report-name: "agixt-postgres-tests"
       additional-python-dependencies: openai requests agixtsdk
     needs: build-agixt
