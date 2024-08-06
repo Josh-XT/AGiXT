@@ -608,7 +608,6 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
-        
         user_requirements = self.registration_requirements()
         if not user_preferences:
             user_preferences = {}
@@ -616,63 +615,61 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
-        if "subscription" in user_requirements and user.email != getenv("DEFAULT_USER"):
+        if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
             if api_key:
                 import stripe
 
                 stripe.api_key = api_key
                 if "subscription" not in user_preferences:
-                    user_preferences["subscription"] = "None"
+                    user_preferences["subscription"] = "none"
+                if user_preferences["subscription"].lower() == "none":
                     user.is_active = False
                     session.commit()
-                if len(api_key) > 4:
-                    if user.is_active is False:
-                        c_session = stripe.CustomerSession.create(
-                            customer=user_preferences["subscription"],
-                            components={"pricing_table": {"enabled": True}},
+                if user.is_active == False:
+                    c_session = stripe.CustomerSession.create(
+                        customer=user_preferences["subscription"],
+                        components={"pricing_table": {"enabled": True}},
+                    )
+                    session.close()
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": f"No active subscription.",
+                            "customer_session": c_session,
+                        },
+                    )
+                else:
+                    try:
+                        subscription = stripe.Subscription.retrieve(
+                            user_preferences["subscription"]
                         )
+                    except:
+                        user.is_active = False
+                        session.commit()
+                        pref = (
+                            session.query(UserPreferences)
+                            .filter_by(user_id=self.user_id, pref_key="subscription")
+                            .first()
+                        )
+                        try:
+                            session.delete(pref)
+                            session.commit()
+                        except:
+                            logging.info("No record to delete.")
+                        session.close()
+                        return self.get_user_preferences()
+                    if subscription.status != "active":
+                        user.is_active = False
+                        session.commit()
                         session.close()
                         raise HTTPException(
                             status_code=402,
                             detail={
                                 "message": f"No active subscription.",
-                                "customer_session": c_session,
+                                "subscription": subscription,
                             },
                         )
-                    else:
-                        try:
-                            subscription = stripe.Subscription.retrieve(
-                                user_preferences["subscription"]
-                            )
-                        except:
-                            user.is_active = False
-                            session.commit()
-                            pref = (
-                                session.query(UserPreferences)
-                                .filter_by(
-                                    user_id=self.user_id, pref_key="subscription"
-                                )
-                                .first()
-                            )
-                            try:
-                                session.delete(pref)
-                                session.commit()
-                            except:
-                                logging.info("No record to delete.")
-                            session.close()
-                            return self.get_user_preferences()
-                        if subscription.status != "active":
-                            user.is_active = False
-                            session.commit()
-                            session.close()
-                            raise HTTPException(
-                                status_code=402,
-                                detail={
-                                    "message": f"No active subscription.",
-                                    "subscription": subscription,
-                                },
-                            )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
