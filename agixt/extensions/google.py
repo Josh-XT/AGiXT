@@ -11,6 +11,7 @@ import email
 from base64 import urlsafe_b64decode
 import logging
 from Extensions import Extensions
+from MagicalAuth import MagicalAuth
 
 try:
     from googleapiclient.discovery import build
@@ -20,28 +21,19 @@ except:
     )
     from googleapiclient.discovery import build
 
-try:
-    from google_auth_oauthlib.flow import InstalledAppFlow
-except:
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "google-auth-oauthlib"]
-    )
-    from google_auth_oauthlib.flow import InstalledAppFlow
-
 
 class google(Extensions):
     def __init__(
         self,
-        GOOGLE_CLIENT_ID: str = "",
-        GOOGLE_CLIENT_SECRET: str = "",
-        GOOGLE_PROJECT_ID: str = "",
         GOOGLE_API_KEY: str = "",
         GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
-        self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
-        self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
-        self.GOOGLE_PROJECT_ID = GOOGLE_PROJECT_ID
+        ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
+        if ApiClient:
+            self.token = ApiClient.headers["Authorization"]
+        auth = MagicalAuth(token=self.token)
+        self.google_auth = auth.get_oauth_functions("google")
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
@@ -61,30 +53,7 @@ class google(Extensions):
         }
 
     def authenticate(self):
-        try:
-            flow = InstalledAppFlow.from_client_config(
-                client_config={
-                    "installed": {
-                        "client_id": self.GOOGLE_CLIENT_ID,
-                        "project_id": self.GOOGLE_PROJECT_ID,
-                        "client_secret": self.GOOGLE_CLIENT_SECRET,
-                        "redirect_uris": ["http://localhost"],
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                    }
-                },
-                scopes=[
-                    "https://www.googleapis.com/auth/gmail.send",
-                    "https://www.googleapis.com/auth/calendar",
-                    "https://www.googleapis.com/auth/calendar.events",
-                ],
-            )
-            creds = flow.run_local_server(port=0)
-            return creds
-        except Exception as e:
-            print(f"Error authenticating: {str(e)}")
-            return None
+        return self.google_auth.access_token
 
     async def get_emails(self, query=None, max_emails=10):
         """
@@ -136,55 +105,8 @@ class google(Extensions):
             logging.info(f"Error retrieving emails: {str(e)}")
             return []
 
-    async def send_email(self, recipient, subject, body, attachments=None):
-        """
-        Send an email using the user's Gmail account
-
-        Args:
-        recipient (str): The email address of the recipient
-        subject (str): The subject of the email
-        body (str): The body of the email
-        attachments (List[str]): A list of file paths to attach to the email
-
-        Returns:
-        str: The result of sending the email
-        """
-        try:
-            service = build("gmail", "v1", credentials=self.authenticate())
-
-            message = MIMEMultipart()
-            message["to"] = recipient
-            message["subject"] = subject
-
-            msg = MIMEText(body)
-            message.attach(msg)
-
-            if attachments:
-                for attachment in attachments:
-                    content_type, encoding = mimetypes.guess_type(attachment)
-
-                    if content_type is None or encoding is not None:
-                        content_type = "application/octet-stream"
-
-                    main_type, sub_type = content_type.split("/", 1)
-                    with open(attachment, "rb") as fp:
-                        msg = MIMEApplication(fp.read(), _subtype=sub_type)
-
-                    msg.add_header(
-                        "Content-Disposition",
-                        "attachment",
-                        filename=os.path.basename(attachment),
-                    )
-                    message.attach(msg)
-
-            raw = urlsafe_b64encode(message.as_bytes()).decode()
-            body = {"raw": raw}
-            service.users().messages().send(userId="me", body=body).execute()
-
-            return "Email sent successfully."
-        except Exception as e:
-            logging.info(f"Error sending email: {str(e)}")
-            return "Failed to send email."
+    async def send_email(self, to, subject, message_text):
+        self.google_auth.send_email(to, subject, message_text)
 
     async def move_email_to_folder(self, message_id, folder_name):
         """
