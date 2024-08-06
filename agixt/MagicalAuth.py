@@ -88,11 +88,9 @@ def verify_api_key(authorization: str = Header(None)):
             db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
             if user.is_active == False:
-                db.close()
                 user_preferences = MagicalAuth(
                     token=authorization
                 ).get_user_preferences()
-                return user_preferences
             db.close()
             return user
         except Exception as e:
@@ -623,6 +621,7 @@ class MagicalAuth:
             user_preferences["output_tokens"] = 0
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
+            logging.info(f"API Key: {api_key}")
             if api_key != "" and api_key is not None and str(api_key).lower() != "none":
                 import stripe
 
