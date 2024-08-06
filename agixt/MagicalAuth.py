@@ -472,6 +472,8 @@ class MagicalAuth:
         )
         if "subscription" in kwargs:
             del kwargs["subscription"]
+        if "subscription_id" in kwargs:
+            del kwargs["subscription_id"]
         if "email" in kwargs:
             del kwargs["email"]
         if "input_tokens" in kwargs:
@@ -630,10 +632,18 @@ class MagicalAuth:
                     user_preferences["subscription"] = "none"
                 if user_preferences["subscription"].lower() == "none":
                     user.is_active = False
+                    customer = stripe.Customer.create(email=user.email)
+                    user_preferences["subscription_id"] = customer.id
+                    user_preference = UserPreferences(
+                        user_id=self.user_id,
+                        pref_key="subscription_id",
+                        pref_value=customer.id,
+                    )
+                    session.add(user_preference)
                     session.commit()
                 if user.is_active == False:
                     c_session = stripe.CustomerSession.create(
-                        customer=user_preferences["subscription"],
+                        customer=user_preferences["subscription_id"],
                         components={"pricing_table": {"enabled": True}},
                     )
                     session.close()
