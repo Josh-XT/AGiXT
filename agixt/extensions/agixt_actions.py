@@ -182,7 +182,11 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
         self.conversation_id = (
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""

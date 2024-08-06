@@ -29,10 +29,9 @@ class google(Extensions):
         GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
-        ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
-        if ApiClient:
-            self.token = ApiClient.headers["Authorization"]
-            auth = MagicalAuth(token=self.token)
+        api_key = kwargs["api_key"] if "api_key" in kwargs else None
+        if api_key:
+            auth = MagicalAuth(token=api_key)
             self.google_auth = auth.get_oauth_functions("google")
             self.commands = {
                 "Google - Get Emails": self.get_emails,
@@ -49,7 +48,11 @@ class google(Extensions):
             }
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
-        self.attachments_dir = "./WORKSPACE/email_attachments/"
+        self.attachments_dir = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else "./WORKSPACE/attachments"
+        )
         os.makedirs(self.attachments_dir, exist_ok=True)
 
     def authenticate(self):
