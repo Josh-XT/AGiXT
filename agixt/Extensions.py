@@ -158,6 +158,9 @@ class Extensions:
             "enabled_commands": self.get_enabled_commands(),
             "ApiClient": self.ApiClient,
             "api_key": self.api_key,
+            "conversation_directory": os.path.join(
+                os.getcwd(), "WORKSPACE", self.agent_id, self.conversation_id
+            ),
             **self.agent_config["settings"],
         }
         command_function, module, params = self.find_command(command_name=command_name)
