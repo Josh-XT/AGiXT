@@ -593,6 +593,42 @@ class MagicalAuth:
             send_link=False,
         )
 
+    def get_oauth_functions(self, provider: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found")
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="User OAuth not found")
+        access_token = user_oauth.access_token
+        session.close()
+        if provider.name == "google":
+            from sso.google import GoogleSSO
+
+            return GoogleSSO(access_token=access_token)
+        elif provider.name == "microsoft":
+            from sso.microsoft import MicrosoftSSO
+
+            return MicrosoftSSO(access_token=access_token)
+        elif provider.name == "github":
+            from sso.github import GitHubSSO
+
+            return GitHubSSO(access_token=access_token)
+
     def registration_requirements(self):
         if not os.path.exists("registration_requirements.json"):
             requirements = {}
