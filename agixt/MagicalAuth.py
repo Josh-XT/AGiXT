@@ -608,7 +608,7 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
-        session.close()
+        
         user_requirements = self.registration_requirements()
         if not user_preferences:
             user_preferences = {}
@@ -624,6 +624,8 @@ class MagicalAuth:
                 stripe.api_key = api_key
                 if "subscription" not in user_preferences:
                     user_preferences["subscription"] = "None"
+                    user.is_active = False
+                    session.commit()
                 if str(user_preferences["subscription"]).lower() != "none":
                     if user.is_active is False:
                         c_session = stripe.CustomerSession.create(
