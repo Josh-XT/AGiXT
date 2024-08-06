@@ -623,7 +623,7 @@ class MagicalAuth:
             user_preferences["output_tokens"] = 0
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            if api_key:
+            if api_key != "" and api_key is not None and str(api_key).lower() != "none":
                 import stripe
 
                 stripe.api_key = api_key
