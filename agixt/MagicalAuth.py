@@ -626,7 +626,7 @@ class MagicalAuth:
                     user_preferences["subscription"] = "None"
                     user.is_active = False
                     session.commit()
-                if str(user_preferences["subscription"]).lower() != "none":
+                if len(api_key) > 4:
                     if user.is_active is False:
                         c_session = stripe.CustomerSession.create(
                             customer=user_preferences["subscription"],
