@@ -197,9 +197,21 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
             stripe_id = data["customer"]
             name = data["customer_details"]["name"]
             status = data["payment_status"]
+            subscription_id = data["subscription"]
             if not user:
                 logging.debug("User not found.")
                 return {"success": "false"}
+            user_preferences = (
+                session.query(UserPreferences)
+                .filter_by(user_id=user.id, pref_key="subscription_id")
+                .first()
+            )
+            if not user_preferences:
+                user_preferences = UserPreferences(
+                    user_id=user.id, pref_key="subscription_id", pref_value=stripe_id
+                )
+                session.add(user_preferences)
+                session.commit()
             user_preferences = (
                 session.query(UserPreferences)
                 .filter_by(user_id=user.id, pref_key="subscription")
@@ -207,7 +219,7 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
             )
             if not user_preferences:
                 user_preferences = UserPreferences(
-                    user_id=user.id, pref_key="subscription", pref_value=stripe_id
+                    user_id=user.id, pref_key="subscription", pref_value=subscription_id
                 )
                 session.add(user_preferences)
                 session.commit()
