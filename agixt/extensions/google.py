@@ -32,25 +32,25 @@ class google(Extensions):
         ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         if ApiClient:
             self.token = ApiClient.headers["Authorization"]
-        auth = MagicalAuth(token=self.token)
-        self.google_auth = auth.get_oauth_functions("google")
+            auth = MagicalAuth(token=self.token)
+            self.google_auth = auth.get_oauth_functions("google")
+            self.commands = {
+                "Google - Get Emails": self.get_emails,
+                "Google - Send Email": self.send_email,
+                "Google - Move Email to Folder": self.move_email_to_folder,
+                "Google - Create Draft Email": self.create_draft_email,
+                "Google - Delete Email": self.delete_email,
+                "Google - Search Emails": self.search_emails,
+                "Google - Reply to Email": self.reply_to_email,
+                "Google - Process Attachments": self.process_attachments,
+                "Google - Get Calendar Items": self.get_calendar_items,
+                "Google - Add Calendar Item": self.add_calendar_item,
+                "Google - Remove Calendar Item": self.remove_calendar_item,
+            }
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
         self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
         self.attachments_dir = "./WORKSPACE/email_attachments/"
         os.makedirs(self.attachments_dir, exist_ok=True)
-        self.commands = {
-            "Google - Get Emails": self.get_emails,
-            "Google - Send Email": self.send_email,
-            "Google - Move Email to Folder": self.move_email_to_folder,
-            "Google - Create Draft Email": self.create_draft_email,
-            "Google - Delete Email": self.delete_email,
-            "Google - Search Emails": self.search_emails,
-            "Google - Reply to Email": self.reply_to_email,
-            "Google - Process Attachments": self.process_attachments,
-            "Google - Get Calendar Items": self.get_calendar_items,
-            "Google - Add Calendar Item": self.add_calendar_item,
-            "Google - Remove Calendar Item": self.remove_calendar_item,
-        }
 
     def authenticate(self):
         return self.google_auth.access_token
