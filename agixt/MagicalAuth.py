@@ -87,6 +87,12 @@ def verify_api_key(authorization: str = Header(None)):
             )
             db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
+            if user.is_active == False:
+                db.close()
+                user_preferences = MagicalAuth(
+                    token=authorization
+                ).get_user_preferences()
+                return user_preferences
             db.close()
             return user
         except Exception as e:
