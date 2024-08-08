@@ -70,7 +70,12 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             result = (
                 service.users()
                 .messages()
@@ -123,7 +128,12 @@ class google(Extensions):
         str: The result of moving the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             folders = service.users().labels().list(userId="me").execute()
             folder_id = next(
@@ -168,7 +178,12 @@ class google(Extensions):
         str: The result of creating the draft email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             message = MIMEMultipart()
             message["to"] = recipient
@@ -215,7 +230,12 @@ class google(Extensions):
         str: The result of deleting the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             service.users().messages().delete(userId="me", id=message_id).execute()
             return "Email deleted successfully."
         except Exception as e:
@@ -234,7 +254,12 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             result = (
                 service.users()
                 .messages()
@@ -285,7 +310,12 @@ class google(Extensions):
         str: The result of sending the reply
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             message = (
                 service.users()
                 .messages()
@@ -342,7 +372,12 @@ class google(Extensions):
         List[str]: A list of file paths to the saved attachments
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             message = (
                 service.users().messages().get(userId="me", id=message_id).execute()
             )
@@ -385,7 +420,12 @@ class google(Extensions):
         List[Dict]: A list of calendar item data
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             if start_date is None:
                 start_date = datetime.utcnow().isoformat() + "Z"
@@ -445,7 +485,12 @@ class google(Extensions):
         str: The result of adding the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             event = {
                 "summary": subject,
@@ -481,7 +526,12 @@ class google(Extensions):
         str: The result of removing the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             service.events().delete(calendarId="primary", eventId=item_id).execute()
             return "Calendar item removed successfully."
         except Exception as e:
