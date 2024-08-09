@@ -690,7 +690,7 @@ class MagicalAuth:
                     )
                 else:
                     all_subscriptions = stripe.Subscription.list(
-                        customer=user_preferences["subscription"],
+                        customer=user_preferences["subscription_id"],
                         expand=["data.items.data.price"],
                     )
                     relevant_subscriptions = []
@@ -705,7 +705,7 @@ class MagicalAuth:
                                 print(item["data"])
                                 print(item["data"]["price"])
                                 print(item["data"]["price"])
-                                print(product)
+                                print(price)
                                 if item["data"]["price"]["data"]["product"]["data"][
                                     "metadata"
                                 ]["APP_NAME"] == getenv("APP_NAME"):
