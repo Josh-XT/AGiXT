@@ -181,7 +181,7 @@ jobs:
       - name: Check secondary service status
         run: |
           docker exec ${{ job.services.secondary-service.id }} \
-            ps aux | grep -v grep | grep -q your_service_process_name && \
+            ps aux | grep -v grep | grep -q secondary-service && \
             echo "Secondary service is running" || echo "Secondary service is not running"
 
       - name: Execute notebook
