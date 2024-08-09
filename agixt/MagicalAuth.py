@@ -691,7 +691,7 @@ class MagicalAuth:
                 else:
                     all_subscriptions = stripe.Subscription.list(
                         customer=user_preferences["subscription"],
-                        expand=["data.items.price.product"],
+                        expand=["data.items.data.price.data.product"],
                     )
                     relevant_subscriptions = []
                     for subscription in all_subscriptions:
@@ -700,9 +700,9 @@ class MagicalAuth:
                             logging.info(f"Subscription {subscription['id']} active.")
                             relevant_to_this_app = None
                             for item in subscription.items:
-                                if item["price"]["product"]["metadata"][
-                                    "APP_NAME"
-                                ] == getenv("APP_NAME"):
+                                if item["data"]["price"]["data"]["product"]["data"][
+                                    "metadata"
+                                ]["APP_NAME"] == getenv("APP_NAME"):
                                     if relevant_to_this_app == False:
                                         raise Exception(
                                             f"Subscription detected with items from multiple apps: {subscription['id']}"
@@ -718,7 +718,7 @@ class MagicalAuth:
                                         )
                                     relevant_to_this_app = False
                                     logging.info(
-                                        f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {item['price']['product']['metadata']['APP_NAME']}."
+                                        f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {item['data']['price']['data']['product']['data']['metadata']['APP_NAME']}."
                                     )
                                 if relevant_to_this_app:
                                     relevant_subscriptions.append(subscription)
