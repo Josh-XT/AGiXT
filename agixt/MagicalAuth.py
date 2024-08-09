@@ -87,14 +87,12 @@ def verify_api_key(authorization: str = Header(None)):
             )
             db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
-            if user.is_active == False:
-                user_preferences = MagicalAuth(
-                    token=authorization
-                ).get_user_preferences()
-            db.close()
-            return user
         except Exception as e:
             raise HTTPException(status_code=401, detail="Invalid API Key")
+        if user.is_active == False:
+            user_preferences = MagicalAuth(token=authorization).get_user_preferences()
+        db.close()
+        return user
     else:
         return authorization
 
@@ -472,6 +470,8 @@ class MagicalAuth:
         )
         if "subscription" in kwargs:
             del kwargs["subscription"]
+        if "subscription_id" in kwargs:
+            del kwargs["subscription_id"]
         if "email" in kwargs:
             del kwargs["email"]
         if "input_tokens" in kwargs:
@@ -591,6 +591,42 @@ class MagicalAuth:
             send_link=False,
         )
 
+    def get_oauth_functions(self, provider: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found")
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="User OAuth not found")
+        access_token = user_oauth.access_token
+        session.close()
+        if provider.name == "google":
+            from sso.google import GoogleSSO
+
+            return GoogleSSO(access_token=access_token)
+        elif provider.name == "microsoft":
+            from sso.microsoft import MicrosoftSSO
+
+            return MicrosoftSSO(access_token=access_token)
+        elif provider.name == "github":
+            from sso.github import GitHubSSO
+
+            return GitHubSSO(access_token=access_token)
+
     def registration_requirements(self):
         if not os.path.exists("registration_requirements.json"):
             requirements = {}
@@ -630,10 +666,18 @@ class MagicalAuth:
                     user_preferences["subscription"] = "none"
                 if user_preferences["subscription"].lower() == "none":
                     user.is_active = False
+                    customer = stripe.Customer.create(email=user.email)
+                    user_preferences["subscription_id"] = customer.id
+                    user_preference = UserPreferences(
+                        user_id=self.user_id,
+                        pref_key="subscription_id",
+                        pref_value=customer.id,
+                    )
+                    session.add(user_preference)
                     session.commit()
                 if user.is_active == False:
                     c_session = stripe.CustomerSession.create(
-                        customer=user_preferences["subscription"],
+                        customer=user_preferences["subscription_id"],
                         components={"pricing_table": {"enabled": True}},
                     )
                     session.close()
