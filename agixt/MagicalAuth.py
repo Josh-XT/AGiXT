@@ -691,7 +691,7 @@ class MagicalAuth:
                 else:
                     all_subscriptions = stripe.Subscription.list(
                         customer=user_preferences["subscription"],
-                        expand=["data.items.data.price.data.product"],
+                        expand=["items.data.price.product"],
                     )
                     relevant_subscriptions = []
                     for subscription in all_subscriptions:
@@ -699,7 +699,13 @@ class MagicalAuth:
                         if subscription.status == "active":
                             logging.info(f"Subscription {subscription['id']} active.")
                             relevant_to_this_app = None
-                            for item in subscription.items:
+                            for item in subscription["items"]:
+                                product = item["data"]["price"]["product"]
+                                print(item)
+                                print(item["data"])
+                                print(item["data"]["price"])
+                                print(item["data"]["price"]["product"])
+                                print(product)
                                 if item["data"]["price"]["data"]["product"]["data"][
                                     "metadata"
                                 ]["APP_NAME"] == getenv("APP_NAME"):
