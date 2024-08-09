@@ -695,27 +695,27 @@ class MagicalAuth:
                     )
                     relevant_subscriptions = []
                     for subscription in all_subscriptions:
-                        logging.info(f"Checking subscription {subscription["id"]}")
+                        logging.info(f"Checking subscription {subscription['id']}")
                         if subscription.status == "active":
-                            logging.info(f"Subscription {subscription["id"]} active.")
+                            logging.info(f"Subscription {subscription['id']} active.")
                             relevant_to_this_app = None
                             for item in subscription.items:
                                 if item["price"]["product"]["metadata"]["APP_NAME"] == getenv(
                                     "APP_NAME"
                                 ):
                                     if relevant_to_this_app == False:
-                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription["id"]}")
+                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription['id']}")
                                     relevant_to_this_app = True
                                     logging.info(f"Subscription {subscription["id"]} relevant to this app {getenv("APP_NAME")}.")
                                 else:
                                     if relevant_to_this_app == True:
-                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription["id"]}")
+                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription['id']}")
                                     relevant_to_this_app = False
-                                    logging.info(f"Subscription {subscription["id"]} not relevant to this app {getenv("APP_NAME")}, is for {item["price"]["product"]["metadata"]["APP_NAME"]}.")
+                                    logging.info(f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {item['price']['product']['metadata']['APP_NAME']}.")
                                 if relevant_to_this_app:
                                     relevant_subscriptions.append(subscription)
                         else:
-                            logging.info(f"Subscription {subscription["id"]} not active.")
+                            logging.info(f"Subscription {subscription['id']} not active.")
                     if not relevant_subscriptions:
                         logging.info(f"No active subscriptions for this app detected.")
                         user.is_active = False
