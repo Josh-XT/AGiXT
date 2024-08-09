@@ -2096,10 +2096,6 @@ class AGiXT:
         if code_execution.startswith("Error"):
             self.failures += 1
             if self.failures < 3:
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY][WARN] Data analysis failed, trying again ({self.failures}/3).",
-                )
                 return await self.analyze_data(
                     user_input=user_input,
                     file_name=file_name,
@@ -2108,7 +2104,7 @@ class AGiXT:
             else:
                 self.conversation.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY][ERROR] Data analysis failed after 3 attempts.",
+                    message=f"[ACTIVITY][ERROR] Unable to complete data analysis.",
                 )
                 return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
         return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"
