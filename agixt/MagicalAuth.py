@@ -700,15 +700,12 @@ class MagicalAuth:
                             logging.info(f"Subscription {subscription['id']} active.")
                             relevant_to_this_app = None
                             for item in subscription["items"]:
-                                price = item["data"]["price"]
-                                print(item)
-                                print(item["data"])
-                                print(item["data"]["price"])
-                                print(item["data"]["price"])
-                                print(price)
-                                if item["data"]["price"]["data"]["product"]["data"][
-                                    "metadata"
-                                ]["APP_NAME"] == getenv("APP_NAME"):
+                                product_id = item["price"]["product"]
+                                product = stripe.Product.retrieve(product_id)
+                                relevant_app = product["metadata"]["APP_NAME"]
+                                print(product)
+                                print(relevant_app)
+                                if relevant_app == getenv("APP_NAME"):
                                     if relevant_to_this_app == False:
                                         raise Exception(
                                             f"Subscription detected with items from multiple apps: {subscription['id']}"
@@ -724,7 +721,7 @@ class MagicalAuth:
                                         )
                                     relevant_to_this_app = False
                                     logging.info(
-                                        f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {item['data']['price']['data']['product']['data']['metadata']['APP_NAME']}."
+                                        f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {relevant_app}."
                                     )
                                 if relevant_to_this_app:
                                     relevant_subscriptions.append(subscription)
