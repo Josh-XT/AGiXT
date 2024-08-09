@@ -741,7 +741,7 @@ class MagicalAuth:
                             status_code=402,
                             detail={
                                 "message": f"No active subscription.",
-                                "subscription": subscription,
+                                "subscription": user_preferences["subscription_id"],
                             },
                         )
                     else:
