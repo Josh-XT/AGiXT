@@ -645,10 +645,49 @@ class MagicalAuth:
                         },
                     )
                 else:
-                    try:
-                        subscription = stripe.Subscription.retrieve(
-                            user_preferences["subscription"]
+                    all_subscriptions = stripe.Subscription.list(
+                        customer=user_preferences["subscription"],
+                        expand=["data.items.price.product"],
+                    )
+                    relevant_subscriptions = []
+                    for subscription in all_subscriptions:
+                        logging.info(f"Checking subscription {subscription["id"]}")
+                        if subscription.status == "active":
+                            logging.info(f"Subscription {subscription["id"]} active.")
+                            relevant_to_this_app = None
+                            for item in subscription.items:
+                                if item["price"]["product"]["metadata"]["APP_NAME"] == getenv(
+                                    "APP_NAME"
+                                ):
+                                    if relevant_to_this_app == False:
+                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription["id"]}")
+                                    relevant_to_this_app = True
+                                    logging.info(f"Subscription {subscription["id"]} relevant to this app {getenv("APP_NAME")}.")
+                                else:
+                                    if relevant_to_this_app == True:
+                                        raise Exception(f"Subscription detected with items from multiple apps: {subscription["id"]}")
+                                    relevant_to_this_app = False
+                                    logging.info(f"Subscription {subscription["id"]} not relevant to this app {getenv("APP_NAME")}, is for {item["price"]["product"]["metadata"]["APP_NAME"]}.")
+                                if relevant_to_this_app:
+                                    relevant_subscriptions.append(subscription)
+                        else:
+                            logging.info(f"Subscription {subscription["id"]} not active.")
+                    if not relevant_subscriptions:
+                        logging.info(f"No active subscriptions for this app detected.")
+                        user.is_active = False
+                        session.commit()
+                        session.close()
+                        raise HTTPException(
+                            status_code=402,
+                            detail={
+                                "message": f"No active subscription.",
+                                "subscription": subscription,
+                            },
                         )
+                    else:
+                        logging.info(f"{len(relevant_subscriptions)} subscriptions relevant to this app detected.")
+                        # This is where we'd determine what permissions the user has based on their subscription.
+                    """
                     except:
                         user.is_active = False
                         session.commit()
@@ -665,16 +704,7 @@ class MagicalAuth:
                         session.close()
                         return self.get_user_preferences()
                     if subscription.status != "active":
-                        user.is_active = False
-                        session.commit()
-                        session.close()
-                        raise HTTPException(
-                            status_code=402,
-                            detail={
-                                "message": f"No active subscription.",
-                                "subscription": subscription,
-                            },
-                        )
+                    """
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:

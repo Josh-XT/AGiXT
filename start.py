@@ -485,7 +485,13 @@ def start_ezlocalai():
             nvidia_gpu = True
     if nvidia_gpu and total_vram > 0:
         run_shell_command(
-            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml stop && docker-compose -f docker-compose-cuda.yml build && docker-compose -f docker-compose-cuda.yml up -d"
+            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml stop && cd .."
+        )
+        run_shell_command(
+            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml build && cd .."
+        )
+        run_shell_command(
+            "cd ezlocalai && docker-compose -f docker-compose-cuda.yml up -d && cd .."
         )
     else:
         run_shell_command(
