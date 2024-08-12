@@ -731,6 +731,11 @@ class MagicalAuth:
                             customer=user_preferences["stripe_id"],
                             components={"pricing_table": {"enabled": True}},
                         )
+                        user = (
+                            session.query(User).filter(User.id == self.user_id).first()
+                        )
+                        user.is_active = False
+                        session.commit()
                         session.close()
                         raise HTTPException(
                             status_code=402,
