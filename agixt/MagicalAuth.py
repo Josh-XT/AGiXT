@@ -682,6 +682,7 @@ class MagicalAuth:
                         relevant_subscriptions.append(subscription)
             else:
                 logging.info(f"Subscription {subscription['id']} not active.")
+        return relevant_subscriptions
 
     def get_user_preferences(self):
         session = get_session()
