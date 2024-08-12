@@ -782,7 +782,7 @@ class MagicalAuth:
         if user_requirements:
             for key, value in user_requirements.items():
                 if key not in user_preferences:
-                    if key != "subscription":
+                    if key != "stripe_id":
                         missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
