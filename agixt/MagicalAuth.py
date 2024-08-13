@@ -661,12 +661,15 @@ class MagicalAuth:
                         relevant_app = product["metadata"]["APP_NAME"]
                     except:
                         relevant_app = "[No App Defined in Product]"
+                        logging.warning(
+                            f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
+                        )
                     print(product)
                     print(relevant_app)
                     if relevant_app == getenv("APP_NAME"):
                         if relevant_to_this_app == False:
                             raise Exception(
-                                f"Subscription detected with items from multiple apps: {subscription['id']}"
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
                             )
                         relevant_to_this_app = True
                         logging.info(
@@ -675,7 +678,7 @@ class MagicalAuth:
                     else:
                         if relevant_to_this_app == True:
                             raise Exception(
-                                f"Subscription detected with items from multiple apps: {subscription['id']}"
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
                             )
                         relevant_to_this_app = False
                         logging.info(
