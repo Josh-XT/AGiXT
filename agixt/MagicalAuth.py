@@ -657,7 +657,10 @@ class MagicalAuth:
                 for item in subscription["items"]:
                     product_id = item["price"]["product"]
                     product = stripe.Product.retrieve(product_id)
-                    relevant_app = product["metadata"]["APP_NAME"]
+                    try:
+                        relevant_app = product["metadata"]["APP_NAME"]
+                    except:
+                        relevant_app = "[No App Defined in Product]"
                     print(product)
                     print(relevant_app)
                     if relevant_app == getenv("APP_NAME"):
