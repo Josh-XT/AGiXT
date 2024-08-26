@@ -1923,11 +1923,84 @@ class AGiXT:
             return f"Executed the following code expressed to assist the user:\n```python\n{code_verification}\n```\n**REFERENCE THE RESULTS, NOT THE CODE TO THE USER WHEN RESPONDING! THE RESULTS FROM RUNNING THE CODE ARE AS FOLLOWS:**\n{code_execution}"
         return ""
 
+    async def fix_and_execute_code(
+        self,
+        user_input: str,
+        code: str,
+        file_content: str,
+        file_preview: str = "",
+        import_file: str = "",
+        multifile: bool = False,
+        failures: int = 0,
+        max_failures: int = 5,
+    ):
+        code_failed = False
+        fixed_code = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name="Fix Code",
+            file_preview=file_preview,
+            import_file=import_file,
+            code=code,
+            code_error=str(code_execution),
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        if "```python" in code_verification:
+            code_verification = code_verification.split("```python")[1].split("```")[0]
+        if "```python" in code_verification:
+            code_verification = code_verification.split("```python")[1].split("```")[0]
+        code_verification = await self.inference(
+            user_input=user_input,
+            prompt_category="Default",
+            prompt_name=(
+                "Verify Code Interpreter Multifile"
+                if multifile
+                else "Verify Code Interpreter"
+            ),
+            import_file=import_file,
+            file_preview=file_preview,
+            code=fixed_code,
+            log_user_input=False,
+            log_output=False,
+            browse_links=False,
+            websearch=False,
+            websearch_depth=0,
+            voice_response=False,
+        )
+        try:
+            code_execution = await self.execute_command(
+                command_name="Execute Python Code",
+                command_args={"code": code_verification, "text": file_content},
+            )
+        except Exception:
+            code_failed = True
+        if code_execution.startswith("Error"):
+            code_failed = True
+        if code_failed:
+            failures += 1
+            if failures >= max_failures:
+                return code_verification
+            return await self.fix_and_execute_code(
+                user_input=user_input,
+                code=code_verification,
+                file_content=file_content,
+                file_preview=file_preview,
+                import_file=import_file,
+                failures=failures,
+                max_failures=max_failures,
+            )
+
     async def analyze_data(
         self,
         user_input: str,
         file_content=None,
         file_name="",
+        max_failures: int = 5,
     ):
         file_names = []
         file_path = self.conversation_workspace
@@ -2038,6 +2111,7 @@ class AGiXT:
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
         # Step 5 - Verify the code is good before executing it.
+        import_file = import_files if len(file_names) > 1 else file_path
         code_verification = await self.inference(
             user_input=user_input,
             prompt_category="Default",
@@ -2046,7 +2120,7 @@ class AGiXT:
                 if len(file_names) > 1
                 else "Verify Code Interpreter"
             ),
-            import_file=import_files if len(file_names) > 1 else file_path,
+            import_file=import_file,
             file_preview=file_preview,
             code=code_interpreter,
             log_user_input=False,
@@ -2061,50 +2135,31 @@ class AGiXT:
             code_verification = code_verification.split("```python")[1].split("```")[0]
         if "```python" in code_verification:
             code_verification = code_verification.split("```python")[1].split("```")[0]
-        # Step 6 - Execute the code, will need to revert to step 4 if the code is not correct to try again.
+        # Step 6 - Execute the code
+        code_failed = False
         try:
             code_execution = await self.execute_command(
                 command_name="Execute Python Code",
                 command_args={"code": code_verification, "text": file_content},
             )
         except Exception as e:
-            # Step 6.5 - Fix the code if it failed to execute.
-            # Need to prompt LLM to figure out what the problem was and try again.
-            fixed_code = await self.inference(
-                user_input=user_input,
-                prompt_category="Default",
-                prompt_name="Fix Code",
-                file_preview=file_preview,
-                import_file=import_files if len(file_names) > 1 else file_path,
-                code=code_verification,
-                code_error=str(e),
-                log_user_input=False,
-                log_output=False,
-                browse_links=False,
-                websearch=False,
-                websearch_depth=0,
-                voice_response=False,
-            )
-            try:
-                code_execution = await self.execute_command(
-                    command_name="Execute Python Code",
-                    command_args={"code": fixed_code, "text": file_content},
-                )
-            except Exception as e:
-                code_execution = "Error executing code."
-                logging.error(f"Error executing code: {e}")
+            code_failed = True
         if code_execution.startswith("Error"):
-            self.failures += 1
-            if self.failures < 3:
-                return await self.analyze_data(
-                    user_input=user_input,
-                    file_name=file_name,
-                    file_content=file_content,
-                )
-            else:
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY][ERROR] Unable to complete data analysis.",
-                )
-                return "Data analysis failed after 3 attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
+            code_failed = True
+        # Step 7 - If the code failed to run without error, attempt fix the code and try again {max_failures} times
+        if code_failed:
+            code_execution = await self.fix_and_execute_code(
+                user_input=user_input,
+                code=code_verification,
+                file_content=file_content,
+                file_preview=file_preview,
+                import_file=import_file,
+                max_failures=max_failures,
+            )
+        if code_execution.startswith("Error"):
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY][ERROR] Unable to complete data analysis.",
+            )
+            return f"Data analysis failed after {max_failures} attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
         return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"
