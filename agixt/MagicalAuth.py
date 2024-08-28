@@ -708,7 +708,6 @@ class MagicalAuth:
             user_preferences["output_tokens"] = 0
         if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            logging.info(f"API Key: {api_key}")
             if api_key != "" and api_key is not None and str(api_key).lower() != "none":
                 import stripe
 
@@ -755,27 +754,6 @@ class MagicalAuth:
                         logging.info(
                             f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
                         )
-                        # This is where we'd determine what permissions the user has based on their subscription.
-                    """
-                    except:
-                        user.is_active = False
-                        session.commit()
-                        pref = (
-                            session.query(UserPreferences)
-                            .filter_by(user_id=self.user_id, pref_key="stripe_id")
-                            .first()
-                        )
-                        try:
-                            session.delete(pref)
-                            session.commit()
-                        except:
-                            logging.info("No record to delete.")
-                        session.close()
-                        return self.get_user_preferences()
-                    if subscription.status != "active":
-                    """
-            else:
-                logging.info("No Stripe API Key found.")
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
