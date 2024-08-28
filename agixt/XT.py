@@ -757,12 +757,14 @@ class AGiXT:
                 )
         elif file_path.endswith(".doc") or file_path.endswith(".docx"):
             content = docx2txt.process(file_path)
-            file_content += f"Content from the document uploaded named `{file_name}`:\n"
-            file_content += content
+            docx_content = (
+                f"Content from the document uploaded named `{file_name}`:\n{content}"
+            )
+            file_content += docx_content
             self.input_tokens += get_tokens(content)
             await file_reader.write_text_to_memory(
                 user_input=user_input,
-                text=content,
+                text=docx_content,
                 external_source=f"file {file_path}",
             )
             response = f"Read [{file_name}]({file_url}) into memory."
