@@ -443,6 +443,20 @@ class MagicalAuth:
         )
         session.add(user_preferences)
         session.commit()
+        user_preferences = UserPreferences(
+            user_id=user.id,
+            pref_key="input_tokens",
+            pref_value="0",
+        )
+        session.add(user_preferences)
+        session.commit()
+        user_preferences = UserPreferences(
+            user_id=user.id,
+            pref_key="output_tokens",
+            pref_value="0",
+        )
+        session.add(user_preferences)
+        session.commit()
         session.close()
         # Send registration webhook out to third party application such as AGiXT to create a user there.
         registration_webhook = getenv("REGISTRATION_WEBHOOK")
