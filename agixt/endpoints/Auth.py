@@ -2,8 +2,7 @@ from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
 from MagicalAuth import MagicalAuth, verify_api_key, is_agixt_admin
 from DB import get_session, User, UserPreferences
-from Agent import add_agent
-from ApiClient import get_api_client
+from agixtsdk import AGiXTSDK
 from Models import WebhookUser, WebhookModel
 from Globals import getenv
 import pyotp
@@ -122,7 +121,6 @@ async def createuser(
     email = account.email.lower()
     if not is_agixt_admin(email=email, api_key=authorization):
         raise HTTPException(status_code=403, detail="Unauthorized")
-    ApiClient = get_api_client(authorization=authorization)
     session = get_session()
     agent_name = account.agent_name
     settings = account.settings
@@ -131,33 +129,25 @@ async def createuser(
     github_repos = account.github_repos
     zip_file_content = account.zip_file_content
     user_exists = session.query(User).filter_by(email=email).first()
-    if user_exists:
-        session.close()
-        return {"status": "User already exists"}, 200
-    user = User(
-        email=email,
-        admin=False,
-        first_name="",
-        last_name="",
-    )
-    session.add(user)
-    session.commit()
     session.close()
+    if user_exists:
+        return {"status": "User already exists"}, 200
+
+    sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+    sdk.register_user(email=email, first_name="User", last_name="Name")
+
     if agent_name != "" and agent_name is not None:
-        add_agent(
+        sdk.add_agent(
             agent_name=agent_name,
-            provider_settings=settings,
+            settings=settings,
             commands=commands,
-            user=email,
+            training_urls=training_urls,
         )
-    if training_urls != []:
-        for url in training_urls:
-            ApiClient.learn_url(agent_name=agent_name, url=url)
     if github_repos != []:
         for repo in github_repos:
-            ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
+            sdk.learn_github_repo(agent_name=agent_name, github_repo=repo)
     if zip_file_content != "":
-        ApiClient.learn_file(
+        sdk.learn_file(
             agent_name=agent_name,
             file_name="training_data.zip",
             file_content=zip_file_content,
