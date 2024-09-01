@@ -220,7 +220,8 @@ async def prompt_agent(
         if "conversation_name" in agent_prompt.prompt_args
         else None
     )
-    del agent_prompt.prompt_args["conversation_name"]
+    if "conversation_name" in agent_prompt.prompt_args:
+        del agent_prompt.prompt_args["conversation_name"]
     if conversation_name:
         conversation_name = "AGiXT"
         agent_prompt.prompt_args["log_user_input"] = False
