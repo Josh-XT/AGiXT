@@ -230,6 +230,9 @@ async def prompt_agent(
         api_key=authorization,
         conversation_name=conversation_name,
     )
+    agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
+    if "prompt_category" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["prompt_category"] = "Default"
     logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
     if "tts" in agent_prompt.prompt_args:
         agent_prompt.prompt_args["voice_response"] = (
