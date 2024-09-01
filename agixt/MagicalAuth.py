@@ -854,8 +854,10 @@ class MagicalAuth:
                 pref_value=str(updated_input_tokens),
             )
             session.add(user_preference)
+            session.commit()
         else:
             user_preference.pref_value = str(updated_input_tokens)
+            session.commit()
         user_preference = next(
             (x for x in user_preferences if x.pref_key == "output_tokens"),
             None,
@@ -867,9 +869,10 @@ class MagicalAuth:
                 pref_value=str(updated_output_tokens),
             )
             session.add(user_preference)
+            session.commit()
         else:
             user_preference.pref_value = str(updated_output_tokens)
-        session.commit()
+            session.commit()
         session.close()
         return {
             "input_tokens": updated_input_tokens,
