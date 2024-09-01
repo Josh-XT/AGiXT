@@ -215,17 +215,13 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    conversation_name = (
-        agent_prompt.prompt_args["conversation_name"]
-        if "conversation_name" in agent_prompt.prompt_args
-        else None
-    )
-    if "conversation_name" in agent_prompt.prompt_args:
-        del agent_prompt.prompt_args["conversation_name"]
-    if conversation_name:
+    if "conversation_name" not in agent_prompt.prompt_args:
         conversation_name = "AGiXT"
         agent_prompt.prompt_args["log_user_input"] = False
         agent_prompt.prompt_args["log_output"] = False
+    else:
+        conversation_name = agent_prompt.prompt_args["conversation_name"]
+        del agent_prompt.prompt_args["conversation_name"]
     if "user_input" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["user_input"] = ""
     agent = AGiXT(
