@@ -114,28 +114,19 @@ def delete_user(
 
 # Webhook user creations from other applications
 @app.post("/api/user", tags=["User"])
-async def createuser(
-    account: WebhookUser,
-    authorization: str = Header(None),
-):
+async def createuser(account: WebhookUser):
     email = account.email.lower()
-    if not is_agixt_admin(email=email, api_key=authorization):
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    session = get_session()
     agent_name = account.agent_name
     settings = account.settings
     commands = account.commands
     training_urls = account.training_urls
     github_repos = account.github_repos
     zip_file_content = account.zip_file_content
-    user_exists = session.query(User).filter_by(email=email).first()
-    session.close()
+    sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+    user_exists = sdk.user_exists(email=email)
     if user_exists:
         return {"status": "User already exists"}, 200
-
-    sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
     sdk.register_user(email=email, first_name="User", last_name="Name")
-
     if agent_name != "" and agent_name is not None:
         sdk.add_agent(
             agent_name=agent_name,
