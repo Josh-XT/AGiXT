@@ -249,6 +249,9 @@ async def prompt_agent(
         agent_prompt.prompt_args["injected_memories"] = 10
     if "conversation_results" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["conversation_results"] = 10
+    prompt_args = agent_prompt.prompt_args
+    if "user_input" in prompt_args:
+        del prompt_args["user_input"]
     messages = []
     if "files" in agent_prompt.prompt_args:
         file_list = agent_prompt.prompt_args["files"]
@@ -256,8 +259,8 @@ async def prompt_agent(
         messages.append(
             {
                 "role": "user",
-                **agent_prompt.prompt_args,
-                "prompt_args": agent_prompt.prompt_args,
+                **prompt_args,
+                "prompt_args": prompt_args,
                 "content": [
                     {
                         "type": "text",
@@ -282,8 +285,8 @@ async def prompt_agent(
         messages = [
             {
                 "role": "user",
-                **agent_prompt.prompt_args,
-                "prompt_args": agent_prompt.prompt_args,
+                **prompt_args,
+                "prompt_args": prompt_args,
                 "content": agent_prompt.prompt_args["user_input"],
             }
         ]
