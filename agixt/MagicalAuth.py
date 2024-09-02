@@ -219,7 +219,7 @@ class MagicalAuth:
                 leeway=timedelta(hours=5),
             )
             self.email = decoded["email"]
-            self.user_id = decoded["sub"]
+            self.user_id = get_user_id(self.email)
             self.token = token
         except:
             self.email = None
