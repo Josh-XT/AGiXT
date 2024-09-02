@@ -1442,7 +1442,12 @@ class AGiXT:
         # Add user input to conversation
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
-        c.log_interaction(role="USER", message=new_prompt)
+        log_user_input = True
+        if "log_user_input" in prompt_args:
+            log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
+            del prompt_args["log_user_input"]
+        if log_user_input:
+            c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
         for file in files:
