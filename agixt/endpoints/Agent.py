@@ -249,7 +249,7 @@ async def prompt_agent(
         agent_prompt.prompt_args["injected_memories"] = 10
     if "conversation_results" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["conversation_results"] = 10
-    prompt_args = agent_prompt.prompt_args
+    prompt_args = agent_prompt.prompt_args.copy()
     if "user_input" in prompt_args:
         del prompt_args["user_input"]
     messages = []
@@ -264,7 +264,11 @@ async def prompt_agent(
                 "content": [
                     {
                         "type": "text",
-                        "text": agent_prompt.prompt_args["user_input"],
+                        "text": (
+                            agent_prompt.prompt_args["user_input"]
+                            if "user_input" in agent_prompt.prompt_args
+                            else ""
+                        ),
                     },
                 ],
             }
@@ -287,7 +291,11 @@ async def prompt_agent(
                 "role": "user",
                 **prompt_args,
                 "prompt_args": prompt_args,
-                "content": agent_prompt.prompt_args["user_input"],
+                "content": (
+                    agent_prompt.prompt_args["user_input"]
+                    if "user_input" in agent_prompt.prompt_args
+                    else ""
+                ),
             }
         ]
     logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
