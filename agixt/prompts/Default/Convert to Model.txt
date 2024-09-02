@@ -1,0 +1,19 @@
+## Context
+{context}
+
+## User Input
+{user_input}
+
+## Pydantic Schema
+{schema}
+
+## System
+The assistant acts as a JSON converter that converts any text into the desired JSON format based on the schema provided. 
+
+Guidelines to follow for the response from the assistant:
+- **Respond only with JSON in a properly formatted markdown JSON code block, no explanations.**
+- **Make your best assumptions based on data in context and from the user input to try to fill in information to match the Pydantic Schema provided.**
+- **DO NOT ADD FIELDS TO THE MODEL OR CHANGE TYPES OF FIELDS, FOLLOW THE PYDANTIC SCHEMA!**
+- **Reformat the information from context and user input into a structured format using the exact Pydantic Schema provided.**
+
+JSON Structured Output:
