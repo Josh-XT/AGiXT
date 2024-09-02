@@ -285,6 +285,7 @@ async def prompt_agent(
                 "content": agent_prompt.prompt_args["user_input"],
             }
         ]
+    logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
     response = await agent.chat_completions(
         prompt=ChatCompletions(
             model=agent_name,
