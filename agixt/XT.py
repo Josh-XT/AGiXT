@@ -1460,6 +1460,50 @@ class AGiXT:
         else:
             file_content = ""
             current_input_tokens = self.input_tokens
+        if "user_input" in prompt_args:
+            del prompt_args["user_input"]
+        if "prompt_name" in prompt_args:
+            prompt_name = prompt_args["prompt_name"]
+            del prompt_args["prompt_name"]
+        if "prompt_category" in prompt_args:
+            prompt_category = prompt_args["prompt_category"]
+            del prompt_args["prompt_category"]
+        if "websearch" in prompt_args:
+            websearch = prompt_args["websearch"]
+            del prompt_args["websearch"]
+        if "browse_links" in prompt_args:
+            browse_links = prompt_args["browse_links"]
+            del prompt_args["browse_links"]
+        if "tts" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["tts"]
+        if "context_results" in prompt_args:
+            context_results = prompt_args["context_results"]
+            del prompt_args["context_results"]
+        if "conversation_results" in prompt_args:
+            conversation_results = prompt_args["conversation_results"]
+            del prompt_args["conversation_results"]
+        if "command_name" in prompt_args:
+            command_name = prompt_args["command_name"]
+            del prompt_args["command_name"]
+        if "command_args" in prompt_args:
+            command_args = prompt_args["command_args"]
+            del prompt_args["command_args"]
+        if "command_variable" in prompt_args:
+            command_variable = prompt_args["command_variable"]
+            del prompt_args["command_variable"]
+        if "chain_name" in prompt_args:
+            chain_name = prompt_args["chain_name"]
+            del prompt_args["chain_name"]
+        if "chain_args" in prompt_args:
+            chain_args = prompt_args["chain_args"]
+            del prompt_args["chain_args"]
+        if "analyze_user_input" in prompt_args:
+            analyze_user_input = prompt_args["analyze_user_input"]
+            del prompt_args["analyze_user_input"]
+        if "voice_response" in prompt_args:
+            tts = prompt_args["voice_response"]
+            del prompt_args["voice_response"]
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
