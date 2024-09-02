@@ -257,6 +257,7 @@ async def prompt_agent(
             {
                 "role": "user",
                 **agent_prompt.prompt_args,
+                "prompt_args": agent_prompt.prompt_args,
                 "content": [
                     {
                         "type": "text",
@@ -282,6 +283,7 @@ async def prompt_agent(
             {
                 "role": "user",
                 **agent_prompt.prompt_args,
+                "prompt_args": agent_prompt.prompt_args,
                 "content": agent_prompt.prompt_args["user_input"],
             }
         ]
