@@ -1497,6 +1497,10 @@ class AGiXT:
         if "injected_memories" in prompt_args:
             context_results = prompt_args["injected_memories"]
             del prompt_args["injected_memories"]
+        if "shots" in prompt_args:
+            del prompt_args["shots"]
+        if "data_analysis" in prompt_args:
+            del prompt_args["data_analysis"]
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
