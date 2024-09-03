@@ -11,6 +11,7 @@ from DB import (
     ChainStepResponse,
     Provider as ProviderModel,
     User,
+    UserPreferences,
     get_session,
 )
 from Providers import Providers
@@ -290,6 +291,27 @@ class Agent:
             if key in self.AGENT_CONFIG:
                 setattr(self, key, self.AGENT_CONFIG[key])
 
+    def get_registration_requirement_settings(self):
+        with open("registration_requirements.json", "r") as read_file:
+            data = json.load(read_file)
+        agent_settings = {}
+        user_preferences_keys = []
+        for key in data:
+            user_preferences_keys.append(key)
+        session = get_session()
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == self.user_id)
+            .all()
+        )
+        for user_preference in user_preferences:
+            if user_preference.pref_key in user_preferences_keys:
+                agent_settings[user_preference.pref_key] = str(
+                    user_preference.pref_value
+                )
+        session.close()
+        return agent_settings
+
     def get_agent_config(self):
         session = get_session()
         agent = (
@@ -336,9 +358,16 @@ class Agent:
                 config["settings"][setting.name] = setting.value
             session.commit()
             session.close()
+            user_settings = self.get_registration_requirement_settings()
+            for key, value in user_settings.items():
+                config["settings"][key] = value
             return config
+        config = {"settings": DEFAULT_SETTINGS, "commands": {}}
+        user_settings = self.get_registration_requirement_settings()
+        for key, value in user_settings.items():
+            config["settings"][key] = value
         session.close()
-        return {"settings": DEFAULT_SETTINGS, "commands": {}}
+        return config
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
