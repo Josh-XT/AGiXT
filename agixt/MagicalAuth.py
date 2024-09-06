@@ -856,36 +856,46 @@ class MagicalAuth:
         current_output_tokens = int(counts["output_tokens"])
         updated_input_tokens = current_input_tokens + input_tokens
         updated_output_tokens = current_output_tokens + output_tokens
-        user_preferences = self.get_user_preferences()
-        user_preference = next(
-            (x for x in user_preferences if x.pref_key == "input_tokens"),
-            None,
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == self.user_id)
+            .all()
         )
-        if user_preference is None:
-            user_preference = UserPreferences(
+        if not user_preferences:
+            user_input_tokens = None
+            user_output_tokens = None
+        else:
+            user_input_tokens = next(
+                (x for x in user_preferences if x.pref_key == "input_tokens"),
+                None,
+            )
+            user_output_tokens = next(
+                (x for x in user_preferences if x.pref_key == "output_tokens"),
+                None,
+            )
+        # Update input tokens
+        if user_input_tokens is None:
+            user_input_tokens = UserPreferences(
                 user_id=self.user_id,
                 pref_key="input_tokens",
                 pref_value=str(updated_input_tokens),
             )
-            session.add(user_preference)
+            session.add(user_input_tokens)
             session.commit()
         else:
-            user_preference.pref_value = str(updated_input_tokens)
+            user_input_tokens.pref_value = str(updated_input_tokens)
             session.commit()
-        user_preference = next(
-            (x for x in user_preferences if x.pref_key == "output_tokens"),
-            None,
-        )
-        if user_preference is None:
-            user_preference = UserPreferences(
+        # Update output tokens
+        if user_output_tokens is None:
+            user_output_tokens = UserPreferences(
                 user_id=self.user_id,
                 pref_key="output_tokens",
                 pref_value=str(updated_output_tokens),
             )
-            session.add(user_preference)
+            session.add(user_output_tokens)
             session.commit()
         else:
-            user_preference.pref_value = str(updated_output_tokens)
+            user_output_tokens.pref_value = str(updated_output_tokens)
             session.commit()
         session.close()
         return {
