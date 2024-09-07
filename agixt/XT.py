@@ -718,6 +718,28 @@ class AGiXT:
             with pdfplumber.open(file_path) as pdf:
                 content = "\n".join([page.extract_text() for page in pdf.pages])
                 file_content += content
+            if "pdf_vision" in self.agent_settings:
+                if (
+                    self.agent_settings["pdf_vision"] != "None"
+                    and self.agent_settings["pdf_vision"] != ""
+                    and self.agent_settings["pdf_vision"] != None
+                    and str(self.agent_settings["pdf_vision"]).lower() != "false"
+                    and self.agent_settings["vision_provider"] != "None"
+                    and self.agent_settings["vision_provider"] != ""
+                    and self.agent_settings["vision_provider"] != None
+                ):
+                    with pdfplumber.open(file_path) as pdf:
+                        for i, page in enumerate(pdf.pages):
+                            page_image = page.to_image(resolution=150)
+                            image_path = (
+                                f"{file_path.replace('.pdf', f'_page_{i}.png')}"
+                            )
+                            page_image.save(image_path)
+                            vision_response = await self.agent.vision_inference(
+                                prompt=content, images=[image_path]
+                            )
+                        file_content += f"Visual description from viewing uploaded PDF called `{file_name}` from page {i} with OCR:\n"
+                        file_content += vision_response
             self.input_tokens += get_tokens(content)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             await file_reader.write_text_to_memory(
