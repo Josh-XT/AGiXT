@@ -148,6 +148,72 @@ class Conversations:
         session.close()
         return {"interactions": return_messages}
 
+    def fork_conversation(self, message_id):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        # Get the original conversation
+        original_conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not original_conversation:
+            logging.info(f"No conversation found to fork.")
+            session.close()
+            return None
+
+        # Get all messages up to and including the specified message_id
+        messages = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == original_conversation.id,
+                Message.id <= message_id,
+            )
+            .order_by(Message.timestamp.asc())
+            .all()
+        )
+
+        if not messages:
+            logging.info(f"No messages found in the conversation to fork.")
+            session.close()
+            return None
+
+        # Create a new conversation
+        new_conversation_name = (
+            f"{self.conversation_name}_fork_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        new_conversation = Conversation(name=new_conversation_name, user_id=user_id)
+        session.add(new_conversation)
+        session.flush()  # This will assign an id to new_conversation
+
+        # Copy messages to the new conversation
+        for message in messages:
+            new_message = Message(
+                role=message.role,
+                content=message.content,
+                conversation_id=new_conversation.id,
+                timestamp=message.timestamp,
+                updated_at=message.updated_at,
+                updated_by=message.updated_by,
+                feedback_received=message.feedback_received,
+            )
+            session.add(new_message)
+
+        session.commit()
+        forked_conversation_id = str(new_conversation.id)
+        session.close()
+
+        logging.info(
+            f"Conversation forked successfully. New conversation ID: {forked_conversation_id}"
+        )
+        return new_conversation_name
+
     def get_activities(self, limit=100, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
