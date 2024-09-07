@@ -394,7 +394,7 @@ class Chain:
         session.commit()
         # Update the arguments for the step
         session.query(ChainStepArgument).filter(
-            ChainStepArgument.chain_step_id == chain_step.id
+            ChainStepArgument.chain_step_id == str(chain_step.id)
         ).delete()
         for argument_name, argument_value in prompt_args.items():
             argument = (
@@ -402,9 +402,9 @@ class Chain:
             )
             if argument:
                 chain_step_argument = ChainStepArgument(
-                    chain_step_id=chain_step.id,
-                    argument_id=argument.id,
-                    value=argument_value,
+                    chain_step_id=str(chain_step.id),
+                    argument_id=str(argument.id),
+                    value=str(argument_value),
                 )
                 session.add(chain_step_argument)
                 session.commit()
