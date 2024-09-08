@@ -9,17 +9,29 @@ except ImportError:
 
 import logging
 from Extensions import Extensions
+import os
 
 
 class sqlite_database(Extensions):
+    """
+    The SQLite Database extension for AGiXT enables you to interact with SQLite databases using SQL queries.
+    """
+
     def __init__(
         self,
-        SQLITE_DATABASE_PATH: str = "",
+        SQLITE_DATABASE_NAME: str = "",
         **kwargs,
     ):
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
         self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
-        self.SQLITE_DATABASE_PATH = SQLITE_DATABASE_PATH
+        self.SQLITE_DATABASE_PATH = os.path.join(
+            self.WORKING_DIRECTORY, SQLITE_DATABASE_NAME
+        )
         self.commands = {
             "Custom SQL Query in SQLite Database": self.execute_sql,
             "Get Database Schema from SQLite Database": self.get_schema,

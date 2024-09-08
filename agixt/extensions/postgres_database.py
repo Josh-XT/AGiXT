@@ -15,6 +15,10 @@ from Extensions import Extensions
 
 
 class postgres_database(Extensions):
+    """
+    The PostgreSQL Database extension for AGiXT enables you to interact with a PostgreSQL database.
+    """
+
     def __init__(
         self,
         POSTGRES_DATABASE_NAME: str = "",
