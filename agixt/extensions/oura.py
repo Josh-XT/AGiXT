@@ -23,7 +23,6 @@ class oura(Extensions):
             "Get rest mode period documents": self.get_rest_mode_period_documents,
             "Get ring configuration": self.get_ring_configuration,
             "Get daily stress": self.get_daily_stress,
-            "Get daily stress documents": self.get_daily_stress_documents,
             "Get daily resilience documents": self.get_daily_resilience_documents,
             "Get daily cardiovascular age": self.get_daily_cardiovascular_age,
             "Get vo2 max documents": self.get_vo2_max_documents,
@@ -35,16 +34,12 @@ class oura(Extensions):
             "Get daily sleep document": self.get_daily_sleep_document,
             "Get single daily spo2 document": self.get_single_daily_spo2_document,
             "Get single daily readiness document": self.get_single_daily_readiness_document,
-            "Get daily readiness document": self.get_daily_readiness_document,
             "Get single sleep document": self.get_single_sleep_document,
             "Get sleep time document": self.get_sleep_time_document,
             "Get rest mode period document": self.get_rest_mode_period_document,
             "Get single ring configuration document": self.get_single_ring_configuration_document,
-            "Get ring configuration document": self.get_ring_configuration_document,
             "Get single daily stress document": self.get_single_daily_stress_document,
-            "Get daily stress document": self.get_daily_stress_document,
             "Get daily resilience document": self.get_daily_resilience_document,
-            "Get single daily resilience document": self.get_single_daily_resilience_document,
             "Get daily cardiovascular age document": self.get_daily_cardiovascular_age_document,
             "Get vo2 max document": self.get_vO2_max_document,
             "Get heart rate data": self.get_heart_rate_data,
@@ -480,40 +475,6 @@ class oura(Extensions):
         except requests.exceptions.HTTPError as e:
             return {"error": str(e)}
 
-    async def get_daily_stress_documents(
-        self, start_date=None, end_date=None, next_token=None
-    ):
-        """
-        Fetch multiple daily stress documents from the sandbox environment.
-
-        Parameters:
-        - start_date (str, optional): The start date for the query in YYYY-MM-DD format.
-        - end_date (str, optional): The end date for the query in YYYY-MM-DD format.
-        - next_token (str, optional): Token for fetching the next set of results.
-
-        Returns:
-        - dict: The JSON response from the API.
-
-        Raises:
-        - HTTPError: If an HTTP error occurs.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_stress"
-        params = {}
-
-        if start_date:
-            params["start_date"] = start_date
-        if end_date:
-            params["end_date"] = end_date
-        if next_token:
-            params["next_token"] = next_token
-
-        try:
-            response = await self.session.get(url, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            raise e
-
     async def get_daily_resilience_documents(
         self, start_date=None, end_date=None, next_token=None
     ):
@@ -588,39 +549,6 @@ class oura(Extensions):
         except requests.exceptions.HTTPError as e:
             raise e
 
-    async def get_daily_cardiovascular_age(
-        self, start_date=None, end_date=None, next_token=None
-    ):
-        """
-        Fetches multiple daily cardiovascular age documents from the sandbox.
-
-        Args:
-            start_date (str, optional): The start date for filtering the documents.
-            end_date (str, optional): The end date for filtering the documents.
-            next_token (str, optional): The token for fetching the next page of results.
-
-        Returns:
-            dict: The JSON response from the API.
-
-        Raises:
-            requests.exceptions.HTTPError: If the request fails due to an HTTP error.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_cardiovascular_age"
-        params = {}
-        if start_date:
-            params["start_date"] = start_date
-        if end_date:
-            params["end_date"] = end_date
-        if next_token:
-            params["next_token"] = next_token
-
-        try:
-            response = await self.session.get(url, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            return {"error": str(e)}
-
     async def get_vo2_max_documents(
         self, start_date=None, end_date=None, next_token=None
     ):
@@ -676,29 +604,6 @@ class oura(Extensions):
             return response.json()
         except requests.exceptions.HTTPError as e:
             return {"error": str(e)}
-
-    async def get_single_tag_document(self, document_id):
-        """
-        Fetches a single tagged document from the sandbox user collection.
-
-        Args:
-            document_id (str): The ID of the document to retrieve.
-
-        Returns:
-            dict: The JSON response from the API if the request is successful.
-
-        Raises:
-            requests.exceptions.HTTPError: If an HTTP error occurs.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/tag/{document_id}"
-
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as error:
-            # Handle errors such as 400, 401, 403, 404, 422, 429
-            return {"error": str(error), "status_code": response.status_code}
 
     async def get_enhanced_tag_document(self, document_id):
         """
@@ -852,31 +757,6 @@ class oura(Extensions):
                 print("Validation error.")
             raise e
 
-    async def get_daily_sleep_document(self, document_id):
-        """
-        Fetch a single daily sleep document from the sandbox environment.
-
-        Parameters:
-        document_id (str): The ID of the daily sleep document to retrieve.
-
-        Returns:
-        dict: The JSON response from the API if the request is successful.
-
-        Raises:
-        HTTPError: If an error occurs during the HTTP request.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_sleep/{document_id}"
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred: {http_err}")
-            raise
-        except Exception as err:
-            print(f"Other error occurred: {err}")
-            raise
-
     async def get_single_daily_spo2_document(self, document_id):
         """
         Fetch a single daily SpO2 document by its document_id.
@@ -920,28 +800,6 @@ class oura(Extensions):
         except requests.exceptions.HTTPError as err:
             raise SystemExit(err)
 
-    async def get_daily_readiness_document(self, document_id):
-        """
-        Fetch a single daily readiness document from the sandbox.
-
-        Args:
-            document_id (str): The ID of the document to retrieve.
-
-        Returns:
-            dict: The JSON response from the API containing the daily readiness document data.
-
-        Raises:
-            requests.exceptions.HTTPError: If the request returns an HTTP error status.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_readiness/{document_id}"
-
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as err:
-            raise SystemExit(err)
-
     async def get_single_sleep_document(self, document_id):
         """
         Fetches a single sleep document from the user collection.
@@ -964,28 +822,6 @@ class oura(Extensions):
         except requests.exceptions.HTTPError as http_err:
             # Handle HTTP errors
             raise http_err
-
-    async def get_single_sleep_document(self, document_id):
-        """
-        Fetches a single sleep document from the sandbox environment by document ID.
-
-        Args:
-            document_id (str): The ID of the sleep document to be fetched.
-
-        Returns:
-            dict: The JSON response from the API if the request is successful.
-
-        Raises:
-            requests.exceptions.HTTPError: An error occurred while making the HTTP request.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/sleep/{document_id}"
-
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            raise e
 
     async def get_sleep_time_document(self, document_id):
         """
@@ -1010,41 +846,6 @@ class oura(Extensions):
             # Additional error handling could be added here if needed
             raise err
 
-    async def get_sleep_time_document(self, document_id):
-        """
-        Fetches a single sleep time document from the Oura sandbox API.
-
-        Args:
-            document_id (str): The ID of the sleep time document to be fetched.
-
-        Returns:
-            dict: The JSON response from the API containing the sleep time document.
-
-        Raises:
-            requests.exceptions.HTTPError: An error occurred while making the request.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/sleep_time/{document_id}"
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            # Handle specific status codes or re-raise the exception
-            if response.status_code == 404:
-                raise Exception("Document not found") from e
-            elif response.status_code == 400:
-                raise Exception("Client Exception") from e
-            elif response.status_code == 401:
-                raise Exception("Unauthorized access. Check your token.") from e
-            elif response.status_code == 403:
-                raise Exception("Access forbidden. Check your subscription.") from e
-            elif response.status_code == 429:
-                raise Exception("Request rate limit exceeded.") from e
-            elif response.status_code == 422:
-                raise Exception("Validation error.") from e
-            else:
-                raise
-
     async def get_rest_mode_period_document(self, document_id):
         """
         Retrieve a single Rest Mode Period Document based on the provided document_id.
@@ -1068,30 +869,6 @@ class oura(Extensions):
             print(e.response.text)
             raise
 
-    async def get_rest_mode_period_document(self, document_id):
-        """
-        Retrieve a single rest mode period document from the sandbox environment.
-
-        Parameters:
-        - document_id (str): The ID of the document to retrieve.
-
-        Returns:
-        - dict: The JSON response from the API if successful.
-
-        Raises:
-        - requests.exceptions.HTTPError: For any HTTP error that occurs during the request.
-        """
-        url = (
-            f"{self.base_uri}/v2/sandbox/usercollection/rest_mode_period/{document_id}"
-        )
-
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as err:
-            raise err
-
     async def get_single_ring_configuration_document(self, document_id):
         """
         Retrieve a single ring configuration document based on the provided document ID.
@@ -1112,27 +889,6 @@ class oura(Extensions):
             return response.json()
         except requests.exceptions.HTTPError as e:
             raise e
-
-    async def get_ring_configuration_document(self, document_id):
-        """
-        Fetch a single ring configuration document from the sandbox user collection.
-
-        Args:
-            document_id (str): The ID of the document to be fetched.
-
-        Returns:
-            dict: The JSON response from the API if the request is successful.
-
-        Raises:
-            requests.exceptions.HTTPError: If an HTTP error occurs.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/ring_configuration/{document_id}"
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as err:
-            raise SystemExit(err)
 
     async def get_single_daily_stress_document(self, document_id):
         """
@@ -1163,27 +919,6 @@ class oura(Extensions):
             else:
                 raise http_err
 
-    async def get_daily_stress_document(self, document_id):
-        """
-        Retrieve a single daily stress document from the sandbox.
-
-        Args:
-            document_id (str): The ID of the document to retrieve.
-
-        Returns:
-            dict: The JSON response from the API if the request is successful.
-
-        Raises:
-            requests.exceptions.HTTPError: If the request fails.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_stress/{document_id}"
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as err:
-            raise SystemExit(err)
-
     async def get_daily_resilience_document(self, document_id):
         """
         Fetch a single daily resilience document by its ID.
@@ -1205,30 +940,6 @@ class oura(Extensions):
             return response.json()
         except requests.exceptions.HTTPError as http_err:
             raise http_err
-
-    async def get_single_daily_resilience_document(self, document_id):
-        """
-        Fetches a single daily resilience document from the sandbox.
-
-        Parameters:
-            self: The reference to the current instance.
-            document_id (str): The ID of the document to retrieve.
-
-        Returns:
-            dict: The JSON response from the API if the request is successful.
-
-        Raises:
-            HTTPError: If the request to the API fails.
-        """
-        url = (
-            f"{self.base_uri}/v2/sandbox/usercollection/daily_resilience/{document_id}"
-        )
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            raise e
 
     async def get_daily_cardiovascular_age_document(self, document_id):
         """
@@ -1269,44 +980,6 @@ class oura(Extensions):
                 return {"error": "Validation error."}
             else:
                 raise http_err
-
-    async def get_daily_cardiovascular_age(self, document_id):
-        """
-        Fetches a single daily cardiovascular age document from the sandbox environment.
-
-        Args:
-        document_id (str): The ID of the cardiovascular age document to retrieve.
-
-        Returns:
-        dict: A dictionary containing the cardiovascular age document data if successful.
-
-        Raises:
-        requests.exceptions.HTTPError: If an HTTP error occurs.
-        """
-        url = f"{self.base_uri}/v2/sandbox/usercollection/daily_cardiovascular_age/{document_id}"
-
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 400:
-                print("Client Exception")
-            elif response.status_code == 401:
-                print(
-                    "Unauthorized access exception. The access token may be expired, malformed or revoked."
-                )
-            elif response.status_code == 403:
-                print(
-                    "Access forbidden. The user's subscription to Oura may have expired and their data is not available via the API."
-                )
-            elif response.status_code == 404:
-                print("Not Found. The requested document was not found.")
-            elif response.status_code == 422:
-                print("Validation Error")
-            elif response.status_code == 429:
-                print("Request Rate Limit Exceeded.")
-            raise e
 
     async def get_vO2_max_document(self, document_id):
         """
