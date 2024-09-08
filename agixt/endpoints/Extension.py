@@ -52,6 +52,9 @@ async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
         for key in required_keys:
             new_extension = extension.copy()
             if key not in agent_settings:
+                if "missing_keys" not in new_extension:
+                    new_extension["missing_keys"] = []
+                new_extension["missing_keys"].append(key)
                 new_extension["commands"] = []
             else:
                 if agent_settings[key] == "" or agent_settings[key] == None:
