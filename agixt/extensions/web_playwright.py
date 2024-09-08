@@ -27,6 +27,10 @@ except ImportError:
 
 
 class web_playwright(Extensions):
+    """
+    The Web Playwright extension for AGiXT enables you to scrape webpages and take screenshots using Playwright.
+    """
+
     def __init__(self, **kwargs):
         self.commands = {
             "Scrape Text with Playwright": self.scrape_text_with_playwright,

@@ -4,6 +4,10 @@ from Extensions import Extensions
 
 
 class mysql_database(Extensions):
+    """
+    The MySQL Database extension for AGiXT enables you to interact with a MySQL database.
+    """
+
     def __init__(
         self,
         MYSQL_DATABASE_NAME: str = "",
