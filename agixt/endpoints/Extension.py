@@ -57,7 +57,13 @@ async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
                 if agent_settings[key] == "" or agent_settings[key] == None:
                     new_extension["commands"] = []
         new_extensions.append(new_extension)
-    # Only give available commands if all extension keys are present
+    agent_commands = agent_config["commands"]
+    for extension in new_extensions:
+        for command in extension["commands"]:
+            if command["friendly_name"] in agent_commands:
+                command["enabled"] = agent_commands[command["friendly_name"]]
+            else:
+                command["enabled"] = False
     return {"extensions": new_extensions}
 
 
