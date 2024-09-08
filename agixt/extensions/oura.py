@@ -3,7 +3,7 @@ import requests
 
 
 class oura(Extensions):
-    def __init__(self, OURA_API_KEY, **kwargs):
+    def __init__(self, OURA_API_KEY: str = "", **kwargs):
         self.base_uri = "https://api.ouraring.com"
         self.api_key = OURA_API_KEY
         self.session = requests.Session()
