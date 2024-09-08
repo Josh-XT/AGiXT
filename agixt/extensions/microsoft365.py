@@ -7,6 +7,10 @@ from MagicalAuth import MagicalAuth
 
 
 class microsoft365(Extensions):
+    """
+    The Microsoft 365 extension provides functions to interact with Microsoft 365 services such as Outlook and Calendar. It uses logged in user's Microsoft 365 account to perform actions like sending emails, moving emails to folders, creating draft emails, deleting emails, searching emails, replying to emails, processing attachments, getting calendar items, adding calendar items, and removing calendar items if the user signed in with Microsoft 365.
+    """
+
     def __init__(
         self,
         **kwargs,
