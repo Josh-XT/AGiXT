@@ -4,14 +4,13 @@ import requests
 
 class oura(Extensions):
     """
-    The Oura extension for AGiXT enables you to interact with the Oura API to retrieve health and wellness data.
+    The Oura extension for AGiXT enables you to interact with the Oura API to retrieve health and wellness data for the user.
     """
 
     def __init__(self, OURA_API_KEY: str = "", **kwargs):
         self.base_uri = "https://api.ouraring.com"
-        self.api_key = OURA_API_KEY
         self.session = requests.Session()
-        self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
+        self.session.headers.update({"Authorization": f"Bearer {OURA_API_KEY}"})
         self.commands = {
             "Get personal info": self.get_personal_info,
             "Get usercollection tag": self.get_usercollection_tag,
