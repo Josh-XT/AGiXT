@@ -34,6 +34,33 @@ async def get_extensions(user=Depends(verify_api_key)):
     return {"extensions": extensions}
 
 
+@app.get(
+    "/api/agent/{agent_name}/extensions",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
+    ApiClient = get_api_client()
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    agent_config = agent.get_agent_config()
+    agent_settings = agent_config["settings"]
+    extensions = Extensions().get_extensions()
+    new_extensions = []
+    # Get required keys for each extension
+    for extension in extensions:
+        required_keys = extension["settings"]
+        for key in required_keys:
+            new_extension = extension.copy()
+            if key not in agent_settings:
+                new_extension["commands"] = []
+            else:
+                if agent_settings[key] == "" or agent_settings[key] == None:
+                    new_extension["commands"] = []
+        new_extensions.append(new_extension)
+    # Only give available commands if all extension keys are present
+    return {"extensions": new_extensions}
+
+
 @app.post(
     "/api/agent/{agent_name}/command",
     tags=["Extensions"],
