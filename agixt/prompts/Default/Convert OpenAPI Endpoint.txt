@@ -6,7 +6,7 @@
 ## Guidelines
 
 - Do not add any imports, the extension can be created with the already imported requests library.
-- Do not the code in a class or tab out the code further than root level indentation, indentation is automatically handled.
+- Do not add the code in a class or tab out the code further than root level indentation, indentation is automatically handled.
 - Do not add imports to the code, it is being automatically appended to a file that already has the necessary imports.
 - Do not add placeholder code, only the function is required.
 - The first parameter in the function should be `self`. 
