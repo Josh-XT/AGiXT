@@ -24,6 +24,10 @@ except:
 
 
 class google(Extensions):
+    """
+    The Google extension provides functions to interact with Google services such as Gmail and Google Calendar. It uses logged in user's Google account to perform actions like sending emails, moving emails to folders, creating draft emails, deleting emails, searching emails, replying to emails, processing attachments, getting calendar items, adding calendar items, and removing calendar items if the user signed in with Google.
+    """
+
     def __init__(
         self,
         **kwargs,

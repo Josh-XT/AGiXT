@@ -13,6 +13,10 @@ import logging
 
 
 class discord(Extensions):
+    """
+    The Discord extension for AGiXT enables you to interact with Discord servers and channels using the Discord API.
+    """
+
     def __init__(
         self,
         DISCORD_API_KEY: str = "",

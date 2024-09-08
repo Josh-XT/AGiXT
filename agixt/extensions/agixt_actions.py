@@ -150,6 +150,9 @@ def parse_mindmap(mindmap):
 
 
 class agixt_actions(Extensions):
+    """
+    The AGiXT Actions extension contains commands that allow the AGiXT Agents to work with other agents and use pre-built chains to complete tasks.
+    """
     def __init__(self, **kwargs):
         self.commands = {
             "Create Task Chain": self.create_task_chain,

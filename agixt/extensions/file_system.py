@@ -8,14 +8,20 @@ import re
 
 
 class file_system(Extensions):
+    """
+    The file_system extension for AGiXT enables you to interact with the file system in the workspace.
+    """
+
     def __init__(
         self,
-        WORKING_DIRECTORY: str = "./WORKSPACE",
-        WORKING_DIRECTORY_RESTRICTED: bool = True,
         **kwargs,
     ):
-        self.WORKING_DIRECTORY = WORKING_DIRECTORY
-        self.WORKING_DIRECTORY_RESTRICTED = WORKING_DIRECTORY_RESTRICTED
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
+        self.WORKING_DIRECTORY_RESTRICTED = True
         if not os.path.exists(self.WORKING_DIRECTORY):
             os.makedirs(self.WORKING_DIRECTORY)
         self.commands = {
@@ -29,7 +35,6 @@ class file_system(Extensions):
             "Indent String for Python Code": self.indent_string,
             "Generate Commands Dictionary": self.generate_commands_dict,
         }
-        self.WORKING_DIRECTORY = WORKING_DIRECTORY
 
     async def execute_python_file(self, file: str):
         """
