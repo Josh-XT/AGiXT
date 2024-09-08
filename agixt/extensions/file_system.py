@@ -234,6 +234,10 @@ class file_system(Extensions):
         Returns:
         str: The indented string
         """
+        try:
+            indents = int(indents)
+        except:
+            indents = 1
         if indents == 1:
             indent = "    "
         else:
