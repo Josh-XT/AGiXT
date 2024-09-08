@@ -451,7 +451,7 @@ class Agent:
                 f"\n### {extension['name']}\nDescription: {extension['description']}\n"
             )
             for command in extension["commands"]:
-                verbose_commands += f"\n#### {command['friendly_name']}\nDescription: {command['description']}\n"
+                verbose_commands += f"\n#### {command['friendly_name']}\nDescription: {command['description']}\nCommand execution format:"
                 command_args = json.dumps(command["args"])
                 command_args = command_args.replace(
                     '""',
