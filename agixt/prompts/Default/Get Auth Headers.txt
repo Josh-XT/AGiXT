@@ -1,0 +1,31 @@
+## Context
+ 
+ {user_input} 
+
+ {context} 
+
+Auth type from OpenAPI Spec JSON file: {auth_type} 
+
+## {extension_name}.py
+```python
+{extension_content}
+```
+
+## Guidelines
+
+- Do not add any imports, the extension can be created with the already imported requests library.
+- Do not add the code in a class or tab out the code further than root level indentation, indentation is automatically handled.
+- Do not add imports to the code, it is being automatically appended to a file that already has the necessary imports.
+- Do not add placeholder code, only the `__init__` method is necessary unindented.
+- Do not change any of the code structure except adding the required API keys to the `__init__` method, modifying `self.base_uri` if necessary, and changing the authorization headers if necessary.
+- The base_uri can be found at `self.base_uri` and should be referenced as the base url for the endpoint for all functions. If the base_uri is incorrect, correct it.
+- There is a requests session available at `self.session` that is intended to be authenticated for the other functions in the extension to use.
+- Each required key for the API should be a parameter in the `__init__` method. For example, if the extension was for GitHub, the `__init__` method would have `GITHUB_API_KEY` and `GITHUB_USER` as parameters. It isn't for GitHub, that is just an example and those fields should not be added to this extension.
+- The available context is from the API documentation on the website for the extension API. Use the context to determine the required keys for the `__init__` method.
+- If the base_uri needs to be flexible because of multiple servers or environments, add a parameter to the `__init__` method for the base_uri as {extension_name}_BASE_URI.
+- If the `__init__` method requires no changes, respond with the full `__init__` method exactly as it is in the extension file unindented in a Python markdown code block without placeholders.
+- All parameters in the `__init__` method should be in snake case and all uppercase with the exception of "self".
+- All parameters in the `__init__` method should be prefixed with {extension_name} in snake case and all uppercase with the exception of "self".
+- The `__init__` method should be in a Python markdown code block unindented.
+
+The `__init__` of the class may have incorrect authentication defined. Rewrite the `__init__` method to include the required keys as parameters in an unindented Python markdown code block.
