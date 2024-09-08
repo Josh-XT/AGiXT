@@ -231,7 +231,10 @@ class Extensions:
                         command_function,
                     ) in command_class.commands.items():
                         params = self.get_command_params(command_function)
-                        command_description = inspect.getdoc(command_function)
+                        try:
+                            command_description = inspect.getdoc(command_function)
+                        except:
+                            command_description = command_name
                         extension_commands.append(
                             {
                                 "friendly_name": command_name,
