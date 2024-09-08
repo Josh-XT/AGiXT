@@ -270,12 +270,13 @@ class Agent:
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
             self.chunk_size = 256
-        self.available_commands = Extensions(
+        self.extensions = Extensions(
             agent_name=self.agent_name,
             agent_config=self.AGENT_CONFIG,
             ApiClient=ApiClient,
             user=self.user,
-        ).get_available_commands()
+        )
+        self.available_commands = self.extensions.get_available_commands()
         self.agent_id = str(self.get_agent_id())
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
@@ -409,21 +410,56 @@ class Agent:
         if self.TTS_PROVIDER is not None:
             return await self.TTS_PROVIDER.text_to_speech(text=text)
 
+    def get_agent_extensions(self):
+        extensions = self.extensions.get_extensions()
+        new_extensions = []
+        for extension in extensions:
+            required_keys = extension["settings"]
+            new_extension = extension.copy()
+            for key in required_keys:
+                if key not in self.AGENT_CONFIG["settings"]:
+                    if "missing_keys" not in new_extension:
+                        new_extension["missing_keys"] = []
+                    new_extension["missing_keys"].append(key)
+                    new_extension["commands"] = []
+                else:
+                    if (
+                        self.AGENT_CONFIG["settings"][key] == ""
+                        or self.AGENT_CONFIG["settings"][key] == None
+                    ):
+                        new_extension["commands"] = []
+            new_extensions.append(new_extension)
+        for extension in new_extensions:
+            for command in extension["commands"]:
+                if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
+                    command["enabled"] = self.AGENT_CONFIG["commands"][
+                        command["friendly_name"]
+                    ]
+                else:
+                    command["enabled"] = False
+        return new_extensions
+
     def get_commands_string(self):
         if len(self.available_commands) == 0:
             return ""
+        agent_extensions = self.get_agent_extensions()
         working_dir = self.working_directory
-        verbose_commands = f"### Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
+        verbose_commands = f"## Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
         verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
-        for command in self.available_commands:
-            command_args = json.dumps(command["args"])
-            command_args = command_args.replace(
-                '""',
-                '"The assistant will fill in the value based on relevance to the conversation."',
-            )
+        for extension in agent_extensions:
             verbose_commands += (
-                f"\n- #execute('{command['friendly_name']}', {command_args})"
+                f"\n### {extension['name']}\nDescription: {extension['description']}\n"
             )
+            for command in extension["commands"]:
+                verbose_commands += f"\n#### {command['friendly_name']}\nDescription: {command['description']}\n"
+                command_args = json.dumps(command["args"])
+                command_args = command_args.replace(
+                    '""',
+                    '"The assistant will fill in the value based on relevance to the conversation."',
+                )
+                verbose_commands += (
+                    f"\n- #execute('{command['friendly_name']}', {command_args})\n"
+                )
         verbose_commands += "\n\n**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n"
         return verbose_commands
 
