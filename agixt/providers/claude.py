@@ -20,12 +20,16 @@ class ClaudeProvider:
         AI_MODEL: str = "claude-3-5-sonnet-20240620",
         MAX_TOKENS: int = 200000,
         AI_TEMPERATURE: float = 0.7,
+        GOOGLE_VERTEX_REGION: str = "europe-west1",
+        GOOGLE_VERTEX_PROJECT_ID: str = "",  # Leave empty if using Anthropic service
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
         self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 200000
         self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-5-sonnet-20240620"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
+        self.GOOGLE_VERTEX_REGION = GOOGLE_VERTEX_REGION
+        self.GOOGLE_VERTEX_PROJECT_ID = GOOGLE_VERTEX_PROJECT_ID
 
     @staticmethod
     def services():
@@ -73,9 +77,15 @@ class ClaudeProvider:
                 )
         else:
             messages.append({"role": "user", "content": prompt})
-
-        try:
+        if self.GOOGLE_VERTEX_PROJECT_ID != "":
+            c = anthropic.AnthropicVertex(
+                access_token=self.ANTHROPIC_API_KEY,
+                region=self.GOOGLE_VERTEX_REGION,
+                project_id=self.GOOGLE_VERTEX_PROJECT_ID,
+            )
+        else:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
+        try:
             response = c.messages.create(
                 messages=messages,
                 model=self.AI_MODEL,
