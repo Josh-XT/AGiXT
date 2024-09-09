@@ -730,7 +730,7 @@ class AGiXT:
                 ):
                     with pdfplumber.open(file_path) as pdf:
                         for i, page in enumerate(pdf.pages):
-                            page_image = page.to_image(resolution=150)
+                            page_image = page.to_image(width=256, height=256)
                             image_path = (
                                 f"{file_path.replace('.pdf', f'_page_{i}.png')}"
                             )
