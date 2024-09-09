@@ -2,60 +2,51 @@ import os
 import logging
 from datetime import datetime, timedelta
 from Extensions import Extensions
-
-try:
-    from O365 import Account, MSGraphProtocol
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "O365"])
-    from O365 import Account, MSGraphProtocol
+from Globals import getenv
+from MagicalAuth import MagicalAuth
 
 
 class microsoft365(Extensions):
+    """
+    The Microsoft 365 extension provides functions to interact with Microsoft 365 services such as Outlook and Calendar. It uses logged in user's Microsoft 365 account to perform actions like sending emails, moving emails to folders, creating draft emails, deleting emails, searching emails, replying to emails, processing attachments, getting calendar items, adding calendar items, and removing calendar items if the user signed in with Microsoft 365.
+    """
+
     def __init__(
         self,
-        M365_CLIENT_ID: str = "",
-        M365_CLIENT_SECRET: str = "",
-        M365_TENANT_ID: str = "",
         **kwargs,
     ):
-        self.client_id = M365_CLIENT_ID
-        self.client_secret = M365_CLIENT_SECRET
-        self.tenant_id = M365_TENANT_ID
-        self.attachments_dir = "./WORKSPACE/email_attachments/"
+        api_key = kwargs["api_key"] if "api_key" in kwargs else None
+        self.microsoft_auth = None
+        self.commands = {}
+        if api_key:
+            microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
+            microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
+            if microsoft_client_id and microsoft_client_secret:
+                auth = MagicalAuth(token=api_key)
+                self.microsoft_auth = auth.get_oauth_functions("microsoft")
+                if self.microsoft_auth.access_token:
+                    self.commands = {
+                        "Microsoft - Get Emails": self.get_emails,
+                        "Microsoft - Send Email": self.send_email,
+                        "Microsoft - Move Email to Folder": self.move_email_to_folder,
+                        "Microsoft - Create Draft Email": self.create_draft_email,
+                        "Microsoft - Delete Email": self.delete_email,
+                        "Microsoft - Search Emails": self.search_emails,
+                        "Microsoft - Reply to Email": self.reply_to_email,
+                        "Microsoft - Process Attachments": self.process_attachments,
+                        "Microsoft - Get Calendar Items": self.get_calendar_items,
+                        "Microsoft - Add Calendar Item": self.add_calendar_item,
+                        "Microsoft - Remove Calendar Item": self.remove_calendar_item,
+                    }
+        self.attachments_dir = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else "./WORKSPACE/attachments"
+        )
         os.makedirs(self.attachments_dir, exist_ok=True)
-        self.commands = {
-            "Microsoft - Get Emails": self.get_emails,
-            "Microsoft - Send Email": self.send_email,
-            "Microsoft - Move Email to Folder": self.move_email_to_folder,
-            "Microsoft - Create Draft Email": self.create_draft_email,
-            "Microsoft - Delete Email": self.delete_email,
-            "Microsoft - Search Emails": self.search_emails,
-            "Microsoft - Reply to Email": self.reply_to_email,
-            "Microsoft - Process Attachments": self.process_attachments,
-            "Microsoft - Get Calendar Items": self.get_calendar_items,
-            "Microsoft - Add Calendar Item": self.add_calendar_item,
-            "Microsoft - Remove Calendar Item": self.remove_calendar_item,
-        }
 
     def authenticate(self):
-        try:
-            credentials = (self.client_id, self.client_secret)
-            protocol = MSGraphProtocol()
-            account = Account(
-                credentials,
-                auth_flow_type="credentials",
-                tenant_id=self.tenant_id,
-                protocol=protocol,
-            )
-            if account.authenticate():
-                return account
-            else:
-                return None
-        except Exception as e:
-            return None
+        return self.microsoft_auth.access_token
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
         """

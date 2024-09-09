@@ -21,7 +21,6 @@ from sendgrid.helpers.mail import (
     Disposition,
     Mail,
 )
-from sqlalchemy.dialects.postgresql import UUID
 import pyotp
 import requests
 import logging
@@ -88,10 +87,12 @@ def verify_api_key(authorization: str = Header(None)):
             )
             db = get_session()
             user = db.query(User).filter(User.id == token["sub"]).first()
-            db.close()
-            return user
         except Exception as e:
             raise HTTPException(status_code=401, detail="Invalid API Key")
+        if user.is_active == False:
+            user_preferences = MagicalAuth(token=authorization).get_user_preferences()
+        db.close()
+        return user
     else:
         return authorization
 
@@ -218,7 +219,7 @@ class MagicalAuth:
                 leeway=timedelta(hours=5),
             )
             self.email = decoded["email"]
-            self.user_id = decoded["sub"]
+            self.user_id = get_user_id(self.email)
             self.token = token
         except:
             self.email = None
@@ -442,6 +443,20 @@ class MagicalAuth:
         )
         session.add(user_preferences)
         session.commit()
+        user_preferences = UserPreferences(
+            user_id=user.id,
+            pref_key="input_tokens",
+            pref_value="0",
+        )
+        session.add(user_preferences)
+        session.commit()
+        user_preferences = UserPreferences(
+            user_id=user.id,
+            pref_key="output_tokens",
+            pref_value="0",
+        )
+        session.add(user_preferences)
+        session.commit()
         session.close()
         # Send registration webhook out to third party application such as AGiXT to create a user there.
         registration_webhook = getenv("REGISTRATION_WEBHOOK")
@@ -467,8 +482,8 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
-        if "subscription" in kwargs:
-            del kwargs["subscription"]
+        if "stripe_id" in kwargs:
+            del kwargs["stripe_id"]
         if "email" in kwargs:
             del kwargs["email"]
         if "input_tokens" in kwargs:
@@ -588,6 +603,42 @@ class MagicalAuth:
             send_link=False,
         )
 
+    def get_oauth_functions(self, provider: str):
+        session = get_session()
+        user = session.query(User).filter(User.id == self.user_id).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found")
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="User OAuth not found")
+        access_token = user_oauth.access_token
+        session.close()
+        if provider.name == "google":
+            from sso.google import GoogleSSO
+
+            return GoogleSSO(access_token=access_token)
+        elif provider.name == "microsoft":
+            from sso.microsoft import MicrosoftSSO
+
+            return MicrosoftSSO(access_token=access_token)
+        elif provider.name == "github":
+            from sso.github import GitHubSSO
+
+            return GitHubSSO(access_token=access_token)
+
     def registration_requirements(self):
         if not os.path.exists("registration_requirements.json"):
             requirements = {}
@@ -596,9 +647,62 @@ class MagicalAuth:
                 requirements = json.load(file)
         if not requirements:
             requirements = {}
-        if "subscription" not in requirements:
-            requirements["subscription"] = "None"
+        if "stripe_id" not in requirements:
+            requirements["stripe_id"] = "None"
         return requirements
+
+    def get_subscribed_products(self, stripe_api_key, stripe_customer_id):
+        import stripe
+
+        # TODO make sure if the stripe request fails, an exception gets thrown.
+        stripe.api_key = stripe_api_key
+        logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
+        all_subscriptions = stripe.Subscription.list(
+            customer=stripe_customer_id,
+            expand=["data.items.data.price"],
+        )
+        logging.info(f"Found {len(all_subscriptions)} subscriptions.")
+        relevant_subscriptions = []
+        for subscription in all_subscriptions:
+            logging.info(f"Checking subscription {subscription['id']}")
+            if subscription.status == "active":
+                logging.info(f"Subscription {subscription['id']} active.")
+                relevant_to_this_app = None
+                for item in subscription["items"]:
+                    product_id = item["price"]["product"]
+                    product = stripe.Product.retrieve(product_id)
+                    try:
+                        relevant_app = product["metadata"]["APP_NAME"]
+                    except:
+                        relevant_app = "[No App Defined in Product]"
+                        logging.warning(
+                            f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
+                        )
+                    print(product)
+                    print(relevant_app)
+                    if relevant_app == getenv("APP_NAME"):
+                        if relevant_to_this_app == False:
+                            raise Exception(
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
+                            )
+                        relevant_to_this_app = True
+                        logging.info(
+                            f"Subscription {subscription['id']} relevant to this app {getenv('APP_NAME')}."
+                        )
+                    else:
+                        if relevant_to_this_app == True:
+                            raise Exception(
+                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
+                            )
+                        relevant_to_this_app = False
+                        logging.info(
+                            f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {relevant_app}."
+                        )
+                    if relevant_to_this_app:
+                        relevant_subscriptions.append(subscription)
+            else:
+                logging.info(f"Subscription {subscription['id']} not active.")
+        return relevant_subscriptions
 
     def get_user_preferences(self):
         session = get_session()
@@ -609,7 +713,6 @@ class MagicalAuth:
             .all()
         )
         user_preferences = {x.pref_key: x.pref_value for x in user_preferences}
-        session.close()
         user_requirements = self.registration_requirements()
         if not user_preferences:
             user_preferences = {}
@@ -617,61 +720,54 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
-        if "subscription" in user_requirements and user.email != getenv("DEFAULT_USER"):
+        if user.email != getenv("DEFAULT_USER"):
             api_key = getenv("STRIPE_API_KEY")
-            if api_key:
+            if api_key != "" and api_key is not None and str(api_key).lower() != "none":
                 import stripe
 
                 stripe.api_key = api_key
-                if "subscription" not in user_preferences:
-                    user_preferences["subscription"] = "None"
-                if str(user_preferences["subscription"]).lower() != "none":
-                    if user.is_active is False:
+                if "stripe_id" not in user_preferences or not user_preferences[
+                    "stripe_id"
+                ].startswith("cus_"):
+                    logging.info("No Stripe ID found in user preferences.")
+                    customer = stripe.Customer.create(email=user.email)
+                    user_preferences["stripe_id"] = customer.id
+                    user_preference = UserPreferences(
+                        user_id=self.user_id,
+                        pref_key="stripe_id",
+                        pref_value=customer.id,
+                    )
+                    session.add(user_preference)
+                    session.commit()
+
+                else:
+                    logging.info("Stripe ID found: " + user_preferences["stripe_id"])
+                    relevant_subscriptions = self.get_subscribed_products(
+                        api_key, user_preferences["stripe_id"]
+                    )
+                    if not relevant_subscriptions:
+                        logging.info(f"No active subscriptions for this app detected.")
                         c_session = stripe.CustomerSession.create(
-                            customer=user_preferences["subscription"],
+                            customer=user_preferences["stripe_id"],
                             components={"pricing_table": {"enabled": True}},
                         )
+                        user = (
+                            session.query(User).filter(User.id == self.user_id).first()
+                        )
+                        user.is_active = False
+                        session.commit()
                         session.close()
                         raise HTTPException(
                             status_code=402,
                             detail={
-                                "message": f"No active subscription.",
+                                "message": f"No active subscriptions.",
                                 "customer_session": c_session,
                             },
                         )
                     else:
-                        try:
-                            subscription = stripe.Subscription.retrieve(
-                                user_preferences["subscription"]
-                            )
-                        except:
-                            user.is_active = False
-                            session.commit()
-                            pref = (
-                                session.query(UserPreferences)
-                                .filter_by(
-                                    user_id=self.user_id, pref_key="subscription"
-                                )
-                                .first()
-                            )
-                            try:
-                                session.delete(pref)
-                                session.commit()
-                            except:
-                                logging.info("No record to delete.")
-                            session.close()
-                            return self.get_user_preferences()
-                        if subscription.status != "active":
-                            user.is_active = False
-                            session.commit()
-                            session.close()
-                            raise HTTPException(
-                                status_code=402,
-                                detail={
-                                    "message": f"No active subscription.",
-                                    "subscription": subscription,
-                                },
-                            )
+                        logging.info(
+                            f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
+                        )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
@@ -684,7 +780,7 @@ class MagicalAuth:
         if user_requirements:
             for key, value in user_requirements.items():
                 if key not in user_preferences:
-                    if key != "subscription":
+                    if key != "stripe_id":
                         missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
@@ -762,19 +858,45 @@ class MagicalAuth:
         updated_output_tokens = current_output_tokens + output_tokens
         user_preferences = (
             session.query(UserPreferences)
-            .filter(
-                UserPreferences.user_id == UUID(self.user_id)
-                if getenv("DATABASE_TYPE") != "sqlite"
-                else self.user_id
-            )
+            .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
-        for preference in user_preferences:
-            if preference.pref_key == "input_tokens":
-                preference.pref_value = str(updated_input_tokens)
-            if preference.pref_key == "output_tokens":
-                preference.pref_value = str(updated_output_tokens)
-        session.commit()
+        if not user_preferences:
+            user_input_tokens = None
+            user_output_tokens = None
+        else:
+            user_input_tokens = next(
+                (x for x in user_preferences if x.pref_key == "input_tokens"),
+                None,
+            )
+            user_output_tokens = next(
+                (x for x in user_preferences if x.pref_key == "output_tokens"),
+                None,
+            )
+        # Update input tokens
+        if user_input_tokens is None:
+            user_input_tokens = UserPreferences(
+                user_id=self.user_id,
+                pref_key="input_tokens",
+                pref_value=str(updated_input_tokens),
+            )
+            session.add(user_input_tokens)
+            session.commit()
+        else:
+            user_input_tokens.pref_value = str(updated_input_tokens)
+            session.commit()
+        # Update output tokens
+        if user_output_tokens is None:
+            user_output_tokens = UserPreferences(
+                user_id=self.user_id,
+                pref_key="output_tokens",
+                pref_value=str(updated_output_tokens),
+            )
+            session.add(user_output_tokens)
+            session.commit()
+        else:
+            user_output_tokens.pref_value = str(updated_output_tokens)
+            session.commit()
         session.close()
         return {
             "input_tokens": updated_input_tokens,

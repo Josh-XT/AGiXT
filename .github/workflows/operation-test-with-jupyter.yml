@@ -89,7 +89,7 @@ jobs:
       secondary-service:
         image: ${{ inputs.secondary-image }}
         ports:
-          - ${{ inputs.secondary-image-port }}
+          - ${{ inputs.port-mapping || format('{0}:{1}', inputs.secondary-image-port, inputs.secondary-image-port) }}
         env:
           DB_CONNECTED: ${{ inputs.db-connected }}
           DATABASE_TYPE: ${{ inputs.database-type }}
@@ -119,6 +119,7 @@ jobs:
           SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
           DEFAULT_EMAIL: ${{ inputs.default-email }}
           DEFAULT_SERVICE: sendgrid
+          COMPILE_SERVER: http://secondary-service:${{ inputs.secondary-image-port }}
           MFA_VERIFY: authenticator
           MODE: development
           STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
@@ -172,6 +173,17 @@ jobs:
         if: inputs.additional-args
         run: echo "nbconvert-args=${{ env.nbconvert-args }} ${{ inputs.additional-args }}"
 
+      - name: Wait for services
+        run: |
+          echo "Waiting for services to be ready..."
+          sleep 30
+
+      - name: Check secondary service status
+        run: |
+          docker exec ${{ job.services.secondary-service.id }} \
+            ps aux | grep -v grep | grep -q secondary-service && \
+            echo "Secondary service is running" || echo "Secondary service is not running"
+
       - name: Execute notebook
         env:
           API_KEY: ${{ secrets.api-key }}
@@ -186,6 +198,12 @@ jobs:
         if: inputs.append-logs
         run: |
           echo "artifact-file=${{ env.artifact-file }}\n/test-output.log" >> "$GITHUB_ENV"
+
+      - name: Check service-under-test logs
+        run: docker logs ${{ job.services.service-under-test.id }}
+        
+      - name: Check secondary-service logs
+        run: docker logs ${{ job.services.secondary-service.id }}
 
       - uses: actions/upload-artifact@v4
         with:

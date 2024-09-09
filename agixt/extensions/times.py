@@ -3,6 +3,10 @@ from Extensions import Extensions
 
 
 class times(Extensions):
+    """
+    The Times extension for AGiXT enables you to get the current date and time.
+    """
+
     def __init__(self, **kwargs):
         self.commands = {"Get Datetime": self.get_datetime}
 

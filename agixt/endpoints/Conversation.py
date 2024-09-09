@@ -11,6 +11,7 @@ from Models import (
     RenameConversationModel,
     UpdateMessageModel,
     DeleteMessageModel,
+    ConversationFork,
 )
 import json
 from datetime import datetime
@@ -262,3 +263,17 @@ async def rename_conversation(
         role=rename.agent_name,
     )
     return {"conversation_name": rename.new_conversation_name}
+
+
+@app.post(
+    "/api/conversation/fork",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def fork_conversation(
+    fork: ConversationFork, user=Depends(verify_api_key)
+) -> ResponseMessage:
+    new_conversation_name = Conversations(
+        conversation_name=fork.conversation_name, user=user
+    ).fork_conversation(message_id=fork.message_id)
+    return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")

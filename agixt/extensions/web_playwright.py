@@ -1,32 +1,29 @@
 from typing import List, Union
 from requests.compat import urljoin
 import logging
+import subprocess
+import sys
 
 try:
     from bs4 import BeautifulSoup
 except ImportError:
-    import subprocess
-    import sys
-
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "beautifulsoup4==4.12.2"]
     )
     from bs4 import BeautifulSoup
-from Extensions import Extensions
-
 try:
-    from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+    from playwright.async_api import async_playwright
 except ImportError:
-    import subprocess
-    import sys
-
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "playwright==1.37.0"]
-    )
-    from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+    from playwright.async_api import async_playwright
+from Extensions import Extensions
 
 
 class web_playwright(Extensions):
+    """
+    The Web Playwright extension for AGiXT enables you to scrape webpages and take screenshots using Playwright.
+    """
+
     def __init__(self, **kwargs):
         self.commands = {
             "Scrape Text with Playwright": self.scrape_text_with_playwright,

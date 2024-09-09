@@ -34,6 +34,18 @@ async def get_extensions(user=Depends(verify_api_key)):
     return {"extensions": extensions}
 
 
+@app.get(
+    "/api/agent/{agent_name}/extensions",
+    tags=["Extensions"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_agent_extensions(agent_name: str, user=Depends(verify_api_key)):
+    ApiClient = get_api_client()
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    extensions = agent.get_agent_extensions()
+    return {"extensions": extensions}
+
+
 @app.post(
     "/api/agent/{agent_name}/command",
     tags=["Extensions"],

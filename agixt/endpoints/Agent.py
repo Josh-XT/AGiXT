@@ -24,11 +24,13 @@ from Models import (
     UrlInput,
     TTSInput,
     TaskPlanInput,
+    ChatCompletions,
 )
 import logging
 import base64
 import uuid
 import os
+from datetime import datetime
 
 app = APIRouter()
 
@@ -214,12 +216,24 @@ async def prompt_agent(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    if "conversation_name" not in agent_prompt.prompt_args:
+        conversation_name = datetime.now().strftime("%Y%m%d%H%M%S")
+        agent_prompt.prompt_args["log_user_input"] = False
+        agent_prompt.prompt_args["log_output"] = False
+    else:
+        conversation_name = agent_prompt.prompt_args["conversation_name"]
+        del agent_prompt.prompt_args["conversation_name"]
+    if "user_input" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["user_input"] = ""
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
-        conversation_name=agent_prompt.prompt_args["conversation_name"],
+        conversation_name=conversation_name,
     )
+    agent_prompt.prompt_args["prompt_name"] = agent_prompt.prompt_name
+    if "prompt_category" not in agent_prompt.prompt_args:
+        agent_prompt.prompt_args["prompt_category"] = "Default"
     logging.info(f"Initialized with conversation ID: {agent.conversation_id}")
     if "tts" in agent_prompt.prompt_args:
         agent_prompt.prompt_args["voice_response"] = (
@@ -235,10 +249,64 @@ async def prompt_agent(
         agent_prompt.prompt_args["injected_memories"] = 10
     if "conversation_results" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["conversation_results"] = 10
-    response = await agent.inference(
-        prompt=agent_prompt.prompt_name,
-        **agent_prompt.prompt_args,
+    prompt_args = agent_prompt.prompt_args.copy()
+    if "user_input" in prompt_args:
+        del prompt_args["user_input"]
+    messages = []
+    if "files" in agent_prompt.prompt_args:
+        file_list = agent_prompt.prompt_args["files"]
+        del agent_prompt.prompt_args["files"]
+        messages.append(
+            {
+                "role": "user",
+                **prompt_args,
+                "prompt_args": prompt_args,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            agent_prompt.prompt_args["user_input"]
+                            if "user_input" in agent_prompt.prompt_args
+                            else ""
+                        ),
+                    },
+                ],
+            }
+        )
+        for file in file_list:
+            file_type = file["file_name"].split(".")[-1]
+            content_type = "file_url"
+            if file_type == "wav":
+                content_type = "audio_url"
+            messages[0]["content"] += [
+                {
+                    "type": content_type,
+                    "file_name": file["file_name"] if "file_name" in file else "",
+                    "file_url": {"url": file["content"]},
+                }
+            ]
+    else:
+        messages = [
+            {
+                "role": "user",
+                **prompt_args,
+                "prompt_args": prompt_args,
+                "content": (
+                    agent_prompt.prompt_args["user_input"]
+                    if "user_input" in agent_prompt.prompt_args
+                    else ""
+                ),
+            }
+        ]
+    logging.info(f"Prompting agent '{agent_name}' with messages: {messages}")
+    response = await agent.chat_completions(
+        prompt=ChatCompletions(
+            model=agent_name,
+            user=conversation_name,
+            messages=messages,
+        )
     )
+    response = response["choices"][0]["message"]["content"]
     return {"response": str(response)}
 
 

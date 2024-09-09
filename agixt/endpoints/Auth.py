@@ -2,8 +2,7 @@ from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from Models import Detail, Login, UserInfo, Register
 from MagicalAuth import MagicalAuth, verify_api_key, is_agixt_admin
 from DB import get_session, User, UserPreferences
-from Agent import add_agent
-from ApiClient import get_api_client
+from agixtsdk import AGiXTSDK
 from Models import WebhookUser, WebhookModel
 from Globals import getenv
 import pyotp
@@ -115,49 +114,31 @@ def delete_user(
 
 # Webhook user creations from other applications
 @app.post("/api/user", tags=["User"])
-async def createuser(
-    account: WebhookUser,
-    authorization: str = Header(None),
-):
+async def createuser(account: WebhookUser):
     email = account.email.lower()
-    if not is_agixt_admin(email=email, api_key=authorization):
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    ApiClient = get_api_client(authorization=authorization)
-    session = get_session()
     agent_name = account.agent_name
     settings = account.settings
     commands = account.commands
     training_urls = account.training_urls
     github_repos = account.github_repos
     zip_file_content = account.zip_file_content
-    user_exists = session.query(User).filter_by(email=email).first()
+    sdk = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
+    user_exists = sdk.user_exists(email=email)
     if user_exists:
-        session.close()
         return {"status": "User already exists"}, 200
-    user = User(
-        email=email,
-        admin=False,
-        first_name="",
-        last_name="",
-    )
-    session.add(user)
-    session.commit()
-    session.close()
+    sdk.register_user(email=email, first_name="User", last_name="Name")
     if agent_name != "" and agent_name is not None:
-        add_agent(
+        sdk.add_agent(
             agent_name=agent_name,
-            provider_settings=settings,
+            settings=settings,
             commands=commands,
-            user=email,
+            training_urls=training_urls,
         )
-    if training_urls != []:
-        for url in training_urls:
-            ApiClient.learn_url(agent_name=agent_name, url=url)
     if github_repos != []:
         for repo in github_repos:
-            ApiClient.learn_github_repo(agent_name=agent_name, github_repo=repo)
+            sdk.learn_github_repo(agent_name=agent_name, github_repo=repo)
     if zip_file_content != "":
-        ApiClient.learn_file(
+        sdk.learn_file(
             agent_name=agent_name,
             file_name="training_data.zip",
             file_content=zip_file_content,
@@ -196,20 +177,19 @@ if getenv("STRIPE_WEBHOOK_SECRET") != "":
             user = session.query(User).filter_by(email=email).first()
             stripe_id = data["customer"]
             name = data["customer_details"]["name"]
-            status = data["payment_status"]
             if not user:
                 logging.debug("User not found.")
                 return {"success": "false"}
-            user_preferences = (
+            user_preference_stripe_id = (
                 session.query(UserPreferences)
-                .filter_by(user_id=user.id, pref_key="subscription")
+                .filter_by(user_id=user.id, pref_key="stripe_id")
                 .first()
             )
-            if not user_preferences:
-                user_preferences = UserPreferences(
-                    user_id=user.id, pref_key="subscription", pref_value=stripe_id
+            if not user_preference_stripe_id:
+                user_preference_stripe_id = UserPreferences(
+                    user_id=user.id, pref_key="stripe_id", pref_value=stripe_id
                 )
-                session.add(user_preferences)
+                session.add(user_preference_stripe_id)
                 session.commit()
             name = name.split(" ")
             user.is_active = True

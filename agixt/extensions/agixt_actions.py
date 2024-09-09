@@ -150,6 +150,9 @@ def parse_mindmap(mindmap):
 
 
 class agixt_actions(Extensions):
+    """
+    The AGiXT Actions extension contains commands that allow the AGiXT Agents to work with other agents and use pre-built chains to complete tasks.
+    """
     def __init__(self, **kwargs):
         self.commands = {
             "Create Task Chain": self.create_task_chain,
@@ -171,6 +174,7 @@ class agixt_actions(Extensions):
             "Convert a string to a Pydantic model": self.convert_string_to_pydantic_model,
             "Disable Command": self.disable_command,
             "Plan Multistep Task": self.plan_multistep_task,
+            "Replace init in File": self.replace_init_in_file,
         }
         user = kwargs["user"] if "user" in kwargs else "user"
         for chain in Chain(user=user).get_chains():
@@ -182,7 +186,11 @@ class agixt_actions(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.WORKING_DIRECTORY = os.path.join(os.getcwd(), "WORKSPACE")
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
         os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
         self.conversation_id = (
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""
@@ -527,15 +535,44 @@ class agixt_actions(Extensions):
                     # The "scheme" field provides more specific information
                     if "scheme" in scheme_details:
                         return scheme_details["scheme"]
-        return "basic"
+        return "Not provided from OpenAPI spec"
 
-    async def generate_openapi_chain(self, extension_name: str, openapi_json_url: str):
+    async def replace_init_in_file(self, filename: str, new_init: str):
+        """
+        Replace the __init__ method in a file
+
+        Args:
+        filename (str): The filename
+        new_init (str): The new __init__ method
+
+        Returns:
+        str: The new file content
+        """
+        with open(filename, "r") as f:
+            file_content = f.read()
+        new_init = new_init.replace("    def __init__", "def __init__")
+        new_file_content = re.sub(
+            r"def __init__\((.*?)\):.*?async def",
+            new_init,
+            file_content,
+        )
+        with open(filename, "w") as f:
+            f.write(new_file_content)
+        return new_file_content
+
+    async def generate_openapi_chain(
+        self,
+        extension_name: str,
+        openapi_json_url: str,
+        api_base_uri: str,
+    ):
         """
         Generate an AGiXT extension from an OpenAPI JSON URL
 
         Args:
         extension_name (str): The name of the extension
         openapi_json_url (str): The URL of the OpenAPI JSON file
+        api_base_uri (str): The base URI of the API
 
         Returns:
         str: The name of the created chain
@@ -547,6 +584,11 @@ class agixt_actions(Extensions):
         auth_type = self.get_auth_type(openapi_data=openapi_data)
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
+        chains = self.ApiClient.get_chains()
+        # Check if any chain with the same name already exists, if so, delete it
+        for chain in chains:
+            if chain["name"] == chain_name:
+                self.ApiClient.delete_chain(chain_name=chain_name)
         self.ApiClient.add_chain(chain_name=chain_name)
         i = 0
         for endpoint in endpoints:
@@ -624,7 +666,10 @@ class agixt_actions(Extensions):
         new_extension = new_extension.replace(
             "extension_functions", "STEP" + str(i - 1)
         )
-        new_extension = new_extension.replace("{auth_type}", auth_type)
+        new_extension = new_extension.replace("{base_uri}", api_base_uri)
+        new_extension = new_extension.replace(
+            "{upper_extension_name}", extension_name.upper()
+        )
         i += 1
         self.ApiClient.add_step(
             chain_name=chain_name,
@@ -635,6 +680,60 @@ class agixt_actions(Extensions):
                 "command_name": "Write to File",
                 "filename": f"{extension_name}.py",
                 "text": new_extension,
+            },
+        )
+        i += 1
+        self.ApiClient.add_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Read File",
+                "filename": f"{extension_name}.py",
+            },
+        )
+        i += 1
+        self.ApiClient.add_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Prompt",
+            prompt={
+                "prompt_name": "Get Auth Headers",
+                "prompt_args": {
+                    "extension_content": "{STEP" + str(i - 1) + "}",
+                    "extension_name": extension_name,
+                    "auth_type": auth_type,
+                    "user_input": f"{extension_name} API authentication headers",
+                    "websearch": True,
+                    "websearch_depth": 2,
+                    "analyze_user_input": False,
+                },
+            },
+        )
+        i += 1
+        self.ApiClient.add_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Indent String for Python Code",
+                "string": "{STEP" + str(i - 1) + "}",
+                "indents": 1,
+            },
+        )
+        i += 1
+        self.ApiClient.add_step(
+            chain_name=chain_name,
+            agent_name=self.agent_name,
+            step_number=i,
+            prompt_type="Command",
+            prompt={
+                "command_name": "Replace init in File",
+                "filename": f"{extension_name}.py",
+                "new_init": "{STEP" + str(i - 1) + "}",
             },
         )
         return chain_name
@@ -832,12 +931,15 @@ class agixt_actions(Extensions):
         filename (str): The filename
 
         Returns:
-        str: The preview of the CSV file consisting of the first 2 lines
+        str: The preview of the CSV file consisting of the first 2-5 lines
         """
         filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
         with open(filepath, "r") as f:
             lines = f.readlines()
-        lines = lines[:2]
+        if len(lines) > 5:
+            lines = lines[:5]
+        else:
+            lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
@@ -849,10 +951,13 @@ class agixt_actions(Extensions):
         text (str): The text
 
         Returns:
-        str: The preview of the CSV text consisting of the first 2 lines
+        str: The preview of the CSV text consisting of the first 2-5 lines
         """
         lines = text.split("\n")
-        lines = lines[:2]
+        if len(lines) > 5:
+            lines = lines[:5]
+        else:
+            lines = lines[:2]
         lines_string = "\n".join(lines)
         return lines_string
 
