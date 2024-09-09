@@ -54,6 +54,9 @@ class google(Extensions):
                         "Google - Get Calendar Items": self.get_calendar_items,
                         "Google - Add Calendar Item": self.add_calendar_item,
                         "Google - Remove Calendar Item": self.remove_calendar_item,
+                        "Google - Get Keep Notes": self.get_keep_notes,
+                        "Google - Create Keep Note": self.create_keep_note,
+                        "Google - Delete Keep Note": self.delete_keep_note,
                     }
         self.attachments_dir = (
             kwargs["conversation_directory"]
@@ -61,6 +64,7 @@ class google(Extensions):
             else "./WORKSPACE/attachments"
         )
         os.makedirs(self.attachments_dir, exist_ok=True)
+
 
     def authenticate(self):
         return self.google_auth.access_token
@@ -544,3 +548,56 @@ class google(Extensions):
         except Exception as e:
             logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."
+
+    async def get_keep_notes(self):
+        """
+        Get all notes from Google Keep
+
+        Returns:
+        List[Dict]: A list of note data
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            notes = service.notes().list().execute()
+            return notes.get("items", [])
+        except Exception as e:
+            logging.info(f"Error retrieving notes: {str(e)}")
+            return []
+
+    async def create_keep_note(self, title, content):
+        """
+        Create a new note in Google Keep
+
+        Args:
+        title (str): The title of the note
+        content (str): The content of the note
+
+        Returns:
+        str: The result of creating the note
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            note = {"title": title, "content": content}
+            service.notes().create(body=note).execute()
+            return "Note created successfully."
+        except Exception as e:
+            logging.info(f"Error creating note: {str(e)}")
+            return "Failed to create note."
+
+    async def delete_keep_note(self, note_id):
+        """
+        Delete a note from Google Keep
+
+        Args:
+        note_id (str): The ID of the note to delete
+
+        Returns:
+        str: The result of deleting the note
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            service.notes().delete(noteId=note_id).execute()
+            return "Note deleted successfully."
+        except Exception as e:
+            logging.info(f"Error deleting note: {str(e)}")
+            return "Failed to delete note."
