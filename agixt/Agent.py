@@ -447,6 +447,8 @@ class Agent:
         verbose_commands = f"## Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
         verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
         for extension in agent_extensions:
+            if extension["commands"] == []:
+                continue
             extension_name = extension["extension_name"]
             extension_description = extension["description"]
             verbose_commands += (
