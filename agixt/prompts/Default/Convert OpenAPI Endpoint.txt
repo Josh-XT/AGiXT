@@ -1,6 +1,23 @@
-Create an async Python function to interact with the API endpoint. The first parameter should be `self`. The base_uri can be found at `self.base_uri`. There is a requests session available at `self.session` that is already authenticated and has the necessary headers. Do not put it in a class. Do not add any imports, only the function. Any and all input variables and parameters for endpoint should also be input variables for the function.  The function should handle errors and return the json response.  Use `requests.exceptions.HTTPError` for error handling.
-
-API Endpoint:
+## API Endpoint Information
 ```json
 {api_endpoint_info}
 ```
+
+## Guidelines
+
+- Do not add any imports, the extension can be created with the already imported requests library.
+- Do not add the code in a class or tab out the code further than root level indentation, indentation is automatically handled.
+- Do not add imports to the code, it is being automatically appended to a file that already has the necessary imports.
+- Do not add placeholder code, only the function is required.
+- The first parameter in the function should be `self`. 
+- The base_uri can be found at `self.base_uri` and should be referenced as the base url for the endpoint.
+- There is a requests session available at `self.session` that is already authenticated and has the necessary authentication headers.
+- Any and all input variables and parameters for endpoint should also be input variables for the function.
+- The function should handle errors and return the json response.  Use `requests.exceptions.HTTPError` for error handling.
+- The function should have a name in snake case that describes the functionality of the endpoint.
+- The function should have a docustring that describes the functionality and usage for the function.
+- The function should start with `async def` and use `await` for the requests.
+- The function should not use asyncio or any other async library, only the requests library.
+- The function should be in a Python markdown code block.
+
+Using the API Endpoint Information, create an async Python function to interact with the API endpoint.

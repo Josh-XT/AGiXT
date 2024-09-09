@@ -142,7 +142,7 @@ services:
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
       TZ: ${TZ:-America/New_York}
     ports:
-      - 7437:7437
+      - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
       - ./agixt/WORKSPACE:/agixt/WORKSPACE
@@ -228,7 +228,7 @@ services:
     volumes:
       - ./WORKSPACE:/app/WORKSPACE
     ports:
-      - "8501:8501"
+      - "${AGIXT_STREAMLIT_PORT:-8501}:8501"
   agixtinteractive:
     image: joshxt/agixt-interactive:main
     init: true
@@ -307,6 +307,8 @@ services:
       STACKEXCHANGE_CLIENT_ID: ${STACKEXCHANGE_CLIENT_ID}
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID}
       STRIPE_CLIENT_ID: ${STRIPE_CLIENT_ID}
+      STRIPE_PRICING_TABLE_ID: ${STRIPE_PRICING_TABLE_ID}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
       VIADEO_CLIENT_ID: ${VIADEO_CLIENT_ID}
       VIMEO_CLIENT_ID: ${VIMEO_CLIENT_ID}
@@ -324,7 +326,7 @@ services:
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
       TZ: ${TZ:-America/New_York}
     ports:
-      - 3437:3437
+      - "${AGIXT_INTERACTIVE_PORT:-3437}:3437"
     restart: unless-stopped
     volumes:
       - ./node_modules:/app/node_modules

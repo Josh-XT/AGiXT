@@ -1,15 +1,13 @@
-from ezsession import get_session
 from Extensions import Extensions
-import aiohttp
 import json
 import requests
-import aiohttp
-import json
 
 class {extension_name}(Extensions):
-    def __init__(self, **kwargs):
-        kwargs['type'] = '{auth_type}'
-        self.session = get_session(**kwargs)
+    def __init__(self, {upper_extension_name}_API_KEY, **kwargs):
+        self.api_key = {upper_extension_name}_API_KEY
+        self.base_uri = "{base_uri}"
+        self.session = requests.Session()
+        self.session.headers["Authorization"] = "Bearer " + self.api_key
         {extension_commands}
 
 {extension_functions}

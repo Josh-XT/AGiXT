@@ -1,4 +1,5 @@
 import os
+import json
 import tiktoken
 from dotenv import load_dotenv
 
@@ -44,61 +45,72 @@ def get_tokens(text: str) -> int:
     return num_tokens
 
 
-DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
+def get_default_agent_settings():
+    if os.path.exists("default_agent.json"):
+        with open("default_agent.json", "r") as f:
+            agent_config = json.load(f)
+            if "settings" in agent_config:
+                return agent_config["settings"]
+    if getenv("EZLOCALAI_API_KEY") == "":
+        agent_settings = {
+            "provider": "gpt4free",
+            "mode": "prompt",
+            "prompt_category": "Default",
+            "prompt_name": "Chat",
+            "embeddings_provider": "default",
+            "tts_provider": "None",
+            "transcription_provider": "default",
+            "translation_provider": "default",
+            "image_provider": "None",
+            "vision_provider": "None",
+            "AI_MODEL": "gpt-3.5-turbo",
+            "AI_TEMPERATURE": "0.7",
+            "AI_TOP_P": "1",
+            "MAX_TOKENS": "4096",
+            "helper_agent_name": "gpt4free",
+            "analyze_user_input": False,
+            "websearch": False,
+            "websearch_depth": 2,
+            "WEBSEARCH_TIMEOUT": 0,
+            "WAIT_BETWEEN_REQUESTS": 1,
+            "WAIT_AFTER_FAILURE": 3,
+            "context_results": 10,
+            "conversation_results": 6,
+            "persona": "",
+        }
+    else:
+        agent_settings = {
+            "provider": "ezlocalai",
+            "tts_provider": "ezlocalai",
+            "transcription_provider": "ezlocalai",
+            "translation_provider": "ezlocalai",
+            "embeddings_provider": "default",
+            "image_provider": "None",
+            "vision_provider": "ezlocalai",
+            "EZLOCALAI_API_KEY": getenv("EZLOCALAI_API_KEY"),
+            "AI_MODEL": "ezlocalai",
+            "EZLOCALAI_API_URI": getenv("EZLOCALAI_URI"),
+            "TRANSCRIPTION_MODEL": "base",
+            "MAX_TOKENS": int(getenv("LLM_MAX_TOKENS")),
+            "AI_TEMPERATURE": 1.2,
+            "AI_TOP_P": 0.95,
+            "VOICE": "Morgan_Freeman",
+            "mode": "prompt",
+            "prompt_name": "Chat with Commands",
+            "prompt_category": "Default",
+            "helper_agent_name": "gpt4free",
+            "analyze_user_input": False,
+            "websearch": False,
+            "websearch_depth": 2,
+            "WEBSEARCH_TIMEOUT": 0,
+            "WAIT_BETWEEN_REQUESTS": 1,
+            "WAIT_AFTER_FAILURE": 3,
+            "context_results": 10,
+            "conversation_results": 6,
+            "persona": "",
+        }
+    return agent_settings
 
-if getenv("EZLOCALAI_API_KEY") == "":
-    DEFAULT_SETTINGS = {
-        "provider": "gpt4free",
-        "mode": "prompt",
-        "prompt_category": "Default",
-        "prompt_name": "Chat",
-        "embeddings_provider": "default",
-        "tts_provider": "None",
-        "transcription_provider": "default",
-        "translation_provider": "default",
-        "image_provider": "None",
-        "vision_provider": "None",
-        "AI_MODEL": "gpt-3.5-turbo",
-        "AI_TEMPERATURE": "0.7",
-        "AI_TOP_P": "1",
-        "MAX_TOKENS": "4096",
-        "helper_agent_name": "gpt4free",
-        "websearch": False,
-        "websearch_depth": 2,
-        "WEBSEARCH_TIMEOUT": 0,
-        "WAIT_BETWEEN_REQUESTS": 1,
-        "WAIT_AFTER_FAILURE": 3,
-        "context_results": 10,
-        "conversation_results": 6,
-        "persona": "",
-    }
-else:
-    DEFAULT_SETTINGS = {
-        "provider": "ezlocalai",
-        "tts_provider": "ezlocalai",
-        "transcription_provider": "ezlocalai",
-        "translation_provider": "ezlocalai",
-        "embeddings_provider": "default",
-        "image_provider": "None",
-        "vision_provider": "ezlocalai",
-        "EZLOCALAI_API_KEY": getenv("EZLOCALAI_API_KEY"),
-        "AI_MODEL": "ezlocalai",
-        "EZLOCALAI_API_URI": getenv("EZLOCALAI_URI"),
-        "TRANSCRIPTION_MODEL": "base",
-        "MAX_TOKENS": int(getenv("LLM_MAX_TOKENS")),
-        "AI_TEMPERATURE": 1.2,
-        "AI_TOP_P": 0.95,
-        "VOICE": "Morgan_Freeman",
-        "mode": "prompt",
-        "prompt_name": "Chat with Commands",
-        "prompt_category": "Default",
-        "helper_agent_name": "gpt4free",
-        "websearch": False,
-        "websearch_depth": 2,
-        "WEBSEARCH_TIMEOUT": 0,
-        "WAIT_BETWEEN_REQUESTS": 1,
-        "WAIT_AFTER_FAILURE": 3,
-        "context_results": 10,
-        "conversation_results": 6,
-        "persona": "",
-    }
+
+DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
+DEFAULT_SETTINGS = get_default_agent_settings()

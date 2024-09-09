@@ -11,6 +11,8 @@ import email
 from base64 import urlsafe_b64decode
 import logging
 from Extensions import Extensions
+from MagicalAuth import MagicalAuth
+from Globals import getenv
 
 try:
     from googleapiclient.discovery import build
@@ -20,71 +22,51 @@ except:
     )
     from googleapiclient.discovery import build
 
-try:
-    from google_auth_oauthlib.flow import InstalledAppFlow
-except:
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "google-auth-oauthlib"]
-    )
-    from google_auth_oauthlib.flow import InstalledAppFlow
-
 
 class google(Extensions):
+    """
+    The Google extension provides functions to interact with Google services such as Gmail and Google Calendar. It uses logged in user's Google account to perform actions like sending emails, moving emails to folders, creating draft emails, deleting emails, searching emails, replying to emails, processing attachments, getting calendar items, adding calendar items, and removing calendar items if the user signed in with Google.
+    """
+
     def __init__(
         self,
-        GOOGLE_CLIENT_ID: str = "",
-        GOOGLE_CLIENT_SECRET: str = "",
-        GOOGLE_PROJECT_ID: str = "",
-        GOOGLE_API_KEY: str = "",
-        GOOGLE_SEARCH_ENGINE_ID: str = "",
         **kwargs,
     ):
-        self.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
-        self.GOOGLE_CLIENT_SECRET = GOOGLE_CLIENT_SECRET
-        self.GOOGLE_PROJECT_ID = GOOGLE_PROJECT_ID
-        self.GOOGLE_API_KEY = GOOGLE_API_KEY
-        self.GOOGLE_SEARCH_ENGINE_ID = GOOGLE_SEARCH_ENGINE_ID
-        self.attachments_dir = "./WORKSPACE/email_attachments/"
+        api_key = kwargs["api_key"] if "api_key" in kwargs else None
+        self.google_auth = None
+        self.commands = {}
+        if api_key:
+            google_client_id = getenv("GOOGLE_CLIENT_ID")
+            google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
+            if google_client_id and google_client_secret:
+                auth = MagicalAuth(token=api_key)
+                self.google_auth = auth.get_oauth_functions("google")
+                if self.google_auth.access_token:
+                    self.commands = {
+                        "Google - Get Emails": self.get_emails,
+                        "Google - Send Email": self.send_email,
+                        "Google - Move Email to Folder": self.move_email_to_folder,
+                        "Google - Create Draft Email": self.create_draft_email,
+                        "Google - Delete Email": self.delete_email,
+                        "Google - Search Emails": self.search_emails,
+                        "Google - Reply to Email": self.reply_to_email,
+                        "Google - Process Attachments": self.process_attachments,
+                        "Google - Get Calendar Items": self.get_calendar_items,
+                        "Google - Add Calendar Item": self.add_calendar_item,
+                        "Google - Remove Calendar Item": self.remove_calendar_item,
+                        "Google - Get Keep Notes": self.get_keep_notes,
+                        "Google - Create Keep Note": self.create_keep_note,
+                        "Google - Delete Keep Note": self.delete_keep_note,
+                    }
+        self.attachments_dir = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else "./WORKSPACE/attachments"
+        )
         os.makedirs(self.attachments_dir, exist_ok=True)
-        self.commands = {
-            "Google - Get Emails": self.get_emails,
-            "Google - Send Email": self.send_email,
-            "Google - Move Email to Folder": self.move_email_to_folder,
-            "Google - Create Draft Email": self.create_draft_email,
-            "Google - Delete Email": self.delete_email,
-            "Google - Search Emails": self.search_emails,
-            "Google - Reply to Email": self.reply_to_email,
-            "Google - Process Attachments": self.process_attachments,
-            "Google - Get Calendar Items": self.get_calendar_items,
-            "Google - Add Calendar Item": self.add_calendar_item,
-            "Google - Remove Calendar Item": self.remove_calendar_item,
-        }
 
     def authenticate(self):
-        try:
-            flow = InstalledAppFlow.from_client_config(
-                client_config={
-                    "installed": {
-                        "client_id": self.GOOGLE_CLIENT_ID,
-                        "project_id": self.GOOGLE_PROJECT_ID,
-                        "client_secret": self.GOOGLE_CLIENT_SECRET,
-                        "redirect_uris": ["http://localhost"],
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                    }
-                },
-                scopes=[
-                    "https://www.googleapis.com/auth/gmail.send",
-                    "https://www.googleapis.com/auth/calendar",
-                    "https://www.googleapis.com/auth/calendar.events",
-                ],
-            )
-            creds = flow.run_local_server(port=0)
-            return creds
-        except Exception as e:
-            print(f"Error authenticating: {str(e)}")
-            return None
+        return self.google_auth.access_token
 
     async def get_emails(self, query=None, max_emails=10):
         """
@@ -98,7 +80,12 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             result = (
                 service.users()
                 .messages()
@@ -136,55 +123,8 @@ class google(Extensions):
             logging.info(f"Error retrieving emails: {str(e)}")
             return []
 
-    async def send_email(self, recipient, subject, body, attachments=None):
-        """
-        Send an email using the user's Gmail account
-
-        Args:
-        recipient (str): The email address of the recipient
-        subject (str): The subject of the email
-        body (str): The body of the email
-        attachments (List[str]): A list of file paths to attach to the email
-
-        Returns:
-        str: The result of sending the email
-        """
-        try:
-            service = build("gmail", "v1", credentials=self.authenticate())
-
-            message = MIMEMultipart()
-            message["to"] = recipient
-            message["subject"] = subject
-
-            msg = MIMEText(body)
-            message.attach(msg)
-
-            if attachments:
-                for attachment in attachments:
-                    content_type, encoding = mimetypes.guess_type(attachment)
-
-                    if content_type is None or encoding is not None:
-                        content_type = "application/octet-stream"
-
-                    main_type, sub_type = content_type.split("/", 1)
-                    with open(attachment, "rb") as fp:
-                        msg = MIMEApplication(fp.read(), _subtype=sub_type)
-
-                    msg.add_header(
-                        "Content-Disposition",
-                        "attachment",
-                        filename=os.path.basename(attachment),
-                    )
-                    message.attach(msg)
-
-            raw = urlsafe_b64encode(message.as_bytes()).decode()
-            body = {"raw": raw}
-            service.users().messages().send(userId="me", body=body).execute()
-
-            return "Email sent successfully."
-        except Exception as e:
-            logging.info(f"Error sending email: {str(e)}")
-            return "Failed to send email."
+    async def send_email(self, to, subject, message_text):
+        self.google_auth.send_email(to, subject, message_text)
 
     async def move_email_to_folder(self, message_id, folder_name):
         """
@@ -198,7 +138,12 @@ class google(Extensions):
         str: The result of moving the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             folders = service.users().labels().list(userId="me").execute()
             folder_id = next(
@@ -243,7 +188,12 @@ class google(Extensions):
         str: The result of creating the draft email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             message = MIMEMultipart()
             message["to"] = recipient
@@ -290,7 +240,12 @@ class google(Extensions):
         str: The result of deleting the email
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             service.users().messages().delete(userId="me", id=message_id).execute()
             return "Email deleted successfully."
         except Exception as e:
@@ -309,7 +264,12 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             result = (
                 service.users()
                 .messages()
@@ -360,7 +320,12 @@ class google(Extensions):
         str: The result of sending the reply
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             message = (
                 service.users()
                 .messages()
@@ -417,7 +382,12 @@ class google(Extensions):
         List[str]: A list of file paths to the saved attachments
         """
         try:
-            service = build("gmail", "v1", credentials=self.authenticate())
+            service = build(
+                "gmail",
+                "v1",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             message = (
                 service.users().messages().get(userId="me", id=message_id).execute()
             )
@@ -460,7 +430,12 @@ class google(Extensions):
         List[Dict]: A list of calendar item data
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             if start_date is None:
                 start_date = datetime.utcnow().isoformat() + "Z"
@@ -520,7 +495,12 @@ class google(Extensions):
         str: The result of adding the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
 
             event = {
                 "summary": subject,
@@ -556,9 +536,67 @@ class google(Extensions):
         str: The result of removing the calendar item
         """
         try:
-            service = build("calendar", "v3", credentials=self.authenticate())
+            service = build(
+                "calendar",
+                "v3",
+                credentials=self.authenticate(),
+                always_use_jwt_access=True,
+            )
             service.events().delete(calendarId="primary", eventId=item_id).execute()
             return "Calendar item removed successfully."
         except Exception as e:
             logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."
+
+    async def get_keep_notes(self):
+        """
+        Get all notes from Google Keep
+
+        Returns:
+        List[Dict]: A list of note data
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            notes = service.notes().list().execute()
+            return notes.get("items", [])
+        except Exception as e:
+            logging.info(f"Error retrieving notes: {str(e)}")
+            return []
+
+    async def create_keep_note(self, title, content):
+        """
+        Create a new note in Google Keep
+
+        Args:
+        title (str): The title of the note
+        content (str): The content of the note
+
+        Returns:
+        str: The result of creating the note
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            note = {"title": title, "content": content}
+            service.notes().create(body=note).execute()
+            return "Note created successfully."
+        except Exception as e:
+            logging.info(f"Error creating note: {str(e)}")
+            return "Failed to create note."
+
+    async def delete_keep_note(self, note_id):
+        """
+        Delete a note from Google Keep
+
+        Args:
+        note_id (str): The ID of the note to delete
+
+        Returns:
+        str: The result of deleting the note
+        """
+        try:
+            service = build("keep", "v1", credentials=self.authenticate())
+            service.notes().delete(noteId=note_id).execute()
+            return "Note deleted successfully."
+        except Exception as e:
+            logging.info(f"Error deleting note: {str(e)}")
+            return "Failed to delete note."

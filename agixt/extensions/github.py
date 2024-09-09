@@ -60,6 +60,11 @@ class github(Extensions):
         else:
             self.gh = None
         self.failures = 0
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
 
     async def clone_repo(self, repo_url: str) -> str:
         """
@@ -156,7 +161,7 @@ class github(Extensions):
         lua_files = []
 
         for root, dirs, files in os.walk(
-            os.path.join(os.getcwd(), "WORKSPACE", repo_name)
+            os.path.join(self.WORKING_DIRECTORY, repo_name)
         ):
             for file in files:
                 if file.endswith(".py"):
@@ -178,7 +183,7 @@ class github(Extensions):
                 elif file.endswith(".lua"):
                     lua_files.append(os.path.join(root, file))
 
-        output_file = os.path.join(os.getcwd(), "WORKSPACE", f"{repo_name}.md")
+        output_file = os.path.join(self.WORKING_DIRECTORY, f"{repo_name}.md")
         if os.path.exists(output_file):
             os.remove(output_file)
 

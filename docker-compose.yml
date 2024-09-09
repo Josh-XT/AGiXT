@@ -140,7 +140,7 @@ services:
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
       TZ: ${TZ:-America/New_York}
     ports:
-      - 7437:7437
+      - "${AGIXT_PORT:-7437}:7437"
     volumes:
       - ./models:/agixt/models
       - ./WORKSPACE:/agixt/WORKSPACE
@@ -226,7 +226,7 @@ services:
     volumes:
       - ./agixt/WORKSPACE:/app/WORKSPACE
     ports:
-      - "8501:8501"
+      - "${AGIXT_STREAMLIT_PORT:-8501}:8501"
   agixtinteractive:
     image: joshxt/agixt-interactive:latest
     init: true
@@ -322,7 +322,7 @@ services:
       ZENDESK_SUBDOMAIN: ${ZENDESK_SUBDOMAIN}
       TZ: ${TZ:-America/New_York}
     ports:
-      - 3437:3437
+      - "${AGIXT_INTERACTIVE_PORT:-3437}:3437"
     restart: unless-stopped
     volumes:
       - ./node_modules:/app/node_modules

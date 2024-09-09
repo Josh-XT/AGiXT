@@ -158,6 +158,9 @@ class Extensions:
             "enabled_commands": self.get_enabled_commands(),
             "ApiClient": self.ApiClient,
             "api_key": self.api_key,
+            "conversation_directory": os.path.join(
+                os.getcwd(), "WORKSPACE", self.agent_id, self.conversation_id
+            ),
             **self.agent_config["settings"],
         }
         command_function, module, params = self.find_command(command_name=command_name)
@@ -211,6 +214,10 @@ class Extensions:
             command_class = getattr(module, module_name.lower())()
             extension_name = command_file.split("/")[-1].split(".")[0]
             extension_name = extension_name.replace("_", " ").title()
+            try:
+                extension_description = inspect.getdoc(command_class)
+            except:
+                extension_description = extension_name
             constructor = inspect.signature(command_class.__init__)
             params = constructor.parameters
             extension_settings = [
@@ -224,9 +231,14 @@ class Extensions:
                         command_function,
                     ) in command_class.commands.items():
                         params = self.get_command_params(command_function)
+                        try:
+                            command_description = inspect.getdoc(command_function)
+                        except:
+                            command_description = command_name
                         extension_commands.append(
                             {
                                 "friendly_name": command_name,
+                                "description": command_description,
                                 "command_name": command_function.__name__,
                                 "command_args": params,
                             }
@@ -236,7 +248,7 @@ class Extensions:
             commands.append(
                 {
                     "extension_name": extension_name,
-                    "description": extension_name,
+                    "description": extension_description,
                     "settings": extension_settings,
                     "commands": extension_commands,
                 }

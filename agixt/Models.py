@@ -249,6 +249,11 @@ class RenameConversationModel(BaseModel):
     new_conversation_name: Optional[str] = "-"
 
 
+class ConversationFork(BaseModel):
+    conversation_name: str
+    message_id: str
+
+
 class TTSInput(BaseModel):
     text: str
 
