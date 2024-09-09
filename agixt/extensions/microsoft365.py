@@ -37,6 +37,10 @@ class microsoft365(Extensions):
                         "Microsoft - Get Calendar Items": self.get_calendar_items,
                         "Microsoft - Add Calendar Item": self.add_calendar_item,
                         "Microsoft - Remove Calendar Item": self.remove_calendar_item,
+                        "Microsoft - Get Todo Tasks": self.get_todo_tasks,
+                        "Microsoft - Create Todo Task": self.create_todo_task,
+                        "Microsoft - Update Todo Task": self.update_todo_task,
+                        "Microsoft - Delete Todo Task": self.delete_todo_task,
                     }
         self.attachments_dir = (
             kwargs["conversation_directory"]
@@ -379,3 +383,106 @@ class microsoft365(Extensions):
         except Exception as e:
             logging.info(f"Error removing calendar item: {str(e)}")
             return "Failed to remove calendar item."
+
+    async def get_todo_tasks(self, max_tasks=10):
+        """
+        Get Todo tasks from the Microsoft 365 account
+
+        Args:
+        max_tasks (int): The maximum number of tasks to retrieve
+
+        Returns:
+        list: A list of dictionaries containing task data
+        """
+        try:
+            account = self.authenticate()
+            todo = account.todo()
+            tasks = todo.get_tasks(top=max_tasks)
+            todo_tasks = []
+            for task in tasks:
+                task_data = {
+                    "id": task.object_id,
+                    "title": task.title,
+                    "body": task.body,
+                    "due_date": task.due_date,
+                    "completed": task.is_completed,
+                }
+                todo_tasks.append(task_data)
+            return todo_tasks
+        except Exception as e:
+            logging.info(f"Error retrieving Todo tasks: {str(e)}")
+            return []
+
+    async def create_todo_task(self, title, body, due_date):
+        """
+        Create a new Todo task in the Microsoft 365 account
+
+        Args:
+        title (str): The title of the task
+        body (str): The body of the task
+        due_date (datetime): The due date of the task
+
+        Returns:
+        str: The result of creating the task
+        """
+        try:
+            account = self.authenticate()
+            todo = account.todo()
+            new_task = todo.new_task()
+            new_task.title = title
+            new_task.body = body
+            new_task.due_date = due_date
+            new_task.save()
+            return "Todo task created successfully."
+        except Exception as e:
+            logging.info(f"Error creating Todo task: {str(e)}")
+            return "Failed to create Todo task."
+
+    async def update_todo_task(self, task_id, title=None, body=None, due_date=None):
+        """
+        Update a Todo task in the Microsoft 365 account
+
+        Args:
+        task_id (str): The ID of the task to update
+        title (str): The new title of the task
+        body (str): The new body of the task
+        due_date (datetime): The new due date of the task
+
+        Returns:
+        str: The result of updating the task
+        """
+        try:
+            account = self.authenticate()
+            todo = account.todo()
+            task = todo.get_task(task_id)
+            if title:
+                task.title = title
+            if body:
+                task.body = body
+            if due_date:
+                task.due_date = due_date
+            task.save()
+            return "Todo task updated successfully."
+        except Exception as e:
+            logging.info(f"Error updating Todo task: {str(e)}")
+            return "Failed to update Todo task."
+
+    async def delete_todo_task(self, task_id):
+        """
+        Delete a Todo task from the Microsoft 365 account
+
+        Args:
+        task_id (str): The ID of the task to delete
+
+        Returns:
+        str: The result of deleting the task
+        """
+        try:
+            account = self.authenticate()
+            todo = account.todo()
+            task = todo.get_task(task_id)
+            task.delete()
+            return "Todo task deleted successfully."
+        except Exception as e:
+            logging.info(f"Error deleting Todo task: {str(e)}")
+            return "Failed to delete Todo task."
