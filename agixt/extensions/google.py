@@ -65,7 +65,6 @@ class google(Extensions):
         )
         os.makedirs(self.attachments_dir, exist_ok=True)
 
-
     def authenticate(self):
         return self.google_auth.access_token
 
