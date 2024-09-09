@@ -456,7 +456,7 @@ class Agent:
                 command_friendly_name = command["friendly_name"]
                 command_description = command["description"]
                 verbose_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
-                command_args = json.dumps(command["args"])
+                command_args = json.dumps(command["command_args"])
                 command_args = command_args.replace(
                     '""',
                     '"The assistant will fill in the value based on relevance to the conversation."',
