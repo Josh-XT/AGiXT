@@ -393,7 +393,9 @@ class agixt_actions(Extensions):
                 agent_name=self.agent_name,
                 user_input=f"Task List:\n{string_task_list}\nPrimary Objective to keep in mind while working on the task: {primary_objective} \nAll tasks on the list are being planned and completed separately. Assume all steps prior have been completed. The only task to complete to move towards the objective: {task}",
             )
-            logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to chain")
+            logging.info(
+                f"[TASK CHAIN GENERATOR] Smart Prompt for Step {i}: {response}"
+            )
             i += 1
             if smart_chain:
                 if researching:
