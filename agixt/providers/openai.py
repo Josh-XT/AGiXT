@@ -50,6 +50,7 @@ class OpenaiProvider:
             TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "whisper-1"
         )
         self.FAILURES = []
+        self.failures = 0
         try:
             self.embedder = OpenAIEmbeddingFunction(
                 model_name="text-embedding-3-small",
@@ -142,6 +143,9 @@ class OpenaiProvider:
             return response.choices[0].message.content
         except Exception as e:
             logging.info(f"OpenAI API Error: {e}")
+            self.failures += 1
+            if self.failures > 3:
+                return "OpenAI API Error: Too many failures."
             if "," in self.API_URI:
                 self.rotate_uri()
             if int(self.WAIT_AFTER_FAILURE) > 0:
