@@ -20,7 +20,7 @@ Follow the instructions for setting up ezLocalai at <https://github.com/DevXT-LL
 2. Set `EZLOCALAI_API_KEY` to your API key that you set up with ezLocalai.
 3. Set `EZLOCALAI_API_URL` to the URL that you set up with ezLocalai. The default is `http://YOUR LOCAL IP:8091`.
 4. Set `AI_MODEL` to whichever model you are running with `ezlocalai`.
-5. Set `MAX_TOKENS` to the maximum number of tokens you want the model to generate.
+5. Set `MAX_TOKENS` to the maximum number of input tokens.
 6. Set `AI_TEMPERATURE` to the temperature you want to use for generation. This is a float value between 0 and 1. The default is `1.33`.
 7. Set `AI_TOP_P` to the top_p value you want to use for generation. This is a float value between 0 and 1. The default is `0.95`.
 8. Set `VOICE` to the voice you want to use for the generated audio. The default is `DukeNukem`. You can add cloning TTS voices to `ezlocalai` by putting any ~10 second wav file in the `voices` directory of the `ezlocalai` repository and then setting the `VOICE` variable to the name of the file without the `.wav` extension.
