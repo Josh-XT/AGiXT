@@ -27,6 +27,7 @@ class AzureProvider:
         self.WAIT_BETWEEN_REQUESTS = (
             WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
         )
+        self.failures = 0
 
     @staticmethod
     def services():
@@ -39,6 +40,7 @@ class AzureProvider:
             api_key=self.AZURE_API_KEY,
             api_version="2024-02-01",
             azure_endpoint=self.AZURE_OPENAI_ENDPOINT,
+            azure_deployment=self.AI_MODEL,
         )
         if self.AZURE_API_KEY == "" or self.AZURE_API_KEY == "YOUR_API_KEY":
             if self.AZURE_OPENAI_ENDPOINT == "https://your-endpoint.openai.azure.com":
@@ -87,6 +89,9 @@ class AzureProvider:
             return response.choices[0].message.content
         except Exception as e:
             logging.warning(f"Azure OpenAI API Error: {e}")
+            self.failures += 1
+            if self.failures > 3:
+                return "Azure OpenAI API Error: Too many failures."
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
                 return await self.inference(prompt=prompt, tokens=tokens)
