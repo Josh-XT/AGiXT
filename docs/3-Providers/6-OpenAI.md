@@ -7,10 +7,12 @@
 
 ## Quick Start Guide
 
+- Instructions for setting up an OpenAI API key can be found [here](https://platform.openai.com/docs/quickstart).
+
 ### Update your agent settings
 
 1. Set `AI_PROVIDER` to `openai`.
 2. Set `OPENAI_API_KEY` to your OpenAI API key.
-3. Set `AI_MODEL` to `gpt-3.5-turbo` for ChatGPT.
+3. Set `AI_MODEL` to `gpt-4o` or your preferred OpenAI model.
 4. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-5. Set `MAX_TOKENS` to the maximum number of tokens to generate. The higher the value, the longer the output.  The maximum for `gpt-3.5-turbo` is 4000, `gpt-4` is 8000, `gpt-3.5-turbo-16k` is 16000.
+5. Set `MAX_TOKENS` to the maximum number of input tokens. `gpt-4o` allows up to `120000` input tokens.

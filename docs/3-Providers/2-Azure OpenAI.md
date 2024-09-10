@@ -7,7 +7,7 @@
 
 ## Quick Start Guide
 
-- [Instructions for setting up Azure OpenAI .](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal)
+- Instructions for setting up an Azure OpenAI Deployment can be found [here](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource?pivots=web-portal).
 
 ### Update your agent settings
 
@@ -16,4 +16,4 @@
 3. Set `AZURE_OPENAI_ENDPOINT` to your Azure OpenAI endpoint.
 4. Set `AZURE_DEPLOYMENT_NAME` to your Azure OpenAI deployment ID for your primary model.
 5. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-6. Set `MAX_TOKENS` to the maximum number of input tokens. `gpt-4o` allows up to `120,000` input tokens.
+6. Set `MAX_TOKENS` to the maximum number of input tokens. `gpt-4o` allows up to `120000` input tokens.
