@@ -6,9 +6,9 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
     import anthropic
-
 import httpx
 import base64
+import time
 
 
 # List of models available at https://docs.anthropic.com/claude/docs/models-overview
@@ -22,6 +22,8 @@ class ClaudeProvider:
         AI_TEMPERATURE: float = 0.7,
         GOOGLE_VERTEX_REGION: str = "europe-west1",
         GOOGLE_VERTEX_PROJECT_ID: str = "",  # Leave empty if using Anthropic service
+        WAIT_BETWEEN_REQUESTS: int = 1,
+        WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
@@ -30,6 +32,11 @@ class ClaudeProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
         self.GOOGLE_VERTEX_REGION = GOOGLE_VERTEX_REGION
         self.GOOGLE_VERTEX_PROJECT_ID = GOOGLE_VERTEX_PROJECT_ID
+        self.WAIT_BETWEEN_REQUESTS = (
+            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
+        )
+        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+        self.failures = 0
 
     @staticmethod
     def services():
@@ -43,6 +50,7 @@ class ClaudeProvider:
             return (
                 "Please go to the Agent Management page to set your Anthropic API key."
             )
+
         messages = []
         if images:
             for image in images:
@@ -77,6 +85,7 @@ class ClaudeProvider:
                 )
         else:
             messages.append({"role": "user", "content": prompt})
+
         if self.GOOGLE_VERTEX_PROJECT_ID != "":
             c = anthropic.AnthropicVertex(
                 access_token=self.ANTHROPIC_API_KEY,
@@ -85,6 +94,10 @@ class ClaudeProvider:
             )
         else:
             c = anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
+
+        if int(self.WAIT_BETWEEN_REQUESTS) > 0:
+            time.sleep(int(self.WAIT_BETWEEN_REQUESTS))
+
         try:
             response = c.messages.create(
                 messages=messages,
@@ -93,4 +106,10 @@ class ClaudeProvider:
             )
             return response.content[0].text
         except Exception as e:
+            self.failures += 1
+            if self.failures > 3:
+                return "Claude API Error: Too many failures."
+            if int(self.WAIT_AFTER_FAILURE) > 0:
+                time.sleep(int(self.WAIT_AFTER_FAILURE))
+                return await self.inference(prompt=prompt, tokens=tokens, images=images)
             return f"Claude Error: {e}"
