@@ -202,7 +202,10 @@ class agixt_actions(Extensions):
         self.ApiClient = (
             kwargs["ApiClient"]
             if "ApiClient" in kwargs
-            else AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=kwargs["api_key"])
+            else AGiXTSDK(
+                base_uri=getenv("AGIXT_URI"),
+                api_key=kwargs["api_key"] if "api_key" in kwargs else "",
+            )
         )
         self.failures = 0
 
