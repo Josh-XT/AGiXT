@@ -11,6 +11,8 @@ from ApiClient import Chain
 import logging
 import docker
 import asyncio
+from agixtsdk import AGiXTSDK
+from Globals import getenv
 
 
 def install_docker_image():
@@ -197,7 +199,11 @@ class agixt_actions(Extensions):
             kwargs["conversation_id"] if "conversation_id" in kwargs else ""
         )
 
-        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
+        self.ApiClient = (
+            kwargs["ApiClient"]
+            if "ApiClient" in kwargs
+            else AGiXTSDK(base_uri=getenv("AGIXT_URI"), api_key=kwargs["api_key"])
+        )
         self.failures = 0
 
     async def read_file_content(self, file_path: str):
@@ -329,7 +335,6 @@ class agixt_actions(Extensions):
 
     async def create_task_chain(
         self,
-        agent: str,
         primary_objective: str,
         numbered_list_of_tasks: str,
         short_chain_description: str,
@@ -340,7 +345,6 @@ class agixt_actions(Extensions):
         Create a task chain from a numbered list of tasks
 
         Args:
-        agent (str): The agent to create the task chain for
         primary_objective (str): The primary objective to keep in mind while working on the task
         numbered_list_of_tasks (str): The numbered list of tasks to complete
         short_chain_description (str): A short description of the chain
@@ -350,6 +354,15 @@ class agixt_actions(Extensions):
         Returns:
         str: The name of the created chain
         """
+        logging.info(f"[TASK CHAIN GENERATOR] Primary Objective: {primary_objective}")
+        logging.info(
+            f"[TASK CHAIN GENERATOR] Numbered List of Tasks: {numbered_list_of_tasks}"
+        )
+        logging.info(
+            f"[TASK CHAIN GENERATOR] Short Chain Description: {short_chain_description}"
+        )
+        logging.info(f"[TASK CHAIN GENERATOR] Smart Chain: {smart_chain}")
+        logging.info(f"[TASK CHAIN GENERATOR] Researching: {researching}")
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         task_list = numbered_list_of_tasks.split("\n")
@@ -362,26 +375,25 @@ class agixt_actions(Extensions):
                 current_task = task
             else:
                 current_task += "\n" + task
+        logging.info(f"[TASK CHAIN GENERATOR] Task List: {new_task_list}")
 
         if current_task:
             new_task_list.append(current_task.lstrip("0123456789."))
 
         task_list = new_task_list
-
+        string_task_list = "\n".join(task_list)
         chain_name = f"AI Generated Task - {short_chain_description} - {timestamp}"
+        logging.info(f"[TASK CHAIN GENERATOR] New Chain Name: {chain_name}")
         self.ApiClient.add_chain(chain_name=chain_name)
+        # RUN Smart Prompt chain on the task list
         i = 1
         for task in task_list:
-            self.ApiClient.add_step(
-                chain_name=chain_name,
+            response = self.ApiClient.run_chain(
+                chain_name="Smart Prompt",
                 agent_name=self.agent_name,
-                step_number=i,
-                prompt_type="Chain",
-                prompt={
-                    "chain_name": "Smart Prompt",
-                    "input": f"Primary Objective to keep in mind while working on the task: {primary_objective} \nThe only task to complete to move towards the objective: {task}",
-                },
+                user_input=f"Task List:\n{string_task_list}\nPrimary Objective to keep in mind while working on the task: {primary_objective} \nAll tasks on the list are being planned and completed separately. Assume all steps prior have been completed. The only task to complete to move towards the objective: {task}",
             )
+            logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to chain")
             i += 1
             if smart_chain:
                 if researching:
@@ -395,9 +407,10 @@ class agixt_actions(Extensions):
                     prompt_type="Chain",
                     prompt={
                         "chain": step_chain,
-                        "input": "{STEP" + str(i - 1) + "}",
+                        "input": response,
                     },
                 )
+                logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to SMART chain")
             else:
                 self.ApiClient.add_step(
                     chain_name=chain_name,
@@ -406,12 +419,13 @@ class agixt_actions(Extensions):
                     prompt_type="Prompt",
                     prompt={
                         "prompt_name": "Task Execution",
-                        "introduction": "{STEP" + str(i - 1) + "}",
+                        "introduction": response,
                         "websearch": researching,
                         "websearch_depth": 3,
                         "context_results": 5,
                     },
                 )
+                logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to NORMAL chain")
             i += 1
         return chain_name
 
