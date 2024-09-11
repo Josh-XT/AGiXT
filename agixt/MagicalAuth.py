@@ -10,7 +10,7 @@ from OAuth2Providers import get_sso_provider
 from Models import UserInfo, Register, Login
 from agixtsdk import AGiXTSDK
 from fastapi import Header, HTTPException
-from Globals import getenv, get_default_agent_settings
+from Globals import getenv, get_default_agent
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from sendgrid import SendGridAPIClient
@@ -479,11 +479,14 @@ class MagicalAuth:
         if create_agent:
             agixt = AGiXTSDK(base_uri=getenv("AGIXT_URL"))
             agixt.login(email=new_user.email, otp=mfa_token)
-            agixt.add_agent(
-                agent_name="AGiXT",
-                settings=get_default_agent_settings(),
-                commands={},
-                training_urls=[
+            create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
+            agent_name = getenv("AGIXT_AGENT")
+            agent_config = get_default_agent()
+            agent_settings = agent_config["settings"]
+            agent_commands = agent_config["commands"]
+            training_urls = agent_config["training_urls"]
+            if agent_name == "AGiXT":
+                training_urls = [
                     "https://josh-xt.github.io/AGiXT/",
                     "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
                     "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html",
@@ -506,8 +509,20 @@ class MagicalAuth:
                     "https://josh-xt.github.io/AGiXT/3-Providers/6-OpenAI.html",
                     "https://josh-xt.github.io/AGiXT/4-Authentication/microsoft.html",
                     "https://josh-xt.github.io/AGiXT/4-Authentication/google.html",
-                ],
+                ]
+            agixt.add_agent(
+                agent_name=agent_name,
+                settings=agent_settings,
+                commands=agent_commands,
+                training_urls=training_urls,
             )
+            if create_agixt_agent and agent_name != "AGiXT":
+                agixt.add_agent(
+                    agent_name="AGiXT",
+                    settings=agent_settings,
+                    commands=agent_commands,
+                    training_urls=training_urls,
+                )
         return mfa_token
 
     def update_user(self, **kwargs):
