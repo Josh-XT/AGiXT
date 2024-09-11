@@ -478,14 +478,15 @@ class MagicalAuth:
         create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
         if create_agent:
             agixt = AGiXTSDK(base_uri=getenv("AGIXT_URL"))
-            agixt.login(email=new_user.email, otp=mfa_token)
+            otp = pyotp.TOTP(mfa_token)
+            agixt.login(email=new_user.email, otp=otp)
             create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
             agent_name = getenv("AGIXT_AGENT")
             agent_config = get_default_agent()
             agent_settings = agent_config["settings"]
             agent_commands = agent_config["commands"]
             training_urls = agent_config["training_urls"]
-            if agent_name == "AGiXT":
+            if agent_name == "AGiXT" and create_agixt_agent:
                 training_urls = [
                     "https://josh-xt.github.io/AGiXT/",
                     "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
