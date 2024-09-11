@@ -475,37 +475,39 @@ class MagicalAuth:
                 pass
         # After registering the user, add a default AGiXT agent for the user
         # Train the agent on the AGiXT documentation.
-        agixt = AGiXTSDK(base_uri=getenv("AGIXT_URL"))
-        agixt.login(email=new_user.email, otp=mfa_token)
-        agixt.add_agent(
-            agent_name="AGiXT",
-            settings=get_default_agent_settings(),
-            commands={},
-            training_urls=[
-                "https://josh-xt.github.io/AGiXT/",
-                "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/01-Processes%20and%20Frameworks.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/02-Providers.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/03-Agents.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/04-Chat%20Completions.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/05-Extension%20Commands.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/06-Prompts.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/07-Chains.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/07-Conversations.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/09-Agent%20Training.html",
-                "https://josh-xt.github.io/AGiXT/2-Concepts/10-Agent%20Interactions.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/0-ezLocalai.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/1-Anthropic%20Claude.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/2-Azure%20OpenAI.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/3-Google.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/4-GPT4Free.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/5-Hugging%20Face.html",
-                "https://josh-xt.github.io/AGiXT/3-Providers/6-OpenAI.html",
-                "https://josh-xt.github.io/AGiXT/4-Authentication/microsoft.html",
-                "https://josh-xt.github.io/AGiXT/4-Authentication/google.html",
-            ],
-        )
+        create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
+        if create_agent:
+            agixt = AGiXTSDK(base_uri=getenv("AGIXT_URL"))
+            agixt.login(email=new_user.email, otp=mfa_token)
+            agixt.add_agent(
+                agent_name="AGiXT",
+                settings=get_default_agent_settings(),
+                commands={},
+                training_urls=[
+                    "https://josh-xt.github.io/AGiXT/",
+                    "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/01-Processes%20and%20Frameworks.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/02-Providers.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/03-Agents.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/04-Chat%20Completions.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/05-Extension%20Commands.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/06-Prompts.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Chains.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Conversations.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/09-Agent%20Training.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/10-Agent%20Interactions.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/0-ezLocalai.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/1-Anthropic%20Claude.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/2-Azure%20OpenAI.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/3-Google.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/4-GPT4Free.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/5-Hugging%20Face.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/6-OpenAI.html",
+                    "https://josh-xt.github.io/AGiXT/4-Authentication/microsoft.html",
+                    "https://josh-xt.github.io/AGiXT/4-Authentication/google.html",
+                ],
+            )
         return mfa_token
 
     def update_user(self, **kwargs):
