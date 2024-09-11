@@ -2,7 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
 from Websearch import Websearch
-from Globals import getenv
+from Globals import getenv, get_default_agent_settings, get_default_agent
 from ApiClient import (
     Agent,
     add_agent,
@@ -166,16 +166,51 @@ async def deleteagent(
 @app.get("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
 async def getagents(user=Depends(verify_api_key)):
     agents = get_agents(user=user)
-    if getenv("EZLOCALAI_URI") != "http://localhost:8091/v1/":
-        agent_list = [agent["name"] for agent in agents]
-        if "AGiXT" not in agent_list:
-            add_agent(
-                agent_name="AGiXT",
-                provider_settings={},
-                commands={},
-                user=user,
+    agent_list = [agent["name"] for agent in agents]
+    if "AGiXT" not in agent_list:
+        ApiClient = get_api_client(authorization=None)
+        if getenv("CREATE_AGIXT_AGENT") == "true":
+            ApiClient.add_agent(
+                agent_name=agent_name,
+                settings=agent_config["settings"],
+                commands=agent_config["commands"],
+                training_urls=[
+                    "https://josh-xt.github.io/AGiXT/",
+                    "https://josh-xt.github.io/AGiXT/1-Getting%20started/3-Examples.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/0-Core%20Concepts.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/01-Processes%20and%20Frameworks.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/02-Providers.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/03-Agents.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/04-Chat%20Completions.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/05-Extension%20Commands.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/06-Prompts.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Chains.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/07-Conversations.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/09-Agent%20Training.html",
+                    "https://josh-xt.github.io/AGiXT/2-Concepts/10-Agent%20Interactions.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/0-ezLocalai.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/1-Anthropic%20Claude.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/2-Azure%20OpenAI.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/3-Google.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/4-GPT4Free.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/5-Hugging%20Face.html",
+                    "https://josh-xt.github.io/AGiXT/3-Providers/6-OpenAI.html",
+                    "https://josh-xt.github.io/AGiXT/4-Authentication/microsoft.html",
+                    "https://josh-xt.github.io/AGiXT/4-Authentication/google.html",
+                ],
             )
             agents = get_agents(user=user)
+            agent_list = [agent["name"] for agent in agents]
+    if getenv("CREATE_AGENT_ON_REGISTER") == "true":
+        agent_name = getenv("AGIXT_AGENT")
+        if agent_name not in agent_list:
+            agent_config = get_default_agent()
+            ApiClient.add_agent(
+                agent_name=agent_name,
+                settings=agent_config["settings"],
+                commands=agent_config["commands"],
+                training_urls=agent_config["training_urls"],
+            )
     return {"agents": agents}
 
 
