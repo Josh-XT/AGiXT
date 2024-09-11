@@ -172,20 +172,17 @@ async def getagents(user=Depends(verify_api_key), authorization: str = Header(No
         agent_list = [agent["name"] for agent in agents]
         agent_name = getenv("AGIXT_AGENT")
         if agent_name not in agent_list or "AGiXT" not in agent_list:
-            agixt = get_api_client(authorization=authorization)
             agent_config = get_default_agent()
             agent_settings = agent_config["settings"]
             agent_commands = agent_config["commands"]
-            training_urls = agent_config["training_urls"]
-            if create_agixt_agent and "AGiXT" not in agents:
-                agixt.add_agent(
-                    agent_name="AGiXT",
-                    settings=agent_settings,
-                    commands=agent_commands,
-                    training_urls=get_agixt_training_urls(),
-                )
-            if agent_name != "AGiXT" and agent_name not in agents:
-                agixt.add_agent(
+            training_urls = (
+                get_agixt_training_urls()
+                if create_agixt_agent and agent_name == "AGiXT"
+                else agent_config["training_urls"]
+            )
+            ApiClient = get_api_client(authorization=authorization)
+            if agent_name not in agents:
+                ApiClient.add_agent(
                     agent_name=agent_name,
                     settings=agent_settings,
                     commands=agent_commands,
