@@ -494,13 +494,6 @@ class MagicalAuth:
                 commands=agent_commands,
                 training_urls=training_urls,
             )
-            if create_agixt_agent and agent_name != "AGiXT":
-                agixt.add_agent(
-                    agent_name="AGiXT",
-                    settings=agent_settings,
-                    commands=agent_commands,
-                    training_urls=training_urls,
-                )
         return mfa_token
 
     def update_user(self, **kwargs):
