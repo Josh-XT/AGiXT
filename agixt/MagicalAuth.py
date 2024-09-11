@@ -477,7 +477,7 @@ class MagicalAuth:
         # Train the agent on the AGiXT documentation.
         create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
         if create_agent:
-            agixt = AGiXTSDK(base_uri=getenv("AGIXT_URL"))
+            agixt = AGiXTSDK(base_uri=getenv("AGIXT_URI"))
             otp = pyotp.TOTP(mfa_token)
             agixt.login(email=new_user.email, otp=otp.now())
             create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
