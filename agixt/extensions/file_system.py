@@ -94,12 +94,11 @@ class file_system(Extensions):
     def we_are_running_in_a_docker_container() -> bool:
         return os.path.exists("/.dockerenv")
 
-    def safe_join(self, base: str, paths) -> str:
+    def safe_join(self, paths) -> str:
         """
         Safely join paths together
 
         Args:
-        base (str): The base path
         paths (str): The paths to join
 
         Returns:
@@ -107,15 +106,11 @@ class file_system(Extensions):
         """
         if "/path/to/" in paths:
             paths = paths.replace("/path/to/", "")
-        if str(self.WORKING_DIRECTORY_RESTRICTED).lower() == "true":
-            new_path = os.path.normpath(os.path.join(base, *paths.split("/")))
-            if not os.path.exists(new_path):
-                if "." not in new_path:
-                    os.makedirs(new_path)
-        else:
-            new_path = os.path.normpath(os.path.join("/", *paths))
-            if not os.path.exists(new_path):
-                os.makedirs(new_path)
+        new_path = os.path.normpath(
+            os.path.join(self.WORKING_DIRECTORY, *paths.split("/"))
+        )
+        path_dir = os.path.dirname(new_path)
+        os.makedirs(path_dir, exist_ok=True)
         return new_path
 
     async def read_file(self, filename: str) -> str:
@@ -129,7 +124,7 @@ class file_system(Extensions):
         str: The content of the file
         """
         try:
-            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+            filepath = self.safe_join(filename)
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
             return content
@@ -148,7 +143,7 @@ class file_system(Extensions):
         str: The status of the write operation
         """
         try:
-            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+            filepath = self.safe_join(filename)
             directory = os.path.dirname(filepath)
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -170,7 +165,7 @@ class file_system(Extensions):
         str: The status of the append operation
         """
         try:
-            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+            filepath = self.safe_join(filename)
             if not os.path.exists(filepath):
                 with open(filepath, "w") as f:
                     f.write(text)
@@ -192,7 +187,7 @@ class file_system(Extensions):
         str: The status of the delete operation
         """
         try:
-            filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+            filepath = self.safe_join(filename)
             os.remove(filepath)
             return "File deleted successfully."
         except Exception as e:
@@ -213,9 +208,7 @@ class file_system(Extensions):
         if directory in {"", "/"}:
             search_directory = self.WORKING_DIRECTORY
         else:
-            search_directory = self.safe_join(
-                base=self.WORKING_DIRECTORY, paths=directory
-            )
+            search_directory = self.safe_join(directory)
 
         for root, _, files in os.walk(search_directory):
             for file in files:
