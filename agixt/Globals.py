@@ -34,6 +34,7 @@ def getenv(var_name: str):
         "DISABLED_PROVIDERS": "",
         "REGISTRATION_DISABLED": "false",
         "AUTH_PROVIDER": "",
+        "CREATE_AGENT_ON_REGISTER": "true",
     }
     default_value = default_values[var_name] if var_name in default_values else ""
     return os.getenv(var_name, default_value)

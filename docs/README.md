@@ -148,26 +148,27 @@ The script supports setting any of the environment variables via command-line ar
 18. `--streamlit-app-uri`: Set the Streamlit app URI (default: `http://localhost:8501`)
 19. `--auth-web`: Set the authentication web URI (default: `http://localhost:3437/user`)
 20. `--auth-provider`: Set the authentication provider (options: `none`, `magicalauth`)
-21. `--disabled-providers`: Set disabled providers (comma-separated list)
-22. `--disabled-extensions`: Set disabled extensions (comma-separated list)
-23. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
-24. `--github-client-id`: Set GitHub client ID for authentication
-25. `--github-client-secret`: Set GitHub client secret for authentication
-26. `--google-client-id`: Set Google client ID for authentication
-27. `--google-client-secret`: Set Google client secret for authentication
-28. `--microsoft-client-id`: Set Microsoft client ID for authentication
-29. `--microsoft-client-secret`: Set Microsoft client secret for authentication
-30. `--tz`: Set the timezone (default: system timezone)
-31. `--interactive-mode`: Set the interactive mode (default: `chat`)
-32. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
-33. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
-34. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
-35. `--database-name`: Set the database name (default: `models/agixt`)
-36. `--log-level`: Set the logging level (default: `INFO`)
-37. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
-38. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
-39. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
-40. `--with-streamlit`: Enable or disable the Streamlit UI (default: `true`)
+21. `--create-agent-on-register`: Create an agent called `AGiXT` and trains it on the AGiXT documentation upon user registration (default: `true`)
+22. `--disabled-providers`: Set disabled providers (comma-separated list)
+23. `--disabled-extensions`: Set disabled extensions (comma-separated list)
+24. `--working-directory`: Set the working directory (default: `./WORKSPACE`)
+25. `--github-client-id`: Set GitHub client ID for authentication
+26. `--github-client-secret`: Set GitHub client secret for authentication
+27. `--google-client-id`: Set Google client ID for authentication
+28. `--google-client-secret`: Set Google client secret for authentication
+29. `--microsoft-client-id`: Set Microsoft client ID for authentication
+30. `--microsoft-client-secret`: Set Microsoft client secret for authentication
+31. `--tz`: Set the timezone (default: system timezone)
+32. `--interactive-mode`: Set the interactive mode (default: `chat`)
+33. `--theme-name`: Set the UI theme (options: `default`, `christmas`, `conspiracy`, `doom`, `easter`, `halloween`, `valentines`)
+34. `--allow-email-sign-in`: Allow email sign-in (default: `true`)
+35. `--database-type`: Set the database type (options: `sqlite`, `postgres`)
+36. `--database-name`: Set the database name (default: `models/agixt`)
+37. `--log-level`: Set the logging level (default: `INFO`)
+38. `--log-format`: Set the log format (default: `%(asctime)s | %(levelname)s | %(message)s`)
+39. `--uvicorn-workers`: Set the number of Uvicorn workers (default: `10`)
+40. `--agixt-auto-update`: Enable or disable auto-updates (default: `true`)
+41. `--with-streamlit`: Enable or disable the Streamlit UI (default: `true`)
 
 Options specific to ezLocalai:
 
