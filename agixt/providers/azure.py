@@ -1,6 +1,6 @@
-from time import time
 from openai import AzureOpenAI
 import logging
+import time
 
 
 class AzureProvider:
