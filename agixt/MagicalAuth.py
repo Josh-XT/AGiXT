@@ -424,6 +424,9 @@ class MagicalAuth:
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
         if user is not None:
+            logging.info(
+                f"User already exists with email: {self.email}. {user.__dict__}"
+            )
             session.close()
             raise HTTPException(
                 status_code=409, detail="User already exists with this email."
