@@ -167,7 +167,6 @@ async def deleteagent(
 async def getagents(user=Depends(verify_api_key), authorization: str = Header(None)):
     agents = get_agents(user=user)
     create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
-    create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
     if create_agent:
         agent_list = [agent["name"] for agent in agents]
         agent_name = getenv("AGIXT_AGENT")
@@ -175,6 +174,7 @@ async def getagents(user=Depends(verify_api_key), authorization: str = Header(No
             agent_config = get_default_agent()
             agent_settings = agent_config["settings"]
             agent_commands = agent_config["commands"]
+            create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
             training_urls = (
                 get_agixt_training_urls()
                 if create_agixt_agent and agent_name == "AGiXT"
