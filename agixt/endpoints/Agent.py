@@ -2,7 +2,7 @@ from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends, Header
 from XT import AGiXT
 from Websearch import Websearch
-from Globals import getenv
+from Globals import getenv, get_default_agent, get_agixt_training_urls
 from ApiClient import (
     Agent,
     add_agent,
@@ -164,18 +164,29 @@ async def deleteagent(
 
 
 @app.get("/api/agent", tags=["Agent"], dependencies=[Depends(verify_api_key)])
-async def getagents(user=Depends(verify_api_key)):
+async def getagents(user=Depends(verify_api_key), authorization: str = Header(None)):
     agents = get_agents(user=user)
-    if getenv("EZLOCALAI_URI") != "http://localhost:8091/v1/":
+    create_agent = str(getenv("CREATE_AGENT_ON_REGISTER")).lower() == "true"
+    if create_agent:
         agent_list = [agent["name"] for agent in agents]
-        if "AGiXT" not in agent_list:
-            add_agent(
-                agent_name="AGiXT",
-                provider_settings={},
-                commands={},
-                user=user,
+        agent_name = getenv("AGIXT_AGENT")
+        if agent_name not in agent_list:
+            agent_config = get_default_agent()
+            agent_settings = agent_config["settings"]
+            agent_commands = agent_config["commands"]
+            create_agixt_agent = str(getenv("CREATE_AGIXT_AGENT")).lower() == "true"
+            training_urls = (
+                get_agixt_training_urls()
+                if create_agixt_agent and agent_name == "AGiXT"
+                else agent_config["training_urls"]
             )
-            agents = get_agents(user=user)
+            ApiClient = get_api_client(authorization=authorization)
+            ApiClient.add_agent(
+                agent_name=agent_name,
+                settings=agent_settings,
+                commands=agent_commands,
+                training_urls=training_urls,
+            )
     return {"agents": agents}
 
 
