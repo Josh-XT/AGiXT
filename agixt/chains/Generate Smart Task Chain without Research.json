@@ -4,10 +4,10 @@
         {
             "step": 1,
             "agent_name": "gpt4free",
-            "prompt_type": "Chain",
+            "prompt_type": "Prompt",
             "prompt": {
-                "chain": "Smart Prompt",
-                "input": "{user_input}"
+                "prompt_name": "Expert Determination",
+                "task": "{user_input}"
             }
         },
         {
@@ -15,9 +15,9 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "Break into steps",
-                "introduction": "{STEP1}",
-                "context_results": 5
+                "prompt_name": "Prompt Generator",
+                "job_title": "{STEP1}",
+                "task": "{user_input}"
             }
         },
         {
@@ -25,19 +25,31 @@
             "agent_name": "gpt4free",
             "prompt_type": "Prompt",
             "prompt": {
-                "prompt_name": "Title a Chain"
+                "prompt_name": "Break into steps",
+                "introduction": "{STEP2}",
+                "websearch": true,
+                "websearch_depth": 3,
+                "context_results": 5
             }
         },
         {
             "step": 4,
             "agent_name": "gpt4free",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Title a Chain"
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "gpt4free",
             "prompt_type": "Command",
             "prompt": {
                 "command_name": "Create Task Chain",
                 "agent": "gpt4free",
-                "primary_objective": "{STEP1}",
-                "numbered_list_of_tasks": "{STEP2}",
-                "short_chain_description": "{STEP3}",
+                "primary_objective": "{STEP2}",
+                "numbered_list_of_tasks": "{STEP3}",
+                "short_chain_description": "{STEP4}",
                 "smart_chain": true,
                 "researching": false
             }
