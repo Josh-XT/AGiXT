@@ -167,9 +167,10 @@ async def deleteagent(
 async def getagents(user=Depends(verify_api_key)):
     agents = get_agents(user=user)
     agent_list = [agent["name"] for agent in agents]
+    agent_name = getenv("AGIXT_AGENT")
+    ApiClient = get_api_client(authorization=None)
     if "AGiXT" not in agent_list:
-        ApiClient = get_api_client(authorization=None)
-        if getenv("CREATE_AGIXT_AGENT") == "true":
+        if getenv("CREATE_AGIXT_AGENT").lower() == "true":
             ApiClient.add_agent(
                 agent_name=agent_name,
                 settings=agent_config["settings"],
@@ -201,8 +202,7 @@ async def getagents(user=Depends(verify_api_key)):
             )
             agents = get_agents(user=user)
             agent_list = [agent["name"] for agent in agents]
-    if getenv("CREATE_AGENT_ON_REGISTER") == "true":
-        agent_name = getenv("AGIXT_AGENT")
+    if getenv("CREATE_AGENT_ON_REGISTER").lower() == "true":
         if agent_name not in agent_list:
             agent_config = get_default_agent()
             ApiClient.add_agent(
