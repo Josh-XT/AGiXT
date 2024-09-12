@@ -412,8 +412,7 @@ class Interactions:
         agent_commands = ""
         if len(command_list) > 0:
             agent_extensions = self.agent.get_agent_extensions()
-            verbose_commands = f"## Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_directory}, use that as the file path.\n\n"
-            verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
+            verbose_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
             for extension in agent_extensions:
                 if extension["commands"] == []:
                     continue
@@ -435,6 +434,8 @@ class Interactions:
                         f'\n- #execute("{command_friendly_name}", {command_args})\n'
                     )
             verbose_commands += f"""## Command Execution Guidelines
+- **The assistant has commands available to use if they would be useful to provide a better user experience.**
+- Reference examples for correct syntax and usage of commands.
 - To execute a command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response.
 - All inputs are strings and must be filled in wrapped with double quotes and with appropriate values.
 - The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.
@@ -445,8 +446,7 @@ class Interactions:
 - Command executions must start with #execute to be parsed and executed.
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
 - The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
-- **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**
-\n\n"""
+- **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
