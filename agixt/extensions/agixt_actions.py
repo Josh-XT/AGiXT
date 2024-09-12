@@ -584,7 +584,7 @@ class agixt_actions(Extensions):
         self,
         extension_name: str,
         openapi_json_url: str,
-        api_base_uri: str,
+        api_base_uri: str = "",
     ):
         """
         Generate an AGiXT extension from an OpenAPI JSON URL
@@ -602,6 +602,29 @@ class agixt_actions(Extensions):
         openapi_data = json.loads(openapi_str)
         endpoints = self.parse_openapi(data=openapi_data)
         auth_type = self.get_auth_type(openapi_data=openapi_data)
+        if api_base_uri == "":
+            rules = """## Guidelines
+- Respond in JSON in a markdown codeblock with the only key being `base_uri`, for example:
+```json
+{
+    "base_uri": "https://api.example.com/v1"
+}
+```
+"""
+            response = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Chat",
+                prompt_args={
+                    "user_input": f"{rules}\nUsing context from the web search, please provide the base URI of the API for: {extension_name}.",
+                    "websearch": True,
+                    "websearch_depth": 2,
+                    "analyze_user_input": False,
+                },
+            )
+            # Stripe the base_uri from the response
+            response = response.split("```json")[1].split("```")[0].strip()
+            response = response.split("```")[1].strip()
+            api_base_uri = json.loads(response).get("base_uri", "")
         extension_name = extension_name.lower().replace(" ", "_")
         chain_name = f"OpenAPI to Python Chain - {extension_name}"
         chains = self.ApiClient.get_chains()
