@@ -439,36 +439,6 @@ class Agent:
                     command["enabled"] = False
         return new_extensions
 
-    def get_commands_string(self):
-        if len(self.available_commands) == 0:
-            return ""
-        agent_extensions = self.get_agent_extensions()
-        working_dir = self.working_directory
-        verbose_commands = f"## Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_dir}, use that as the file path.\n\n"
-        verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
-        for extension in agent_extensions:
-            if extension["commands"] == []:
-                continue
-            extension_name = extension["extension_name"]
-            extension_description = extension["description"]
-            verbose_commands += (
-                f"\n### {extension_name}\nDescription: {extension_description}\n"
-            )
-            for command in extension["commands"]:
-                command_friendly_name = command["friendly_name"]
-                command_description = command["description"]
-                verbose_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
-                command_args = json.dumps(command["command_args"])
-                command_args = command_args.replace(
-                    '""',
-                    '"The assistant will fill in the value based on relevance to the conversation."',
-                )
-                verbose_commands += (
-                    f"\n- #execute('{command_friendly_name}', {command_args})\n"
-                )
-        verbose_commands += "\n\n**To execute an available command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response. The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.**\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n"
-        return verbose_commands
-
     def update_agent_config(self, new_config, config_key):
         session = get_session()
         agent = (

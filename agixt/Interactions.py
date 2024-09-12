@@ -41,7 +41,7 @@ class Interactions:
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
-            self.agent_commands = self.agent.get_commands_string()
+
             self.websearch = Websearch(
                 collection_number=collection_id,
                 agent=self.agent,
@@ -80,7 +80,6 @@ class Interactions:
         else:
             self.agent_name = ""
             self.agent = None
-            self.agent_commands = ""
             self.websearch = None
             self.agent_memory = None
             self.positive_feedback_memories = None
@@ -318,8 +317,6 @@ class Interactions:
             context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** .\n"
         else:
             context = ""
-        if prompt_name == "Chat with Commands" and self.agent_commands == "":
-            prompt_name = "Chat"
         file_contents = ""
         if "import_files" in prompt_args:
             file_reader = FileReader(
@@ -413,13 +410,49 @@ class Interactions:
         for arg in kwargs:
             if arg in skip_args:
                 del args[arg]
+        agent_commands = ""
+        if len(command_list) > 0:
+            agent_extensions = self.agent.get_agent_extensions()
+            verbose_commands = f"## Available Commands\n**The assistant has commands available to use if they would be useful to provide a better user experience.**\nIf a file needs saved, the assistant's working directory is {working_directory}, use that as the file path.\n\n"
+            verbose_commands += "**See command execution examples of commands that the assistant has access to below:**\n"
+            for extension in agent_extensions:
+                if extension["commands"] == []:
+                    continue
+                extension_name = extension["extension_name"]
+                extension_description = extension["description"]
+                verbose_commands += (
+                    f"\n### {extension_name}\nDescription: {extension_description}\n"
+                )
+                for command in extension["commands"]:
+                    command_friendly_name = command["friendly_name"]
+                    command_description = command["description"]
+                    verbose_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
+                    command_args = json.dumps(command["command_args"])
+                    command_args = command_args.replace(
+                        '""',
+                        '"The assistant will fill in the value based on relevance to the conversation."',
+                    )
+                    verbose_commands += (
+                        f'\n- #execute("{command_friendly_name}", {command_args})\n'
+                    )
+            verbose_commands += f"""## Command Execution Guidelines
+- To execute a command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response.
+- All inputs are strings and must be filled in wrapped with double quotes and with appropriate values.
+- The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.
+- Always wrap the the command name and arguments in double quotes, not single quotes.
+- If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {working_directory}.
+- Only reference files in the working directory! The assistant cannot access files outside of the working directory.
+- All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
+- Command executions must start with #execute to be parsed and executed.
+- The assistant will receive the command output before the user does and will be able to reference the output in the response.
+- **\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n"""
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
             agent_name=self.agent_name,
-            COMMANDS=self.agent_commands if len(command_list) > 0 else "",
+            COMMANDS=agent_commands,
             context=context,
-            command_list=self.agent_commands if len(command_list) > 0 else "",
+            command_list=agent_commands,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
