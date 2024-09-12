@@ -619,6 +619,10 @@ class agixt_actions(Extensions):
                     "websearch": True,
                     "websearch_depth": 2,
                     "analyze_user_input": False,
+                    "conversation_name": self.conversation_name,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "tts": False,
                 },
             )
             # Stripe the base_uri from the response
