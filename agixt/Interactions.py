@@ -41,7 +41,6 @@ class Interactions:
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
-
             self.websearch = Websearch(
                 collection_number=collection_id,
                 agent=self.agent,
@@ -445,7 +444,9 @@ class Interactions:
 - All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
 - Command executions must start with #execute to be parsed and executed.
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
-- **\n**THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**\n\n"""
+- The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
+- **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**
+\n\n"""
         formatted_prompt = self.custom_format(
             string=prompt,
             user_input=user_input,
