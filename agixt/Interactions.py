@@ -412,28 +412,28 @@ class Interactions:
         agent_commands = ""
         if len(command_list) > 0:
             agent_extensions = self.agent.get_agent_extensions()
-            verbose_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
+            agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
             for extension in agent_extensions:
                 if extension["commands"] == []:
                     continue
                 extension_name = extension["extension_name"]
                 extension_description = extension["description"]
-                verbose_commands += (
+                agent_commands += (
                     f"\n### {extension_name}\nDescription: {extension_description}\n"
                 )
                 for command in extension["commands"]:
                     command_friendly_name = command["friendly_name"]
                     command_description = command["description"]
-                    verbose_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
+                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
                     command_args = json.dumps(command["command_args"])
                     command_args = command_args.replace(
                         '""',
                         '"The assistant will fill in the value based on relevance to the conversation."',
                     )
-                    verbose_commands += (
+                    agent_commands += (
                         f'\n- #execute("{command_friendly_name}", {command_args})\n'
                     )
-            verbose_commands += f"""## Command Execution Guidelines
+            agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
 - Reference examples for correct syntax and usage of commands.
 - To execute a command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response.
