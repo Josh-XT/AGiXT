@@ -54,27 +54,6 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.positive_feedback_memories = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="2",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            self.negative_feedback_memories = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="3",
-                ApiClient=self.ApiClient,
-                user=self.user,
-            )
-            self.github_memories = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="7",
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
             self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
