@@ -638,7 +638,7 @@ class agixt_actions(Extensions):
         chains = self.ApiClient.get_chains()
         # Check if any chain with the same name already exists, if so, delete it
         for chain in chains:
-            if chain["name"] == chain_name:
+            if chain == chain_name:
                 self.ApiClient.delete_chain(chain_name=chain_name)
         self.ApiClient.add_chain(chain_name=chain_name)
         i = 0
