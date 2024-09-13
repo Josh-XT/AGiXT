@@ -423,8 +423,8 @@ class agixt_actions(Extensions):
                     step_number=i,
                     prompt_type="Prompt",
                     prompt={
-                        "prompt_name": "Task Execution",
-                        "introduction": response,
+                        "prompt_name": "Chat with Commands",
+                        "user_input": response,
                         "websearch": researching,
                         "websearch_depth": 3,
                         "context_results": 5,
