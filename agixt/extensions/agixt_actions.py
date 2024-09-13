@@ -578,6 +578,10 @@ class agixt_actions(Extensions):
         )
         with open(filename, "w") as f:
             f.write(new_file_content)
+        new_path = os.path.join(os.getcwd(), "WORKSPACE", "extensions", filename)
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        with open(new_path, "w") as f:
+            f.write(new_file_content)
         return new_file_content
 
     async def generate_openapi_chain(
