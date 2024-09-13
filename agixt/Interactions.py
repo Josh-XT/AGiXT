@@ -894,89 +894,77 @@ class Interactions:
         ]
         logging.info(f"Agent command list: {command_list}")
         if len(command_list) > 0:
-            commands_to_execute = re.findall(r"#execute\((.*?)\)", self.response)
+            # Updated regex pattern to capture full match and inner content
+            commands_to_execute = re.findall(r"(#execute\((.*?)\))", self.response)
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
-                for command in commands_to_execute:
-                    command_name = str(command.split(",")[0])
-                    if command_name.startswith(" "):
-                        command_name = command_name[1:]
-                    if command_name.endswith(" "):
-                        command_name = command_name[:-1]
-                    command_name = command_name.replace("'", "").replace('"', "")
-                    if (
-                        command_name != ""
-                        and command_name != None
-                        and command_name != "None"
-                    ):
-                        if len(command.split(",")[1:]) > 0:
-                            try:
-                                command_args = json.loads(
-                                    '{"command_args": '
-                                    + ",".join(command.split(",")[1:])
-                                    + "}"
-                                )
-                            except:
-                                command_args = {}
-                        else:
-                            command_args = {}
-                        if "command_args" in command_args:
-                            command_args = command_args["command_args"]
-                        logging.info(f"Command to execute: {command_name}")
-                        logging.info(f"Command Args: {command_args}")
-                        if command_name not in command_list:
-                            # Ask the agent for clarification on which command should be executed.
-                            command_output = self.ApiClient.prompt_agent(
-                                agent_name=self.agent_name,
-                                prompt_name="Command Clarification",
-                                prompt_args={
-                                    "command_name": command_name,
-                                    "command_args": json.dumps(command_args),
-                                    "conversation_name": "AGiXT Terminal",
-                                },
-                            )
-                        else:
-                            try:
-                                c.log_interaction(
-                                    role=self.agent_name,
-                                    message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
-                                )
-                                ext = Extensions(
-                                    agent_name=self.agent_name,
-                                    agent_config=self.agent.AGENT_CONFIG,
-                                    conversation_name=conversation_name,
-                                    conversation_id=c.get_conversation_id(),
-                                    agent_id=self.agent.agent_id,
-                                    ApiClient=self.ApiClient,
-                                    user=self.user,
-                                )
-                                command_output = await ext.execute_command(
-                                    command_name=command_name,
-                                    command_args=command_args,
-                                )
-                                formatted_output = f"```\n{command_output}\n```"
-                                command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                            except Exception as e:
-                                logging.error(
-                                    f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
-                                )
-                                c.log_interaction(
-                                    role=self.agent_name,
-                                    message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
-                                )
-                                command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-                        if command_output:
+                for full_match, command in commands_to_execute:
+                    # Split command into name and arguments
+                    parts = command.split(",", 1)
+                    command_name = parts[0].strip().strip("'\"")
+                    command_args_str = parts[1] if len(parts) > 1 else "{}"
+
+                    # Parse command arguments
+                    try:
+                        command_args = json.loads(command_args_str)
+                    except json.JSONDecodeError:
+                        # Handle JSON parsing errors
+                        command_args = {}
+                        logging.warning(
+                            f"Failed to parse command arguments: {command_args_str}"
+                        )
+
+                    logging.info(f"Command to execute: {command_name}")
+                    logging.info(f"Command Args: {command_args}")
+
+                    if command_name not in command_list:
+                        # Handle unknown command
+                        command_output = f"Unknown command: {command_name}"
+                        logging.warning(command_output)
+                    else:
+                        try:
                             c.log_interaction(
                                 role=self.agent_name,
-                                message=f"[ACTIVITY] {command_output}",
+                                message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
                             )
-                            reformatted_response = reformatted_response.replace(
-                                f"#execute({command_name}, {command_args})",
-                                (
-                                    json.dumps(command_output)
-                                    if isinstance(command_output, dict)
-                                    else command_output
-                                ),
+                            ext = Extensions(
+                                agent_name=self.agent_name,
+                                agent_config=self.agent.AGENT_CONFIG,
+                                conversation_name=conversation_name,
+                                conversation_id=c.get_conversation_id(),
+                                agent_id=self.agent.agent_id,
+                                ApiClient=self.ApiClient,
+                                user=self.user,
                             )
-                        if reformatted_response != self.response:
-                            self.response = reformatted_response
+                            command_output = await ext.execute_command(
+                                command_name=command_name,
+                                command_args=command_args,
+                            )
+                            formatted_output = f"```\n{command_output}\n```"
+                            command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                        except Exception as e:
+                            logging.error(
+                                f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                            )
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
+                            )
+                            command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
+
+                    if command_output:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] {command_output}",
+                        )
+                        # Replace the exact matched command with the output
+                        reformatted_response = reformatted_response.replace(
+                            full_match,
+                            (
+                                command_output
+                                if not isinstance(command_output, dict)
+                                else json.dumps(command_output)
+                            ),
+                        )
+                if reformatted_response != self.response:
+                    self.response = reformatted_response
