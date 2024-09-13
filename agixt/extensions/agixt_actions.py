@@ -582,7 +582,8 @@ class agixt_actions(Extensions):
         os.makedirs(os.path.dirname(new_path), exist_ok=True)
         with open(new_path, "w") as f:
             f.write(new_file_content)
-        return new_file_content
+        agixt_uri = getenv("AGIXT_URI")
+        return f"{agixt_uri}/outputs/extensions/{filename}"
 
     async def generate_openapi_chain(
         self,
