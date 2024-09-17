@@ -33,7 +33,7 @@ class Prompts:
             name=prompt_name,
             description="",
             content=prompt,
-            prompt_category=prompt_category,
+            prompt_category_id=pc.id,
             user_id=self.user_id,
         )
         session.add(prompt_obj)
