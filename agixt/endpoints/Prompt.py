@@ -7,9 +7,16 @@ from Models import (
     ResponseMessage,
     CustomPromptModel,
 )
+from Globals import getenv
+import logging
 
 
 app = APIRouter()
+
+logging.basicConfig(
+    level=getenv("LOG_LEVEL"),
+    format=getenv("LOG_FORMAT"),
+)
 
 
 @app.post(
@@ -33,6 +40,7 @@ async def add_prompt(
         )
         return ResponseMessage(message=f"Prompt '{prompt.prompt_name}' added.")
     except Exception as e:
+        logging.error(f"Error adding prompt: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
