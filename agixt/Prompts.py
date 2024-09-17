@@ -11,9 +11,9 @@ class Prompts:
 
     def add_prompt(self, prompt_name, prompt, prompt_category="Default"):
         session = get_session()
-        if not prompt_category:
+        if not prompt_category or prompt_category == "":
             prompt_category = "Default"
-        prompt_category = (
+        pc = (
             session.query(PromptCategory)
             .filter(
                 PromptCategory.name == prompt_category,
@@ -21,15 +21,14 @@ class Prompts:
             )
             .first()
         )
-        if not prompt_category:
-            prompt_category = PromptCategory(
+        if not pc:
+            pc = PromptCategory(
                 name=prompt_category,
                 description=f"{prompt_category} category",
                 user_id=self.user_id,
             )
-            session.add(prompt_category)
+            session.add(pc)
             session.commit()
-
         prompt_obj = Prompt(
             name=prompt_name,
             description="",
