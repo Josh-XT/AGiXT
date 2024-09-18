@@ -951,6 +951,10 @@ class AGiXT:
                 file_type = file_name.split(".")[-1]
                 # Download the file
                 try:
+                    if not url.startswith("http"):
+                        return {}
+                    if url in ["", None]:
+                        return {}
                     file_data = requests.get(url, headers=download_headers).content
                 except Exception as e:
                     logging.error(f"Error downloading file: {e}")
