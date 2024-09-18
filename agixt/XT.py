@@ -660,6 +660,12 @@ class AGiXT:
             file_data = await self.download_file_to_workspace(
                 url=file_url, file_name=file_name
             )
+            if file_data == {}:
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY][ERROR] I was unable to read the file from {file_url}.",
+                )
+                return f"Unable to read the file from {file_url} ."
             file_name = file_data["file_name"]
             file_path = os.path.normpath(
                 os.path.join(self.agent_workspace, collection_id, file_name)
@@ -1447,6 +1453,11 @@ class AGiXT:
                                     )
                                     if downloaded_file != {}:
                                         files.append(downloaded_file)
+                                    else:
+                                        c.log_interaction(
+                                            role=self.agent_name,
+                                            message="[ACTIVITY][ERROR] I was unable to read from the URL specified.",
+                                        )
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
