@@ -950,7 +950,11 @@ class AGiXT:
             else:
                 file_type = file_name.split(".")[-1]
                 # Download the file
-                file_data = requests.get(url, headers=download_headers).content
+                try:
+                    file_data = requests.get(url, headers=download_headers).content
+                except Exception as e:
+                    logging.error(f"Error downloading file: {e}")
+                    return {}
                 # file_data = base64.b64decode(url)
             full_path = os.path.normpath(
                 os.path.join(self.conversation_workspace, file_name)
@@ -1430,13 +1434,15 @@ class AGiXT:
                                 else:
                                     file_name = ""
                                 if key != "audio_url":
-                                    files.append(
+                                    downloaded_file = (
                                         await self.download_file_to_workspace(
                                             url=url,
                                             file_name=file_name,
                                             download_headers=download_headers,
                                         )
                                     )
+                                    if downloaded_file != {}:
+                                        files.append(downloaded_file)
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
                                     audio_file_info = (
