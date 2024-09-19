@@ -1,4 +1,4 @@
-agixtsdk==0.0.68
+agixtsdk==0.0.71
 safeexecute==0.0.9
 google-generativeai==0.7.2
 discord==2.3.2
@@ -11,7 +11,6 @@ uvicorn
 ngrok==1.4.0
 faster-whisper==1.0.3
 youtube-transcript-api==0.6.2
-O365==2.0.36
 stripe==10.10.0
 google-auth==2.34.0
 google-api-python-client==2.144.0
