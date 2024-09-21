@@ -23,7 +23,7 @@ class YoutubeReader(Memories):
     async def get_transcription(self, video_id: str = None):
         if "?v=" in video_id:
             video_id = video_id.split("?v=")[1]
-        srt = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
+        srt = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
         content = ""
         for line in srt:
             if line["text"] != "[Music]":
