@@ -626,7 +626,7 @@ class Chain:
             if prompt_type == "prompt":
                 argument_key = "prompt_name"
                 prompt_category = prompt.get("prompt_category", "Default")
-                target_id = (
+                target = (
                     session.query(Prompt)
                     .filter(
                         Prompt.name == prompt[argument_key],
@@ -634,36 +634,39 @@ class Chain:
                         Prompt.prompt_category.has(name=prompt_category),
                     )
                     .first()
-                    .id
                 )
-                target_type = "prompt"
             elif prompt_type == "chain":
                 argument_key = "chain_name"
                 if "chain" in prompt:
                     argument_key = "chain"
-                target_id = (
+                target = (
                     session.query(ChainDB)
                     .filter(
                         ChainDB.name == prompt[argument_key],
                         ChainDB.user_id == self.user_id,
                     )
                     .first()
-                    .id
                 )
-                target_type = "chain"
             elif prompt_type == "command":
                 argument_key = "command_name"
-                target_id = (
+                target = (
                     session.query(Command)
                     .filter(Command.name == prompt[argument_key])
                     .first()
-                    .id
                 )
-                target_type = "command"
             else:
-                # Handle the case where the argument key is not found
-                # You can choose to skip this step or raise an exception
+                # Handle the case where the prompt_type is not recognized
+                logging.error(f"Unrecognized prompt_type: {prompt_type}")
                 continue
+
+            if target is None:
+                # Handle the case where the target is not found
+                logging.error(
+                    f"Target not found for {prompt_type}: {prompt[argument_key]}"
+                )
+                continue
+
+            target_id = target.id
             argument_value = prompt[argument_key]
             prompt_arguments = prompt.copy()
             del prompt_arguments[argument_key]
@@ -673,9 +676,9 @@ class Chain:
                 agent_id=agent.id,
                 prompt_type=step_data["prompt_type"],
                 prompt=argument_value,
-                target_chain_id=target_id if target_type == "chain" else None,
-                target_command_id=target_id if target_type == "command" else None,
-                target_prompt_id=target_id if target_type == "prompt" else None,
+                target_chain_id=target_id if prompt_type == "chain" else None,
+                target_command_id=target_id if prompt_type == "command" else None,
+                target_prompt_id=target_id if prompt_type == "prompt" else None,
             )
             session.add(chain_step)
             session.commit()
@@ -687,7 +690,7 @@ class Chain:
                 )
                 if not argument:
                     # Handle the case where argument not found based on argument_name
-                    # You can choose to skip this argument or raise an exception
+                    logging.warning(f"Argument not found: {argument_name}")
                     continue
 
                 chain_step_argument = ChainStepArgument(
