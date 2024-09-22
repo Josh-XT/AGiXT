@@ -623,6 +623,7 @@ class Chain:
             if "prompt_type" not in step_data:
                 step_data["prompt_type"] = "prompt"
             prompt_type = step_data["prompt_type"].lower()
+            target_id = None
             if prompt_type == "prompt":
                 argument_key = "prompt_name"
                 prompt_category = prompt.get("prompt_category", "Default")
@@ -635,6 +636,8 @@ class Chain:
                     )
                     .first()
                 )
+                if target:
+                    target_id = target.id
             elif prompt_type == "chain":
                 argument_key = "chain_name"
                 if "chain" in prompt:
@@ -647,6 +650,8 @@ class Chain:
                     )
                     .first()
                 )
+                if target:
+                    target_id = target.id
             elif prompt_type == "command":
                 argument_key = "command_name"
                 target = (
@@ -654,19 +659,20 @@ class Chain:
                     .filter(Command.name == prompt[argument_key])
                     .first()
                 )
+                if target:
+                    target_id = target.id
             else:
                 # Handle the case where the prompt_type is not recognized
                 logging.error(f"Unrecognized prompt_type: {prompt_type}")
                 continue
 
-            if target is None:
+            if target_id is None:
                 # Handle the case where the target is not found
                 logging.error(
                     f"Target not found for {prompt_type}: {prompt[argument_key]}"
                 )
                 continue
 
-            target_id = target.id
             argument_value = prompt[argument_key]
             prompt_arguments = prompt.copy()
             del prompt_arguments[argument_key]
