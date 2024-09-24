@@ -894,31 +894,31 @@ class Interactions:
         ]
         logging.info(f"Agent command list: {command_list}")
         if len(command_list) > 0:
-            # Updated regex pattern to capture full match and inner content
             commands_to_execute = re.findall(r"(#execute\((.*?)\))", self.response)
             reformatted_response = self.response
             if len(commands_to_execute) > 0:
                 for full_match, command in commands_to_execute:
-                    # Split command into name and arguments
                     parts = command.split(",", 1)
                     command_name = parts[0].strip().strip("'\"")
                     command_args_str = parts[1] if len(parts) > 1 else "{}"
 
-                    # Parse command arguments
                     try:
-                        command_args = json.loads(command_args_str)
+                        # Improved argument parsing
+                        command_args = json.loads(command_args_str.strip())
                     except json.JSONDecodeError:
-                        # Handle JSON parsing errors
-                        command_args = {}
                         logging.warning(
                             f"Failed to parse command arguments: {command_args_str}"
                         )
+                        command_args = {}
+                        # Attempt to parse arguments manually
+                        arg_pairs = re.findall(r'(\w+):\s*"([^"]*)"', command_args_str)
+                        for key, value in arg_pairs:
+                            command_args[key] = value
 
                     logging.info(f"Command to execute: {command_name}")
                     logging.info(f"Command Args: {command_args}")
 
                     if command_name not in command_list:
-                        # Handle unknown command
                         command_output = f"Unknown command: {command_name}"
                         logging.warning(command_output)
                     else:
@@ -957,7 +957,6 @@ class Interactions:
                             role=self.agent_name,
                             message=f"[ACTIVITY] {command_output}",
                         )
-                        # Replace the exact matched command with the output
                         reformatted_response = reformatted_response.replace(
                             full_match,
                             (
