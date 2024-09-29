@@ -28,6 +28,7 @@ class EzlocalaiProvider:
         AI_TEMPERATURE: float = 1.33,
         AI_TOP_P: float = 0.95,
         VOICE: str = "HAL9000",
+        TTS_LANGUAGE: str = "en",
         TRANSCRIPTION_MODEL: str = "base",
         **kwargs,
     ):
@@ -40,6 +41,7 @@ class EzlocalaiProvider:
             EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_URI")
         )
         self.VOICE = VOICE if VOICE else "HAL9000"
+        self.TTS_LANGUAGE = TTS_LANGUAGE if TTS_LANGUAGE else "en"
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
         self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
         self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
@@ -185,6 +187,7 @@ class EzlocalaiProvider:
             model="tts-1",
             voice=self.VOICE,
             input=text,
+            extra_body={"language": self.TTS_LANGUAGE},
         )
         return tts_response.content
 
