@@ -173,6 +173,7 @@ class AGiXT:
         voice_response: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
+        language: str = "en",
         **kwargs,
     ):
         """
@@ -187,6 +188,10 @@ class AGiXT:
             browse_links (bool): Whether to browse links in the response
             images (list): List of image file paths
             shots (int): Number of responses to generate
+            voice_response (bool): Whether to generate a voice response
+            log_user_input (bool): Whether to log the user input
+            log_output (bool): Whether to log the output
+            language (str): Language of the response
             **kwargs: Additional keyword arguments
 
         Returns:
@@ -209,11 +214,6 @@ class AGiXT:
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
-        if "LANGUAGE" not in self.agent_settings:
-            self.agent_settings["LANGUAGE"] = "en"
-        target_language = str(self.agent_settings["LANGUAGE"]).lower()
-        if len(target_language) > 2:
-            target_language = target_language[:2].lower()
         response = await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
@@ -224,21 +224,21 @@ class AGiXT:
             conversation_name=self.conversation_name,
             browse_links=browse_links,
             images=images,
-            tts=voice_response if target_language == "en" else False,
-            log_user_input=log_user_input if target_language == "en" else False,
-            log_output=log_output if target_language == "en" else False,
+            tts=voice_response if language == "en" else False,
+            log_user_input=log_user_input if language == "en" else False,
+            log_output=log_output if language == "en" else False,
             **kwargs,
         )
-        if target_language == "en":
+        if language == "en":
             return response
-        translation_prompt = f"Markdown output is acceptable in the `target_language_translated_text` field, but all output should only be in the target language aside from that variable name. The goal is to intuitively and effectively translate the full given text from English to {target_language}. **Text to translate to target language '{target_language}'**:\n"
+        translation_prompt = f"Markdown output is acceptable in the `target_language_translated_text` field, but all output should only be in the target language aside from that variable name. The goal is to intuitively and effectively translate the full given text from English to {language}. **Text to translate to target language '{language}'**:\n"
         target_language_user_input = await self.convert_to_model(
             input_string=f"{translation_prompt}{user_input}",
             model=TranslationRequest,
         )
         self.conversation.log_interaction(
             role="USER",
-            message=f"{user_input}\n**Translated to {target_language.upper()}**\n{target_language_user_input.target_language_translated_text}",
+            message=f"{user_input}\n**Translated to {language.upper()}**\n{target_language_user_input.target_language_translated_text}",
         )
         if voice_response:
             await self.text_to_speech(
@@ -249,7 +249,7 @@ class AGiXT:
             input_string=f"{translation_prompt}{response}",
             model=TranslationRequest,
         )
-        new_response = f"{response}\n**Translated to {target_language.upper()}**\n{target_language_response.target_language_translated_text}"
+        new_response = f"{response}\n**Translated to {language.upper()}**\n{target_language_response.target_language_translated_text}"
         self.conversation.log_interaction(
             role=self.agent_name,
             message=new_response,
@@ -1645,6 +1645,11 @@ class AGiXT:
             if current_input_tokens < self.agent.max_input_tokens:
                 if file_content:
                     prompt_args["uploaded_file_data"] = file_content
+            language = "en"
+            if "LANGUAGE" in self.agent_settings:
+                language = str(self.agent_settings["LANGUAGE"]).lower()
+                if len(language) > 2:
+                    language = language[:2]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1657,6 +1662,7 @@ class AGiXT:
                 voice_response=tts,
                 log_user_input=False,
                 data_analysis=data_analysis,
+                language=language,
                 **prompt_args,
             )
         try:
