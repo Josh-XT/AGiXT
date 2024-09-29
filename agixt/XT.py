@@ -15,7 +15,6 @@ from typing import (
     get_type_hints,
 )
 from MagicalAuth import MagicalAuth
-from agixtsdk import AGiXTSDK
 from enum import Enum
 from pydantic import BaseModel
 import pdfplumber
@@ -26,13 +25,13 @@ import subprocess
 import logging
 import asyncio
 import requests
-import os
-import re
+import inspect
 import base64
 import uuid
 import json
 import time
-import inspect
+import os
+import re
 
 
 class AGiXT:
@@ -1960,27 +1959,28 @@ class AGiXT:
             else:
                 return model(**response)
         except Exception as e:
-            self.failures += 1
-            if self.failures > max_failures:
-                print(
-                    f"Error: {e} . Failed to convert the response to the model after {max_failures} attempts. Response: {response}"
-                )
-                self.failures = 0
-                return (
-                    response
-                    if response
-                    else "Failed to convert the response to the model."
-                )
+            if "failures" in kwargs:
+                failures = int(kwargs["failures"]) + 1
+                if failures > max_failures:
+                    logging.error(
+                        f"Error: {e} . Failed to convert the response to the model after 3 attempts. Response: {response}"
+                    )
+                    return (
+                        response
+                        if response
+                        else "Failed to convert the response to the model."
+                    )
             else:
-                self.failures = 1
-            print(
-                f"Error: {e} . Failed to convert the response to the model, trying again. {self.failures}/3 failures. Response: {response}"
+                failures = 1
+            logging.warning(
+                f"Error: {e} . Failed to convert the response to the model, trying again. {failures}/3 failures. Response: {response}"
             )
             return await self.convert_to_model(
                 input_string=input_string,
                 model=model,
                 max_failures=max_failures,
-                **kwargs,
+                response_type=response_type,
+                failures=failures,
             )
 
     def get_agent_workspace_markdown(self):
