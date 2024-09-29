@@ -1223,6 +1223,7 @@ class AGiXT:
         browse_links = True
         tts = False
         websearch = False
+        language = "en"
 
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
@@ -1238,6 +1239,8 @@ class AGiXT:
             prompt_category = self.agent_settings["prompt_category"]
         else:
             prompt_category = "Default"
+        if "LANGUAGE" in self.agent_settings:
+            language = str(self.agent_settings["LANGUAGE"]).lower()
         prompt_args = {}
         if "prompt_args" in self.agent_settings:
             prompt_args = (
@@ -1298,6 +1301,8 @@ class AGiXT:
                     mode = message["mode"]
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "language" in message:
+                language = message["language"]
             if "conversation_results" in message:
                 conversation_results = int(message["conversation_results"])
             if "prompt_category" in message:
@@ -1644,11 +1649,8 @@ class AGiXT:
             if current_input_tokens < self.agent.max_input_tokens:
                 if file_content:
                     prompt_args["uploaded_file_data"] = file_content
-            language = "en"
-            if "LANGUAGE" in self.agent_settings:
-                language = str(self.agent_settings["LANGUAGE"]).lower()
-                if len(language) > 2:
-                    language = language[:2]
+            if len(language) > 2:
+                language = language[:2]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
