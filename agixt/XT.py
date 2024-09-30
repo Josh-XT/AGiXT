@@ -244,8 +244,9 @@ class AGiXT:
                 text=target_language_user_input.target_language_translated_text,
                 log_output=True,
             )
+        stripped_response = re.sub(r"```[^```]+```", "", response)
         target_language_response = await self.convert_to_model(
-            input_string=f"{translation_prompt}{response}",
+            input_string=f"{translation_prompt}{stripped_response}",
             model=TranslationRequest,
         )
         new_response = f"{response}\n**Translated to {language.upper()}**\n{target_language_response.target_language_translated_text}"
