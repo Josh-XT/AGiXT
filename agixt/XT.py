@@ -1295,6 +1295,9 @@ class AGiXT:
             analyze_user_input = (
                 str(self.agent_settings["analyze_user_input"]).lower() == "true"
             )
+        auto_continue = False
+        if "auto_continue" in self.agent_settings:
+            auto_continue = str(self.agent_settings["auto_continue"]).lower() == "true"
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1343,6 +1346,8 @@ class AGiXT:
                 analyze_user_input = (
                     str(message["analyze_user_input"]).lower() == "true"
                 )
+            if "auto_continue" in message:
+                auto_continue = str(message["auto_continue"]).lower() == "true"
             download_headers = {}
             if "download_headers" in message:
                 download_headers = (
@@ -1671,16 +1676,79 @@ class AGiXT:
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :]
-            if "<answer>" in response:
-                thoughts_and_reflections = response.split("<answer>")[0]
-                thoughts_and_reflections += response.split("</answer>")[1]
-                # Thoughts and reflections will get added to conversational memories
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                await self.file_reader.write_text_to_memory(
-                    user_input=new_prompt,
-                    text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
-                    external_source=f"{self.agent_name}",
+            if auto_continue:
+                continue_response = await self.inference(
+                    user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                    prompt_name=prompt_name,
+                    prompt_category=prompt_category,
+                    injected_memories=context_results,
+                    conversation_results=conversation_results,
+                    shots=prompt.n,
+                    websearch=False,
+                    browse_links=False,
+                    voice_response=tts,
+                    log_user_input=False,
+                    log_output=False,
+                    data_analysis=data_analysis,
+                    language=language,
+                    **prompt_args,
                 )
+                if continue_response.startswith(f"{self.agent_name}:"):
+                    continue_response = continue_response[len(f"{self.agent_name}:") :]
+                if continue_response.startswith(f"{self.agent_name} :"):
+                    continue_response = continue_response[len(f"{self.agent_name} :") :]
+                if "<answer>" in continue_response:
+                    response = continue_response
+                if continue_response.lower().startswith("done"):
+                    response += continue_response
+            if "<answer>" in response:
+                if "</answer>" not in response:
+                    continue_response = await self.inference(
+                        user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                        prompt_name=prompt_name,
+                        prompt_category=prompt_category,
+                        injected_memories=context_results,
+                        conversation_results=conversation_results,
+                        shots=prompt.n,
+                        websearch=False,
+                        browse_links=False,
+                        voice_response=tts,
+                        log_user_input=False,
+                        log_output=False,
+                        data_analysis=data_analysis,
+                        language=language,
+                        **prompt_args,
+                    )
+                    if continue_response.startswith(f"{self.agent_name}:"):
+                        continue_response = continue_response[
+                            len(f"{self.agent_name}:") :
+                        ]
+                    if continue_response.startswith(f"{self.agent_name} :"):
+                        continue_response = continue_response[
+                            len(f"{self.agent_name} :") :
+                        ]
+                    if "<answer>" in continue_response:
+                        response = continue_response
+                    if continue_response.lower().startswith("done"):
+                        response += continue_response
+                try:
+                    thoughts_and_reflections = response.split("<answer>")[0]
+                except:
+                    thoughts_and_reflections = ""
+                try:
+                    after_thoughts = response.split("</answer>")[1]
+                    if len(after_thoughts) > 10:
+                        thoughts_and_reflections += after_thoughts
+                except:
+                    pass
+                if len(thoughts_and_reflections) > 10:
+                    # Thoughts and reflections will get added to conversational memories
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await self.file_reader.write_text_to_memory(
+                        user_input=new_prompt,
+                        text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
+                        external_source=f"{self.agent_name}",
+                    )
                 answer = response.split("<answer>")[1].split("</answer>")[0]
                 self.conversation.log_interaction(
                     role=self.agent_name,
