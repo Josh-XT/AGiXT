@@ -281,6 +281,10 @@ class UpdateMessageModel(BaseModel):
     new_message: str
 
 
+class TranslationRequest(BaseModel):
+    target_language_translated_text: str
+
+
 class DeleteMessageModel(BaseModel):
     conversation_name: str
 
