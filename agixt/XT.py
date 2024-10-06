@@ -81,6 +81,15 @@ class AGiXT:
         self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         self.failures = 0
         self.input_tokens = 0
+        self.file_reader = None
+        if self.conversation_id:
+            self.file_reader = FileReader(
+                agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                collection_number=self.conversation_id,
+                ApiClient=self.ApiClient,
+                user=self.user_email,
+            )
 
     async def prompts(self, prompt_category: str = "Default"):
         """
@@ -621,7 +630,7 @@ class AGiXT:
         )
         return "I have read the information from the websites into my memory."
 
-    async def learn_spreadsheet(self, user_input, file_path, file_reader: FileReader):
+    async def learn_spreadsheet(self, user_input, file_path):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
         if file_type.lower() == "csv":
@@ -631,7 +640,7 @@ class AGiXT:
             for item in df_dict:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
-                await file_reader.write_text_to_memory(
+                await self.file_reader.write_text_to_memory(
                     user_input=f"{user_input}\n{message}",
                     text=message,
                     external_source=f"file {file_path}",
@@ -652,7 +661,6 @@ class AGiXT:
                     message = await self.learn_spreadsheet(
                         user_input=user_input,
                         file_path=csv_file_path,
-                        file_reader=file_reader,
                     )
                     self.conversation.log_interaction(
                         role=self.agent_name, message=f"[ACTIVITY] {message}"
@@ -669,7 +677,6 @@ class AGiXT:
                 message = await self.learn_spreadsheet(
                     user_input=user_input,
                     file_path=csv_file_path,
-                    file_reader=file_reader,
                 )
         return f"Read [{file_name}]({file_path}) into memory."
 
@@ -754,13 +761,6 @@ class AGiXT:
             file_path = pdf_file_path
         if user_input == "":
             user_input = "Describe each stage of this image."
-        file_reader = FileReader(
-            agent_name=self.agent_name,
-            agent_config=self.agent.AGENT_CONFIG,
-            collection_number=collection_id,
-            ApiClient=self.ApiClient,
-            user=self.user_email,
-        )
         disallowed_types = ["exe", "bin", "rar"]
         if file_type in disallowed_types:
             response = f"[ERROR] I was unable to read the file called `{file_name}`."
@@ -793,7 +793,7 @@ class AGiXT:
                         file_content += vision_response
             self.input_tokens += get_tokens(content)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            await file_reader.write_text_to_memory(
+            await self.file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Content from PDF uploaded at {timestamp} named `{file_name}`:\n{content}",
                 external_source=f"file {file_path}",
@@ -835,7 +835,7 @@ class AGiXT:
             )
             file_content += docx_content
             self.input_tokens += get_tokens(content)
-            await file_reader.write_text_to_memory(
+            await self.file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=docx_content,
                 external_source=f"file {file_path}",
@@ -845,7 +845,6 @@ class AGiXT:
             response = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
-                file_reader=file_reader,
             )
         elif (
             file_type == "wav"
@@ -868,7 +867,7 @@ class AGiXT:
             )
             file_content += audio_response
             self.input_tokens += get_tokens(audio_response)
-            await file_reader.write_text_to_memory(
+            await self.file_reader.write_text_to_memory(
                 user_input=user_input,
                 text=f"Transcription from the audio file called `{file_name}`:\n{audio_response}\n",
                 external_source=f"audio {file_name}",
@@ -905,7 +904,7 @@ class AGiXT:
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    await file_reader.write_text_to_memory(
+                    await self.file_reader.write_text_to_memory(
                         user_input=user_input,
                         text=f"{self.agent_name}'s visual description from viewing uploaded image called `{file_name}` from {timestamp}:\n{vision_response}\n",
                         external_source=f"image {file_name}",
@@ -935,13 +934,13 @@ class AGiXT:
                 lines = content.split("\n")
                 if len(lines) > 1:
                     for line_number, line in enumerate(lines):
-                        await file_reader.write_text_to_memory(
+                        await self.file_reader.write_text_to_memory(
                             user_input=user_input,
                             text=f"Content from file uploaded named `{file_name}` at {timestamp} on line number {line_number + 1}:\n{line}",
                             external_source=f"file {fp}",
                         )
                 else:
-                    await file_reader.write_text_to_memory(
+                    await self.file_reader.write_text_to_memory(
                         user_input=user_input,
                         text=f"Content from file uploaded named `{file_name}` at {timestamp}:\n{content}",
                         external_source=f"file {fp}",
@@ -1296,6 +1295,9 @@ class AGiXT:
             analyze_user_input = (
                 str(self.agent_settings["analyze_user_input"]).lower() == "true"
             )
+        auto_continue = False
+        if "auto_continue" in self.agent_settings:
+            auto_continue = str(self.agent_settings["auto_continue"]).lower() == "true"
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1344,6 +1346,8 @@ class AGiXT:
                 analyze_user_input = (
                     str(message["analyze_user_input"]).lower() == "true"
                 )
+            if "auto_continue" in message:
+                auto_continue = str(message["auto_continue"]).lower() == "true"
             download_headers = {}
             if "download_headers" in message:
                 download_headers = (
@@ -1663,10 +1667,98 @@ class AGiXT:
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
+                log_output=False,
                 data_analysis=data_analysis,
                 language=language,
                 **prompt_args,
             )
+            if response.startswith(f"{self.agent_name}:"):
+                response = response[len(f"{self.agent_name}:") :]
+            if response.startswith(f"{self.agent_name} :"):
+                response = response[len(f"{self.agent_name} :") :]
+            if auto_continue:
+                continue_response = await self.inference(
+                    user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                    prompt_name=prompt_name,
+                    prompt_category=prompt_category,
+                    injected_memories=context_results,
+                    conversation_results=conversation_results,
+                    shots=prompt.n,
+                    websearch=False,
+                    browse_links=False,
+                    voice_response=tts,
+                    log_user_input=False,
+                    log_output=False,
+                    data_analysis=data_analysis,
+                    language=language,
+                    **prompt_args,
+                )
+                if continue_response.startswith(f"{self.agent_name}:"):
+                    continue_response = continue_response[len(f"{self.agent_name}:") :]
+                if continue_response.startswith(f"{self.agent_name} :"):
+                    continue_response = continue_response[len(f"{self.agent_name} :") :]
+                if "<answer>" in continue_response:
+                    response = continue_response
+                if continue_response.lower().startswith("done"):
+                    response += continue_response
+            if "<answer>" in response:
+                if "</answer>" not in response:
+                    continue_response = await self.inference(
+                        user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                        prompt_name=prompt_name,
+                        prompt_category=prompt_category,
+                        injected_memories=context_results,
+                        conversation_results=conversation_results,
+                        shots=prompt.n,
+                        websearch=False,
+                        browse_links=False,
+                        voice_response=tts,
+                        log_user_input=False,
+                        log_output=False,
+                        data_analysis=data_analysis,
+                        language=language,
+                        **prompt_args,
+                    )
+                    if continue_response.startswith(f"{self.agent_name}:"):
+                        continue_response = continue_response[
+                            len(f"{self.agent_name}:") :
+                        ]
+                    if continue_response.startswith(f"{self.agent_name} :"):
+                        continue_response = continue_response[
+                            len(f"{self.agent_name} :") :
+                        ]
+                    if "<answer>" in continue_response:
+                        response = continue_response
+                    if continue_response.lower().startswith("done"):
+                        response += continue_response
+                try:
+                    thoughts_and_reflections = response.split("<answer>")[0]
+                except:
+                    thoughts_and_reflections = ""
+                try:
+                    after_thoughts = response.split("</answer>")[1]
+                    if len(after_thoughts) > 10:
+                        thoughts_and_reflections += after_thoughts
+                except:
+                    pass
+                if len(thoughts_and_reflections) > 10:
+                    # Thoughts and reflections will get added to conversational memories
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await self.file_reader.write_text_to_memory(
+                        user_input=new_prompt,
+                        text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
+                        external_source=f"{self.agent_name}",
+                    )
+                answer = response.split("<answer>")[1].split("</answer>")[0]
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=answer,
+                )
+            else:
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=response,
+                )
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)

@@ -33,7 +33,7 @@ jobs:
       port: "7437"
       database-type: "postgresql"
       report-name: "agixt-postgres-tests"
-      additional-python-dependencies: openai requests agixtsdk qrcode
+      additional-python-dependencies: openai requests agixtsdk qrcode==7.4.2
     needs: build-agixt
   test-agixt-sqlite:
     uses: josh-xt/AGiXT/.github/workflows/operation-test-with-jupyter.yml@main
@@ -43,5 +43,5 @@ jobs:
       port: "7437"
       database-type: "sqlite"
       report-name: "agixt-sqlite-tests"
-      additional-python-dependencies: openai requests agixtsdk qrcode
+      additional-python-dependencies: openai requests agixtsdk qrcode==7.4.2
     needs: build-agixt
