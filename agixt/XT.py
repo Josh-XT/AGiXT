@@ -4,9 +4,16 @@ from readers.file import FileReader
 from Extensions import Extensions
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
-from Models import ChatCompletions, TasksToDo, ChainCommandName
+from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
 from datetime import datetime
-from typing import Type, get_args, get_origin, Union, List
+from typing import (
+    List,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from MagicalAuth import MagicalAuth
 from enum import Enum
 from pydantic import BaseModel
@@ -18,12 +25,13 @@ import subprocess
 import logging
 import asyncio
 import requests
-import os
-import re
+import inspect
 import base64
 import uuid
 import json
 import time
+import os
+import re
 
 
 class AGiXT:
@@ -164,6 +172,7 @@ class AGiXT:
         voice_response: bool = False,
         log_user_input: bool = True,
         log_output: bool = True,
+        language: str = "en",
         **kwargs,
     ):
         """
@@ -178,6 +187,10 @@ class AGiXT:
             browse_links (bool): Whether to browse links in the response
             images (list): List of image file paths
             shots (int): Number of responses to generate
+            voice_response (bool): Whether to generate a voice response
+            log_user_input (bool): Whether to log the user input
+            log_output (bool): Whether to log the output
+            language (str): Language of the response
             **kwargs: Additional keyword arguments
 
         Returns:
@@ -200,7 +213,7 @@ class AGiXT:
             del kwargs["tts"]
         if "conversation_name" in kwargs:
             del kwargs["conversation_name"]
-        return await self.agent_interactions.run(
+        response = await self.agent_interactions.run(
             user_input=user_input,
             prompt_category=prompt_category,
             prompt_name=prompt_name,
@@ -210,11 +223,43 @@ class AGiXT:
             conversation_name=self.conversation_name,
             browse_links=browse_links,
             images=images,
-            tts=voice_response,
-            log_user_input=log_user_input,
-            log_output=log_output,
+            tts=voice_response if language == "en" else False,
+            log_user_input=log_user_input if language == "en" else False,
+            log_output=log_output if language == "en" else False,
             **kwargs,
         )
+        if language == "en":
+            return response
+        translation_prompt = f"Markdown output is acceptable in the `target_language_translated_text` field, but all output should only be in the target language aside from that variable name. The goal is to intuitively and effectively translate the full given text from English to {language}. **Text to translate to target language '{language}'**:\n"
+        target_language_user_input = await self.convert_to_model(
+            input_string=f"{translation_prompt}{user_input}",
+            model=TranslationRequest,
+        )
+        self.conversation.log_interaction(
+            role="USER",
+            message=f"{user_input}\n**Translated to {language.upper()}**\n{target_language_user_input.target_language_translated_text}",
+        )
+        if voice_response:
+            await self.text_to_speech(
+                text=target_language_user_input.target_language_translated_text,
+                log_output=True,
+            )
+        stripped_response = re.sub(r"```[^```]+```", "", response)
+        target_language_response = await self.convert_to_model(
+            input_string=f"{translation_prompt}{stripped_response}",
+            model=TranslationRequest,
+        )
+        new_response = f"{response}\n**Translated to {language.upper()}**\n{target_language_response.target_language_translated_text}"
+        self.conversation.log_interaction(
+            role=self.agent_name,
+            message=new_response,
+        )
+        if voice_response:
+            await self.text_to_speech(
+                text=target_language_response.target_language_translated_text,
+                log_output=True,
+            )
+        return new_response
 
     async def generate_image(self, prompt: str):
         """
@@ -1023,7 +1068,7 @@ class AGiXT:
             log_output=False,
             log_user_input=False,
         )
-        chain_title = await self.convert_to_pydantic_model(
+        chain_title = await self.convert_to_model(
             input_string=chain_name,
             model=ChainCommandName,
         )
@@ -1045,7 +1090,7 @@ class AGiXT:
             log_output=False,
             log_user_input=False,
         )
-        task_list = await self.convert_to_pydantic_model(
+        task_list = await self.convert_to_model(
             input_string=numbered_list_of_tasks,
             model=TasksToDo,
         )
@@ -1179,6 +1224,7 @@ class AGiXT:
         browse_links = True
         tts = False
         websearch = False
+        language = "en"
 
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
@@ -1194,6 +1240,8 @@ class AGiXT:
             prompt_category = self.agent_settings["prompt_category"]
         else:
             prompt_category = "Default"
+        if "LANGUAGE" in self.agent_settings:
+            language = str(self.agent_settings["LANGUAGE"]).lower()
         prompt_args = {}
         if "prompt_args" in self.agent_settings:
             prompt_args = (
@@ -1254,6 +1302,8 @@ class AGiXT:
                     mode = message["mode"]
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
+            if "language" in message:
+                language = message["language"]
             if "conversation_results" in message:
                 conversation_results = int(message["conversation_results"])
             if "prompt_category" in message:
@@ -1600,6 +1650,8 @@ class AGiXT:
             if current_input_tokens < self.agent.max_input_tokens:
                 if file_content:
                     prompt_args["uploaded_file_data"] = file_content
+            if len(language) > 2:
+                language = language[:2]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1612,6 +1664,7 @@ class AGiXT:
                 voice_response=tts,
                 log_user_input=False,
                 data_analysis=data_analysis,
+                language=language,
                 **prompt_args,
             )
         try:
@@ -1804,7 +1857,69 @@ class AGiXT:
         )
         return dpo_dataset
 
-    async def convert_to_pydantic_model(
+    def _generate_detailed_schema(self, model: Type[BaseModel], depth: int = 0) -> str:
+        """
+        Recursively generates a detailed schema representation of a Pydantic model,
+        including nested models and complex types.
+        """
+        fields = get_type_hints(model)
+        field_descriptions = []
+        indent = "  " * depth
+        for field, field_type in fields.items():
+            description = f"{indent}{field}: "
+            origin_type = get_origin(field_type)
+            if origin_type is None:
+                origin_type = field_type
+            if inspect.isclass(origin_type) and issubclass(origin_type, BaseModel):
+                description += f"Nested Model:\n{self._generate_detailed_schema(origin_type, depth + 1)}"
+            elif origin_type == list:
+                list_type = get_args(field_type)[0]
+                if inspect.isclass(list_type) and issubclass(list_type, BaseModel):
+                    description += f"List of Nested Model:\n{self._generate_detailed_schema(list_type, depth + 1)}"
+                elif get_origin(list_type) == Union:
+                    union_types = get_args(list_type)
+                    description += f"List of Union:\n"
+                    for union_type in union_types:
+                        if inspect.isclass(union_type) and issubclass(
+                            union_type, BaseModel
+                        ):
+                            description += f"{indent}  - Nested Model:\n{self._generate_detailed_schema(union_type, depth + 2)}"
+                        else:
+                            description += (
+                                f"{indent}  - {self._get_type_name(union_type)}\n"
+                            )
+                else:
+                    description += f"List[{self._get_type_name(list_type)}]"
+            elif origin_type == dict:
+                key_type, value_type = get_args(field_type)
+                description += f"Dict[{self._get_type_name(key_type)}, {self._get_type_name(value_type)}]"
+            elif origin_type == Union:
+                union_types = get_args(field_type)
+
+                for union_type in union_types:
+                    if inspect.isclass(union_type) and issubclass(
+                        union_type, BaseModel
+                    ):
+                        description += f"{indent}  - Nested Model:\n{self._generate_detailed_schema(union_type, depth + 2)}"
+                    else:
+                        type_name = self._get_type_name(union_type)
+                        if type_name != "NoneType":
+                            description += f"{self._get_type_name(union_type)}\n"
+            elif inspect.isclass(origin_type) and issubclass(origin_type, Enum):
+                enum_values = ", ".join([f"{e.name} = {e.value}" for e in origin_type])
+                description += f"{origin_type.__name__} (Enum values: {enum_values})"
+            else:
+                description += self._get_type_name(origin_type)
+            field_descriptions.append(description)
+        return "\n".join(field_descriptions)
+
+    def _get_type_name(self, type_):
+        """Helper method to get the name of a type, handling some special cases."""
+        if hasattr(type_, "__name__"):
+            return type_.__name__
+        return str(type_).replace("typing.", "")
+
+    async def convert_to_model(
         self,
         input_string: str,
         model: Type[BaseModel],
@@ -1812,18 +1927,22 @@ class AGiXT:
         response_type: str = None,
         **kwargs,
     ):
+        """
+        Converts a string to a Pydantic model using an AGiXT agent.
+
+        Args:
+        input_string (str): The string to convert to a model.
+        model (Type[BaseModel]): The Pydantic model to convert the string to.
+        max_failures (int): The maximum number of times to retry the conversion if it fails.
+        response_type (str): The type of response to return. Either 'json' or None. None will return the model.
+        **kwargs: Additional arguments to pass to the AGiXT agent as prompt arguments.
+        """
         input_string = str(input_string)
-        fields = model.__annotations__
-        field_descriptions = []
-        for field, field_type in fields.items():
-            description = f"{field}: {field_type}"
-            if get_origin(field_type) == Union:
-                field_type = get_args(field_type)[0]
-            if isinstance(field_type, type) and issubclass(field_type, Enum):
-                enum_values = ", ".join([f"{e.name} = {e.value}" for e in field_type])
-                description += f" (Enum values: {enum_values})"
-            field_descriptions.append(description)
-        schema = "\n".join(field_descriptions)
+        schema = self._generate_detailed_schema(model)
+        if "user_input" in kwargs:
+            del kwargs["user_input"]
+        if "schema" in kwargs:
+            del kwargs["schema"]
         response = await self.inference(
             user_input=input_string,
             schema=schema,
@@ -1859,7 +1978,7 @@ class AGiXT:
             logging.warning(
                 f"Error: {e} . Failed to convert the response to the model, trying again. {failures}/3 failures. Response: {response}"
             )
-            return await self.convert_to_pydantic_model(
+            return await self.convert_to_model(
                 input_string=input_string,
                 model=model,
                 max_failures=max_failures,
