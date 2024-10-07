@@ -1676,33 +1676,9 @@ class AGiXT:
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :]
-            if auto_continue:
-                continue_response = await self.inference(
-                    user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
-                    prompt_name=prompt_name,
-                    prompt_category=prompt_category,
-                    injected_memories=context_results,
-                    conversation_results=conversation_results,
-                    shots=prompt.n,
-                    websearch=False,
-                    browse_links=False,
-                    voice_response=tts,
-                    log_user_input=False,
-                    log_output=False,
-                    data_analysis=data_analysis,
-                    language=language,
-                    **prompt_args,
-                )
-                if continue_response.startswith(f"{self.agent_name}:"):
-                    continue_response = continue_response[len(f"{self.agent_name}:") :]
-                if continue_response.startswith(f"{self.agent_name} :"):
-                    continue_response = continue_response[len(f"{self.agent_name} :") :]
-                if "<answer>" in continue_response:
-                    response = continue_response
-                if continue_response.lower().startswith("done"):
-                    response += continue_response
-            if "<answer>" in response:
-                if "</answer>" not in response:
+            if auto_continue and "</answer>" not in response:
+                responses = [response]
+                try:
                     continue_response = await self.inference(
                         user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
                         prompt_name=prompt_name,
@@ -1719,6 +1695,12 @@ class AGiXT:
                         language=language,
                         **prompt_args,
                     )
+                except:
+                    logging.error(
+                        "Input tokens exceeded. Unable to continue ouput generation."
+                    )
+                    continue_response = "Done."
+                while str(continue_response).lower() != "done":
                     if continue_response.startswith(f"{self.agent_name}:"):
                         continue_response = continue_response[
                             len(f"{self.agent_name}:") :
@@ -1727,10 +1709,36 @@ class AGiXT:
                         continue_response = continue_response[
                             len(f"{self.agent_name} :") :
                         ]
+                    responses.append(continue_response)
+                    current_response = "".join(responses)
+                    try:
+                        continue_response = await self.inference(
+                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                            prompt_name=prompt_name,
+                            prompt_category=prompt_category,
+                            injected_memories=context_results,
+                            conversation_results=conversation_results,
+                            shots=prompt.n,
+                            websearch=False,
+                            browse_links=False,
+                            voice_response=tts,
+                            log_user_input=False,
+                            log_output=False,
+                            data_analysis=data_analysis,
+                            language=language,
+                            **prompt_args,
+                        )
+                    except:
+                        logging.error(
+                            "Input tokens exceeded. Unable to continue ouput generation."
+                        )
+                        continue_response = "Done."
                     if "<answer>" in continue_response:
-                        response = continue_response
-                    if continue_response.lower().startswith("done"):
-                        response += continue_response
+                        responses = [continue_response]
+                response = "".join(responses)
+            if "<answer>" in response:
+                if "</answer>" not in response:
+                    response += "</answer>"
                 try:
                     thoughts_and_reflections = response.split("<answer>")[0]
                 except:
@@ -1749,7 +1757,8 @@ class AGiXT:
                         text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
                         external_source=f"{self.agent_name}",
                     )
-                answer = response.split("<answer>")[1].split("</answer>")[0]
+                answer = response.split("<answer>")[-1]
+                answer = answer.split("</answer>")[0]
                 self.conversation.log_interaction(
                     role=self.agent_name,
                     message=answer,
