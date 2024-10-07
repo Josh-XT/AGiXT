@@ -92,10 +92,11 @@ class github(Extensions):
                 repo.remotes.origin.pull()
                 self.failures = 0
                 return f"Pulled latest changes for {repo_url} to {repo_dir}"
-            git.Repo.clone_from(
-                url=auth_repo_url,
-                to_path=repo_dir,
-            )
+            else:
+                git.Repo.clone_from(
+                    url=auth_repo_url,
+                    to_path=repo_dir,
+                )
             self.failures = 0
             return f"Cloned {repo_url} to {repo_dir}"
         except Exception as e:
