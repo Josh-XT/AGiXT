@@ -85,7 +85,7 @@ class github(Extensions):
             auth_repo_url = "//".join(split_url)
         try:
             repo_name = repo_url.split("/")[-1]
-            repo_dir = os.path.join("./WORKSPACE", repo_name)
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
             if os.path.exists(repo_dir):
                 # Pull the latest changes
                 repo = git.Repo(repo_dir)
@@ -123,7 +123,7 @@ class github(Extensions):
                 user = self.gh.get_user(self.GITHUB_USERNAME)
             repo = user.create_repo(repo_name, private=True)
             repo_url = repo.clone_url
-            repo_dir = f"./{repo_name}"
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
             repo = git.Repo.init(repo_dir)
             with open(f"{repo_dir}/README.md", "w") as f:
                 f.write(content_of_readme)
