@@ -51,6 +51,8 @@ class github(Extensions):
             "Close Github Issue": self.close_issue,
             "Get List of My Github Repositories": self.get_my_repos,
             "Get List of Github Repositories by Username": self.get_user_repos,
+            "Upload File to Github Repository": self.upload_file_to_repo,
+            "Create and Merge Github Repository Pull Request": self.create_and_merge_pull_request,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -106,7 +108,9 @@ class github(Extensions):
                 return await self.clone_repo(repo_url)
             return f"Error: {str(e)}"
 
-    async def create_repo(self, repo_name: str, content_of_readme: str) -> str:
+    async def create_repo(
+        self, repo_name: str, content_of_readme: str, org: str = None
+    ) -> str:
         """
         Create a new private GitHub repository
 
@@ -118,10 +122,13 @@ class github(Extensions):
         str: The URL of the newly created repository
         """
         try:
-            try:
-                user = self.gh.get_organization(self.GITHUB_USERNAME)
-            except:
-                user = self.gh.get_user(self.GITHUB_USERNAME)
+            if not org:
+                try:
+                    user = self.gh.get_organization(self.GITHUB_USERNAME)
+                except:
+                    user = self.gh.get_user(self.GITHUB_USERNAME)
+            else:
+                user = self.gh.get_organization(org)
             repo = user.create_repo(repo_name, private=True)
             repo_url = repo.clone_url
             repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
@@ -297,7 +304,7 @@ class github(Extensions):
         self, repo_url: str, title: str, body: str, assignee: str = None
     ) -> str:
         """
-        Create a new issue in a GitHub repository
+        Create a new issue in a GitHub repository and create a new branch for it
 
         Args:
         repo_url (str): The URL of the GitHub repository
@@ -306,13 +313,21 @@ class github(Extensions):
         assignee (str): The assignee for the issue
 
         Returns:
-        str: The result of the issue creation operation
+        str: The result of the issue creation operation and branch creation
         """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.create_issue(title=title, body=body, assignee=assignee)
+
+            # Create a new branch for the issue
+            base_branch = repo.default_branch
+            new_branch_name = f"issue-{issue.number}"
+            repo.create_git_ref(
+                f"refs/heads/{new_branch_name}", repo.get_branch(base_branch).commit.sha
+            )
+
             self.failures = 0
-            return f"Created new issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
+            return f"Created new issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}\n\nCreated new branch: {new_branch_name}"
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
@@ -540,31 +555,43 @@ class github(Extensions):
             return f"Error: {str(e)}"
 
     async def add_comment_to_repo_issue(
-        self, repo_url: str, issue_number: int, comment_body: str
+        self,
+        repo_url: str,
+        issue_number: int,
+        comment_body: str,
+        close_issue: bool = False,
     ) -> str:
         """
-        Add a comment to an issue in a GitHub repository
+        Add a comment to an issue in a GitHub repository and optionally close the issue
 
         Args:
         repo_url (str): The URL of the GitHub repository
         issue_number (int): The issue number to add a comment to
         comment_body (str): The body of the comment
+        close_issue (bool): Whether to close the issue after adding the comment (default: False)
 
         Returns:
-        str: The result of the comment addition operation
+        str: The result of the comment addition operation and issue closure if applicable
         """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.get_issue(issue_number)
             comment = issue.create_comment(comment_body)
+
+            result = f"Added comment to issue #{issue.number} in GitHub Repository at {repo_url}\n\n{comment.body}"
+
+            if close_issue:
+                issue.edit(state="closed")
+                result += f"\n\nIssue #{issue.number} has been closed."
+
             self.failures = 0
-            return f"Added comment to issue #{issue.number} in GitHub Repository at {repo_url}\n\n{comment.body}"
+            return result
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
                 return await self.add_comment_to_repo_issue(
-                    repo_url, issue_number, comment_body
+                    repo_url, issue_number, comment_body, close_issue
                 )
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
@@ -707,4 +734,129 @@ class github(Extensions):
                 self.failures += 1
                 time.sleep(5)
                 return await self.get_user_repos(username)
+            return f"Error: {str(e)}"
+
+    async def upload_file_to_repo(
+        self,
+        repo_url: str,
+        file_path: str,
+        file_content: str,
+        branch: str = "main",
+        commit_message: str = "Upload file",
+    ) -> str:
+        """
+        Upload a file to a GitHub repository, creating the branch if it doesn't exist
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        file_path (str): The full path where the file should be stored in the repo
+        file_content (str): The content of the file to be uploaded
+        branch (str): The branch to upload to (default is "main")
+        commit_message (str): The commit message for the file upload
+
+        Returns:
+        str: The result of the file upload operation
+        """
+        try:
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+
+            # Check if the branch exists, create it if it doesn't
+            try:
+                repo.get_branch(branch)
+            except Exception:
+                # Branch doesn't exist, so create it
+                default_branch = repo.default_branch
+                source_branch = repo.get_branch(default_branch)
+                repo.create_git_ref(
+                    ref=f"refs/heads/{branch}", sha=source_branch.commit.sha
+                )
+
+            # Check if file already exists
+            try:
+                contents = repo.get_contents(file_path, ref=branch)
+                repo.update_file(
+                    contents.path,
+                    commit_message,
+                    file_content,
+                    contents.sha,
+                    branch=branch,
+                )
+                action = "Updated"
+            except Exception:
+                repo.create_file(file_path, commit_message, file_content, branch=branch)
+                action = "Created"
+
+            self.failures = 0
+            return f"{action} file '{file_path}' in GitHub Repository at {repo_url} on branch '{branch}'"
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.upload_file_to_repo(
+                    repo_url, file_path, file_content, branch, commit_message
+                )
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def create_and_merge_pull_request(
+        self,
+        repo_url: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+        merge_method: str = "squash",
+    ) -> str:
+        """
+        Create a new pull request in a GitHub repository and automatically merge it
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        title (str): The title of the pull request
+        body (str): The body of the pull request
+        head (str): The branch to merge from
+        base (str): The branch to merge to
+        merge_method (str): The merge method to use (default is "merge", options are "merge", "squash", "rebase")
+
+        Returns:
+        str: The result of the pull request creation and merge operation
+        """
+        try:
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+            pull_request = repo.create_pull(
+                title=title, body=body, head=head, base=base
+            )
+
+            result = f"Created new pull request in GitHub Repository at {repo_url}\n\n#{pull_request.number}: {pull_request.title}\n\n{pull_request.body}\n\n"
+
+            # Check if the pull request can be merged
+            if pull_request.mergeable:
+                if merge_method == "squash":
+                    merge_result = pull_request.merge(merge_method="squash")
+                elif merge_method == "rebase":
+                    merge_result = pull_request.merge(merge_method="rebase")
+                else:
+                    merge_result = pull_request.merge()
+
+                if merge_result.merged:
+                    result += (
+                        f"Pull request #{pull_request.number} was successfully merged."
+                    )
+                else:
+                    result += f"Failed to merge pull request #{pull_request.number}. Reason: {merge_result.message}"
+            else:
+                result += f"Pull request #{pull_request.number} cannot be merged automatically. Please resolve conflicts and merge manually."
+
+            self.failures = 0
+            return result
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.create_and_merge_pull_request(
+                    repo_url, title, body, head, base, merge_method
+                )
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
             return f"Error: {str(e)}"
