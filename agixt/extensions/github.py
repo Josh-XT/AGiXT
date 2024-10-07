@@ -152,6 +152,7 @@ class github(Extensions):
         """
         repo_name = repo_url.split("/")[-1]
         await self.clone_repo(repo_url)
+        output_file = os.path.join(self.WORKING_DIRECTORY, f"{repo_name}.md")
         python_files = []
         other_files = []
         powershell_files = []
@@ -159,6 +160,11 @@ class github(Extensions):
         ts_files = []
         kt_files = []
         lua_files = []
+        xml_files = []
+        md_files = []
+        json_files = []
+        gql_files = []
+        sh_files = []
 
         for root, dirs, files in os.walk(
             os.path.join(self.WORKING_DIRECTORY, repo_name)
@@ -182,8 +188,24 @@ class github(Extensions):
                     kt_files.append(os.path.join(root, file))
                 elif file.endswith(".lua"):
                     lua_files.append(os.path.join(root, file))
+                elif file.endswith(".xml"):
+                    # if path is app/src/main/res/layout, then we will add the xml files, but not other folders.
+                    if "layout" in root.split(os.path.sep):
+                        xml_files.append(os.path.join(root, file))
+                elif file.endswith(".md"):
+                    md_files.append(os.path.join(root, file))
+                elif file.endswith(".json"):
+                    # Ignore package lock files
+                    if "node_modules" not in root:
+                        continue
+                    if "package-lock.json" in file:
+                        continue
+                    json_files.append(os.path.join(root, file))
+                elif file.endswith(".gql"):
+                    gql_files.append(os.path.join(root, file))
+                elif file.endswith(".sh"):
+                    sh_files.append(os.path.join(root, file))
 
-        output_file = os.path.join(self.WORKING_DIRECTORY, f"{repo_name}.md")
         if os.path.exists(output_file):
             os.remove(output_file)
 
@@ -196,13 +218,20 @@ class github(Extensions):
                 (ts_files, "typescript"),
                 (kt_files, "kotlin"),
                 (lua_files, "lua"),
+                (xml_files, "xml"),
+                (md_files, "markdown"),
+                (json_files, "json"),
+                (gql_files, "graphql"),
+                (sh_files, "shell"),
             ]:
                 for file_path in file_paths:
+                    # Make sure the file isn't output.md
+                    if output_file in file_path:
+                        continue
                     markdown_file.write(f"**{file_path}**\n")
                     with open(file_path, "r", encoding="utf-8") as code_file:
                         content = code_file.read()
                         markdown_file.write(f"```{file_type}\n{content}\n```\n\n")
-
         with open(output_file, "r", encoding="utf-8") as markdown_file:
             content = markdown_file.read()
 
