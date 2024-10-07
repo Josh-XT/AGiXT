@@ -1756,7 +1756,8 @@ class AGiXT:
                         text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
                         external_source=f"{self.agent_name}",
                     )
-                answer = response.split("<answer>")[1].split("</answer>")[0]
+                answer = response.split("<answer>")[-1]
+                answer = answer.split("</answer>")[0]
                 self.conversation.log_interaction(
                     role=self.agent_name,
                     message=answer,
