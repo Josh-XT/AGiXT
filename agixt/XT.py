@@ -1734,7 +1734,7 @@ class AGiXT:
                         continue_response = "Done."
                     if "<answer>" in continue_response:
                         responses = [continue_response]
-            response = "".join(responses)
+                response = "".join(responses)
             if "<answer>" in response:
                 if "</answer>" not in response:
                     response += "</answer>"
