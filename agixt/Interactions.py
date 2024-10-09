@@ -424,26 +424,30 @@ class Interactions:
                 for command in extension["commands"]:
                     command_friendly_name = command["friendly_name"]
                     command_description = command["description"]
-                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:"
-                    command_args = json.dumps(command["command_args"])
-                    command_args = command_args.replace(
-                        '""',
-                        '"The assistant will fill in the value based on relevance to the conversation."',
-                    )
+                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
                     agent_commands += (
-                        f'\n- #execute("{command_friendly_name}", {command_args})\n'
+                        f"- <execute>\n<name>{command_friendly_name}</name>\n"
                     )
+                    for arg_name in command["command_args"].keys():
+                        agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                    agent_commands += "</execute>\n"
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
 - Reference examples for correct syntax and usage of commands.
-- To execute a command, the assistant can reference the examples and the command execution response will be replaced with the commands output for the user in the assistants response.
-- All inputs are strings and must be filled in wrapped with double quotes and with appropriate values.
-- The assistant can execute a command anywhere in the response and the commands will be executed in the order they are used.
-- Always wrap the the command name and arguments in double quotes, not single quotes.
+- To execute a command, the assistant should use the following format:
+
+<execute>
+<name>COMMAND_NAME</name>
+<ARG1_NAME>ARG1_VALUE</ARG1_NAME>
+<ARG2_NAME>ARG2_VALUE</ARG2_NAME>
+...
+</execute>
+
+- All inputs are strings and must be appropriately filled in with the correct values.
+- The assistant can execute a command anywhere in the response, and the commands will be executed in the order they appear.
 - If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {working_directory}.
 - Only reference files in the working directory! The assistant cannot access files outside of the working directory.
 - All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
-- Command executions must start with #execute to be parsed and executed.
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
 - The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
@@ -885,6 +889,27 @@ class Interactions:
             )
         return self.response
 
+    def extract_commands_from_response(self, response):
+        # Extract all <execute>...</execute> blocks
+        command_blocks = re.findall(r"(<execute>.*?</execute>)", response, re.DOTALL)
+        extracted_commands = []
+        for command_block in command_blocks:
+            # Extract the content inside <execute>...</execute>
+            command_content = re.search(r"<execute>(.*?)</execute>", command_block, re.DOTALL).group(1)
+            # Extract the command name
+            name_match = re.search(r"<name>(.*?)</name>", command_content, re.DOTALL)
+            if name_match:
+                command_name = name_match.group(1).strip()
+                # Remove the <name> tag from the command_content
+                command_content_without_name = re.sub(r"<name>.*?</name>", '', command_content, flags=re.DOTALL)
+                # Extract arguments
+                arg_matches = re.findall(r"<(.*?)>(.*?)</\1>", command_content_without_name, re.DOTALL)
+                args = {}
+                for arg_name, arg_value in arg_matches:
+                    args[arg_name] = arg_value.strip()
+                extracted_commands.append((command_block, command_name, args))
+        return extracted_commands
+
     async def execution_agent(self, conversation_name):
         c = Conversations(conversation_name=conversation_name, user=self.user)
         command_list = [
@@ -900,22 +925,7 @@ class Interactions:
         reformatted_response = self.response
 
         if commands_to_execute:
-            for command in commands_to_execute:
-                parts = command.split(",", 1)
-                command_name = parts[0].strip().strip("'\"")
-                command_args_str = parts[1] if len(parts) > 1 else "{}"
-
-                try:
-                    command_args = json.loads(command_args_str.strip())
-                except json.JSONDecodeError:
-                    logging.warning(
-                        f"Failed to parse command arguments: {command_args_str}"
-                    )
-                    command_args = {}
-                    arg_pairs = re.findall(r'(\w+):\s*"([^"]*)"', command_args_str)
-                    for key, value in arg_pairs:
-                        command_args[key] = value
-
+            for command_block, command_name, command_args in commands_to_execute:
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
 
@@ -944,7 +954,7 @@ class Interactions:
                             command_args=command_args,
                         )
                         formatted_output = f"```\n{command_output}\n```"
-                        command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                        command_output_text = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
                     except Exception as e:
                         logging.error(
                             f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
@@ -953,32 +963,15 @@ class Interactions:
                             role=self.agent_name,
                             message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
                         )
-                        command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
+                        command_output_text = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
 
                 if command_output:
                     c.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] {command_output}",
+                        message=f"[ACTIVITY] {command_output_text}",
                     )
-                    # Replace all occurrences of the command in the response
-                    reformatted_response = reformatted_response.replace(
-                        f"#execute({command})",
-                        (
-                            command_output
-                            if not isinstance(command_output, dict)
-                            else json.dumps(command_output)
-                        ),
-                    )
+                    # Replace the command_block in the response with the command_output_text
+                    reformatted_response = reformatted_response.replace(command_block, command_output_text)
+
             if reformatted_response != self.response:
                 self.response = reformatted_response
-
-    def extract_commands_from_response(self, response):
-        # Extract code blocks
-        code_blocks = re.findall(r"```(?:\w+)?\n(.*?)```", response, re.DOTALL)
-        # Add the whole response as well, in case commands are not within code blocks
-        code_blocks.append(response)
-        commands = []
-        for block in code_blocks:
-            # Search for commands in each block
-            commands.extend(re.findall(r"#execute\((.*?)\)", block, re.DOTALL))
-        return commands
