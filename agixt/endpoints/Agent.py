@@ -256,8 +256,6 @@ async def prompt_agent(
             agent_prompt.prompt_args["context_results"]
         )
         del agent_prompt.prompt_args["context_results"]
-    else:
-        agent_prompt.prompt_args["injected_memories"] = 10
     if "conversation_results" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["conversation_results"] = 10
     prompt_args = agent_prompt.prompt_args.copy()
