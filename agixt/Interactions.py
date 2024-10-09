@@ -895,15 +895,21 @@ class Interactions:
         extracted_commands = []
         for command_block in command_blocks:
             # Extract the content inside <execute>...</execute>
-            command_content = re.search(r"<execute>(.*?)</execute>", command_block, re.DOTALL).group(1)
+            command_content = re.search(
+                r"<execute>(.*?)</execute>", command_block, re.DOTALL
+            ).group(1)
             # Extract the command name
             name_match = re.search(r"<name>(.*?)</name>", command_content, re.DOTALL)
             if name_match:
                 command_name = name_match.group(1).strip()
                 # Remove the <name> tag from the command_content
-                command_content_without_name = re.sub(r"<name>.*?</name>", '', command_content, flags=re.DOTALL)
+                command_content_without_name = re.sub(
+                    r"<name>.*?</name>", "", command_content, flags=re.DOTALL
+                )
                 # Extract arguments
-                arg_matches = re.findall(r"<(.*?)>(.*?)</\1>", command_content_without_name, re.DOTALL)
+                arg_matches = re.findall(
+                    r"<(.*?)>(.*?)</\1>", command_content_without_name, re.DOTALL
+                )
                 args = {}
                 for arg_name, arg_value in arg_matches:
                     args[arg_name] = arg_value.strip()
@@ -971,7 +977,9 @@ class Interactions:
                         message=f"[ACTIVITY] {command_output_text}",
                     )
                     # Replace the command_block in the response with the command_output_text
-                    reformatted_response = reformatted_response.replace(command_block, command_output_text)
+                    reformatted_response = reformatted_response.replace(
+                        command_block, command_output_text
+                    )
 
             if reformatted_response != self.response:
                 self.response = reformatted_response
