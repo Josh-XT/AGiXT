@@ -893,77 +893,92 @@ class Interactions:
             if available_command["enabled"] == True
         ]
         logging.info(f"Agent command list: {command_list}")
-        if len(command_list) > 0:
-            commands_to_execute = re.findall(r"(#execute\((.*?)\))", self.response)
-            reformatted_response = self.response
-            if len(commands_to_execute) > 0:
-                for full_match, command in commands_to_execute:
-                    parts = command.split(",", 1)
-                    command_name = parts[0].strip().strip("'\"")
-                    command_args_str = parts[1] if len(parts) > 1 else "{}"
 
+        # Extract commands from the response
+        commands_to_execute = self.extract_commands_from_response(self.response)
+        logging.debug(f"Commands to execute: {commands_to_execute}")
+        reformatted_response = self.response
+
+        if commands_to_execute:
+            for command in commands_to_execute:
+                parts = command.split(",", 1)
+                command_name = parts[0].strip().strip("'\"")
+                command_args_str = parts[1] if len(parts) > 1 else "{}"
+
+                try:
+                    command_args = json.loads(command_args_str.strip())
+                except json.JSONDecodeError:
+                    logging.warning(
+                        f"Failed to parse command arguments: {command_args_str}"
+                    )
+                    command_args = {}
+                    arg_pairs = re.findall(r'(\w+):\s*"([^"]*)"', command_args_str)
+                    for key, value in arg_pairs:
+                        command_args[key] = value
+
+                logging.info(f"Command to execute: {command_name}")
+                logging.info(f"Command Args: {command_args}")
+
+                if command_name.strip().lower() not in [
+                    cmd.lower() for cmd in command_list
+                ]:
+                    command_output = f"Unknown command: {command_name}"
+                    logging.warning(command_output)
+                else:
                     try:
-                        # Improved argument parsing
-                        command_args = json.loads(command_args_str.strip())
-                    except json.JSONDecodeError:
-                        logging.warning(
-                            f"Failed to parse command arguments: {command_args_str}"
-                        )
-                        command_args = {}
-                        # Attempt to parse arguments manually
-                        arg_pairs = re.findall(r'(\w+):\s*"([^"]*)"', command_args_str)
-                        for key, value in arg_pairs:
-                            command_args[key] = value
-
-                    logging.info(f"Command to execute: {command_name}")
-                    logging.info(f"Command Args: {command_args}")
-
-                    if command_name not in command_list:
-                        command_output = f"Unknown command: {command_name}"
-                        logging.warning(command_output)
-                    else:
-                        try:
-                            c.log_interaction(
-                                role=self.agent_name,
-                                message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
-                            )
-                            ext = Extensions(
-                                agent_name=self.agent_name,
-                                agent_config=self.agent.AGENT_CONFIG,
-                                conversation_name=conversation_name,
-                                conversation_id=c.get_conversation_id(),
-                                agent_id=self.agent.agent_id,
-                                ApiClient=self.ApiClient,
-                                user=self.user,
-                            )
-                            command_output = await ext.execute_command(
-                                command_name=command_name,
-                                command_args=command_args,
-                            )
-                            formatted_output = f"```\n{command_output}\n```"
-                            command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
-                        except Exception as e:
-                            logging.error(
-                                f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
-                            )
-                            c.log_interaction(
-                                role=self.agent_name,
-                                message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
-                            )
-                            command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-
-                    if command_output:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] {command_output}",
+                            message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
                         )
-                        reformatted_response = reformatted_response.replace(
-                            full_match,
-                            (
-                                command_output
-                                if not isinstance(command_output, dict)
-                                else json.dumps(command_output)
-                            ),
+                        ext = Extensions(
+                            agent_name=self.agent_name,
+                            agent_config=self.agent.AGENT_CONFIG,
+                            conversation_name=conversation_name,
+                            conversation_id=c.get_conversation_id(),
+                            agent_id=self.agent.agent_id,
+                            ApiClient=self.ApiClient,
+                            user=self.user,
                         )
-                if reformatted_response != self.response:
-                    self.response = reformatted_response
+                        command_output = await ext.execute_command(
+                            command_name=command_name,
+                            command_args=command_args,
+                        )
+                        formatted_output = f"```\n{command_output}\n```"
+                        command_output = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                    except Exception as e:
+                        logging.error(
+                            f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                        )
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
+                        )
+                        command_output = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
+
+                if command_output:
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY] {command_output}",
+                    )
+                    # Replace all occurrences of the command in the response
+                    reformatted_response = reformatted_response.replace(
+                        f"#execute({command})",
+                        (
+                            command_output
+                            if not isinstance(command_output, dict)
+                            else json.dumps(command_output)
+                        ),
+                    )
+            if reformatted_response != self.response:
+                self.response = reformatted_response
+
+    def extract_commands_from_response(self, response):
+        # Extract code blocks
+        code_blocks = re.findall(r"```(?:\w+)?\n(.*?)```", response, re.DOTALL)
+        # Add the whole response as well, in case commands are not within code blocks
+        code_blocks.append(response)
+        commands = []
+        for block in code_blocks:
+            # Search for commands in each block
+            commands.extend(re.findall(r"#execute\((.*?)\)", block, re.DOTALL))
+        return commands
