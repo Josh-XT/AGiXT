@@ -1689,7 +1689,7 @@ class AGiXT:
                 responses = [response]
                 try:
                     continue_response = await self.inference(
-                        user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                        user_input=f"{new_prompt}\n{self.agent_name}'s response: {response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user.",
                         prompt_name=prompt_name,
                         prompt_category=prompt_category,
                         injected_memories=context_results,
@@ -1708,8 +1708,8 @@ class AGiXT:
                     logging.error(
                         "Input tokens exceeded. Unable to continue ouput generation."
                     )
-                    continue_response = "Done."
-                while str(continue_response).lower() != "done":
+                    continue_response = "</answer>"
+                while "</answer>" not in str(continue_response):
                     if continue_response.startswith(f"{self.agent_name}:"):
                         continue_response = continue_response[
                             len(f"{self.agent_name}:") :
@@ -1722,7 +1722,7 @@ class AGiXT:
                     current_response = "".join(responses)
                     try:
                         continue_response = await self.inference(
-                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with 'Done.' to send the message to the user.",
+                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user.",
                             prompt_name=prompt_name,
                             prompt_category=prompt_category,
                             injected_memories=context_results,
@@ -1741,9 +1741,9 @@ class AGiXT:
                         logging.error(
                             "Input tokens exceeded. Unable to continue ouput generation."
                         )
-                        continue_response = "Done."
-                    if "<answer>" in continue_response:
-                        responses = [continue_response]
+                        continue_response = "</answer>"
+                if "<answer>" in continue_response:
+                    responses = [continue_response]
                 response = "".join(responses)
             if "<answer>" in response:
                 if "</answer>" not in response:
