@@ -483,30 +483,17 @@ class AGiXT:
                         role=self.agent_name,
                         message=f"[ACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
-                    if "prompt_name" not in args:
-                        args["prompt_name"] = prompt_name
                     if "user_input" in args:
                         user_input = args["user_input"]
                         del args["user_input"]
                     if "browse_links" not in args:
                         args["browse_links"] = False
                     if prompt_name != "":
-                        messages = [
-                            {
-                                "role": "user",
-                                **args,
-                                "prompt_args": args,
-                                "content": user_input,
-                            }
-                        ]
-                        response = await self.chat_completions(
-                            prompt=ChatCompletions(
-                                model=agent_name,
-                                user=self.conversation_name,
-                                messages=messages,
-                            )
+                        result = await self.ApiClient.prompt_agent(
+                            agent_name=agent_name,
+                            prompt_name=prompt_name,
+                            prompt_args={"user_input": user_input, **args},
                         )
-                        result = response["choices"][0]["message"]["content"]
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
