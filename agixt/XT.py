@@ -1670,6 +1670,12 @@ class AGiXT:
                     prompt_args["uploaded_file_data"] = file_content
             if len(language) > 2:
                 language = language[:2]
+            if "log_output" in prompt_args:
+                log_output = prompt_args["log_output"]
+                del prompt_args["log_output"]
+            if "log_user_input" in prompt_args:
+                log_user_input = prompt_args["log_user_input"]
+                del prompt_args["log_user_input"]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
