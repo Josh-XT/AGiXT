@@ -423,11 +423,10 @@ class agixt_actions(Extensions):
                     step_number=i,
                     prompt_type="Prompt",
                     prompt={
-                        "prompt_name": "Chat with Commands",
+                        "prompt_name": "Think About It",
                         "user_input": response,
                         "websearch": researching,
                         "websearch_depth": 3,
-                        "context_results": 5,
                     },
                 )
                 logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to NORMAL chain")
