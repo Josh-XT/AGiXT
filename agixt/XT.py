@@ -492,11 +492,7 @@ class AGiXT:
                                 "role": "user",
                                 **args,
                                 "prompt_args": args,
-                                "content": (
-                                    args.prompt_args["user_input"]
-                                    if "user_input" in args["prompt_args"]
-                                    else ""
-                                ),
+                                "content": user_input,
                             }
                         ]
                         response = await self.chat_completions(
