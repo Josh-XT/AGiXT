@@ -479,7 +479,7 @@ class AGiXT:
                 elif prompt_type == "prompt":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Running prompt: {prompt_name} with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[ACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     if "prompt_name" not in args:
                         args["prompt_name"] = prompt_name
@@ -487,16 +487,30 @@ class AGiXT:
                         user_input = args["user_input"]
                         del args["user_input"]
                     if prompt_name != "":
-                        result = await self.inference(
-                            agent_name=agent_name,
-                            user_input=user_input,
-                            log_user_input=False,
-                            **args,
+                        messages = [
+                            {
+                                "role": "user",
+                                **args,
+                                "prompt_args": args,
+                                "content": (
+                                    args.prompt_args["user_input"]
+                                    if "user_input" in args["prompt_args"]
+                                    else ""
+                                ),
+                            }
+                        ]
+                        response = await self.chat_completions(
+                            prompt=ChatCompletions(
+                                model=agent_name,
+                                user=self.conversation_name,
+                                messages=messages,
+                            )
                         )
+                        result = response["choices"][0]["message"]["content"]
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
                         role=self.agent_name,
-                        message=f"[ACTIVITY] Running chain: {args['chain']} with args:\n```json\n{json.dumps(args, indent=2)}```",
+                        message=f"[ACTIVITY] Running chain: `{args['chain']}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
                     if "chain_name" in args:
                         args["chain"] = args["chain_name"]
