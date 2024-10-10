@@ -584,6 +584,8 @@ class AGiXT:
             if int(step_data["step"]) >= int(from_step):
                 if "prompt" in step_data and "step" in step_data:
                     step = {}
+                    if "agent_name" not in step_data:
+                        step_data["agent_name"] = self.agent_name
                     step["agent_name"] = (
                         agent_override
                         if agent_override != ""
