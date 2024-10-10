@@ -489,7 +489,7 @@ class AGiXT:
                     if "browse_links" not in args:
                         args["browse_links"] = False
                     if prompt_name != "":
-                        result = await self.ApiClient.prompt_agent(
+                        result = self.ApiClient.prompt_agent(
                             agent_name=agent_name,
                             prompt_name=prompt_name,
                             prompt_args={"user_input": user_input, **args},
