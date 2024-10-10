@@ -441,7 +441,7 @@ class AGiXT:
                 if agent_override != "":
                     agent_name = agent_override
                 else:
-                    agent_name = step["agent_name"]
+                    agent_name = step["agent_name"] if "agent_name" in step else self.agent_name
                 prompt_type = str(step["prompt_type"]).lower()
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
