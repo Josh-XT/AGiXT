@@ -441,7 +441,9 @@ class AGiXT:
                 if agent_override != "":
                     agent_name = agent_override
                 else:
-                    agent_name = step["agent_name"] if "agent_name" in step else self.agent_name
+                    agent_name = (
+                        step["agent_name"] if "agent_name" in step else self.agent_name
+                    )
                 prompt_type = str(step["prompt_type"]).lower()
                 step_number = step["step"]
                 if "prompt_name" in step["prompt"]:
@@ -486,6 +488,8 @@ class AGiXT:
                     if "user_input" in args:
                         user_input = args["user_input"]
                         del args["user_input"]
+                    if "browse_links" not in args:
+                        args["browse_links"] = False
                     if prompt_name != "":
                         messages = [
                             {

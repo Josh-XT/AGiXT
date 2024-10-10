@@ -761,6 +761,8 @@ class Interactions:
                     role=self.agent_name,
                     message=self.response,
                 )
+            else:
+                logging.info(f"{self.agent_name} Response: {self.response}")
             tts = False
             if "tts" in kwargs:
                 tts = str(kwargs["tts"]).lower() == "true"
