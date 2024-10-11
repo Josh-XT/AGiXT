@@ -488,11 +488,20 @@ class AGiXT:
                         del args["user_input"]
                     if "browse_links" not in args:
                         args["browse_links"] = False
+                    if "log_output" in args:
+                        del args["log_output"]
+                    if "voice_response" in args:
+                        del args["voice_response"]
+                    if "log_user_input" in args:
+                        del args["log_user_input"]
                     if prompt_name != "":
-                        result = self.ApiClient.prompt_agent(
-                            agent_name=agent_name,
+                        result = await self.inference(
                             prompt_name=prompt_name,
-                            prompt_args={"user_input": user_input, **args},
+                            user_input=user_input,
+                            log_user_input=False,
+                            log_output=False,
+                            voice_response=False,
+                            **args,
                         )
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
@@ -1291,8 +1300,6 @@ class AGiXT:
                 )
             except Exception as e:
                 command_args = {}
-                agent_command_args = self.agent_settings["command_args"]
-                logging.error(f"Error loading command args: {agent_command_args}. {e}")
         else:
             command_args = {}
         if "command_variable" in self.agent_settings:
