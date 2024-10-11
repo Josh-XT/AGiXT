@@ -936,7 +936,7 @@ class Interactions:
             for command_block, command_name, command_args in commands_to_execute:
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
-
+                command_output = ""
                 if command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
                 ]:

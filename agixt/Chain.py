@@ -314,9 +314,9 @@ class Chain:
                 continue
 
             chain_step_argument = ChainStepArgument(
-                chain_step_id=chain_step.id,
-                argument_id=argument.id,
-                value=argument_value,
+                chain_step_id=str(chain_step.id),
+                argument_id=str(argument.id),
+                value=str(argument_value),
             )
             session.add(chain_step_argument)
             session.commit()
