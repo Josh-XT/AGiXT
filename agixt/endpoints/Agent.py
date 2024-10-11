@@ -282,16 +282,11 @@ async def prompt_agent(
                 ],
             }
         )
-        for file in file_list:
-            file_type = file["file_name"].split(".")[-1]
-            content_type = "file_url"
-            if file_type == "wav":
-                content_type = "audio_url"
+        for file_url in file_list:
             messages[0]["content"] += [
                 {
-                    "type": content_type,
-                    "file_name": file["file_name"] if "file_name" in file else "",
-                    "file_url": {"url": file["content"]},
+                    "type": "file_url",
+                    "file_url": {"url": file_url},
                 }
             ]
     else:
