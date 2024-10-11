@@ -980,6 +980,8 @@ class AGiXT:
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
         else:
             file_type = url.split(".")[-1]
+            if "?" in file_type:
+                file_type = file_type.split("?")[0]
         if not file_type:
             file_type = "txt"
         self.conversation_id
