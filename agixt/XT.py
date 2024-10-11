@@ -976,6 +976,7 @@ class AGiXT:
         Returns:
             str: URL of the downloaded file
         """
+        logging.info(f"Downloading file from {url}")
         if url.startswith("data:"):
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
         else:
@@ -996,36 +997,35 @@ class AGiXT:
         full_path = os.path.normpath(
             os.path.join(self.conversation_workspace, file_name)
         )
+        logging.info(f"Full path to download file to: {full_path}")
         if not full_path.startswith(self.conversation_workspace):
             raise Exception("Path given not allowed")
-        if url.startswith("http"):
-            return {"file_name": file_name, "file_url": url}
+        if "," in url:
+            file_type = url.split(",")[0].split("/")[1].split(";")[0]
+            file_data = base64.b64decode(url.split(",")[1])
         else:
-            if "," in url:
-                file_type = url.split(",")[0].split("/")[1].split(";")[0]
-                file_data = base64.b64decode(url.split(",")[1])
-            else:
-                file_type = file_name.split(".")[-1]
-                # Download the file
-                try:
-                    if not url.startswith("http"):
-                        return {}
-                    if url in ["", None]:
-                        return {}
-                    file_data = requests.get(url, headers=download_headers).content
-                except Exception as e:
-                    logging.error(f"Error downloading file: {e}")
+            file_type = file_name.split(".")[-1]
+            # Download the file
+            try:
+                if not url.startswith("http"):
                     return {}
-                # file_data = base64.b64decode(url)
-            full_path = os.path.normpath(
-                os.path.join(self.conversation_workspace, file_name)
-            )
-            if not full_path.startswith(self.conversation_workspace):
-                raise Exception("Path given not allowed")
-            with open(full_path, "wb") as f:
-                f.write(file_data)
-            url = f"{self.outputs}/{self.conversation_id}/{file_name}"
-            return {"file_name": file_name, "file_url": url}
+                if url in ["", None]:
+                    return {}
+                file_download = requests.get(url)
+                file_data = file_download.content
+            except Exception as e:
+                logging.error(f"Error downloading file: {e}")
+                return {}
+        full_path = os.path.normpath(
+            os.path.join(self.conversation_workspace, file_name)
+        )
+        if not full_path.startswith(self.conversation_workspace):
+            raise Exception("Path given not allowed")
+        with open(full_path, "wb") as f:
+            f.write(file_data)
+        url = f"{self.outputs}/{self.conversation_id}/{file_name}"
+        logging.info(f"Downloaded file available at {url}")
+        return {"file_name": file_name, "file_url": url}
 
     async def plan_task(
         self,
