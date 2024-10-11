@@ -494,6 +494,8 @@ class AGiXT:
                         del args["voice_response"]
                     if "log_user_input" in args:
                         del args["log_user_input"]
+                    if "prompt_name" in args:
+                        del args["prompt_name"]
                     if prompt_name != "":
                         result = await self.inference(
                             prompt_name=prompt_name,
