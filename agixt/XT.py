@@ -1055,13 +1055,26 @@ class AGiXT:
             role=self.agent_name,
             message=f"[ACTIVITY] Determining primary objective.",
         )
-        # primary_objective = Step 1, execute chain "Smart Prompt" with the user input to get Primary Objective
-        primary_objective = await self.execute_chain(
-            chain_name="Smart Prompt",
+        # Who is the expert here?
+        # Run the prompt "Expert Determination" with the user input
+        expert = await self.inference(
             user_input=user_input,
-            agent_override=self.agent_name,
+            prompt_category="Default",
+            prompt_name="Expert Determination",
+            log_output=False,
             log_user_input=False,
         )
+        # Use the prompt "Prompt Generator" to generate a prompt for the user to provide the primary objective
+        primary_objective = await self.inference(
+            user_input=user_input,
+            job_title=expert,
+            task=user_input,
+            prompt_name="Prompt Generator",
+            log_output=False,
+            log_user_input=False,
+        )
+
+        # primary_objective = Step 1, execute chain "Smart Prompt" with the user input to get Primary Objective
         chain_name = await self.inference(
             user_input=user_input,
             introduction=primary_objective,
