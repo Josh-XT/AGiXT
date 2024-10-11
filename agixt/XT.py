@@ -979,7 +979,7 @@ class AGiXT:
         if url.startswith("data:"):
             file_type = url.split(",")[0].split("/")[1].split(";")[0]
         else:
-            if "?" in file_type:
+            if "?" in url:
                 file_type = url.split("?")[0]
                 file_type = file_type.split(".")[-1]
             else:
