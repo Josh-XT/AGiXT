@@ -1266,11 +1266,16 @@ class AGiXT:
         else:
             command_name = ""
         if "command_args" in self.agent_settings:
-            command_args = (
-                json.loads(self.agent_settings["command_args"])
-                if isinstance(self.agent_settings["command_args"], str)
-                else self.agent_settings["command_args"]
-            )
+            try:
+                command_args = (
+                    json.loads(self.agent_settings["command_args"])
+                    if isinstance(self.agent_settings["command_args"], str)
+                    else self.agent_settings["command_args"]
+                )
+            except Exception as e:
+                command_args = {}
+                agent_command_args = self.agent_settings["command_args"]
+                logging.error(f"Error loading command args: {agent_command_args}. {e}")
         else:
             command_args = {}
         if "command_variable" in self.agent_settings:
