@@ -649,49 +649,48 @@ class AGiXT:
         file_type = str(file_name).split(".")[-1]
         if file_type.lower() == "csv":
             df = pd.read_csv(file_path)
-            df_dict = df.to_dict("records")
-            self.input_tokens += get_tokens(json.dumps(df_dict))
-            for item in df_dict:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
-                await self.file_reader.write_text_to_memory(
-                    user_input=f"{user_input}\n{message}",
-                    text=message,
-                    external_source=f"file {file_path}",
-                )
-        else:
-            xl = pd.ExcelFile(file_path)
-            if len(xl.sheet_names) > 1:
-                sheet_count = len(xl.sheet_names)
-                for i, sheet_name in enumerate(xl.sheet_names, 1):
-                    df = xl.parse(sheet_name)
-                    csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
-                    csv_file_name = os.path.basename(csv_file_path)
-                    self.conversation.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] ({i+1}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
-                    )
-                    df.to_csv(csv_file_path, index=False)
-                    message = await self.learn_spreadsheet(
-                        user_input=user_input,
-                        file_path=csv_file_path,
-                    )
-                    self.conversation.log_interaction(
-                        role=self.agent_name, message=f"[ACTIVITY] {message}"
-                    )
-            else:
-                df = pd.read_excel(file_path)
-                csv_file_path = file_path.replace(f".{file_type}", ".csv")
-                csv_file_name = os.path.basename(csv_file_path)
-                df.to_csv(csv_file_path, index=False)
+        else:  # Excel file
+            try:
+                xl = pd.ExcelFile(file_path)
+                if len(xl.sheet_names) > 1:
+                    sheet_count = len(xl.sheet_names)
+                    for i, sheet_name in enumerate(xl.sheet_names, 1):
+                        df = xl.parse(sheet_name)
+                        csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                        csv_file_name = os.path.basename(csv_file_path)
+                        self.conversation.log_interaction(
+                            role=self.agent_name,
+                            message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                        )
+                        df.to_csv(csv_file_path, index=False)
+                        message = await self.learn_spreadsheet(
+                            user_input=user_input,
+                            file_path=csv_file_path,
+                        )
+                        self.conversation.log_interaction(
+                            role=self.agent_name, message=f"[ACTIVITY] {message}"
+                        )
+                    return f"Processed all sheets in [{file_name}]({file_path})."
+                else:
+                    df = pd.read_excel(file_path)
+            except Exception as e:
                 self.conversation.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Converted `{file_name}` to CSV file `{csv_file_name}`.",
+                    message=f"[ACTIVITY][ERROR] Failed to read Excel file `{file_name}`: {str(e)}",
                 )
-                message = await self.learn_spreadsheet(
-                    user_input=user_input,
-                    file_path=csv_file_path,
-                )
+                return f"Failed to read [{file_name}]({file_path}). Error: {str(e)}"
+
+        df_dict = df.to_dict("records")
+        self.input_tokens += get_tokens(json.dumps(df_dict))
+        for item in df_dict:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
+            await self.file_reader.write_text_to_memory(
+                user_input=f"{user_input}\n{message}",
+                text=message,
+                external_source=f"file {file_path}",
+            )
+
         return f"Read [{file_name}]({file_path}) into memory."
 
     async def learn_from_file(
