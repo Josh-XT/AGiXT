@@ -458,7 +458,7 @@ async def plan_task(
     task: TaskPlanInput,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
-) -> ResponseMessage:
+):
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
