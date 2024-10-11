@@ -309,8 +309,8 @@ class agixt_actions(Extensions):
         Returns:
         str: Success message
         """
-        return self.ApiClient.toggle_command(
-            agent_name=self.agent_name, commands_name=command_name, enable=False
+        return self.ApiClient.update_agent_commands(
+            agent_name=self.agent_name, commands={command_name: False}
         )
 
     async def plan_multistep_task(self, assumed_scope_of_work: str):
