@@ -2308,10 +2308,10 @@ class AGiXT:
             websearch_depth=0,
             voice_response=False,
         )
-        if "```python" in code_verification:
-            code_verification = code_verification.split("```python")[1].split("```")[0]
-        if "```python" in code_verification:
-            code_verification = code_verification.split("```python")[1].split("```")[0]
+        if "```python" in fixed_code:
+            fixed_code = fixed_code.split("```python")[1].split("```")[0]
+        if "```python" in fixed_code:
+            fixed_code = fixed_code.split("```python")[1].split("```")[0]
         code_verification = await self.inference(
             user_input=user_input,
             prompt_category="Default",
