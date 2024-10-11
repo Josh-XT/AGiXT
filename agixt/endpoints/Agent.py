@@ -262,9 +262,9 @@ async def prompt_agent(
     if "user_input" in prompt_args:
         del prompt_args["user_input"]
     messages = []
-    if "files" in agent_prompt.prompt_args:
-        file_list = agent_prompt.prompt_args["files"]
-        del agent_prompt.prompt_args["files"]
+    if "file_urls" in agent_prompt.prompt_args:
+        file_list = agent_prompt.prompt_args["file_urls"]
+        del agent_prompt.prompt_args["file_urls"]
         messages.append(
             {
                 "role": "user",
