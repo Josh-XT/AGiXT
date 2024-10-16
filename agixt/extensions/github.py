@@ -68,6 +68,7 @@ class github(Extensions):
             "Upload File to Github Repository": self.upload_file_to_repo,
             "Create and Merge Github Repository Pull Request": self.create_and_merge_pull_request,
             "Improve Github Repository Codebase": self.improve_codebase,
+            "Copy Github Repository Contents": self.copy_repo_contents,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -1033,3 +1034,81 @@ When referencing files in the issue, please use the following format:
         if auto_merge:
             response += " Each pull request was automatically merged."
         return response
+
+    async def copy_repo_contents(
+        self,
+        source_repo_url: str,
+        destination_repo_url: str,
+        branch: str = "main",
+    ) -> str:
+        """
+        Copy the contents of a source repository to a destination repository without forking.
+
+        Args:
+        source_repo_url (str): The URL of the source GitHub repository
+        destination_repo_url (str): The URL of the destination GitHub repository
+        branch (str): The branch to copy from and to (default is "main")
+
+        Returns:
+        str: The result of the repository content copy operation
+        """
+        try:
+            source_repo = self.gh.get_repo(source_repo_url.split("github.com/")[-1])
+            dest_repo = self.gh.get_repo(destination_repo_url.split("github.com/")[-1])
+
+            # Get all files from the source repository
+            contents = source_repo.get_contents("", ref=branch)
+            files_copied = 0
+
+            while contents:
+                file_content = contents.pop(0)
+                if file_content.type == "dir":
+                    contents.extend(
+                        source_repo.get_contents(file_content.path, ref=branch)
+                    )
+                else:
+                    try:
+                        # Get the file content from the source repo
+                        file = source_repo.get_contents(file_content.path, ref=branch)
+                        file_data = file.decoded_content
+
+                        # Check if file exists in destination repo
+                        try:
+                            dest_file = dest_repo.get_contents(
+                                file_content.path, ref=branch
+                            )
+                            # Update existing file
+                            dest_repo.update_file(
+                                file_content.path,
+                                f"Update {file_content.path}",
+                                file_data,
+                                dest_file.sha,
+                                branch=branch,
+                            )
+                        except Exception:
+                            # Create new file if it doesn't exist
+                            dest_repo.create_file(
+                                file_content.path,
+                                f"Create {file_content.path}",
+                                file_data,
+                                branch=branch,
+                            )
+
+                        files_copied += 1
+
+                    except Exception as e:
+                        return f"Error copying file {file_content.path}: {str(e)}"
+
+            self.failures = 0
+            return f"Successfully copied {files_copied} files from {source_repo_url} to {destination_repo_url} on branch '{branch}'"
+
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.copy_repo_contents(
+                    source_repo_url, destination_repo_url, branch
+                )
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
