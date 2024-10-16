@@ -205,6 +205,12 @@ class github(Extensions):
             os.path.join(self.WORKING_DIRECTORY, repo_name)
         ):
             for file in files:
+                if "node_modules" in root or "node_modules" in file:
+                    continue
+                if "package-lock.json" in file:
+                    continue
+                if ".stories." in file:
+                    continue
                 if file.endswith(".py"):
                     python_files.append(os.path.join(root, file))
                 elif file.endswith(".ps1"):
@@ -230,11 +236,6 @@ class github(Extensions):
                 elif file.endswith(".md"):
                     md_files.append(os.path.join(root, file))
                 elif file.endswith(".json"):
-                    # Ignore package lock files
-                    if "node_modules" not in root:
-                        continue
-                    if "package-lock.json" in file:
-                        continue
                     json_files.append(os.path.join(root, file))
                 elif file.endswith(".gql"):
                     gql_files.append(os.path.join(root, file))
@@ -715,12 +716,12 @@ class github(Extensions):
                 if not repo["archived"]:
                     repo_list.append(repo_name)
             self.failures = 0
-            return f"Repositories:\n\n" + "\n".join(repo_list)
+            return f"### Accessible Github Repositories\n\n" + "\n".join(repo_list)
         except requests.exceptions.RequestException as e:
             if self.failures < 3:
                 self.failures += 1
                 time.sleep(5)
-                return await self.get_repos()
+                return await self.get_my_repos()
             return f"Error: {str(e)}"
 
     async def get_user_repos(self, username):
