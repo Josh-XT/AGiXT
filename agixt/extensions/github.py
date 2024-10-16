@@ -1,8 +1,13 @@
 import os
+import re
 import time
 import datetime
 import requests
+from pydantic import BaseModel
+from typing import List
 from Extensions import Extensions
+from agixtsdk import AGiXTSDK
+from Globals import getenv
 
 try:
     import git
@@ -21,6 +26,15 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub"])
     from github import Github, RateLimitExceededException
+
+
+class Issue(BaseModel):
+    issue_title: str
+    issue_body: str
+
+
+class Issues(BaseModel):
+    issues: List[Issue]
 
 
 class github(Extensions):
@@ -53,6 +67,7 @@ class github(Extensions):
             "Get List of Github Repositories by Username": self.get_user_repos,
             "Upload File to Github Repository": self.upload_file_to_repo,
             "Create and Merge Github Repository Pull Request": self.create_and_merge_pull_request,
+            "Improve Github Repository Codebase": self.improve_codebase,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -66,6 +81,18 @@ class github(Extensions):
             kwargs["conversation_directory"]
             if "conversation_directory" in kwargs
             else os.path.join(os.getcwd(), "WORKSPACE")
+        )
+        self.ApiClient = (
+            kwargs["ApiClient"]
+            if "ApiClient" in kwargs
+            else AGiXTSDK(
+                base_uri=getenv("AGIXT_URI"),
+                api_key=kwargs["api_key"] if "api_key" in kwargs else "",
+            )
+        )
+        self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+        self.conversation_name = (
+            kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
 
     async def clone_repo(self, repo_url: str) -> str:
@@ -454,7 +481,7 @@ class github(Extensions):
                 title=title, body=body, head=head, base=base
             )
             self.failures = 0
-            return f"Created new pull request in GitHub Repository at {repo_url}\n\n#{pull_request.number}: {pull_request.title}\n\n{pull_request.body}"
+            return f"Created new pull request #{pull_request.number} `{pull_request.title}`."
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
@@ -827,9 +854,7 @@ class github(Extensions):
             pull_request = repo.create_pull(
                 title=title, body=body, head=head, base=base
             )
-
-            result = f"Created new pull request in GitHub Repository at {repo_url}\n\n#{pull_request.number}: {pull_request.title}\n\n{pull_request.body}\n\n"
-
+            result = f"Created new pull request #{pull_request.number} `{pull_request.title}`"
             # Check if the pull request can be merged
             if pull_request.mergeable:
                 if merge_method == "squash":
@@ -840,14 +865,11 @@ class github(Extensions):
                     merge_result = pull_request.merge()
 
                 if merge_result.merged:
-                    result += (
-                        f"Pull request #{pull_request.number} was successfully merged."
-                    )
+                    result += f" and merged."
                 else:
-                    result += f"Failed to merge pull request #{pull_request.number}. Reason: {merge_result.message}"
+                    result += f". Failed to merge pull request. Reason: {merge_result.message}"
             else:
-                result += f"Pull request #{pull_request.number} cannot be merged automatically. Please resolve conflicts and merge manually."
-
+                result += f". Pull request #{pull_request.number} cannot be merged automatically. Please resolve conflicts and merge manually."
             self.failures = 0
             return result
         except RateLimitExceededException:
@@ -860,3 +882,153 @@ class github(Extensions):
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
+
+    async def improve_codebase(
+        self,
+        idea: str,
+        repo_org: str,
+        repo_name: str,
+        additional_context: str = "",
+        auto_merge: bool = True,
+    ):
+        """
+        Improve the codebase of a GitHub repository by scoping necessary work to implement changes based on a provided idea.
+
+        Args:
+        idea (str): The idea to improve the codebase
+        repo_org (str): The organization of the GitHub repository
+        repo_name (str): The name of the GitHub repository
+        additional_context (str): Additional context to provide for the improvement. Useful for injecting additional documentation or code that isn't in the repository or agent's memory.
+        auto_merge (bool): Whether to automatically merge pull requests (default is True)
+        """
+        repo_url = f"https://github.com/{repo_org}/{repo_name}"
+        repo_content = await self.get_repo_code_contents(repo_url=repo_url)
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation_name,
+        )
+        scope = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"""### Presented Idea
+{idea}
+
+## User
+Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
+Follow all patterns in the current framework to maintain maintainability and consistency.
+The developer may have little to no guidance outside of this scope.""",
+                "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                "auto_continue": True,
+                "log_user_input": False,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+            },
+        )
+        issues = self.ApiClient.convert_to_model(
+            context=f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+            input_string=f"### Scope of Work\n\n{scope}\nPlease create a GitHub issue for each task in the scope of work. Each issue should have detailed instructions for the junior developer to complete the task. The developer may have little to no guidance outside of these issues. The instructions should be clear and concise, and should include any necessary code snippets.",
+            model=Issues,
+            agent_name=self.agent_name,
+        )
+        issues = issues.model_dump()
+        issue_count = len(issues["issues"])
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Creating {issue_count} issues in the repository.",
+            conversation_name=self.conversation_name,
+        )
+        x = 0
+        for issue in issues["issues"]:
+            x += 1
+            title = issue["issue_title"]
+            body = issue["issue_body"]
+            new_issue = await self.create_repo_issue(
+                repo_url=repo_url, title=title, body=body
+            )
+            issue_number = new_issue.split(f"{repo_url}\n\n")[-1].split(":")[-1]
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[ACTIVITY] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
+                conversation_name=self.conversation_name,
+            )
+            comment_content = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"""GitHub Issue: {title}
+{body}
+
+Please review the GitHub issue and show the full content of each modified file to solve this issue. Please do not use placeholders in code as they will break automation causing unintended consequences.
+
+When referencing files in the issue, please use the following format:
+
+## File: `src/pages/example.py`
+```python
+// Code snippet here
+```""",
+                    "context": f"""### Content of {repo_url}\n\n{repo_content}\n{additional_context}\n### Scope of Work\n\n{scope}""",
+                    "auto_continue": True,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+            files_to_modify = []
+            for file_path, code_snippet in re.findall(
+                r"## File: `(.+?)`\n```(.+?)\n(.+?)\n```", comment_content
+            ):
+                files_to_modify.append(
+                    {"file_path": file_path, "code_snippet": code_snippet}
+                )
+            for file in files_to_modify:
+                # Save each of the files to the front end repo folder
+                file_path = file["file_path"]
+                if file_path.startswith("/"):
+                    file_path = file_path[1:]
+                if file_path.startswith("./"):
+                    file_path = file_path[2:]
+                # Upload file to the branch for the issue, the branch name is the issue number
+                await self.upload_file_to_repo(
+                    repo_url=repo_url,
+                    file_path=file_path,
+                    file_content=file["code_snippet"],
+                    branch=issue_number,
+                    commit_message=f"Resolve #{issue_number}",
+                )
+            # Create and merge the pull request.
+            if auto_merge:
+                pull_request = await self.create_and_merge_pull_request(
+                    repo_url=repo_url,
+                    title=f"Resolve #{issue_number}",
+                    body=f"Resolves #{issue_number} \n{comment_content}",
+                    head=issue_number,
+                    base="main",
+                    merge_method="squash",
+                )
+            else:
+                pull_request = await self.create_repo_pull_request(
+                    repo_url=repo_url,
+                    title=f"Resolve #{issue_number}",
+                    body=f"Resolves #{issue_number} \n{comment_content}",
+                    head=issue_number,
+                    base="main",
+                )
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[ACTIVITY] ({x}/{issue_count}) {pull_request}",
+                conversation_name=self.conversation_name,
+            )
+        response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
+        if auto_merge:
+            response += " Each pull request was automatically merged."
+        return response
