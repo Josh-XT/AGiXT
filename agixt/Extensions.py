@@ -222,9 +222,7 @@ class Extensions:
                         prompt_category=prompt_category,
                     )
                 elif "command_name" in prompt:
-                    args = Extensions().get_command_args(
-                        command_name=prompt["command_name"]
-                    )
+                    args = self.get_command_args(command_name=prompt["command_name"])
                 elif "chain_name" in prompt:
                     args = self.get_chain_args(chain_name=prompt["chain_name"])
                 for arg in args:
@@ -303,7 +301,7 @@ class Extensions:
         for chain in chains:
             chain_args = self.get_chain_args(chain)
             if chain_args:
-                settings[chain] = {
+                settings["AGiXT Chains"] = {
                     "chain_name": chain,
                     "user_input": "",
                     **{arg: "" for arg in chain_args},
