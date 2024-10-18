@@ -49,7 +49,10 @@ def import_extensions():
     from Extensions import Extensions
 
     ext = Extensions()
-    extensions_data = ext.extensions
+    extensions_data = ext.get_extensions()
+    # Delete "AGiXT Chains"
+    if "AGiXT Chains" in extensions_data:
+        del extensions_data["AGiXT Chains"]
     extension_settings_data = Extensions().get_extension_settings()
     session = get_session()
     # Get the existing extensions and commands from the database
