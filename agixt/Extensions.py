@@ -10,6 +10,12 @@ from agixtsdk import AGiXTSDK
 from DB import (
     get_session,
     Chain as ChainDB,
+    ChainStep,
+    Agent,
+    Argument,
+    ChainStepArgument,
+    Prompt,
+    Command,
     User,
 )
 
@@ -113,6 +119,81 @@ class Extensions:
             chain_list.append(chain.name)
         session.close()
         return chain_list
+
+    def get_chain(self, chain_name):
+        session = get_session()
+        chain_name = chain_name.replace("%20", " ")
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        chain_db = (
+            session.query(ChainDB)
+            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+            .first()
+        )
+        if chain_db is None:
+            chain_db = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name == chain_name,
+                    ChainDB.user_id == self.user_id,
+                )
+                .first()
+            )
+        if chain_db is None:
+            session.close()
+            return []
+        chain_steps = (
+            session.query(ChainStep)
+            .filter(ChainStep.chain_id == chain_db.id)
+            .order_by(ChainStep.step_number)
+            .all()
+        )
+
+        steps = []
+        for step in chain_steps:
+            agent_name = session.query(Agent).get(step.agent_id).name
+            prompt = {}
+            if step.target_chain_id:
+                prompt["chain_name"] = (
+                    session.query(ChainDB).get(step.target_chain_id).name
+                )
+            elif step.target_command_id:
+                prompt["command_name"] = (
+                    session.query(Command).get(step.target_command_id).name
+                )
+            elif step.target_prompt_id:
+                prompt["prompt_name"] = (
+                    session.query(Prompt).get(step.target_prompt_id).name
+                )
+
+            # Retrieve argument data for the step
+            arguments = (
+                session.query(Argument, ChainStepArgument)
+                .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
+                .filter(ChainStepArgument.chain_step_id == step.id)
+                .all()
+            )
+
+            prompt_args = {}
+            for argument, chain_step_argument in arguments:
+                prompt_args[argument.name] = chain_step_argument.value
+
+            prompt.update(prompt_args)
+
+            step_data = {
+                "step": step.step_number,
+                "agent_name": agent_name,
+                "prompt_type": step.prompt_type,
+                "prompt": prompt,
+            }
+            steps.append(step_data)
+
+        chain_data = {
+            "id": chain_db.id,
+            "chain_name": chain_db.name,
+            "steps": steps,
+        }
+        session.close()
+        return chain_data
 
     def get_chain_args(self, chain_name):
         skip_args = [
@@ -222,7 +303,7 @@ class Extensions:
         for chain in chains:
             chain_args = self.get_chain_args(chain)
             if chain_args:
-                settings[f"chain_{chain}"] = {
+                settings[chain] = {
                     "chain_name": chain,
                     "user_input": "",
                     **{arg: "" for arg in chain_args},
