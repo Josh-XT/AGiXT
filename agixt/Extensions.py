@@ -66,6 +66,7 @@ class Extensions:
                 "settings": {},
                 "commands": {},
             }
+        self.extensions = self.get_extensions()
 
     async def execute_chain(self, chain_name, user_input="", **kwargs):
         return self.ApiClient.run_chain(
@@ -104,8 +105,7 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        extensions = self.get_extensions()
-        for extension in extensions:
+        for extension in self.extensions:
             for command in extension["commands"]:
                 if command["friendly_name"] == command_name:
                     return command["command_args"]

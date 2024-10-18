@@ -411,7 +411,7 @@ class Agent:
             return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_agent_extensions(self):
-        extensions = self.extensions.get_extensions()
+        extensions = self.extensions.extensions
         new_extensions = []
         for extension in extensions:
             required_keys = extension["settings"]
