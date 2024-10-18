@@ -214,11 +214,10 @@ class Extensions:
             "helper_agent_name",
         ]
         chains = []
-        for chain in self.chains:
-            chain_data = self.get_chain(chain_name=chain)
+        for chain_name in self.chains:
+            chain_data = self.get_chain(chain_name=chain_name)
             steps = chain_data["steps"]
             prompt_args = []
-            args = []
             for step in steps:
                 try:
                     prompt = step["prompt"]
@@ -240,12 +239,14 @@ class Extensions:
                         args = self.get_command_args(
                             command_name=prompt["command_name"]
                         )
+                    else:
+                        args = []
                     for arg in args:
                         if arg not in prompt_args and arg not in skip_args:
                             prompt_args.append(arg)
                 except Exception as e:
-                    logging.error(f"Error getting chain args: {e}")
-            chains.append({"chain_name": chain, "args": prompt_args})
+                    logging.error(f"Error getting chain args for {chain_name}: {e}")
+            chains.append({"chain_name": chain_name, "args": prompt_args})
         return chains
 
     def load_commands(self):
