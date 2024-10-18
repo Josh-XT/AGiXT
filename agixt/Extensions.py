@@ -202,47 +202,6 @@ class Extensions:
         session.close()
         return chain_data
 
-    def get_chain_args(self, chain_name):
-        skip_args = [
-            "command_list",
-            "context",
-            "COMMANDS",
-            "date",
-            "conversation_history",
-            "agent_name",
-            "working_directory",
-            "helper_agent_name",
-        ]
-        chain_data = self.get_chain(chain_name=chain_name)
-        steps = chain_data["steps"]
-        prompt_args = []
-        args = []
-        for step in steps:
-            try:
-                prompt = step["prompt"]
-                if "chain_name" in prompt:
-                    if "command_name" not in prompt:
-                        prompt["command_name"] = prompt["chain_name"]
-                prompt_category = (
-                    prompt["category"] if "category" in prompt else "Default"
-                )
-                if "prompt_name" in prompt:
-                    prompt_content = self.prompts.get_prompt(
-                        prompt_name=prompt["prompt_name"],
-                        prompt_category=prompt_category,
-                    )
-                    args = self.prompts.get_prompt_args(
-                        prompt_text=prompt_content,
-                    )
-                elif "command_name" in prompt:
-                    args = self.get_command_args(command_name=prompt["command_name"])
-                for arg in args:
-                    if arg not in prompt_args and arg not in skip_args:
-                        prompt_args.append(arg)
-            except Exception as e:
-                logging.error(f"Error getting chain args: {e}")
-        return prompt_args
-
     def get_chains_with_args(self):
         skip_args = [
             "command_list",
