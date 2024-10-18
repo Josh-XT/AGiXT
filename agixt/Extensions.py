@@ -43,9 +43,9 @@ class Extensions:
             else AGiXTSDK(base_uri=getenv("API_URL"), api_key=api_key)
         )
         self.api_key = api_key
-        self.commands = self.load_commands()
         self.user = user
         self.user_id = get_user_id(self.user)
+        self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
