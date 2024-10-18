@@ -68,7 +68,10 @@ class Extensions:
 
     async def execute_chain(self, chain_name, user_input="", **kwargs):
         return await self.ApiClient.run_chain(
-            chain_name=chain_name, user_input=user_input, chain_args=kwargs
+            agent_name=self.agent_name,
+            chain_name=chain_name,
+            user_input=user_input,
+            chain_args=kwargs,
         )
 
     def get_available_commands(self):
