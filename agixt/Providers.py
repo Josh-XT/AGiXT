@@ -102,7 +102,7 @@ class Providers:
             self.instance = provider_class(**kwargs)
 
             # Install the requirements if any
-            self.install_requirements()
+            # self.install_requirements()
 
         except (ModuleNotFoundError, AttributeError) as e:
             if name != None and name != "None" and not str(name).startswith("__"):
