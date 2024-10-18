@@ -14,7 +14,9 @@ app = APIRouter()
 )
 async def get_extension_settings(user=Depends(verify_api_key)):
     try:
-        return {"extension_settings": Extensions().get_extension_settings()}
+        ApiClient = get_api_client()
+        ext = Extensions(user=user, ApiClient=ApiClient)
+        return {"extension_settings": ext.get_extension_settings()}
     except Exception:
         raise HTTPException(status_code=400, detail="Unable to retrieve settings.")
 
