@@ -137,7 +137,6 @@ class Interactions:
         if conversation_name == "":
             conversation_name = "-"
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        conversation = c.get_conversation()
         conversation_id = c.get_conversation_id()
         conversation_outputs = (
             f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
@@ -228,6 +227,17 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append([kwargs["context"]])
+        if "include_sources" in kwargs:
+            sources = []
+            for line in context:
+                if "Content from" in line:
+                    source = line.split("Content from ")[1].split("\n")[0]
+                    sources.append(f"Content from {source}")
+            if sources != []:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Referencing the following sources:\n{'\n'.join(sources)}.",
+                )
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
         if "helper_agent_name" not in kwargs:
@@ -246,6 +256,7 @@ class Interactions:
             except:
                 conversation_results = 5
         conversation_history = ""
+        conversation = c.get_conversation()
         if "interactions" in conversation:
             if conversation["interactions"] != []:
                 activity_history = [
