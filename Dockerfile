@@ -65,7 +65,9 @@ RUN pip install spacy==3.7.5 && \
 
 # Install Playwright
 RUN npm install -g playwright && \
+    npx playwright install-deps && \
     npx playwright install && \
+    playwright install-deps && \
     playwright install
 
 COPY . .
