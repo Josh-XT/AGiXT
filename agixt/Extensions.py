@@ -216,6 +216,18 @@ class Extensions:
                     del params["kwargs"]
                 if params != {}:
                     settings[module_name] = params
+
+        # Add settings for chains
+        chains = self.chains.get_chains()
+        for chain in chains:
+            chain_args = self.chains.get_chain_args(chain)
+            if chain_args:
+                settings[f"chain_{chain}"] = {
+                    "chain_name": chain,
+                    "user_input": "",
+                    **{arg: "" for arg in chain_args},
+                }
+
         return settings
 
     def find_command(self, command_name: str):
