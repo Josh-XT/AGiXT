@@ -179,9 +179,6 @@ class agixt_actions(Extensions):
             "Plan Multistep Task": self.plan_multistep_task,
             "Replace init in File": self.replace_init_in_file,
         }
-        user = kwargs["user"] if "user" in kwargs else "user"
-        for chain in Chain(user=user).get_chains():
-            self.commands[chain] = self.run_chain
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
         )
@@ -432,34 +429,6 @@ class agixt_actions(Extensions):
                 logging.info(f"[TASK CHAIN GENERATOR] Added step {i} to NORMAL chain")
             i += 1
         return chain_name
-
-    async def run_chain(
-        self, input_for_task: str = "", start_from_step_number: int = 1
-    ):
-        """
-        Run a chain
-
-        Args:
-        input_for_task (str): The input for the task
-
-        Returns:
-        str: The response from the chain
-        """
-        try:
-            step_number = int(start_from_step_number)
-        except:
-            step_number = 1
-        response = await self.ApiClient.run_chain(
-            chain_name=self.command_name,
-            user_input=input_for_task,
-            agent_name=self.agent_name,
-            all_responses=False,
-            from_step=step_number,
-            chain_args={
-                "conversation_name": self.conversation_name,
-            },
-        )
-        return response
 
     def parse_openapi(self, data):
         """

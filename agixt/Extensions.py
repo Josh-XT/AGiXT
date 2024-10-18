@@ -5,6 +5,13 @@ from inspect import signature, Parameter
 import logging
 import inspect
 from Globals import getenv, DEFAULT_USER
+from MagicalAuth import get_user_id
+from agixtsdk import AGiXTSDK
+from DB import (
+    get_session,
+    Chain as ChainDB,
+    User,
+)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -30,10 +37,15 @@ class Extensions:
         self.conversation_name = conversation_name
         self.conversation_id = conversation_id
         self.agent_id = agent_id
-        self.ApiClient = ApiClient
+        self.ApiClient = (
+            ApiClient
+            if ApiClient
+            else AGiXTSDK(base_uri=getenv("API_URL"), api_key=api_key)
+        )
         self.api_key = api_key
-        self.commands = self.load_commands()
         self.user = user
+        self.user_id = get_user_id(self.user)
+        self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -45,6 +57,11 @@ class Extensions:
                 "settings": {},
                 "commands": {},
             }
+
+    async def execute_chain(self, chain_name, user_input="", **kwargs):
+        return await self.ApiClient.run_chain(
+            chain_name=chain_name, user_input=user_input, chain_args=kwargs
+        )
 
     def get_available_commands(self):
         if self.commands == []:
@@ -82,6 +99,60 @@ class Extensions:
                     return command["command_args"]
         return {}
 
+    def get_chains(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        global_chains = (
+            session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+        )
+        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        chain_list = []
+        for chain in chains:
+            chain_list.append(chain.name)
+        for chain in global_chains:
+            chain_list.append(chain.name)
+        session.close()
+        return chain_list
+
+    def get_chain_args(self, chain_name):
+        skip_args = [
+            "command_list",
+            "context",
+            "COMMANDS",
+            "date",
+            "conversation_history",
+            "agent_name",
+            "working_directory",
+            "helper_agent_name",
+        ]
+        chain_data = self.get_chain(chain_name=chain_name)
+        steps = chain_data["steps"]
+        prompt_args = []
+        args = []
+        for step in steps:
+            try:
+                prompt = step["prompt"]
+                prompt_category = (
+                    prompt["category"] if "category" in prompt else "Default"
+                )
+                if "prompt_name" in prompt:
+                    args = self.ApiClient.get_prompt_args(
+                        prompt_name=prompt["prompt_name"],
+                        prompt_category=prompt_category,
+                    )
+                elif "command_name" in prompt:
+                    args = Extensions().get_command_args(
+                        command_name=prompt["command_name"]
+                    )
+                elif "chain_name" in prompt:
+                    args = self.get_chain_args(chain_name=prompt["chain_name"])
+                for arg in args:
+                    if arg not in prompt_args and arg not in skip_args:
+                        prompt_args.append(arg)
+            except Exception as e:
+                logging.error(f"Error getting chain args: {e}")
+        return prompt_args
+
     def load_commands(self):
         try:
             settings = self.agent_config["settings"]
@@ -102,7 +173,6 @@ class Extensions:
                         command_function,
                     ) in command_class.commands.items():
                         params = self.get_command_params(command_function)
-                        # Store the module along with the function name
                         commands.append(
                             (
                                 command_name,
@@ -111,6 +181,21 @@ class Extensions:
                                 params,
                             )
                         )
+        chains = self.get_chains()
+        for chain in chains:
+            chain_args = self.get_chain_args(chain)
+            commands.append(
+                (
+                    chain,
+                    self.execute_chain,
+                    "run_chain",
+                    {
+                        "chain_name": chain,
+                        "user_input": "",
+                        **{arg: "" for arg in chain_args},
+                    },
+                )
+            )
         return commands
 
     def get_extension_settings(self):
@@ -138,9 +223,12 @@ class Extensions:
             if module.__name__ in DISABLED_EXTENSIONS:
                 continue
             if name == command_name:
-                command_function = getattr(module, function_name)
-                return command_function, module, params  # Updated return statement
-        return None, None, None  # Updated return statement
+                if isinstance(module, type):  # It's a class
+                    command_function = getattr(module, function_name)
+                    return command_function, module, params
+                else:  # It's a function (for chains)
+                    return module, None, params
+        return None, None, None
 
     def get_commands_list(self):
         self.commands = self.load_commands()
@@ -171,6 +259,9 @@ class Extensions:
             logging.error(f"Command {command_name} not found")
             return f"Command {command_name} not found"
 
+        if command_args is None:
+            command_args = {}
+
         for param in params:
             if param not in command_args:
                 if param != "self" and param != "kwargs":
@@ -179,17 +270,18 @@ class Extensions:
         for param in command_args:
             if param not in params:
                 del args[param]
-        # try:
-        output = await getattr(
-            module(
-                **injection_variables,
-            ),
-            command_function.__name__,
-        )(**args)
-        # except Exception as e:
-        #    output = f"Error: {str(e)}"
-        logging.info(f"Command Output: {output}")
-        return output
+
+        if module is None:  # It's a chain
+            return await command_function(
+                chain_name=command_name, user_input="", **args
+            )
+        else:  # It's a regular command
+            return await getattr(
+                module(
+                    **injection_variables,
+                ),
+                command_function.__name__,
+            )(**args)
 
     def get_command_params(self, func):
         params = {}
