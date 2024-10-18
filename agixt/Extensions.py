@@ -218,9 +218,9 @@ class Extensions:
                     settings[module_name] = params
 
         # Add settings for chains
-        chains = self.chains.get_chains()
+        chains = self.get_chains()
         for chain in chains:
-            chain_args = self.chains.get_chain_args(chain)
+            chain_args = self.get_chain_args(chain)
             if chain_args:
                 settings[f"chain_{chain}"] = {
                     "chain_name": chain,
