@@ -1331,6 +1331,11 @@ class AGiXT:
         auto_continue = False
         if "auto_continue" in self.agent_settings:
             auto_continue = str(self.agent_settings["auto_continue"]).lower() == "true"
+        include_sources = False
+        if "include_sources" in self.agent_settings:
+            include_sources = (
+                str(self.agent_settings["include_sources"]).lower() == "true"
+            )
         for message in prompt.messages:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
@@ -1381,6 +1386,8 @@ class AGiXT:
                 )
             if "auto_continue" in message:
                 auto_continue = str(message["auto_continue"]).lower() == "true"
+            if "include_sources" in message:
+                include_sources = str(message["include_sources"]).lower() == "true"
             download_headers = {}
             if "download_headers" in message:
                 download_headers = (
@@ -1709,6 +1716,7 @@ class AGiXT:
                 log_output=False,
                 data_analysis=data_analysis,
                 language=language,
+                include_sources=include_sources,
                 **prompt_args,
             )
             if response.startswith(f"{self.agent_name}:"):
