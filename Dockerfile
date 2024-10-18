@@ -61,7 +61,7 @@ RUN pip install -r requirements.txt
 # Download spaCy language model
 RUN pip install spacy && \
     python -m spacy download en_core_web_sm && \
-    pip install textacy==0.13.0
+    pip install textacy==0.13.0 numpy==1.26.4
 
 # Install Playwright
 RUN npm install -g playwright && \
