@@ -5,8 +5,13 @@ from inspect import signature, Parameter
 import logging
 import inspect
 from Globals import getenv, DEFAULT_USER
-from ApiClient import Chain
+from MagicalAuth import get_user_id
 from agixtsdk import AGiXTSDK
+from DB import (
+    get_session,
+    Chain as ChainDB,
+    User,
+)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -40,7 +45,7 @@ class Extensions:
         self.api_key = api_key
         self.commands = self.load_commands()
         self.user = user
-        self.chains = Chain(user=user)
+        self.user_id = get_user_id(self.user)
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -94,6 +99,60 @@ class Extensions:
                     return command["command_args"]
         return {}
 
+    def get_chains(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        global_chains = (
+            session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+        )
+        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        chain_list = []
+        for chain in chains:
+            chain_list.append(chain.name)
+        for chain in global_chains:
+            chain_list.append(chain.name)
+        session.close()
+        return chain_list
+
+    def get_chain_args(self, chain_name):
+        skip_args = [
+            "command_list",
+            "context",
+            "COMMANDS",
+            "date",
+            "conversation_history",
+            "agent_name",
+            "working_directory",
+            "helper_agent_name",
+        ]
+        chain_data = self.get_chain(chain_name=chain_name)
+        steps = chain_data["steps"]
+        prompt_args = []
+        args = []
+        for step in steps:
+            try:
+                prompt = step["prompt"]
+                prompt_category = (
+                    prompt["category"] if "category" in prompt else "Default"
+                )
+                if "prompt_name" in prompt:
+                    args = self.ApiClient.get_prompt_args(
+                        prompt_name=prompt["prompt_name"],
+                        prompt_category=prompt_category,
+                    )
+                elif "command_name" in prompt:
+                    args = Extensions().get_command_args(
+                        command_name=prompt["command_name"]
+                    )
+                elif "chain_name" in prompt:
+                    args = self.get_chain_args(chain_name=prompt["chain_name"])
+                for arg in args:
+                    if arg not in prompt_args and arg not in skip_args:
+                        prompt_args.append(arg)
+            except Exception as e:
+                logging.error(f"Error getting chain args: {e}")
+        return prompt_args
+
     def load_commands(self):
         try:
             settings = self.agent_config["settings"]
@@ -122,9 +181,9 @@ class Extensions:
                                 params,
                             )
                         )
-        chains = self.chains.get_chains()
+        chains = self.get_chains()
         for chain in chains:
-            chain_args = self.chains.get_chain_args(chain)
+            chain_args = self.get_chain_args(chain)
             commands.append(
                 (
                     chain,
