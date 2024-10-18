@@ -227,7 +227,12 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append([kwargs["context"]])
-        if "include_sources" in kwargs:
+        include_sources = (
+            str(kwargs["include_sources"]).lower() == "true"
+            if "include_sources" in kwargs
+            else False
+        )
+        if include_sources:
             sources = []
             for line in context:
                 if "Content from" in line:
