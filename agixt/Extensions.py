@@ -219,6 +219,9 @@ class Extensions:
         for step in steps:
             try:
                 prompt = step["prompt"]
+                if "chain_name" in prompt:
+                    if "command_name" not in prompt:
+                        prompt["command_name"] = prompt["chain_name"]
                 prompt_category = (
                     prompt["category"] if "category" in prompt else "Default"
                 )
@@ -232,8 +235,6 @@ class Extensions:
                     )
                 elif "command_name" in prompt:
                     args = self.get_command_args(command_name=prompt["command_name"])
-                elif "chain_name" in prompt:
-                    args = self.get_chain_args(chain_name=prompt["chain_name"])
                 for arg in args:
                     if arg not in prompt_args and arg not in skip_args:
                         prompt_args.append(arg)
