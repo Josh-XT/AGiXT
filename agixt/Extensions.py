@@ -54,6 +54,7 @@ class Extensions:
         self.user_id = get_user_id(self.user)
         self.prompts = Prompts(user=self.user)
         self.chains = self.get_chains()
+        self.chains_with_args = self.get_chains_with_args()
         self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
@@ -66,7 +67,6 @@ class Extensions:
                 "settings": {},
                 "commands": {},
             }
-        self.extensions = self.get_extensions()
 
     async def execute_chain(self, chain_name, user_input="", **kwargs):
         return self.ApiClient.run_chain(
@@ -105,7 +105,8 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        for extension in self.extensions:
+        extensions = self.get_extensions()
+        for extension in extensions:
             for command in extension["commands"]:
                 if command["friendly_name"] == command_name:
                     return command["command_args"]
@@ -242,6 +243,52 @@ class Extensions:
                 logging.error(f"Error getting chain args: {e}")
         return prompt_args
 
+    def get_chains_with_args(self):
+        skip_args = [
+            "command_list",
+            "context",
+            "COMMANDS",
+            "date",
+            "conversation_history",
+            "agent_name",
+            "working_directory",
+            "helper_agent_name",
+        ]
+        chains = []
+        for chain in self.chains:
+            chain_data = self.get_chain(chain_name=chain)
+            steps = chain_data["steps"]
+            prompt_args = []
+            args = []
+            for step in steps:
+                try:
+                    prompt = step["prompt"]
+                    if "chain_name" in prompt:
+                        if "command_name" not in prompt:
+                            prompt["command_name"] = prompt["chain_name"]
+                    prompt_category = (
+                        prompt["category"] if "category" in prompt else "Default"
+                    )
+                    if "prompt_name" in prompt:
+                        prompt_content = self.prompts.get_prompt(
+                            prompt_name=prompt["prompt_name"],
+                            prompt_category=prompt_category,
+                        )
+                        args = self.prompts.get_prompt_args(
+                            prompt_text=prompt_content,
+                        )
+                    elif "command_name" in prompt:
+                        args = self.get_command_args(
+                            command_name=prompt["command_name"]
+                        )
+                    for arg in args:
+                        if arg not in prompt_args and arg not in skip_args:
+                            prompt_args.append(arg)
+                except Exception as e:
+                    logging.error(f"Error getting chain args: {e}")
+            chains.append({"chain_name": chain, "args": prompt_args})
+        return chains
+
     def load_commands(self):
         try:
             settings = self.agent_config["settings"]
@@ -270,17 +317,16 @@ class Extensions:
                                 params,
                             )
                         )
-        for chain in self.chains:
-            chain_args = self.get_chain_args(chain)
+        for chain in self.chains_with_args:
             commands.append(
                 (
-                    chain,
+                    chain["chain_name"],
                     self.execute_chain,
                     "run_chain",
                     {
-                        "chain_name": chain,
+                        "chain_name": chain["chain_name"],
                         "user_input": "",
-                        **{arg: "" for arg in chain_args},
+                        **{arg: "" for arg in chain["args"]},
                     },
                 )
             )
@@ -304,14 +350,18 @@ class Extensions:
                     del params["kwargs"]
                 if params != {}:
                     settings[module_name] = params
-        for chain in self.chains:
-            chain_args = self.get_chain_args(chain)
-            if chain_args:
-                settings["AGiXT Chains"] = {
-                    "chain_name": chain,
-                    "user_input": "",
-                    **{arg: "" for arg in chain_args},
-                }
+
+        # Use self.chains_with_args instead of iterating over self.chains
+        if self.chains_with_args:
+            settings["AGiXT Chains"] = {}
+            for chain in self.chains_with_args:
+                chain_name = chain["chain_name"]
+                chain_args = chain["args"]
+                if chain_args:
+                    settings["AGiXT Chains"][chain_name] = {
+                        "user_input": "",
+                        **{arg: "" for arg in chain_args},
+                    }
 
         return settings
 
@@ -326,11 +376,6 @@ class Extensions:
                 else:  # It's a function (for chains)
                     return module, None, params
         return None, None, None
-
-    def get_commands_list(self):
-        self.commands = self.load_commands()
-        commands_list = [command_name for command_name, _, _ in self.commands]
-        return commands_list
 
     async def execute_command(self, command_name: str, command_args: dict = None):
         injection_variables = {
@@ -445,17 +490,16 @@ class Extensions:
 
         # Add AGiXT Chains as an extension
         chain_commands = []
-        for chain in self.chains:
-            chain_args = self.get_chain_args(chain)
+        for chain in self.chains_with_args:
             chain_commands.append(
                 {
-                    "friendly_name": chain,
-                    "description": f"Execute chain: {chain}",
+                    "friendly_name": chain["chain_name"],
+                    "description": f"Execute chain: {chain['chain_name']}",
                     "command_name": "run_chain",
                     "command_args": {
-                        "chain_name": chain,
+                        "chain_name": chain["chain_name"],
                         "user_input": "",
-                        **{arg: "" for arg in chain_args},
+                        **{arg: "" for arg in chain["args"]},
                     },
                 }
             )
