@@ -127,10 +127,7 @@ async def get_chain_args(
 ):
     if is_admin(email=user, api_key=authorization) != True:
         raise HTTPException(status_code=403, detail="Access Denied")
-    ApiClient = get_api_client(authorization=authorization)
-    chain_args = Chain(user=user, ApiClient=ApiClient).get_chain_args(
-        chain_name=chain_name
-    )
+    chain_args = Chain(user=user).get_chain_args(chain_name=chain_name)
     return {"chain_args": chain_args}
 
 
