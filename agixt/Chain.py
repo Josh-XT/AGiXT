@@ -694,9 +694,9 @@ class Chain:
                     .first()
                 )
                 if not argument:
-                    # Handle the case where argument not found based on argument_name
-                    logging.warning(f"Argument not found: {argument_name}")
-                    continue
+                    argument = Argument(name=argument_name)
+                    session.add(argument)
+                    session.commit()
 
                 chain_step_argument = ChainStepArgument(
                     chain_step_id=chain_step.id,

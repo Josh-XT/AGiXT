@@ -450,29 +450,30 @@ class Extensions:
                 }
             )
 
-        # Add AGiXT Chains as an extension
-        chain_commands = []
-        for chain in self.chains_with_args:
-            chain_commands.append(
+        # Add AGiXT Chains as an extension only if chains_with_args is initialized
+        if hasattr(self, "chains_with_args") and self.chains_with_args:
+            chain_commands = []
+            for chain in self.chains_with_args:
+                chain_commands.append(
+                    {
+                        "friendly_name": chain["chain_name"],
+                        "description": f"Execute chain: {chain['chain_name']}",
+                        "command_name": "run_chain",
+                        "command_args": {
+                            "chain_name": chain["chain_name"],
+                            "user_input": "",
+                            **{arg: "" for arg in chain["args"]},
+                        },
+                    }
+                )
+
+            commands.append(
                 {
-                    "friendly_name": chain["chain_name"],
-                    "description": f"Execute chain: {chain['chain_name']}",
-                    "command_name": "run_chain",
-                    "command_args": {
-                        "chain_name": chain["chain_name"],
-                        "user_input": "",
-                        **{arg: "" for arg in chain["args"]},
-                    },
+                    "extension_name": "AGiXT Chains",
+                    "description": "Execute predefined chains of commands",
+                    "settings": [],
+                    "commands": chain_commands,
                 }
             )
-
-        commands.append(
-            {
-                "extension_name": "AGiXT Chains",
-                "description": "Execute predefined chains of commands",
-                "settings": [],
-                "commands": chain_commands,
-            }
-        )
 
         return commands
