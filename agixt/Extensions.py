@@ -53,6 +53,7 @@ class Extensions:
         self.user = user
         self.user_id = get_user_id(self.user)
         self.prompts = Prompts(user=self.user)
+        self.chains = self.get_chains()
         self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
@@ -268,8 +269,7 @@ class Extensions:
                                 params,
                             )
                         )
-        chains = self.get_chains()
-        for chain in chains:
+        for chain in self.chains:
             chain_args = self.get_chain_args(chain)
             commands.append(
                 (
@@ -303,10 +303,7 @@ class Extensions:
                     del params["kwargs"]
                 if params != {}:
                     settings[module_name] = params
-
-        # Add settings for chains
-        chains = self.get_chains()
-        for chain in chains:
+        for chain in self.chains:
             chain_args = self.get_chain_args(chain)
             if chain_args:
                 settings["AGiXT Chains"] = {
@@ -446,9 +443,8 @@ class Extensions:
             )
 
         # Add AGiXT Chains as an extension
-        chains = self.get_chains()
         chain_commands = []
-        for chain in chains:
+        for chain in self.chains:
             chain_args = self.get_chain_args(chain)
             chain_commands.append(
                 {
