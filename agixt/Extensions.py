@@ -5,7 +5,7 @@ from inspect import signature, Parameter
 import logging
 import inspect
 from Globals import getenv, DEFAULT_USER
-from Chain import Chain
+from ApiClient import Chain
 from agixtsdk import AGiXTSDK
 
 logging.basicConfig(
