@@ -32,7 +32,8 @@ async def get_command_args(command_name: str, user=Depends(verify_api_key)):
 
 @app.get("/api/extensions", tags=["Extensions"], dependencies=[Depends(verify_api_key)])
 async def get_extensions(user=Depends(verify_api_key)):
-    extensions = Extensions().get_extensions()
+    ext = Extensions(user=user)
+    extensions = ext.extensions
     return {"extensions": extensions}
 
 

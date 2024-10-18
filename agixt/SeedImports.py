@@ -48,7 +48,8 @@ def import_agents(user=DEFAULT_USER):
 def import_extensions():
     from Extensions import Extensions
 
-    extensions_data = Extensions().get_extensions()
+    ext = Extensions()
+    extensions_data = ext.extensions
     extension_settings_data = Extensions().get_extension_settings()
     session = get_session()
     # Get the existing extensions and commands from the database
