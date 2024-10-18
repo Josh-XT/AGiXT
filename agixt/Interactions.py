@@ -234,9 +234,10 @@ class Interactions:
                     source = line.split("Content from ")[1].split("\n")[0]
                     sources.append(f"Content from {source}")
             if sources != []:
+                joined_sources = "\n".join(sources)
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Referencing the following sources:\n{'\n'.join(sources)}.",
+                    message=f"[ACTIVITY] Referencing the following sources:\n{joined_sources}.",
                 )
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
