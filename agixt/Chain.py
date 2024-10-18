@@ -27,9 +27,8 @@ logging.basicConfig(
 
 
 class Chain:
-    def __init__(self, user=DEFAULT_USER, ApiClient=None):
+    def __init__(self, user=DEFAULT_USER):
         self.user = user
-        self.ApiClient = ApiClient
         self.user_id = get_user_id(self.user)
 
     def get_chain(self, chain_name):
