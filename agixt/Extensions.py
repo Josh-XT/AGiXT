@@ -55,18 +55,18 @@ class Extensions:
         self.prompts = Prompts(user=self.user)
         self.chains = self.get_chains()
         self.chains_with_args = self.get_chains_with_args()
-        self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
             if self.agent_config["commands"] == None:
                 self.agent_config["commands"] = {}
-            self.available_commands = self.get_available_commands()
         else:
             self.agent_config = {
                 "settings": {},
                 "commands": {},
             }
+        self.commands = self.load_commands()
+        self.available_commands = self.get_available_commands()
 
     async def execute_chain(self, chain_name, user_input="", **kwargs):
         return self.ApiClient.run_chain(
@@ -276,19 +276,21 @@ class Extensions:
                                 params,
                             )
                         )
-        for chain in self.chains_with_args:
-            commands.append(
-                (
-                    chain["chain_name"],
-                    self.execute_chain,
-                    "run_chain",
-                    {
-                        "chain_name": chain["chain_name"],
-                        "user_input": "",
-                        **{arg: "" for arg in chain["args"]},
-                    },
+
+        if hasattr(self, "chains_with_args") and self.chains_with_args:
+            for chain in self.chains_with_args:
+                commands.append(
+                    (
+                        chain["chain_name"],
+                        self.execute_chain,
+                        "run_chain",
+                        {
+                            "chain_name": chain["chain_name"],
+                            "user_input": "",
+                            **{arg: "" for arg in chain["args"]},
+                        },
+                    )
                 )
-            )
         return commands
 
     def get_extension_settings(self):
