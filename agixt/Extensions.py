@@ -7,6 +7,7 @@ import inspect
 from Globals import getenv, DEFAULT_USER
 from MagicalAuth import get_user_id
 from agixtsdk import AGiXTSDK
+from Prompts import Prompts
 from DB import (
     get_session,
     Chain as ChainDB,
@@ -52,6 +53,7 @@ class Extensions:
         self.user = user
         self.user_id = get_user_id(self.user)
         self.commands = self.load_commands()
+        self.prompts = Prompts(user=self.user)
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -217,9 +219,12 @@ class Extensions:
                     prompt["category"] if "category" in prompt else "Default"
                 )
                 if "prompt_name" in prompt:
-                    args = self.ApiClient.get_prompt_args(
+                    prompt_content = self.prompts.get_prompt(
                         prompt_name=prompt["prompt_name"],
                         prompt_category=prompt_category,
+                    )
+                    args = self.prompts.get_prompt_args(
+                        prompt_text=prompt_content,
                     )
                 elif "command_name" in prompt:
                     args = self.get_command_args(command_name=prompt["command_name"])
