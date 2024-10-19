@@ -457,7 +457,7 @@ class Extensions:
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],
-                        "description": f"Execute chain: {chain['chain_name']}",
+                        "description": f"Execute AGiXT Chain: `{chain['chain_name']}`.  The assistant can use the 'user_input' field as a place to summarize what the user needs when running the command.",
                         "command_name": "run_chain",
                         "command_args": {
                             "chain_name": chain["chain_name"],

@@ -7,7 +7,6 @@ import re
 from typing import List, Type
 from pydantic import BaseModel
 from Extensions import Extensions
-from ApiClient import Chain
 import logging
 import docker
 import asyncio
@@ -178,6 +177,7 @@ class agixt_actions(Extensions):
             "Disable Command": self.disable_command,
             "Plan Multistep Task": self.plan_multistep_task,
             "Replace init in File": self.replace_init_in_file,
+            "Explain Chain": self.chain_to_mermaid,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1082,3 +1082,49 @@ class agixt_actions(Extensions):
                     "Failed to convert response after 3 attempts, returning empty string."
                 )
                 return ""
+
+    async def chain_to_mermaid(self, chain_name: str):
+        chain_data = self.ApiClient.get_chain(chain_name=chain_name)
+        mermaid_diagram = ["graph TD"]
+        steps = chain_data.get("steps", [])
+
+        for i, step in enumerate(steps):
+            step_number = step.get("step", i + 1)
+            agent_name = step.get("agent_name", "Unknown")
+            prompt_type = step.get("prompt_type", "Unknown")
+            prompt = step.get("prompt", {})
+
+            # Create node for current step
+            node_id = f"S{step_number}"
+            node_label = f"{step_number}. {agent_name}"
+            mermaid_diagram.append(f'    {node_id}["{node_label}"]')
+
+            # Add details about the prompt or command
+            if prompt_type.lower() == "prompt":
+                prompt_name = prompt.get("prompt_name", "Unknown")
+                mermaid_diagram.append(
+                    f'    {node_id}AI["AI Prompt:<br>{prompt_name}"]'
+                )
+                mermaid_diagram.append(f"    {node_id} --> {node_id}AI")
+            else:  # Command or Chain
+                command_name = prompt.get("command_name") or prompt.get(
+                    "chain_name", "Unknown"
+                )
+                mermaid_diagram.append(
+                    f'    {node_id}Cmd["Command:<br>{command_name}"]'
+                )
+                mermaid_diagram.append(f"    {node_id} --> {node_id}Cmd")
+
+            # Connect to next step
+            if i < len(steps) - 1:
+                next_step = steps[i + 1].get("step", i + 2)
+                mermaid_diagram.append(f"    {node_id} --> S{next_step}")
+
+            # Add connections for step dependencies
+            for key, value in prompt.items():
+                if isinstance(value, str) and "{STEP" in value:
+                    dep_step = value.split("{STEP")[1].split("}")[0]
+                    mermaid_diagram.append(f"    S{dep_step} -.-> {node_id}")
+
+        mermaid = "\n".join(mermaid_diagram)
+        return f"```mermaid\n{mermaid}\n```"
