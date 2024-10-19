@@ -82,19 +82,18 @@ class Extensions:
         available_commands = []
         for command in self.commands:
             friendly_name, command_module, command_name, command_args = command
-            if (
-                "commands" in self.agent_config
-                and friendly_name in self.agent_config["commands"]
-            ):
-                if str(self.agent_config["commands"][friendly_name]).lower() == "true":
-                    available_commands.append(
-                        {
-                            "friendly_name": friendly_name,
-                            "name": command_name,
-                            "args": command_args,
-                            "enabled": True,
-                        }
-                    )
+            if friendly_name not in self.agent_config["commands"]:
+                self.agent_config["commands"][friendly_name] = "false"
+
+            if str(self.agent_config["commands"][friendly_name]).lower() == "true":
+                available_commands.append(
+                    {
+                        "friendly_name": friendly_name,
+                        "name": command_name,
+                        "args": command_args,
+                        "enabled": True,
+                    }
+                )
         return available_commands
 
     def get_enabled_commands(self):
@@ -280,18 +279,21 @@ class Extensions:
 
         if hasattr(self, "chains_with_args") and self.chains_with_args:
             for chain in self.chains_with_args:
+                chain_name = chain["chain_name"]
                 commands.append(
                     (
-                        chain["chain_name"],
+                        chain_name,
                         self.execute_chain,
                         "run_chain",
                         {
-                            "chain_name": chain["chain_name"],
+                            "chain_name": chain_name,
                             "user_input": "",
                             **{arg: "" for arg in chain["args"]},
                         },
                     )
                 )
+                if chain_name not in self.agent_config["commands"]:
+                    self.agent_config["commands"][chain_name] = "false"
         return commands
 
     def get_extension_settings(self):
