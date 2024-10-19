@@ -307,6 +307,39 @@ class Extensions:
                     return module, None, params
         return None, None, None
 
+    def get_extension_settings(self):
+        settings = {}
+        command_files = glob.glob("extensions/*.py")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            if module_name in DISABLED_EXTENSIONS:
+                continue
+            module = importlib.import_module(f"extensions.{module_name}")
+            if issubclass(getattr(module, module_name), Extensions):
+                command_class = getattr(module, module_name)()
+                params = self.get_command_params(command_class.__init__)
+                # Remove self and kwargs from params
+                if "self" in params:
+                    del params["self"]
+                if "kwargs" in params:
+                    del params["kwargs"]
+                if params != {}:
+                    settings[module_name] = params
+
+        # Use self.chains_with_args instead of iterating over self.chains
+        if self.chains_with_args:
+            settings["AGiXT Chains"] = {}
+            for chain in self.chains_with_args:
+                chain_name = chain["chain_name"]
+                chain_args = chain["args"]
+                if chain_args:
+                    settings["AGiXT Chains"][chain_name] = {
+                        "user_input": "",
+                        **{arg: "" for arg in chain_args},
+                    }
+
+        return settings
+
     async def execute_command(self, command_name: str, command_args: dict = None):
         injection_variables = {
             "user": self.user,
