@@ -277,6 +277,7 @@ class Extensions:
                             )
                         )
 
+        # Add chains as commands
         if hasattr(self, "chains_with_args") and self.chains_with_args:
             for chain in self.chains_with_args:
                 chain_name = chain["chain_name"]
@@ -284,7 +285,7 @@ class Extensions:
                     (
                         chain_name,
                         self.execute_chain,
-                        "run_chain",
+                        "execute_chain",
                         {
                             "chain_name": chain_name,
                             "user_input": "",
@@ -292,42 +293,7 @@ class Extensions:
                         },
                     )
                 )
-                if chain_name not in self.agent_config["commands"]:
-                    self.agent_config["commands"][chain_name] = "false"
         return commands
-
-    def get_extension_settings(self):
-        settings = {}
-        command_files = glob.glob("extensions/*.py")
-        for command_file in command_files:
-            module_name = os.path.splitext(os.path.basename(command_file))[0]
-            if module_name in DISABLED_EXTENSIONS:
-                continue
-            module = importlib.import_module(f"extensions.{module_name}")
-            if issubclass(getattr(module, module_name), Extensions):
-                command_class = getattr(module, module_name)()
-                params = self.get_command_params(command_class.__init__)
-                # Remove self and kwargs from params
-                if "self" in params:
-                    del params["self"]
-                if "kwargs" in params:
-                    del params["kwargs"]
-                if params != {}:
-                    settings[module_name] = params
-
-        # Use self.chains_with_args instead of iterating over self.chains
-        if self.chains_with_args:
-            settings["AGiXT Chains"] = {}
-            for chain in self.chains_with_args:
-                chain_name = chain["chain_name"]
-                chain_args = chain["args"]
-                if chain_args:
-                    settings["AGiXT Chains"][chain_name] = {
-                        "user_input": "",
-                        **{arg: "" for arg in chain_args},
-                    }
-
-        return settings
 
     def find_command(self, command_name: str):
         for name, module, function_name, params in self.commands:
