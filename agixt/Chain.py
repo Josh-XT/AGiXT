@@ -52,6 +52,7 @@ class Chain:
         if chain_db is None:
             session.close()
             return []
+        logging.info(f"Retrieved chain data for chain {chain_name} with ID {chain_db.id}")
         chain_steps = (
             session.query(ChainStep)
             .filter(ChainStep.chain_id == chain_db.id)
@@ -770,6 +771,7 @@ class Chain:
                     return False
                 if not step_responses:
                     return False
+            logging.info(f"Dependencies met for chain run {chain_run_id} and step {step_number}")
             return True
 
         dependencies_met = await check_dependencies_met(dependencies)
@@ -807,6 +809,7 @@ class Chain:
                                 value = value.replace(
                                     f"{{STEP{new_step_number}}}", f"{resp}"
                                 )
+                                logging.info(f"Replaced placeholder {{STEP{new_step_number}}} with response {resp} in step content")
                 new_prompt_content[arg] = value
             return new_prompt_content
         elif isinstance(prompt_content, str):
@@ -870,6 +873,7 @@ class Chain:
                 else:
                     existing_response.content = response
                 session.commit()
+                logging.info(f"Executed command for chain step {chain_step.id} in chain run {chain_run_id}")
             else:
                 chain_step_response = ChainStepResponse(
                     chain_step_id=chain_step.id,
@@ -878,6 +882,7 @@ class Chain:
                 )
                 session.add(chain_step_response)
                 session.commit()
+                logging.info(f"Executed command for chain step {chain_step.id} in chain run {chain_run_id}")
             session.close()
 
     async def get_chain_run_id(self, chain_name):
