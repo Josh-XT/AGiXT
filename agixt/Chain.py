@@ -776,7 +776,7 @@ class Chain:
         while not dependencies_met:
             await asyncio.sleep(1)
             dependencies_met = await check_dependencies_met(dependencies)
-        return True
+        return dependencies_met
 
     def get_step_content(
         self, chain_run_id, chain_name, prompt_content, user_input, agent_name
@@ -863,20 +863,13 @@ class Chain:
                     response, dict
                 ):
                     existing_response.content.update(response)
-                    session.commit()
                 elif isinstance(existing_response.content, list) and isinstance(
                     response, list
                 ):
                     existing_response.content.extend(response)
-                    session.commit()
                 else:
-                    chain_step_response = ChainStepResponse(
-                        chain_step_id=chain_step.id,
-                        chain_run_id=chain_run_id,
-                        content=response,
-                    )
-                    session.add(chain_step_response)
-                    session.commit()
+                    existing_response.content = response
+                session.commit()
             else:
                 chain_step_response = ChainStepResponse(
                     chain_step_id=chain_step.id,
