@@ -467,6 +467,7 @@ class Interactions:
 - All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
 - The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
+- Once the assistant executes a command, it should stop at </execute> and wait for the command output before continuing.
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
         formatted_prompt = self.custom_format(
             string=prompt,
@@ -953,7 +954,6 @@ class Interactions:
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
                 command_output = ""
-                command_output_text = ""
                 if command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
                 ]:
@@ -978,24 +978,33 @@ class Interactions:
                             command_name=command_name,
                             command_args=command_args,
                         )
-                        formatted_output = f"```\n{command_output}\n```"
-                        command_output_text = f"**Executed Command:** `{command_name}` with the following parameters:\n```json\n{json.dumps(command_args, indent=4)}\n```\n\n**Command Output:**\n{formatted_output}"
+                        logging.info(f"Command output: {command_output}")
                     except Exception as e:
-                        logging.error(
-                            f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
-                        )
+                        error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
+                        logging.error(error_message)
                         c.log_interaction(
                             role=self.agent_name,
                             message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
                         )
-                        command_output_text = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-                    c.log_interaction(
-                        role=self.agent_name,
-                        message=f"[ACTIVITY] {command_output_text}",
-                    )
-                    # Replace the command_block in the response with the command_output_text
-                    reformatted_response = reformatted_response.replace(
-                        command_block, command_output_text
-                    )
-            if reformatted_response != self.response:
-                self.response = reformatted_response
+                        command_output = error_message
+                # Format the command execution and output
+                formatted_execution = (
+                    f"<execute>\n"
+                    f"<name>{command_name}</name>\n"
+                    f"{chr(10).join([f'<{k}>{v}</{k}>' for k, v in command_args.items()])}\n"
+                    f"</execute>\n"
+                    f"<output>{command_output}</output>"
+                )
+
+                # Replace the original command block with the formatted execution and output
+                reformatted_response = reformatted_response.replace(
+                    command_block, formatted_execution
+                )
+
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[ACTIVITY] Executed command `{command_name}` with output: {command_output}",
+                )
+
+        if reformatted_response != self.response:
+            self.response = reformatted_response
