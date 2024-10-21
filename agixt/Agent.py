@@ -523,7 +523,7 @@ class Agent:
                     agent_command.state = enabled
                 else:
                     agent_command = AgentCommand(
-                        agent_id=agent.id,
+                        agent_id=self.agent_id,
                         command_id=command.id,
                         state=enabled,
                     )
