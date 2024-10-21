@@ -847,7 +847,7 @@ class Chain:
         self, chain_run_id, chain_name, step_number, response
     ):
         chain_step = self.get_step(chain_name=chain_name, step_number=step_number)
-        if chain_step:
+        if chain_step and response:
             session = get_session()
             existing_response = (
                 session.query(ChainStepResponse)
@@ -870,12 +870,7 @@ class Chain:
                     existing_response.content.extend(response)
                     session.commit()
                 else:
-                    chain_step_response = ChainStepResponse(
-                        chain_step_id=chain_step.id,
-                        chain_run_id=chain_run_id,
-                        content=response,
-                    )
-                    session.add(chain_step_response)
+                    existing_response.content = response
                     session.commit()
             else:
                 chain_step_response = ChainStepResponse(
