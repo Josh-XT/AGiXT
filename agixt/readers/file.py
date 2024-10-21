@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import docx2txt
 import pdfplumber
+import pypandoc
 import zipfile
 import shutil
 import logging
@@ -45,12 +46,13 @@ class FileReader(Memories):
         else:
             file_path = os.path.normpath(file_path)
         filename = os.path.basename(file_path)
-        """
+        def convert(input_file, output_file):
+            pypandoc.convert_file(input_file, 'pdf', outputfile=output_file)
+
         if file_path.endswith((".ppt", ".pptx")):
             pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
             convert(file_path, pdf_file_path)
             file_path = pdf_file_path
-        """
         content = ""
         try:
             # If file extension is pdf, convert to text
