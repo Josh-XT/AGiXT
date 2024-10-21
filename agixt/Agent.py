@@ -501,9 +501,9 @@ class Agent:
                     session.commit()
                 # Debug, get list of commands to print
                 commands = session.query(Command).all()
-                for command in commands:
-                    logging.info(f"Command: {command.name}")
-
+                for c in commands:
+                    logging.info(f"Command: {c.name}")
+                logging.info(command.__dict__)
                 agent_command = (
                     session.query(AgentCommand)
                     .filter_by(agent_id=agent.id, command_id=command.id)
