@@ -1,6 +1,6 @@
 services:
   agixt:
-    image: joshxt/agixt:main
+    image: ghcr.io/josh-xt/agixt:dev
     init: true
     environment:
       DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}

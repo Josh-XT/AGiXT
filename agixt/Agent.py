@@ -9,8 +9,10 @@ from DB import (
     ChainStep,
     ChainStepArgument,
     ChainStepResponse,
+    Chain as ChainDB,
     Provider as ProviderModel,
     User,
+    Extension,
     UserPreferences,
     get_session,
 )
@@ -483,10 +485,24 @@ class Agent:
             for command_name, enabled in new_config.items():
                 command = session.query(Command).filter_by(name=command_name).first()
                 if not command:
-                    # If the command doesn't exist, create it (this handles chain commands)
-                    command = Command(name=command_name)
+                    chain = session.query(ChainDB).filter_by(name=command_name).first()
+                    if not chain:
+                        logging.error(f"Command {command_name} not found.")
+                        return f"Command {command_name} not found."
+                    extension = (
+                        session.query(Extension).filter_by(name="AGiXT Chains").first()
+                    )
+                    if not extension:
+                        extension = Extension(name="AGiXT Chains")
+                        session.add(extension)
+                        session.commit()
+                    command = Command(name=command_name, extension_id=extension.id)
                     session.add(command)
                     session.commit()
+                # Debug, get list of commands to print
+                commands = session.query(Command).all()
+                for command in commands:
+                    logging.info(f"Command: {command.name}")
 
                 agent_command = (
                     session.query(AgentCommand)
