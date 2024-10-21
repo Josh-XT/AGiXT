@@ -483,10 +483,16 @@ class Agent:
             for command_name, enabled in new_config.items():
                 command = session.query(Command).filter_by(name=command_name).first()
                 if not command:
-                    # If the command doesn't exist, create it (this handles chain commands)
-                    command = Command(name=command_name)
-                    session.add(command)
-                    session.commit()
+                    commands = session.query(Command).all()
+                    command_names = [c.name for c in commands]
+                    logging.error(
+                        f"Command {command_name} not found. Available commands: {command_names}"
+                    )
+                    session.close()
+                    raise HTTPException(
+                        status_code=401,
+                        detail=f"Command {command_name} not found. Available commands: {command_names}",
+                    )
 
                 agent_command = (
                     session.query(AgentCommand)
