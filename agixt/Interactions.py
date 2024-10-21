@@ -950,6 +950,7 @@ class Interactions:
         reformatted_response = self.response
 
         if commands_to_execute:
+            command_output_text = ""
             for command_block, command_name, command_args in commands_to_execute:
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
@@ -990,7 +991,7 @@ class Interactions:
                         )
                         command_output_text = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
 
-                if command_output:
+                if command_output != "" and command_output_text != "":
                     c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] {command_output_text}",
