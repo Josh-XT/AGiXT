@@ -499,6 +499,11 @@ class Agent:
                     command = Command(name=command_name, extension_id=extension.id)
                     session.add(command)
                     session.commit()
+                # Debug, get list of commands to print
+                commands = session.query(Command).filter(Command).all()
+                for command in commands:
+                    logging.info(f"Command: {command.name}")
+
                 agent_command = (
                     session.query(AgentCommand)
                     .filter_by(agent_id=agent.id, command_id=command.id)
