@@ -500,7 +500,7 @@ class Agent:
                     session.add(command)
                     session.commit()
                 # Debug, get list of commands to print
-                commands = session.query(Command).filter(Command).all()
+                commands = session.query(Command).all()
                 for command in commands:
                     logging.info(f"Command: {command.name}")
 
