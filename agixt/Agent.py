@@ -341,23 +341,16 @@ class Agent:
             )
             agent_commands = (
                 session.query(AgentCommand)
-                .join(Command)
-                .filter(
-                    AgentCommand.agent_id == agent.id,
-                    AgentCommand.state == True,
-                )
+                .filter(AgentCommand.agent_id == agent.id)
                 .all()
             )
+            # Process all commands, including chains
             for command in all_commands:
-                config["commands"].update(
-                    {
-                        command.name: command.name
-                        in [ac.command.name for ac in agent_commands]
-                    }
+                config["commands"][command.name] = any(
+                    ac.command_id == command.id and ac.state for ac in agent_commands
                 )
             for setting in agent_settings:
                 config["settings"][setting.name] = setting.value
-            session.commit()
             session.close()
             user_settings = self.get_registration_requirement_settings()
             for key, value in user_settings.items():
@@ -451,7 +444,7 @@ class Agent:
         if not agent:
             if self.user == DEFAULT_USER:
                 return f"Agent {self.agent_name} not found."
-            # Check if it is a global agent.
+            # Check if it is a global agent and copy it if necessary
             global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
             global_agent = (
                 session.query(AgentModel)
@@ -461,7 +454,6 @@ class Agent:
                 )
                 .first()
             )
-            # if it is a global agent, copy it to the user's agents.
             if global_agent:
                 agent = AgentModel(
                     name=self.agent_name,
@@ -470,53 +462,46 @@ class Agent:
                 )
                 session.add(agent)
                 session.commit()
-                agent_settings = (
-                    session.query(AgentSettingModel)
-                    .filter_by(agent_id=global_agent.id)
-                    .all()
-                )
-                for setting in agent_settings:
-                    agent_setting = AgentSettingModel(
+                # Copy settings and commands from global agent
+                for setting in global_agent.settings:
+                    new_setting = AgentSettingModel(
                         agent_id=agent.id,
                         name=setting.name,
                         value=setting.value,
                     )
-                    session.add(agent_setting)
-                session.commit()
-                agent_commands = (
-                    session.query(AgentCommand)
-                    .filter_by(agent_id=global_agent.id)
-                    .all()
-                )
-                for agent_command in agent_commands:
-                    agent_command = AgentCommand(
+                    session.add(new_setting)
+                for command in global_agent.agent_commands:
+                    new_command = AgentCommand(
                         agent_id=agent.id,
-                        command_id=agent_command.command_id,
-                        state=agent_command.state,
+                        command_id=command.command_id,
+                        state=command.state,
                     )
-                    session.add(agent_command)
+                    session.add(new_command)
                 session.commit()
-                session.close()
-                return f"Agent {self.agent_name} configuration updated successfully."
+
         if config_key == "commands":
             for command_name, enabled in new_config.items():
                 command = session.query(Command).filter_by(name=command_name).first()
-                if command:
-                    agent_command = (
-                        session.query(AgentCommand)
-                        .filter_by(agent_id=agent.id, command_id=command.id)
-                        .first()
+                if not command:
+                    # If the command doesn't exist, create it (this handles chain commands)
+                    command = Command(name=command_name)
+                    session.add(command)
+                    session.commit()
+
+                agent_command = (
+                    session.query(AgentCommand)
+                    .filter_by(agent_id=agent.id, command_id=command.id)
+                    .first()
+                )
+                if agent_command:
+                    agent_command.state = enabled
+                else:
+                    agent_command = AgentCommand(
+                        agent_id=agent.id, command_id=command.id, state=enabled
                     )
-                    if agent_command:
-                        agent_command.state = enabled
-                    else:
-                        agent_command = AgentCommand(
-                            agent_id=agent.id, command_id=command.id, state=enabled
-                        )
-                        session.add(agent_command)
+                    session.add(agent_command)
         else:
             for setting_name, setting_value in new_config.items():
-                logging.info(f"Setting {setting_name} to {setting_value}.")
                 agent_setting = (
                     session.query(AgentSettingModel)
                     .filter_by(agent_id=agent.id, name=setting_name)
@@ -529,17 +514,19 @@ class Agent:
                         agent_id=agent.id, name=setting_name, value=str(setting_value)
                     )
                     session.add(agent_setting)
+
         try:
             session.commit()
-            session.close()
             logging.info(f"Agent {self.agent_name} configuration updated successfully.")
         except Exception as e:
             session.rollback()
-            session.close()
             logging.error(f"Error updating agent configuration: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"Error updating agent configuration: {str(e)}"
             )
+        finally:
+            session.close()
+
         return f"Agent {self.agent_name} configuration updated."
 
     def get_browsed_links(self, conversation_id=None):

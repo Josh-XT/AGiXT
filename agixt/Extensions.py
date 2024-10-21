@@ -277,6 +277,7 @@ class Extensions:
                             )
                         )
 
+        # Add chains as commands
         if hasattr(self, "chains_with_args") and self.chains_with_args:
             for chain in self.chains_with_args:
                 chain_name = chain["chain_name"]
@@ -284,7 +285,7 @@ class Extensions:
                     (
                         chain_name,
                         self.execute_chain,
-                        "run_chain",
+                        "execute_chain",
                         {
                             "chain_name": chain_name,
                             "user_input": "",
@@ -292,9 +293,19 @@ class Extensions:
                         },
                     )
                 )
-                if chain_name not in self.agent_config["commands"]:
-                    self.agent_config["commands"][chain_name] = "false"
         return commands
+
+    def find_command(self, command_name: str):
+        for name, module, function_name, params in self.commands:
+            if module.__name__ in DISABLED_EXTENSIONS:
+                continue
+            if name == command_name:
+                if isinstance(module, type):  # It's a class
+                    command_function = getattr(module, function_name)
+                    return command_function, module, params
+                else:  # It's a function (for chains)
+                    return module, None, params
+        return None, None, None
 
     def get_extension_settings(self):
         settings = {}
@@ -328,18 +339,6 @@ class Extensions:
                     }
 
         return settings
-
-    def find_command(self, command_name: str):
-        for name, module, function_name, params in self.commands:
-            if module.__name__ in DISABLED_EXTENSIONS:
-                continue
-            if name == command_name:
-                if isinstance(module, type):  # It's a class
-                    command_function = getattr(module, function_name)
-                    return command_function, module, params
-                else:  # It's a function (for chains)
-                    return module, None, params
-        return None, None, None
 
     async def execute_command(self, command_name: str, command_args: dict = None):
         injection_variables = {
