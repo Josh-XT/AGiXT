@@ -948,13 +948,12 @@ class Interactions:
         commands_to_execute = self.extract_commands_from_response(self.response)
         logging.debug(f"Commands to execute: {commands_to_execute}")
         reformatted_response = self.response
-
         if commands_to_execute:
-            command_output_text = ""
             for command_block, command_name, command_args in commands_to_execute:
                 logging.info(f"Command to execute: {command_name}")
                 logging.info(f"Command Args: {command_args}")
                 command_output = ""
+                command_output_text = ""
                 if command_name.strip().lower() not in [
                     cmd.lower() for cmd in command_list
                 ]:
@@ -990,8 +989,6 @@ class Interactions:
                             message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
                         )
                         command_output_text = f"**Failed to execute command `{command_name}` with args `{command_args}`. Please try again.**"
-
-                if command_output != "" and command_output_text != "":
                     c.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY] {command_output_text}",
@@ -1000,6 +997,5 @@ class Interactions:
                     reformatted_response = reformatted_response.replace(
                         command_block, command_output_text
                     )
-
             if reformatted_response != self.response:
                 self.response = reformatted_response
