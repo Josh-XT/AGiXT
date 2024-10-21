@@ -647,51 +647,71 @@ class AGiXT:
     async def learn_spreadsheet(self, user_input, file_path):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
-        if file_type.lower() == "csv":
-            df = pd.read_csv(file_path)
-        else:  # Excel file
-            try:
-                xl = pd.ExcelFile(file_path)
-                if len(xl.sheet_names) > 1:
-                    sheet_count = len(xl.sheet_names)
-                    for i, sheet_name in enumerate(xl.sheet_names, 1):
-                        df = xl.parse(sheet_name)
-                        csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
-                        csv_file_name = os.path.basename(csv_file_path)
-                        self.conversation.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
-                        )
-                        df.to_csv(csv_file_path, index=False)
-                        message = await self.learn_spreadsheet(
-                            user_input=user_input,
-                            file_path=csv_file_path,
-                        )
-                        self.conversation.log_interaction(
-                            role=self.agent_name, message=f"[ACTIVITY] {message}"
-                        )
-                    return f"Processed all sheets in [{file_name}]({file_path})."
-                else:
-                    df = pd.read_excel(file_path)
-            except Exception as e:
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY][ERROR] Failed to read Excel file `{file_name}`: {str(e)}",
+        
+        def datetime_handler(obj):
+            if hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            else:
+                return str(obj)
+                
+        try:
+            if file_type.lower() == "csv":
+                df = pd.read_csv(file_path)
+            else:  # Excel file
+                try:
+                    xl = pd.ExcelFile(file_path)
+                    if len(xl.sheet_names) > 1:
+                        sheet_count = len(xl.sheet_names)
+                        for i, sheet_name in enumerate(xl.sheet_names, 1):
+                            df = xl.parse(sheet_name)
+                            csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                            csv_file_name = os.path.basename(csv_file_path)
+                            self.conversation.log_interaction(
+                                role=self.agent_name,
+                                message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
+                            )
+                            df.to_csv(csv_file_path, index=False)
+                            message = await self.learn_spreadsheet(
+                                user_input=user_input,
+                                file_path=csv_file_path,
+                            )
+                            self.conversation.log_interaction(
+                                role=self.agent_name, 
+                                message=f"[ACTIVITY] {message}"
+                            )
+                        return f"Processed all sheets in [{file_name}]({file_path})."
+                    else:
+                        df = pd.read_excel(file_path)
+                except Exception as e:
+                    self.conversation.log_interaction(
+                        role=self.agent_name,
+                        message=f"[ACTIVITY][ERROR] Failed to read Excel file `{file_name}`: {str(e)}",
+                    )
+                    return f"Failed to read [{file_name}]({file_path}). Error: {str(e)}"
+
+            # Convert DataFrame to dict and handle datetime serialization
+            df_dict = df.to_dict("records")
+            df_dict_serializable = json.loads(json.dumps(df_dict, default=datetime_handler))
+            
+            self.input_tokens += get_tokens(json.dumps(df_dict_serializable))
+            
+            for item in df_dict_serializable:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
+                await self.file_reader.write_text_to_memory(
+                    user_input=f"{user_input}\n{message}",
+                    text=message,
+                    external_source=f"file {file_path}",
                 )
-                return f"Failed to read [{file_name}]({file_path}). Error: {str(e)}"
 
-        df_dict = df.to_dict("records")
-        self.input_tokens += get_tokens(json.dumps(df_dict))
-        for item in df_dict:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
-            await self.file_reader.write_text_to_memory(
-                user_input=f"{user_input}\n{message}",
-                text=message,
-                external_source=f"file {file_path}",
+            return f"Read [{file_name}]({file_path}) into memory."
+            
+        except Exception as e:
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=f"[ACTIVITY][ERROR] Failed to process file `{file_name}`: {str(e)}",
             )
-
-        return f"Read [{file_name}]({file_path}) into memory."
+            return f"Failed to process [{file_name}]({file_path}). Error: {str(e)}"
 
     async def learn_from_file(
         self,
@@ -756,7 +776,7 @@ class AGiXT:
                 message=f"[ACTIVITY] Converting PowerPoint file [{file_name}]({file_url}) to PDF.",
             )
             try:
-                subprocess.run(
+                result = subprocess.run(
                     [
                         "libreoffice",
                         "--headless",
@@ -768,10 +788,17 @@ class AGiXT:
                     ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    timeout=30,
                 )
+                if result.returncode != 0:
+                    raise Exception(
+                        f"Conversion failed: {result.stderr.decode('utf-8', errors='ignore')}"
+                    )
             except Exception as e:
                 logging.error(f"Error converting PowerPoint to PDF: {e}")
+                return f"Failed to convert PowerPoint file [{file_name}]({file_url}) to PDF. Error: {str(e)}"
             file_path = pdf_file_path
+            file_type = "pdf"
         if user_input == "":
             user_input = "Describe each stage of this image."
         disallowed_types = ["exe", "bin", "rar"]
