@@ -3,12 +3,11 @@ import os
 import pandas as pd
 import docx2txt
 import pdfplumber
-import pypandoc
 import zipfile
 import shutil
 import logging
 from datetime import datetime
-
+from pptx import Presentation
 
 class FileReader(Memories):
     def __init__(
@@ -25,8 +24,7 @@ class FileReader(Memories):
             agent_config=agent_config,
             collection_number=str(collection_number),
             ApiClient=ApiClient,
-            user=user,
-        )
+            user=user,)
         self.ApiClient = ApiClient
         self.workspace_restricted = True
         if "WORKSPACE_RESTRICTED" in self.agent_settings:
@@ -46,22 +44,19 @@ class FileReader(Memories):
         else:
             file_path = os.path.normpath(file_path)
         filename = os.path.basename(file_path)
-        def convert(input_file, output_file):
-            pypandoc.convert_file(input_file, 'pdf', outputfile=output_file)
 
-        if file_path.endswith((".ppt", ".pptx")):
-            pdf_file_path = file_path.replace(".pptx", ".pdf").replace(".ppt", ".pdf")
-            convert(file_path, pdf_file_path)
-            file_path = pdf_file_path
         content = ""
         try:
+            # Handle PowerPoint files
+            if file_path.endswith((".ppt", ".pptx")):
+                content = self.read_powerpoint(file_path)
+            # Handle Excel files
+            elif file_path.endswith((".xls", ".xlsx")):
+                content = self.read_excel(file_path)
             # If file extension is pdf, convert to text
-            if file_path.endswith(".pdf"):
+            elif file_path.endswith(".pdf"):
                 with pdfplumber.open(file_path) as pdf:
                     content = "\n".join([page.extract_text() for page in pdf.pages])
-            # If file extension is xls, convert to csv
-            elif file_path.endswith(".xls") or file_path.endswith(".xlsx"):
-                content = pd.read_excel(file_path).to_csv()
             # If file extension is doc, convert to text
             elif file_path.endswith(".doc") or file_path.endswith(".docx"):
                 content = docx2txt.process(file_path)
@@ -90,7 +85,7 @@ class FileReader(Memories):
                 # TODO: Add a store_image function to use if it is an image
                 # If the file isn't an image extension file, just read it
                 if not file_path.endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp", ".gz")
+                    (".jpg",".jpeg",".png",".gif",".tiff",".bmp",".gz")
                 ):
                     with open(file_path, "r") as f:
                         content = f.read()
@@ -99,8 +94,29 @@ class FileReader(Memories):
                 await self.write_text_to_memory(
                     user_input=file_path,
                     text=f"Content from file uploaded at {timestamp} named `{filename}`:\n{content}",
-                    external_source=f"file {filename}",
+                external_source=f"file {filename}",
                 )
-            return True
-        except:
+                return True
+        except Exception as e:
+            logging.error(f"Error processing file {file_path}: {str(e)}")
             return False
+
+    def read_powerpoint(self, file_path: str) -> str:
+        prs = Presentation(file_path)
+        content = []
+        for slide in prs.slides:
+            slide_content = []
+            for shape in slide.shapes:
+                if hasattr(shape, 'text'):
+                    slide_content.append(shape.text)
+            content.append(" ".join(slide_content))
+        return "\n\n".join(content)
+
+    def read_excel(self, file_path: str) -> str:
+        df = pd.read_excel(file_path, sheet_name=None)
+        content = []
+        for sheet_name, sheet_df in df.items():
+            content.append(f"Sheet: {sheet_name}")
+            content.append(sheet_df.to_string(index=False))
+            content.append("\n")
+        return "\n".join(content)
