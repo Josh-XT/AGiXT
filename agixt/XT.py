@@ -648,7 +648,9 @@ class AGiXT:
                         sheet_count = len(xl.sheet_names)
                         for i, sheet_name in enumerate(xl.sheet_names, 1):
                             df = xl.parse(sheet_name)
-                            csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                            csv_file_path = file_path.replace(
+                                f".{file_type}", f"_{i}.csv"
+                            )
                             csv_file_name = os.path.basename(csv_file_path)
                             self.conversation.log_interaction(
                                 role=self.agent_name,
@@ -671,7 +673,7 @@ class AGiXT:
                         message=f"[ACTIVITY][ERROR] Failed to read Excel file `{file_name}`: {str(e)}",
                     )
                     return f"Failed to read [{file_name}]({file_path}). Error: {str(e)}"
-            
+
             try:
                 df_dict = df.to_dict("records")
                 # Test JSON serialization before proceeding
@@ -679,13 +681,13 @@ class AGiXT:
             except Exception as e:
                 logging.error(f"Error converting DataFrame to dict: {e}")
                 return f"Failed to process [{file_name}]({file_path}). Error converting data format: {str(e)}"
-                
+
             try:
                 self.input_tokens += get_tokens(json.dumps(df_dict))
             except Exception as e:
                 logging.error(f"Error calculating tokens: {e}")
                 # Continue processing even if token calculation fails
-                
+
             try:
                 for item in df_dict:
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -699,7 +701,7 @@ class AGiXT:
             except Exception as e:
                 logging.error(f"Error writing to memory: {e}")
                 return f"Failed to save [{file_name}]({file_path}) to memory. Error: {str(e)}"
-                
+
         except Exception as e:
             logging.error(f"Unexpected error processing spreadsheet: {e}")
             return f"Failed to process [{file_name}]({file_path}). Unexpected error: {str(e)}"
