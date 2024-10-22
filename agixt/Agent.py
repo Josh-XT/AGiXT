@@ -9,8 +9,10 @@ from DB import (
     ChainStep,
     ChainStepArgument,
     ChainStepResponse,
+    Chain as ChainDB,
     Provider as ProviderModel,
     User,
+    Extension,
     UserPreferences,
     get_session,
 )
@@ -481,23 +483,49 @@ class Agent:
 
         if config_key == "commands":
             for command_name, enabled in new_config.items():
+                # First try to find an existing command
                 command = session.query(Command).filter_by(name=command_name).first()
-                if not command:
-                    # If the command doesn't exist, create it (this handles chain commands)
-                    command = Command(name=command_name)
-                    session.add(command)
-                    session.commit()
 
-                agent_command = (
-                    session.query(AgentCommand)
-                    .filter_by(agent_id=agent.id, command_id=command.id)
-                    .first()
-                )
+                if not command:
+                    # Check if this is a chain command
+                    chain = session.query(ChainDB).filter_by(name=command_name).first()
+                    if chain:
+                        # Find or create the AGiXT Chains extension
+                        extension = (
+                            session.query(Extension)
+                            .filter_by(name="AGiXT Chains")
+                            .first()
+                        )
+                        if not extension:
+                            extension = Extension(name="AGiXT Chains")
+                            session.add(extension)
+                            session.commit()
+
+                        # Create a new command entry for the chain
+                        command = Command(name=command_name, extension_id=extension.id)
+                        session.add(command)
+                        session.commit()
+                    else:
+                        logging.error(f"Command {command_name} not found.")
+                        continue
+
+                # Now handle the agent command association
+                try:
+                    agent_command = (
+                        session.query(AgentCommand)
+                        .filter_by(agent_id=agent.id, command_id=command.id)
+                        .first()
+                    )
+                except:
+                    agent_command = None
+
                 if agent_command:
                     agent_command.state = enabled
                 else:
                     agent_command = AgentCommand(
-                        agent_id=agent.id, command_id=command.id, state=enabled
+                        agent_id=self.agent_id,
+                        command_id=command.id,
+                        state=enabled,
                     )
                     session.add(agent_command)
         else:
@@ -511,7 +539,9 @@ class Agent:
                     agent_setting.value = str(setting_value)
                 else:
                     agent_setting = AgentSettingModel(
-                        agent_id=agent.id, name=setting_name, value=str(setting_value)
+                        agent_id=agent.id,
+                        name=setting_name,
+                        value=str(setting_value),
                     )
                     session.add(agent_setting)
 
