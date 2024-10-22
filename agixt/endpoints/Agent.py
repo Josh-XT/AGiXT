@@ -344,30 +344,10 @@ async def toggle_command(
         raise HTTPException(status_code=403, detail="Access Denied")
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
-    try:
-        if payload.command_name == "*":
-            for each_command_name in agent.AGENT_CONFIG["commands"]:
-                agent.AGENT_CONFIG["commands"][each_command_name] = payload.enable
-
-            agent.update_agent_config(
-                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
-            )
-            return ResponseMessage(
-                message=f"All commands enabled for agent '{agent_name}'."
-            )
-        else:
-            agent.AGENT_CONFIG["commands"][payload.command_name] = payload.enable
-            agent.update_agent_config(
-                new_config=agent.AGENT_CONFIG["commands"], config_key="commands"
-            )
-            return ResponseMessage(
-                message=f"Command '{payload.command_name}' toggled for agent '{agent_name}'."
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error enabling all commands for agent '{agent_name}': {str(e)}",
-        )
+    update_config = agent.update_agent_config(
+        new_config={payload.command_name: payload.enable}, config_key="commands"
+    )
+    return ResponseMessage(message=update_config)
 
 
 # Get agent browsed links
