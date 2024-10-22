@@ -483,27 +483,18 @@ class AGiXT:
                         role=self.agent_name,
                         message=f"[ACTIVITY] Running prompt: `{prompt_name}` with args:\n```json\n{json.dumps(args, indent=2)}```",
                     )
-                    if "user_input" in args:
-                        user_input = args["user_input"]
-                        del args["user_input"]
-                    if "browse_links" not in args:
-                        args["browse_links"] = False
-                    if "log_output" in args:
-                        del args["log_output"]
-                    if "voice_response" in args:
-                        del args["voice_response"]
-                    if "log_user_input" in args:
-                        del args["log_user_input"]
-                    if "prompt_name" in args:
-                        del args["prompt_name"]
                     if prompt_name != "":
-                        result = await self.inference(
+                        if "browse_links" not in args:
+                            args["browse_links"] = False
+                        args["prompt_name"] = prompt_name
+                        args["log_user_input"] = False
+                        args["voice_response"] = False
+                        args["log_output"] = False
+                        args["user_input"] = user_input
+                        result = self.ApiClient.prompt_agent(
+                            agent_name=agent_name,
                             prompt_name=prompt_name,
-                            user_input=user_input,
-                            log_user_input=False,
-                            log_output=False,
-                            voice_response=False,
-                            **args,
+                            prompt_args=args,
                         )
                 elif prompt_type == "chain":
                     self.conversation.log_interaction(
@@ -647,13 +638,13 @@ class AGiXT:
     async def learn_spreadsheet(self, user_input, file_path):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
-        
+
         def datetime_handler(obj):
-            if hasattr(obj, 'isoformat'):
+            if hasattr(obj, "isoformat"):
                 return obj.isoformat()
             else:
                 return str(obj)
-                
+
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
@@ -664,7 +655,9 @@ class AGiXT:
                         sheet_count = len(xl.sheet_names)
                         for i, sheet_name in enumerate(xl.sheet_names, 1):
                             df = xl.parse(sheet_name)
-                            csv_file_path = file_path.replace(f".{file_type}", f"_{i}.csv")
+                            csv_file_path = file_path.replace(
+                                f".{file_type}", f"_{i}.csv"
+                            )
                             csv_file_name = os.path.basename(csv_file_path)
                             self.conversation.log_interaction(
                                 role=self.agent_name,
@@ -676,8 +669,7 @@ class AGiXT:
                                 file_path=csv_file_path,
                             )
                             self.conversation.log_interaction(
-                                role=self.agent_name, 
-                                message=f"[ACTIVITY] {message}"
+                                role=self.agent_name, message=f"[ACTIVITY] {message}"
                             )
                         return f"Processed all sheets in [{file_name}]({file_path})."
                     else:
@@ -691,10 +683,12 @@ class AGiXT:
 
             # Convert DataFrame to dict and handle datetime serialization
             df_dict = df.to_dict("records")
-            df_dict_serializable = json.loads(json.dumps(df_dict, default=datetime_handler))
-            
+            df_dict_serializable = json.loads(
+                json.dumps(df_dict, default=datetime_handler)
+            )
+
             self.input_tokens += get_tokens(json.dumps(df_dict_serializable))
-            
+
             for item in df_dict_serializable:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
@@ -705,7 +699,7 @@ class AGiXT:
                 )
 
             return f"Read [{file_name}]({file_path}) into memory."
-            
+
         except Exception as e:
             self.conversation.log_interaction(
                 role=self.agent_name,
