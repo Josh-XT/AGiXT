@@ -1743,7 +1743,7 @@ class AGiXT:
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :]
-            if auto_continue and "</answer>" not in response:
+            if auto_continue and "</answer>" not in response and "<answer>" in response:
                 responses = [response]
                 try:
                     continue_response = await self.inference(
