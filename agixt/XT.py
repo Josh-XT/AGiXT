@@ -1780,7 +1780,7 @@ class AGiXT:
                     current_response = "".join(responses)
                     try:
                         continue_response = await self.inference(
-                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user.",
+                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user. The `</answer>` tag must be used to end the message regardless of any other guidelines in the message.",
                             prompt_name=prompt_name,
                             prompt_category=prompt_category,
                             injected_memories=context_results,
