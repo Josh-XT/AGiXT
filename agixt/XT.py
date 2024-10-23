@@ -1348,7 +1348,7 @@ class AGiXT:
             analyze_user_input = (
                 str(self.agent_settings["analyze_user_input"]).lower() == "true"
             )
-        auto_continue = True
+        auto_continue = False
         if "auto_continue" in self.agent_settings:
             auto_continue = str(self.agent_settings["auto_continue"]).lower() == "true"
         include_sources = False
