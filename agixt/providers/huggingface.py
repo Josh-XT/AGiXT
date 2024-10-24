@@ -40,7 +40,10 @@ class HuggingfaceProvider:
         self.AI_TEMPERATURE = AI_TEMPERATURE
         self.MAX_TOKENS = MAX_TOKENS
         self.stop = stop
-        self.MAX_RETRIES = MAX_RETRIES
+        try:
+            self.MAX_RETRIES = int(MAX_RETRIES)
+        except:
+            self.MAX_RETRIES = 3
         self.parameters = kwargs
 
     @staticmethod
@@ -64,7 +67,7 @@ class HuggingfaceProvider:
         tries = 0
         while True:
             tries += 1
-            if tries > self.MAX_RETRIES:
+            if int(tries) > int(self.MAX_RETRIES):
                 raise ValueError(f"Reached max retries: {self.MAX_RETRIES}")
             response = requests.post(
                 self.HUGGINGFACE_API_URL,
