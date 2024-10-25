@@ -473,7 +473,7 @@ class Agent:
                         value=setting.value,
                     )
                     session.add(new_setting)
-                for command in global_agent.agent_commands:
+                for command in global_agent.commands:
                     new_command = AgentCommand(
                         agent_id=self.agent_id,
                         command_id=command.command_id,
