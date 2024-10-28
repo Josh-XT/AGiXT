@@ -226,7 +226,7 @@ class Interactions:
                             )
                 context += conversation_context
         if "context" in kwargs:
-            context.append([kwargs["context"]])
+            context.append(kwargs["context"])
         include_sources = (
             str(kwargs["include_sources"]).lower() == "true"
             if "include_sources" in kwargs
@@ -329,7 +329,8 @@ class Interactions:
                 f"The assistant's data analysis from the user's input and file uploads:\n{kwargs['data_analysis']}\n"
             )
         if context != [] and context != "":
-            context = "\n".join(context)
+            if isinstance(context, list):
+                context = "\n".join(context)
             context = f"The user's input causes the assistant to recall these memories from activities:\n{context}\n\n**If referencing a file or image from context to the user, link to it with a url at `{conversation_outputs}the_file_name` - The URL is accessible to the user. If the file has not been referenced in context or from activities, do not attempt to link to it as it may not exist. Use exact file names and links from context only.** .\n"
         else:
             context = ""
