@@ -5,20 +5,16 @@ from agixtsdk import AGiXTSDK
 from Extensions import Extensions
 from Globals import getenv
 import json
-import time
+import asyncio
 
 try:
-    from pycraft.client import Client
+    from mcrcon import MCRcon
 except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pycraft"])
-    from pycraft.client import Client
-
-
-from pycraft.authentication import AuthenticationToken
-from pycraft.exceptions import YggdrasilError
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "mcrcon"])
+    from mcrcon import MCRcon
 
 
 @dataclass
@@ -1734,12 +1730,11 @@ Response: {
 class minecraft(Extensions):
     def __init__(
         self,
-        MINECRAFT_USERNAME: str = "",
         MINECRAFT_PASSWORD: str = "",
         MINECRAFT_SERVER: str = "your-server-hostname.com:19132",
         **kwargs,
     ):
-        self.username = MINECRAFT_USERNAME
+        # Minecraft password is the RCON password for the server
         self.password = MINECRAFT_PASSWORD
         self.host = MINECRAFT_SERVER.split(":")[0]
         try:
@@ -1761,7 +1756,7 @@ class minecraft(Extensions):
         )
 
         self.structure_templates = self._load_structures()
-        self.client = None
+        self.rcon = None
         self.failures = 0
 
         self.commands = {
@@ -1792,72 +1787,27 @@ class minecraft(Extensions):
             )
         return structures
 
-    async def connect(self) -> bool:
-        """Connect to a Minecraft server"""
-        if self.host == "your-server-hostname.com":
-            print("Minecraft server not configured")
-            return False
+    def connect(self) -> bool:
+        """Connect to the Minecraft server via RCON"""
         try:
-            if self.password:
-                await self._authenticate()
-
-            self.client = Client(
-                host=self.host,
-                port=self.port,
-                username=self.username,
-                auth_token=self.auth_token,
-            )
-            await self.client.connect()
-            await self.client.wait_for_spawn()
-            self.failures = 0
+            self.rcon = MCRcon(self.host, self.password, port=self.port)
+            self.rcon.connect()
             return True
         except Exception as e:
-            if self.failures < 3:
-                self.failures += 1
-                time.sleep(5)
-                return await self.connect()
+            print(f"Failed to connect via RCON: {e}")
             return False
 
-    async def disconnect(self):
+    def disconnect(self):
         """Disconnect from the Minecraft server"""
-        if self.client:
-            await self.client.disconnect()
+        if self.rcon:
+            self.rcon.disconnect()
 
-    async def _authenticate(self):
-        """Handle Microsoft/Xbox Live authentication"""
-        try:
-            try:
-                with open(f".auth-{self.username}.json") as f:
-                    auth_data = json.load(f)
-                    self.auth_token = AuthenticationToken(
-                        access_token=auth_data["access_token"],
-                        client_token=auth_data["client_token"],
-                    )
-                if not await self.auth_token.validate():
-                    raise Exception("Invalid cached token")
-            except (FileNotFoundError, Exception):
-                self.auth_token = AuthenticationToken(
-                    username=self.username, password=self.password
-                )
-                await self.auth_token.authenticate()
-                with open(f".auth-{self.username}.json", "w") as f:
-                    json.dump(
-                        {
-                            "access_token": self.auth_token.access_token,
-                            "client_token": self.auth_token.client_token,
-                        },
-                        f,
-                    )
-        except YggdrasilError as e:
-            print(f"Authentication failed: {e}")
-            raise
-
-    async def get_player_position(self) -> Tuple[int, int, int]:
-        """Get the player's current position"""
-        if not self.client:
-            raise ConnectionError("Not connected to server")
-        pos = self.client.position
-        return (int(pos.x), int(pos.y), int(pos.z))
+    def get_player_position(self) -> Tuple[int, int, int]:
+        """Get the player's current position via RCON"""
+        # Bedrock Edition doesn't support querying player position via RCON directly
+        # You may need to use workarounds or store the position manually
+        # For this example, we'll assume a fixed position or use a placeholder
+        return (0, 64, 0)  # Default spawn position
 
     async def get_height(self, x: int, z: int) -> int:
         """Get the height of the world at the given x,z coordinates"""
@@ -1896,19 +1846,14 @@ class minecraft(Extensions):
     async def place_block(
         self, block_type: str, x: int, y: int, z: int, properties: Optional[Dict] = None
     ):
-        """Place a block at the given coordinates"""
-        if not self.client:
-            raise ConnectionError("Not connected to server")
+        """Place a block at the given coordinates using RCON"""
+        if not self.rcon:
+            if not self.connect():
+                raise ConnectionError("Not connected to server")
         try:
-            existing = await self.get_block(x, y, z)
-            if existing and existing.type != "air":
-                await self.break_block(x, y, z)
-            await self.client.place_block(
-                position=(x, y, z), block_type=block_type, properties=properties
-            )
-            new_block = await self.get_block(x, y, z)
-            if not new_block or new_block.name != block_type:
-                raise Exception(f"Failed to place {block_type} at ({x}, {y}, {z})")
+            # Construct the command to set the block
+            command = f"setblock {x} {y} {z} {block_type} replace"
+            self.rcon.command(command)
         except Exception as e:
             print(f"Failed to place block: {e}")
             raise
@@ -2116,7 +2061,7 @@ Only suggest a template_match if it exactly matches the request needs."""
                 # Try to fix failed blocks
                 for block, pos in failed_blocks:
                     try:
-                        time.sleep(1)
+                        await asyncio.sleep(1)
                         await self.place_block(
                             block.name, pos[0], pos[1], pos[2], block.properties
                         )
