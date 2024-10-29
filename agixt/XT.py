@@ -956,8 +956,12 @@ class AGiXT:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             fp = os.path.normpath(file_path)
             if fp.startswith(self.agent_workspace):
-                with open(fp, "r") as f:
-                    content = f.read()
+                try:
+                    with open(fp, "r") as f:
+                        content = f.read()
+                except:
+                    with open(fp, "rb") as f:
+                        content = f.read()
                 file_content += (
                     f"Content from file uploaded named `{file_name}` at {timestamp}:\n"
                 )
