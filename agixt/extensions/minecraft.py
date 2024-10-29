@@ -5,16 +5,15 @@ from agixtsdk import AGiXTSDK
 from Extensions import Extensions
 from Globals import getenv
 import json
-import asyncio
 
 try:
-    from mcrcon import MCRcon
+    from mcipc.rcon.be import Client as BedrockClient
 except ImportError:
     import sys
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "mcrcon"])
-    from mcrcon import MCRcon
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "mcipc"])
+    from mcipc.rcon.be import Client as BedrockClient
 
 
 @dataclass
@@ -1732,11 +1731,13 @@ class minecraft(Extensions):
         self,
         MINECRAFT_PASSWORD: str = "",
         MINECRAFT_SERVER: str = "your-server-hostname.com:19132",
+        MINECRAFT_PLAYER_NAME: str = "Your-Player-Name",
         **kwargs,
     ):
         # Minecraft password is the RCON password for the server
         self.password = MINECRAFT_PASSWORD
         self.host = MINECRAFT_SERVER.split(":")[0]
+        self.player_name = MINECRAFT_PLAYER_NAME
         try:
             self.port = int(MINECRAFT_SERVER.split(":")[1])
         except:
@@ -1756,7 +1757,7 @@ class minecraft(Extensions):
         )
 
         self.structure_templates = self._load_structures()
-        self.rcon = None
+        self.client = None
         self.failures = 0
 
         self.commands = {
@@ -1765,7 +1766,7 @@ class minecraft(Extensions):
         }
 
     def _load_structures(self) -> Dict[str, Structure]:
-        """Load predefined structure templates from JSON files"""
+        """Load predefined structure templates from the STRUCTURES data"""
         global STRUCTURES
         structures = {}
         for data in STRUCTURES:
@@ -1790,8 +1791,8 @@ class minecraft(Extensions):
     def connect(self) -> bool:
         """Connect to the Minecraft server via RCON"""
         try:
-            self.rcon = MCRcon(self.host, self.password, port=self.port)
-            self.rcon.connect()
+            self.client = BedrockClient(self.host, self.port, passwd=self.password)
+            self.client.connect()
             return True
         except Exception as e:
             print(f"Failed to connect via RCON: {e}")
@@ -1799,46 +1800,77 @@ class minecraft(Extensions):
 
     def disconnect(self):
         """Disconnect from the Minecraft server"""
-        if self.rcon:
-            self.rcon.disconnect()
+        if self.client:
+            self.client.disconnect()
+            self.client = None
 
-    def get_player_position(self) -> Tuple[int, int, int]:
-        """Get the player's current position via RCON"""
-        # Bedrock Edition doesn't support querying player position via RCON directly
-        # You may need to use workarounds or store the position manually
-        # For this example, we'll assume a fixed position or use a placeholder
-        return (0, 64, 0)  # Default spawn position
+    async def get_player_position(self) -> Tuple[int, int, int]:
+        """Get the player's current position"""
+        if not self.client:
+            if not self.connect():
+                raise ConnectionError("Not connected to server")
+
+        try:
+            # Use the 'querytarget' command to get player data in Bedrock Edition
+            command = f"querytarget {self.player_name}"
+            response = self.client.command(command)
+
+            if response:
+                # The response is a JSON string
+                data = json.loads(response)
+
+                # Extract position data
+                if "statusCode" in data and data["statusCode"] == 0:
+                    position = data["position"]
+                    x = position["x"]
+                    y = position["y"]
+                    z = position["z"]
+                    return (int(x), int(y), int(z))
+                else:
+                    print(
+                        f"Failed to get position for player {self.player_name}: {data}"
+                    )
+                    return (0, 64, 0)  # Default position
+            else:
+                print(f"No response received when querying player position.")
+                return (0, 64, 0)  # Default position
+        except Exception as e:
+            print(f"Failed to get player position: {e}")
+            return (0, 64, 0)  # Default position
 
     async def get_height(self, x: int, z: int) -> int:
         """Get the height of the world at the given x,z coordinates"""
         if not self.client:
-            raise ConnectionError("Not connected to server")
-        start_y = 320
-        for y in range(start_y, -64, -1):
-            block = await self.get_block(x, y, z)
-            if block and block.type != "air":
-                return y + 1
-        return 0
+            if not self.connect():
+                raise ConnectionError("Not connected to server")
+        try:
+            # Start from the highest possible Y coordinate
+            for y in range(320, -64, -1):
+                block = await self.get_block(x, y, z)
+                if block and block.name != "air":
+                    return y + 1
+            return 0  # If no blocks are found, return 0
+        except Exception as e:
+            print(f"Failed to get height at ({x}, {z}): {e}")
+            return 0
 
     async def get_block(self, x: int, y: int, z: int) -> Optional[Block]:
         """Get information about the block at the given coordinates"""
         if not self.client:
-            raise ConnectionError("Not connected to server")
+            if not self.connect():
+                raise ConnectionError("Not connected to server")
         try:
-            block_data = await self.client.get_block(x, y, z)
-            if block_data:
-                return Block(
-                    name=block_data.id,
-                    x=x,
-                    y=y,
-                    z=z,
-                    properties=(
-                        block_data.properties
-                        if hasattr(block_data, "properties")
-                        else None
-                    ),
-                )
-            return None
+            # Use the 'testforblock' command to check for a block at the given coordinates
+            command = f"testforblock {x} {y} {z} minecraft:air"
+            response = self.client.command(command)
+            if "Successfully found the block" in response:
+                # The block is air
+                return Block(name="air", x=x, y=y, z=z)
+            else:
+                # The block is not air, so we can try other block types
+                # Unfortunately, Bedrock Edition RCON does not provide a command to get the exact block type
+                # We will return a generic non-air block
+                return Block(name="solid_block", x=x, y=y, z=z)
         except Exception as e:
             print(f"Failed to get block at ({x}, {y}, {z}): {e}")
             return None
@@ -1847,13 +1879,21 @@ class minecraft(Extensions):
         self, block_type: str, x: int, y: int, z: int, properties: Optional[Dict] = None
     ):
         """Place a block at the given coordinates using RCON"""
-        if not self.rcon:
+        if not self.client:
             if not self.connect():
                 raise ConnectionError("Not connected to server")
         try:
             # Construct the command to set the block
-            command = f"setblock {x} {y} {z} {block_type} replace"
-            self.rcon.command(command)
+            properties_str = ""
+            if properties:
+                # Convert properties dict to a string format if necessary
+                properties_str = (
+                    "[" + ",".join(f"{k}={v}" for k, v in properties.items()) + "]"
+                )
+            command = f'setblock {x} {y} {z} "{block_type}{properties_str}" replace'
+            response = self.client.command(command)
+            if response and "error" in response.lower():
+                print(f"Error placing block: {response}")
         except Exception as e:
             print(f"Failed to place block: {e}")
             raise
@@ -1861,12 +1901,14 @@ class minecraft(Extensions):
     async def break_block(self, x: int, y: int, z: int):
         """Break the block at the given coordinates"""
         if not self.client:
-            raise ConnectionError("Not connected to server")
+            if not self.connect():
+                raise ConnectionError("Not connected to server")
         try:
-            await self.client.break_block((x, y, z))
-            block = await self.get_block(x, y, z)
-            if block and block.name != "air":
-                raise Exception(f"Failed to break block at ({x}, {y}, {z})")
+            # Replace the block with air to simulate breaking it
+            command = f"setblock {x} {y} {z} air replace"
+            response = self.client.command(command)
+            if response and "error" in response.lower():
+                print(f"Error breaking block: {response}")
         except Exception as e:
             print(f"Failed to break block: {e}")
             raise
@@ -1875,7 +1917,8 @@ class minecraft(Extensions):
         """Main pipeline for structure creation"""
         try:
             if not self.client:
-                await self.connect()
+                if not self.connect():
+                    return False
 
             structure_plan = await self._get_structure_plan(structure_description)
             print(f"Generated building plan: {structure_plan}")
@@ -1884,19 +1927,25 @@ class minecraft(Extensions):
                 structure = await self._generate_structure(structure_plan)
                 print("Generated custom structure")
             else:
-                structure = self.structure_templates[structure_plan["template_match"]]
+                structure = self.structure_templates.get(
+                    structure_plan["template_match"]
+                )
+                if not structure:
+                    print(f"Template '{structure_plan['template_match']}' not found.")
+                    return False
                 print(f"Using template: {structure_plan['template_match']}")
 
             if not structure or not self.validate_structure(structure):
                 print("Structure validation failed")
                 return False
 
+            # Find a suitable build location near the player
             location = await self._find_build_location(structure)
             if not location:
-                print("Could not find suitable build location")
+                print("No suitable build location found.")
                 return False
 
-            adapted_structure = await self._adapt_to_terrain(structure, location)
+            adapted_structure = self._adapt_to_terrain(structure, location)
             success = await self._execute_build(adapted_structure, location)
 
             return success
@@ -1909,7 +1958,7 @@ class minecraft(Extensions):
         """Get LLM to interpret build request into actionable plan"""
         context = f"## Minecraft Building Examples\n\n{BUILDING_EXAMPLES}"
         prompt = f"""Please analyze this Minecraft build request and provide a structured building plan.
-Use the Minecraft Build Examples as a guide for your response.
+Use the Minecraft Building Examples as a guide for your response.
 
 Request: "{request}"
         
@@ -1924,11 +1973,15 @@ Only suggest a template_match if it exactly matches the request needs."""
         )
 
         # Extract JSON from response
-        if "```json" in response:
-            response = response.split("```json")[1]
-        if "```" in response:
-            response = response.split("```")[0]
-        return json.loads(response)
+        try:
+            if "```json" in response:
+                response = response.split("```json")[1]
+            if "```" in response:
+                response = response.split("```")[0]
+            return json.loads(response)
+        except Exception as e:
+            print(f"Failed to parse structure plan: {e}")
+            return {}
 
     def validate_structure(self, structure: Structure) -> bool:
         """Validate structure before attempting to build"""
@@ -1950,21 +2003,17 @@ Only suggest a template_match if it exactly matches the request needs."""
         max_x = max(b.x for b in structure.blocks)
         max_z = max(b.z for b in structure.blocks)
 
-        for radius in range(1, 11):
-            for test_x in range(x - radius, x + radius + 1):
-                for test_z in range(z - radius, z + radius + 1):
-                    if abs(test_x - x) != radius and abs(test_z - z) != radius:
+        # Search in a spiral pattern around the player
+        for radius in range(0, 20):
+            for dx in range(-radius, radius + 1):
+                for dz in range(-radius, radius + 1):
+                    test_x = x + dx
+                    test_z = z + dz
+                    if abs(dx) != radius and abs(dz) != radius:
                         continue
 
                     if await self._is_area_suitable(test_x, y, test_z, max_x, max_z):
-                        try:
-                            test_structure = await self._adapt_to_terrain(
-                                structure, (test_x, y, test_z)
-                            )
-                            if self.validate_structure(test_structure):
-                                return (test_x, y, test_z)
-                        except Exception:
-                            continue
+                        return (test_x, y, test_z)
         return None
 
     async def _is_area_suitable(
@@ -1972,59 +2021,33 @@ Only suggest a template_match if it exactly matches the request needs."""
     ) -> bool:
         """Check if area is suitable for building"""
         heights = []
-        blocks = []
 
         for dx in range(width + 1):
             for dz in range(depth + 1):
                 height = await self.get_height(x + dx, z + dz)
                 heights.append(height)
 
-                for dy in range(height, height + 10):
-                    block = await self.get_block(x + dx, dy, z + dz)
-                    if block and block.name not in [
-                        "air",
-                        "grass",
-                        "tall_grass",
-                        "snow",
-                    ]:
-                        blocks.append(block)
-
         height_variation = max(heights) - min(heights)
-        has_obstacles = len(blocks) > 0
-        lowest_block = await self.get_block(x, min(heights), z)
-        over_liquid = lowest_block and lowest_block.name in ["water", "lava"]
+        return height_variation <= 1
 
-        return height_variation <= 2 and not has_obstacles and not over_liquid
-
-    async def _adapt_to_terrain(
+    def _adapt_to_terrain(
         self, structure: Structure, location: Tuple[int, int, int]
     ) -> Structure:
         """Modify structure to better fit terrain"""
-        x, y, z = location
+        # Adjust the Y-coordinate of the structure based on the terrain height
+        start_x, start_y, start_z = location
         adjusted_blocks = []
-        heights = {}
+        min_height = min(block.y for block in structure.blocks)
 
         for block in structure.blocks:
-            world_x = x + block.x
-            world_z = z + block.z
-            if (world_x, world_z) not in heights:
-                heights[(world_x, world_z)] = await self.get_height(world_x, world_z)
-
-        base_height = min(heights.values())
-        for block in structure.blocks:
-            world_x = x + block.x
-            world_z = z + block.z
-            height_diff = heights[(world_x, world_z)] - base_height
-
-            adjusted_blocks.append(
-                Block(
-                    name=block.name,
-                    x=block.x,
-                    y=block.y + height_diff,
-                    z=block.z,
-                    properties=block.properties,
-                )
+            adjusted_block = Block(
+                name=block.name,
+                x=block.x,
+                y=block.y - min_height,  # Adjust to start from Y=0
+                z=block.z,
+                properties=block.properties,
             )
+            adjusted_blocks.append(adjusted_block)
 
         return Structure(
             name=structure.name,
@@ -2057,18 +2080,6 @@ Only suggest a template_match if it exactly matches the request needs."""
                     failed_blocks.append((block, (world_x, world_y, world_z)))
                     continue
 
-            if failed_blocks:
-                # Try to fix failed blocks
-                for block, pos in failed_blocks:
-                    try:
-                        await asyncio.sleep(1)
-                        await self.place_block(
-                            block.name, pos[0], pos[1], pos[2], block.properties
-                        )
-                        failed_blocks.remove((block, pos))
-                    except Exception as e:
-                        print(f"Second attempt failed for {block.name} at {pos}: {e}")
-
             return len(failed_blocks) == 0
 
         except Exception as e:
@@ -2081,22 +2092,23 @@ Only suggest a template_match if it exactly matches the request needs."""
 
 Example building patterns:
 ```python
+blocks = []
 # Build foundation
 for x in range(width):
     for z in range(depth):
-        place_block("stone", start_x + x, start_y, start_z + z)
+        blocks.append({"name": "stone", "x": x, "y": 0, "z": z})
 
 # Build walls
-for y in range(height):
+for y in range(1, height):
     for x in range(width):
         for z in range(depth):
             if x in (0, width-1) or z in (0, depth-1):
-                place_block("planks", start_x + x, start_y + y, start_z + z)
+                blocks.append({"name": "planks", "x": x, "y": y, "z": z})
 
 # Add roof
 for x in range(width):
     for z in range(depth):
-        place_block("planks", start_x + x, start_y + height, start_z + z)
+        blocks.append({"name": "planks", "x": x, "y": height, "z": z})
 ```"""
 
         prompt = f"""Generate Python code to build a Minecraft structure with these specifications:
@@ -2104,7 +2116,7 @@ for x in range(width):
 
 - Generate code that creates a structure matching the specifications.
 - Each block should have: name, x, y, z coordinates.
-- Return a list of blocks to place relative to a starting position.
+- Return a list of blocks to place relative to a starting position in a variable named 'blocks'.
 - Use only valid Minecraft block types.
 Return only the Python code in the answer block."""
 
@@ -2113,45 +2125,47 @@ Return only the Python code in the answer block."""
             prompt_name="Think About It",
             prompt_args={"user_input": prompt, "context": context},
         )
-        place_block_code = f"""from agixtsdk import AGiXTSDK
-
-def place_block(block_type, x, y, z, properties=None):
-    agixt = AGiXTSDK(base_uri="{self.ApiClient.base_uri}", api_key="{self.api_key}")
-    return agixt.execute_command(
-        agent_name="{self.agent_name}",
-        command_name="Place Minecraft Block",
-        command_args={{"block_type": block_type, "x": x, "y": y, "z": z, "properties": properties}},
-    )
-"""
         code_response = str(code_response).strip()
         if "```python" in code_response:
             code_response = code_response.split("```python")[1]
         if "```" in code_response:
             code_response = code_response.split("```")[0]
         code_response = code_response.strip()
-        code_response = f"{place_block_code}\n\n{code_response}"
-        try:
-            # Execute the generated code in a safe environment
-            response = self.ApiClient.execute_command(
-                agent_name=self.agent_name,
-                command_name="Execute Python Code",
-                command_args={"code": code_response},
-            )
 
-            try:
-                namespace = json.loads(response)
-            except:
-                print(f"Failed to parse response from JSON: {response}")
-                namespace = {}
+        # Execute the generated code
+        try:
+            # Prepare a namespace for code execution
+            namespace = {"blocks": []}
+
+            # Define allowed built-ins
+            safe_builtins = {
+                "range": range,
+                "min": min,
+                "max": max,
+                "int": int,
+                "float": float,
+                "str": str,
+                "blocks": namespace["blocks"],
+            }
+
+            # Execute the code safely
+            exec(code_response, {"__builtins__": safe_builtins}, namespace)
 
             blocks = namespace.get("blocks", [])
+            block_objects = [Block(**b) for b in blocks]
 
             return Structure(
-                name=f"{plan['type']}_{plan['style']}",
-                blocks=[Block(**b) for b in blocks],
+                name=f"{plan.get('type', 'custom')}_{plan.get('style', 'default')}",
+                blocks=block_objects,
             )
 
         except Exception as e:
             print(f"Failed to generate structure: {e}")
             # Fallback to simple shelter
             return self.structure_templates.get("dirt_shelter")
+
+    async def place_block_command(
+        self, block_type: str, x: int, y: int, z: int, properties: Optional[Dict] = None
+    ):
+        """Wrapper command to be called externally"""
+        await self.place_block(block_type, x, y, z, properties)
