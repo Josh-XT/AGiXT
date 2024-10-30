@@ -2312,6 +2312,7 @@ class AGiXT:
         self,
         user_input: str,
         code: str,
+        code_error: str,
         file_content: str,
         file_preview: str = "",
         import_file: str = "",
@@ -2327,7 +2328,7 @@ class AGiXT:
             file_preview=file_preview,
             import_file=import_file,
             code=code,
-            code_error=str(code_execution),
+            code_error=str(code_error),
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -2373,6 +2374,7 @@ class AGiXT:
             return await self.fix_and_execute_code(
                 user_input=user_input,
                 code=code_verification,
+                code_error=str(code_execution),
                 file_content=file_content,
                 file_preview=file_preview,
                 import_file=import_file,
@@ -2536,6 +2538,7 @@ class AGiXT:
             code_execution = await self.fix_and_execute_code(
                 user_input=user_input,
                 code=code_verification,
+                code_error=str(code_execution),
                 file_content=file_content,
                 file_preview=file_preview,
                 import_file=import_file,
