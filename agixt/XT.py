@@ -962,6 +962,7 @@ class AGiXT:
                 except:
                     with open(fp, "rb") as f:
                         content = f.read()
+                    content = base64.b64encode(content).decode("utf-8")
                 file_content += (
                     f"Content from file uploaded named `{file_name}` at {timestamp}:\n"
                 )
