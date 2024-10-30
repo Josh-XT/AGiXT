@@ -464,17 +464,18 @@ class Agent:
                 )
                 session.add(agent)
                 session.commit()
+                self.agent_id = str(agent.id)
                 # Copy settings and commands from global agent
                 for setting in global_agent.settings:
                     new_setting = AgentSettingModel(
-                        agent_id=agent.id,
+                        agent_id=self.agent_id,
                         name=setting.name,
                         value=setting.value,
                     )
                     session.add(new_setting)
-                for command in global_agent.agent_commands:
+                for command in global_agent.commands:
                     new_command = AgentCommand(
-                        agent_id=agent.id,
+                        agent_id=self.agent_id,
                         command_id=command.command_id,
                         state=command.state,
                     )
@@ -513,7 +514,7 @@ class Agent:
                 try:
                     agent_command = (
                         session.query(AgentCommand)
-                        .filter_by(agent_id=agent.id, command_id=command.id)
+                        .filter_by(agent_id=self.agent_id, command_id=command.id)
                         .first()
                     )
                 except:
@@ -532,14 +533,14 @@ class Agent:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
                     session.query(AgentSettingModel)
-                    .filter_by(agent_id=agent.id, name=setting_name)
+                    .filter_by(agent_id=self.agent_id, name=setting_name)
                     .first()
                 )
                 if agent_setting:
                     agent_setting.value = str(setting_value)
                 else:
                     agent_setting = AgentSettingModel(
-                        agent_id=agent.id,
+                        agent_id=self.agent_id,
                         name=setting_name,
                         value=str(setting_value),
                     )

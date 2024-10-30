@@ -956,8 +956,12 @@ class AGiXT:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             fp = os.path.normpath(file_path)
             if fp.startswith(self.agent_workspace):
-                with open(fp, "r") as f:
-                    content = f.read()
+                try:
+                    with open(fp, "r") as f:
+                        content = f.read()
+                except:
+                    with open(fp, "rb") as f:
+                        content = f.read()
                 file_content += (
                     f"Content from file uploaded named `{file_name}` at {timestamp}:\n"
                 )
@@ -1348,7 +1352,7 @@ class AGiXT:
             analyze_user_input = (
                 str(self.agent_settings["analyze_user_input"]).lower() == "true"
             )
-        auto_continue = True
+        auto_continue = False
         if "auto_continue" in self.agent_settings:
             auto_continue = str(self.agent_settings["auto_continue"]).lower() == "true"
         include_sources = False
@@ -1743,7 +1747,7 @@ class AGiXT:
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :]
-            if auto_continue and "</answer>" not in response:
+            if auto_continue and "</answer>" not in response and "<answer>" in response:
                 responses = [response]
                 try:
                     continue_response = await self.inference(
@@ -1780,7 +1784,7 @@ class AGiXT:
                     current_response = "".join(responses)
                     try:
                         continue_response = await self.inference(
-                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user.",
+                            user_input=f"{new_prompt}\n{self.agent_name}'s response: {current_response}\n\n## System\nWas the assistant done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user. The `</answer>` tag must be used to end the message regardless of any other guidelines in the message.",
                             prompt_name=prompt_name,
                             prompt_category=prompt_category,
                             injected_memories=context_results,
@@ -1826,15 +1830,11 @@ class AGiXT:
                     )
                 answer = response.split("<answer>")[-1]
                 answer = answer.split("</answer>")[0]
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=answer,
-                )
-            else:
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=response,
-                )
+                response = answer
+            self.conversation.log_interaction(
+                role=self.agent_name,
+                message=response,
+            )
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
@@ -2312,6 +2312,7 @@ class AGiXT:
         self,
         user_input: str,
         code: str,
+        code_error: str,
         file_content: str,
         file_preview: str = "",
         import_file: str = "",
@@ -2327,7 +2328,7 @@ class AGiXT:
             file_preview=file_preview,
             import_file=import_file,
             code=code,
-            code_error=str(code_execution),
+            code_error=str(code_error),
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -2373,6 +2374,7 @@ class AGiXT:
             return await self.fix_and_execute_code(
                 user_input=user_input,
                 code=code_verification,
+                code_error=str(code_execution),
                 file_content=file_content,
                 file_preview=file_preview,
                 import_file=import_file,
@@ -2536,6 +2538,7 @@ class AGiXT:
             code_execution = await self.fix_and_execute_code(
                 user_input=user_input,
                 code=code_verification,
+                code_error=str(code_execution),
                 file_content=file_content,
                 file_preview=file_preview,
                 import_file=import_file,
