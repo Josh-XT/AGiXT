@@ -638,9 +638,11 @@ class AGiXT:
     async def learn_spreadsheet(self, user_input, file_path):
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
+        string_file_content = ""
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
+                string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{df.to_csv(index=False)}```\n"
             else:  # Excel file
                 try:
                     xl = pd.ExcelFile(file_path)
@@ -657,22 +659,34 @@ class AGiXT:
                                 message=f"[ACTIVITY] ({i}/{sheet_count}) Converted sheet `{sheet_name}` in `{file_name}` to CSV file `{csv_file_name}`.",
                             )
                             df.to_csv(csv_file_path, index=False)
-                            message = await self.learn_spreadsheet(
+                            message, file_content = await self.learn_spreadsheet(
                                 user_input=user_input,
                                 file_path=csv_file_path,
                             )
                             self.conversation.log_interaction(
                                 role=self.agent_name, message=f"[ACTIVITY] {message}"
                             )
-                        return f"Processed all sheets in [{file_name}]({file_path})."
+                            string_file_content += file_content
+                        return (
+                            f"Processed all sheets in [{file_name}]({file_path}).",
+                            string_file_content,
+                        )
                     else:
                         df = pd.read_excel(file_path)
+                        string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{df.to_csv(index=False)}```\n"
+                        return (
+                            f"Read [{file_name}]({file_path}) into memory.",
+                            string_file_content,
+                        )
                 except Exception as e:
                     self.conversation.log_interaction(
                         role=self.agent_name,
                         message=f"[ACTIVITY][ERROR] Failed to read Excel file `{file_name}`: {str(e)}",
                     )
-                    return f"Failed to read [{file_name}]({file_path}). Error: {str(e)}"
+                    return (
+                        f"Failed to read [{file_name}]({file_path}). Error: {str(e)}",
+                        "",
+                    )
 
             try:
                 df_dict = df.to_dict("records")
@@ -875,7 +889,7 @@ class AGiXT:
             )
             response = f"Read [{file_name}]({file_url}) into memory."
         elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
-            response = await self.learn_spreadsheet(
+            response, file_content = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
             )
