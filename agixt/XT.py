@@ -644,6 +644,10 @@ class AGiXT:
                 df = pd.read_csv(file_path)
                 csv = df.to_csv(index=False)
                 string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
+                return (
+                    f"Read [{file_name}]({file_path}) into memory.",
+                    string_file_content,
+                )
             else:  # Excel file
                 try:
                     xl = pd.ExcelFile(file_path)
