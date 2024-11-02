@@ -642,7 +642,8 @@ class AGiXT:
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
-                string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{df.to_csv(index=False)}```\n"
+                csv = df.to_csv(index=False)
+                string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
             else:  # Excel file
                 try:
                     xl = pd.ExcelFile(file_path)
@@ -673,7 +674,8 @@ class AGiXT:
                         )
                     else:
                         df = pd.read_excel(file_path)
-                        string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{df.to_csv(index=False)}```\n"
+                        csv = df.to_csv(index=False)
+                        string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
                         return (
                             f"Read [{file_name}]({file_path}) into memory.",
                             string_file_content,
@@ -889,7 +891,7 @@ class AGiXT:
             )
             response = f"Read [{file_name}]({file_url}) into memory."
         elif file_type == "xlsx" or file_type == "xls" or file_type == "csv":
-            response, file_content = await self.learn_spreadsheet(
+            response, content = await self.learn_spreadsheet(
                 user_input=user_input,
                 file_path=file_path,
             )
