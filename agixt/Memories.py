@@ -474,31 +474,46 @@ class Memories:
         return response
 
     async def get_external_data_sources(self):
+        """Get a list of all unique external source names from memory collection."""
         collection = await self.get_collection()
         if collection:
-            results = collection.query(
-                query_texts=[""],
-                where={"external_source_name": {"$exists": True}},
-                include=["metadatas"],
-            )
-            external_sources = [
-                metadata["external_source_name"] for metadata in results["metadatas"][0]
-            ]
-            return list(set(external_sources))
+            try:
+                # Get all documents and their metadata
+                results = collection.get()
+                if results and "metadatas" in results:
+                    # Extract external source names from all metadata entries
+                    external_sources = [
+                        metadata["external_source_name"]
+                        for metadata in results["metadatas"]
+                        if "external_source_name" in metadata
+                    ]
+                    # Return unique sources
+                    return list(set(external_sources))
+            except Exception as e:
+                logging.warning(f"Error getting external sources: {str(e)}")
         return []
 
     async def delete_memories_from_external_source(self, external_source: str):
+        """Delete all memories from a specific external source."""
         collection = await self.get_collection()
         if collection:
-            results = collection.query(
-                query_texts=[""],
-                where={"external_source_name": external_source},
-                include=["metadatas"],
-            )
-            ids = results["metadatas"][0]["id"]
-            if ids:
-                collection.delete(ids=ids)
-                return True
+            try:
+                # Get all documents and their metadata
+                results = collection.get()
+                if results and "ids" in results and "metadatas" in results:
+                    # Find all IDs where external_source_name matches
+                    ids_to_delete = [
+                        id
+                        for id, metadata in zip(results["ids"], results["metadatas"])
+                        if metadata.get("external_source_name") == external_source
+                    ]
+                    if ids_to_delete:
+                        collection.delete(ids=ids_to_delete)
+                        return True
+            except Exception as e:
+                logging.warning(
+                    f"Error deleting memories from source {external_source}: {str(e)}"
+                )
         return False
 
     def score_chunk(self, chunk: str, keywords: set) -> int:
