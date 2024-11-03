@@ -24,6 +24,7 @@ from Models import (
     UrlInput,
     TTSInput,
     TaskPlanInput,
+    PersonaInput,
     ChatCompletions,
 )
 import logging
@@ -119,6 +120,39 @@ async def update_agent_settings(
         agent_name=agent_name, user=user, ApiClient=ApiClient
     ).update_agent_config(new_config=settings.settings, config_key="settings")
     return ResponseMessage(message=update_config)
+
+
+@app.put(
+    "/api/agent/{agent_name}/persona",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_persona(
+    agent_name: str,
+    persona: PersonaInput,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    ApiClient = get_api_client(authorization=authorization)
+    update_config = Agent(
+        agent_name=agent_name, user=user, ApiClient=ApiClient
+    ).update_agent_config(
+        new_config={"persona": persona.persona}, config_key="settings"
+    )
+    return ResponseMessage(message=update_config)
+
+
+@app.get(
+    "/api/agent/{agent_name}/persona",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_persona(
+    agent_name: str, user=Depends(verify_api_key), authorization: str = Header(None)
+):
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    return {"persona": agent.AGENT_CONFIG["settings"]["persona"]}
 
 
 @app.put(
