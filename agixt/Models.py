@@ -187,6 +187,10 @@ class FeedbackInput(BaseModel):
     conversation_name: Optional[str] = ""
 
 
+class PersonaInput(BaseModel):
+    persona: str
+
+
 class TaskOutput(BaseModel):
     output: str
     message: Optional[str] = None
