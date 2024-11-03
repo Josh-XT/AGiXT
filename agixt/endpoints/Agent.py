@@ -425,7 +425,7 @@ async def delete_browsed_link(
         user=user,
         ApiClient=ApiClient,
     )
-    websearch.agent_memory.delete_memories_from_external_source(url=url.url)
+    await websearch.agent_memory.delete_memories_from_external_source(url=url.url)
     agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
     return {"message": "Browsed links deleted."}
 

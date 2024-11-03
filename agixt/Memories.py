@@ -473,8 +473,8 @@ class Memories:
                     response.append(metadata)
         return response
 
-    def delete_memories_from_external_source(self, external_source: str):
-        collection = self.chroma_client.get_collection(name=self.collection_name)
+    async def delete_memories_from_external_source(self, external_source: str):
+        collection = await self.get_collection()
         if collection:
             results = collection.query(
                 query_metadatas={"external_source_name": external_source},
@@ -486,8 +486,8 @@ class Memories:
                 return True
         return False
 
-    def get_external_data_sources(self):
-        collection = self.chroma_client.get_collection(name=self.collection_name)
+    async def get_external_data_sources(self):
+        collection = await self.get_collection()
         if collection:
             results = collection.query(
                 include=["metadatas"],
