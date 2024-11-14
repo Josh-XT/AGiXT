@@ -72,6 +72,14 @@ on:
         type: string
         default: none
         description: Optional testmail namespace available as os.getenv('TESTMAIL_NAMESPACE') in your notebook
+      auth-server:
+        type: string
+        default: none
+        description: Optional auth-server available as os.getenv('AUTH_SERVER') in your notebook
+      agixt-server:
+        type: string
+        default: none
+        description: Optional agixt-server available as os.getenv('AGIXT_SERVER') in your notebook
       default-email:
         type: string
         default: none
@@ -133,6 +141,10 @@ jobs:
           MFA_VERIFY: authenticator
           MODE: development
           STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
+          AUTH_WEB: http://localhost:3051/user
+          APP_URI: http://localhost:3051
+          AUTH_SERVER: ${{ inputs.auth-server }}
+          AGIXT_SERVER: ${{ inputs.agixt-server }}
           TZ: America/New_York
     steps:
       - uses: actions/setup-python@v5
