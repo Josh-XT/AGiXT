@@ -99,9 +99,6 @@ on:
 jobs:
   run-tests:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
     outputs:
       digest: ${{ steps.dockerBuild.outputs.digest }}
     services:
@@ -114,9 +111,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
       secondary-service:
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
         image: ${{ inputs.secondary-image }}
         ports:
           - ${{ inputs.port-mapping || format('{0}:{1}', inputs.secondary-image-port, inputs.secondary-image-port) }}
