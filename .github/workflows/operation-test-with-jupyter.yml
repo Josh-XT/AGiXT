@@ -80,6 +80,14 @@ on:
         type: string
         default: none
         description: Optional agixt-server available as os.getenv('AGIXT_SERVER') in your notebook
+      auth-web:
+        type: string
+        default: none
+        description: Optional auth-web available as os.getenv('AUTH_WEB') in your notebook
+      app-uri:
+        type: string
+        default: none
+        description: Optional app-uri available as os.getenv('APP_URI') in your notebook
       default-email:
         type: string
         default: none
@@ -117,6 +125,10 @@ jobs:
           SCHEMA: ${{ inputs.auth-schema }}
           LOG_LEVEL: DEBUG
           MFA_VERIFY: authenticator
+          APP_URI: ${{ inputs.app-uri }}
+          AUTH_WEB: ${{ inputs.auth-web }}
+          AUTH_SERVER: ${{ inputs.auth-server }}
+          AGIXT_SERVER: ${{ inputs.agixt-server }}
           TZ: America/New_York
       service-under-test:
         image: ${{ inputs.image }}
@@ -141,8 +153,8 @@ jobs:
           MFA_VERIFY: authenticator
           MODE: development
           STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
-          AUTH_WEB: http://localhost:3051/user
-          APP_URI: http://localhost:3051
+          APP_URI: ${{ inputs.app-uri }}
+          AUTH_WEB: ${{ inputs.auth-web }}
           AUTH_SERVER: ${{ inputs.auth-server }}
           AGIXT_SERVER: ${{ inputs.agixt-server }}
           TZ: America/New_York
