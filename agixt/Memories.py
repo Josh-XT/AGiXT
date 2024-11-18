@@ -501,9 +501,9 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        if len(self.collection_number) > 4:
-            self.collection_name = snake(f"{self.collection_number}")
-        logging.info(f"Collection name: {self.collection_name}")
+        logging.info(
+            f"Retrieving Memories from collection name: {self.collection_name}"
+        )
         results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
