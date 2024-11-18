@@ -899,6 +899,7 @@ class AGiXT:
                 user_input=user_input,
                 file_path=file_path,
             )
+            file_content += content
         elif (
             file_type == "wav"
             or file_type == "mp3"
