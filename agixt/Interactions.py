@@ -440,6 +440,8 @@ class Interactions:
                     f"\n### {extension_name}\nDescription: {extension_description}\n"
                 )
                 for command in extension["commands"]:
+                    if command["enabled"] == False:
+                        continue
                     command_friendly_name = command["friendly_name"]
                     command_description = command["description"]
                     agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
