@@ -148,6 +148,53 @@ def get_chroma_client():
     )
 
 
+def normalize_collection_name(collection_name: str, max_length: int = 63) -> str:
+    """
+    Normalizes a collection name to meet Chroma's requirements:
+    1. 3-63 characters
+    2. Starts and ends with alphanumeric
+    3. Contains only alphanumeric, underscores or hyphens
+    4. No consecutive periods
+    5. Not a valid IPv4 address
+
+    Args:
+        collection_name: Original collection name
+        max_length: Maximum length for the collection name (default 63)
+
+    Returns:
+        str: Normalized collection name meeting all requirements
+    """
+    import base64
+    from hashlib import sha256
+
+    # If name is already valid and short enough, return it
+    if len(collection_name) <= max_length:
+        return collection_name
+
+    # Generate a SHA-256 hash of the full collection name
+    hash_obj = sha256(collection_name.encode())
+    # Get first 16 bytes (32 chars) of hash and encode in base64
+    hash_bytes = hash_obj.digest()[:16]
+    b64_hash = base64.b32encode(hash_bytes).decode().lower()
+
+    # Extract meaningful prefix (first 20 chars) from original name if possible
+    prefix = snake(collection_name[:20])
+
+    # Combine prefix with hash, ensuring total length <= max_length
+    hash_portion = b64_hash[: (max_length - len(prefix) - 1)]
+    normalized_name = f"{prefix}_{hash_portion}"
+
+    # Ensure it ends with alphanumeric
+    while not normalized_name[-1].isalnum():
+        normalized_name = normalized_name[:-1]
+
+    # Ensure minimum length of 3
+    while len(normalized_name) < 3:
+        normalized_name += "0"
+
+    return normalized_name
+
+
 class Memories:
     def __init__(
         self,
@@ -171,6 +218,7 @@ class Memories:
         self.collection_name = snake(f"{self.collection_name}_{collection_number}")
         if len(collection_number) > 4:
             self.collection_name = snake(f"{collection_number}")
+        self.collection_name = normalize_collection_name(self.collection_name)
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
