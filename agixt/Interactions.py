@@ -452,7 +452,12 @@ class Interactions:
                         f"<execute>\n<name>{command_friendly_name}</name>\n"
                     )
                     for arg_name in command["command_args"].keys():
-                        agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                        if arg_name != "chain_name":
+                            agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                        else:
+                            agent_commands += (
+                                f"<chain_name>{command_friendly_name}</chain_name>\n"
+                            )
                     agent_commands += "</execute>\n"
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
