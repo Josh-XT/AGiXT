@@ -427,9 +427,12 @@ class Agent:
         for extension in new_extensions:
             for command in extension["commands"]:
                 if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
-                    command["enabled"] = self.AGENT_CONFIG["commands"][
-                        command["friendly_name"]
-                    ]
+                    command["enabled"] = (
+                        str(
+                            self.AGENT_CONFIG["commands"][command["friendly_name"]]
+                        ).lower()
+                        == "true"
+                    )
                 else:
                     command["enabled"] = False
         return new_extensions
