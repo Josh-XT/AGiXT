@@ -436,14 +436,16 @@ class Interactions:
                     continue
                 extension_name = extension["extension_name"]
                 extension_description = extension["description"]
-                agent_commands += (
-                    f"\n### {extension_name}\nDescription: {extension_description}\n"
-                )
                 enabled_commands = [
                     command
                     for command in extension["commands"]
                     if command["enabled"] == True
                 ]
+                if enabled_commands == []:
+                    continue
+                agent_commands += (
+                    f"\n### {extension_name}\nDescription: {extension_description}\n"
+                )
                 for command in enabled_commands:
                     command_friendly_name = command["friendly_name"]
                     command_description = command["description"]
