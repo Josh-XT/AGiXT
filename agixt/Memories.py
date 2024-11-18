@@ -148,41 +148,57 @@ def get_chroma_client():
     )
 
 
-def normalize_collection_name(collection_name: str, max_length: int = 63) -> str:
+def normalize_collection_name(
+    base_name: str, collection_id: str = "0", max_length: int = 63
+) -> str:
     """
-    Normalizes a collection name to meet Chroma's requirements:
-    1. 3-63 characters
-    2. Starts and ends with alphanumeric
-    3. Contains only alphanumeric, underscores or hyphens
-    4. No consecutive periods
-    5. Not a valid IPv4 address
+    Normalizes a collection name while preserving searchable prefixes.
+    The format will be: prefix_hash_collectionid
+    where prefix is a short form of the base name that allows collections to be grouped.
 
     Args:
-        collection_name: Original collection name
-        max_length: Maximum length for the collection name (default 63)
+        base_name: Base name (typically user_agentname)
+        collection_id: Collection identifier/number
+        max_length: Maximum length for the collection name
 
     Returns:
-        str: Normalized collection name meeting all requirements
+        str: Normalized collection name meeting Chroma's requirements
     """
-    import base64
     from hashlib import sha256
+    import base64
 
-    # If name is already valid and short enough, return it
-    if len(collection_name) <= max_length:
-        return collection_name
+    # First, get the snake_case version of the base name
+    base = snake(base_name)
 
-    # Generate a SHA-256 hash of the full collection name
-    hash_obj = sha256(collection_name.encode())
-    # Get first 16 bytes (32 chars) of hash and encode in base64
-    hash_bytes = hash_obj.digest()[:16]
-    b64_hash = base64.b32encode(hash_bytes).decode().lower()
+    # If the total name is already valid and short enough, return it
+    full_name = f"{base}_{collection_id}"
+    if len(full_name) <= max_length:
+        return full_name
 
-    # Extract meaningful prefix (first 20 chars) from original name if possible
-    prefix = snake(collection_name[:20])
+    # We want to preserve as much of the prefix as possible for searchability
+    # Let's allocate space: prefix(30) + hash(24) + collection_id(rest)
 
-    # Combine prefix with hash, ensuring total length <= max_length
-    hash_portion = b64_hash[: (max_length - len(prefix) - 1)]
-    normalized_name = f"{prefix}_{hash_portion}"
+    # Get prefix (keep first 30 chars of base name if possible)
+    prefix_length = min(30, len(base))
+    prefix = base[:prefix_length]
+
+    # Calculate remaining space for the hash
+    # We need at least 2 chars for collection_id and 2 underscores
+    remaining_space = max_length - prefix_length - len(collection_id) - 2
+
+    # Generate a short hash of the full original name
+    hash_obj = sha256(base_name.encode())
+    hash_bytes = hash_obj.digest()[
+        :12
+    ]  # Taking 12 bytes will give us ~24 chars in base32
+    hash_str = base64.b32encode(hash_bytes).decode().lower()
+
+    # Truncate hash if needed
+    if remaining_space < len(hash_str):
+        hash_str = hash_str[:remaining_space]
+
+    # Combine the parts
+    normalized_name = f"{prefix}_{hash_str}_{collection_id}"
 
     # Ensure it ends with alphanumeric
     while not normalized_name[-1].isalnum():
@@ -193,6 +209,14 @@ def normalize_collection_name(collection_name: str, max_length: int = 63) -> str
         normalized_name += "0"
 
     return normalized_name
+
+
+def get_base_collection_name(user: str, agent_name: str) -> str:
+    """
+    Gets the base collection name before normalization.
+    This is used to maintain consistent prefix for get_collections().
+    """
+    return snake(f"{user}_{agent_name}")
 
 
 class Memories:
@@ -211,14 +235,17 @@ class Memories:
             DEFAULT_USER = "user"
         if not user:
             user = "user"
-        self.collection_name = snake(f"{user}_{agent_name}")
         self.user = user
+        self.collection_name = get_base_collection_name(user, agent_name)
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
         self.collection_name = snake(f"{self.collection_name}_{collection_number}")
         if len(collection_number) > 4:
-            self.collection_name = snake(f"{collection_number}")
-        self.collection_name = normalize_collection_name(self.collection_name)
+            self.collection_name = normalize_collection_name(collection_number)
+        else:
+            self.collection_name = normalize_collection_name(
+                self.collection_name, collection_number
+            )
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
@@ -306,11 +333,12 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        collection_name = snake(f"{self.user}_{self.agent_name}")
+        base_name = get_base_collection_name(self.user, self.agent_name)
+        # Returns collections that start with the base name
         return [
-            collection
+            collection.name
             for collection in collections
-            if collection.startswith(collection_name)
+            if collection.name.startswith(base_name)
         ]
 
     async def get_collection(self):
