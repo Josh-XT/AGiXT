@@ -270,15 +270,20 @@ class Memories:
             return self.chroma_client.get_or_create_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
-        except:
+        except Exception as e:
             try:
+                logging.warning(
+                    f"Error275 {e} getting collection: {self.collection_name}"
+                )
                 return self.chroma_client.create_collection(
                     name=self.collection_name,
                     embedding_function=self.embedder,
                     get_or_create=True,
                 )
-            except:
-                logging.warning(f"Error getting collection: {self.collection_name}")
+            except Exception as e:
+                logging.warning(
+                    f"Error282 {e} getting collection: {self.collection_name}"
+                )
                 return None
 
     async def delete_memory(self, key: str):
