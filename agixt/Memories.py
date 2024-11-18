@@ -164,15 +164,11 @@ class Memories:
             DEFAULT_USER = "user"
         if not user:
             user = "user"
-        if user != DEFAULT_USER:
-            self.collection_name = f"{snake(user)}_{snake(agent_name)}"
-        else:
-            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
+        self.collection_name = snake(f"{user}_{agent_name}")
         self.user = user
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
-        if collection_number != "0":
-            self.collection_name = snake(f"{self.collection_name}_{collection_number}")
+        self.collection_name = snake(f"{self.collection_name}_{collection_number}")
         if len(collection_number) > 4:
             self.collection_name = snake(f"{collection_number}")
         if agent_config is None:
@@ -246,10 +242,9 @@ class Memories:
             for key, value in data.items():
                 self.collection_number = key if key else "0"
                 self.collection_name = snake(f"{self.user}_{self.agent_name}")
-                if str(self.collection_number) != "0":
-                    self.collection_name = (
-                        f"{self.collection_name}_{self.collection_number}"
-                    )
+                self.collection_name = (
+                    f"{self.collection_name}_{self.collection_number}"
+                )
                 for val in value[self.collection_name]:
                     try:
                         await self.write_text_to_memory(
@@ -263,10 +258,7 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        if str(self.collection_number) != "0":
-            collection_name = snake(f"{self.user}_{self.agent_name}")
-        else:
-            collection_name = self.collection_name
+        collection_name = snake(f"{self.user}_{self.agent_name}")
         return [
             collection
             for collection in collections
@@ -410,47 +402,17 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        global DEFAULT_USER
-        logging.info(f"Collection name: {self.collection_name}")
-        default_collection_name = self.collection_name
-        default_results = []
-        if self.user != DEFAULT_USER:
-            # Get global memories for the agent first
-            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
-            if str(self.collection_number) != "0":
-                self.collection_name = (
-                    f"{self.collection_name}_{self.collection_number}"
-                )
-            if len(self.collection_number) > 4:
-                self.collection_name = snake(f"{self.collection_number}")
-        try:
-            default_results = await self.get_memories_data(
-                user_input=user_input,
-                limit=limit,
-                min_relevance_score=min_relevance_score,
-            )
-            logging.info(
-                f"{len(default_results)} default results found in {self.collection_name}"
-            )
-        except:
-            default_results = []
-        self.collection_name = default_collection_name
         if len(self.collection_number) > 4:
             self.collection_name = snake(f"{self.collection_number}")
         logging.info(f"Collection name: {self.collection_name}")
-        user_results = await self.get_memories_data(
+        results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
-        logging.info(
-            f"{len(user_results)} user results found in {self.collection_name}"
-        )
-        if isinstance(user_results, str):
-            user_results = [user_results]
-        if isinstance(default_results, str):
-            default_results = [default_results]
-        results = user_results + default_results
+        logging.info(f"{len(results)} user results found in {self.collection_name}")
+        if isinstance(results, str):
+            results = [results]
         response = []
         if results:
             for result in results:
