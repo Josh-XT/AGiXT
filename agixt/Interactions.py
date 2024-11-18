@@ -439,14 +439,17 @@ class Interactions:
                 agent_commands += (
                     f"\n### {extension_name}\nDescription: {extension_description}\n"
                 )
-                for command in extension["commands"]:
-                    if command["enabled"] == False:
-                        continue
+                enabled_commands = [
+                    command
+                    for command in extension["commands"]
+                    if command["enabled"] == True
+                ]
+                for command in enabled_commands:
                     command_friendly_name = command["friendly_name"]
                     command_description = command["description"]
                     agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
                     agent_commands += (
-                        f"- <execute>\n<name>{command_friendly_name}</name>\n"
+                        f"<execute>\n<name>{command_friendly_name}</name>\n"
                     )
                     for arg_name in command["command_args"].keys():
                         agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
