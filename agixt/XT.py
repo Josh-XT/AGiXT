@@ -693,35 +693,6 @@ class AGiXT:
                         f"Failed to read [{file_name}]({file_path}). Error: {str(e)}",
                         "",
                     )
-
-            try:
-                df_dict = df.to_dict("records")
-                # Test JSON serialization before proceeding
-                json.dumps(df_dict)
-            except Exception as e:
-                logging.error(f"Error converting DataFrame to dict: {e}")
-                return f"Failed to process [{file_name}]({file_path}). Error converting data format: {str(e)}"
-
-            try:
-                self.input_tokens += get_tokens(json.dumps(df_dict))
-            except Exception as e:
-                logging.error(f"Error calculating tokens: {e}")
-                # Continue processing even if token calculation fails
-
-            try:
-                for item in df_dict:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    message = f"Content from file uploaded at {timestamp} named `{file_name}`:\n```json\n{json.dumps(item, indent=2)}```\n"
-                    await self.file_reader.write_text_to_memory(
-                        user_input=f"{user_input}\n{message}",
-                        text=message,
-                        external_source=f"file {file_path}",
-                    )
-                return f"Read [{file_name}]({file_path}) into memory."
-            except Exception as e:
-                logging.error(f"Error writing to memory: {e}")
-                return f"Failed to save [{file_name}]({file_path}) to memory. Error: {str(e)}"
-
         except Exception as e:
             logging.error(f"Unexpected error processing spreadsheet: {e}")
             return f"Failed to process [{file_name}]({file_path}). Unexpected error: {str(e)}"
@@ -900,6 +871,11 @@ class AGiXT:
                 file_path=file_path,
             )
             file_content += content
+            await self.file_reader.write_text_to_memory(
+                user_input=user_input,
+                text=content,
+                external_source=f"file {file_path}",
+            )
         elif (
             file_type == "wav"
             or file_type == "mp3"

@@ -318,6 +318,8 @@ class Memories:
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
+        # Log the collection number and agent name
+        logging.info(f"Saving to collection name: {self.collection_name}")
         collection = await self.get_collection()
         if text:
             if not isinstance(text, str):
