@@ -148,67 +148,87 @@ def get_chroma_client():
     )
 
 
-def normalize_collection_name(
-    base_name: str, collection_id: str = "0", max_length: int = 63
-) -> str:
+def hash_user_id(user: str, length: int = 8) -> str:
     """
-    Normalizes a collection name while preserving searchable prefixes.
-    The format will be: prefix_hash_collectionid
-    where prefix is a short form of the base name that allows collections to be grouped.
+    Creates a consistent, short hash of a user identifier (usually email).
 
     Args:
-        base_name: Base name (typically user_agentname)
-        collection_id: Collection identifier/number
-        max_length: Maximum length for the collection name
+        user: User identifier (email)
+        length: Desired length of the hash
 
     Returns:
-        str: Normalized collection name meeting Chroma's requirements
+        str: Short, consistent hash of the user ID
     """
     from hashlib import sha256
     import base64
 
-    # First, get the snake_case version of the base name
-    base = snake(base_name)
-
-    # If the total name is already valid and short enough, return it
-    full_name = f"{base}_{collection_id}"
-    if len(full_name) <= max_length:
-        return full_name
-
-    # We want to preserve as much of the prefix as possible for searchability
-    # Let's allocate space: prefix(30) + hash(24) + collection_id(rest)
-
-    # Get prefix (keep first 30 chars of base name if possible)
-    prefix_length = min(30, len(base))
-    prefix = base[:prefix_length]
-
-    # Calculate remaining space for the hash
-    # We need at least 2 chars for collection_id and 2 underscores
-    remaining_space = max_length - prefix_length - len(collection_id) - 2
-
-    # Generate a short hash of the full original name
-    hash_obj = sha256(base_name.encode())
-    hash_bytes = hash_obj.digest()[
-        :12
-    ]  # Taking 12 bytes will give us ~24 chars in base32
+    # Generate hash of the user identifier
+    hash_obj = sha256(user.encode())
+    hash_bytes = hash_obj.digest()[:6]  # Take first 6 bytes
+    # Use base32 for alphanumeric, url-safe output
     hash_str = base64.b32encode(hash_bytes).decode().lower()
 
-    # Truncate hash if needed
-    if remaining_space < len(hash_str):
-        hash_str = hash_str[:remaining_space]
+    # Return consistent length hash
+    return hash_str[:length]
 
-    # Combine the parts
-    normalized_name = f"{prefix}_{hash_str}_{collection_id}"
+
+def normalize_collection_name(
+    user: str, agent_name: str, collection_id: str = "0", max_length: int = 63
+) -> str:
+    """
+    Normalizes a collection name with hashed user ID for consistent length.
+    Format: uhash_agentname_collectionid
+
+    Args:
+        user: User identifier (email)
+        agent_name: Name of the agent
+        collection_id: Collection identifier/number
+        max_length: Maximum length for collection name
+
+    Returns:
+        str: Normalized collection name meeting Chroma's requirements
+    """
+    # Hash the user ID first
+    user_hash = hash_user_id(user)
+
+    # Snake case the agent name
+    agent_snake = snake(agent_name)
+
+    # Handle conversation IDs (long collection_id)
+    if len(collection_id) > 4:
+        # For conversation IDs, we'll hash the ID too
+        conv_hash = hash_user_id(collection_id, length=10)
+        normalized = f"u{user_hash}_{agent_snake}_{conv_hash}"
+    else:
+        # For normal collections, keep the number
+        normalized = f"u{user_hash}_{agent_snake}_{collection_id}"
+
+    # Ensure we're within length limits
+    if len(normalized) > max_length:
+        # If still too long, truncate agent name but keep user hash and collection id
+        available_space = (
+            max_length - len(user_hash) - len(collection_id) - 3
+        )  # 3 for u_ _
+        agent_snake = agent_snake[:available_space]
+        normalized = f"u{user_hash}_{agent_snake}_{collection_id}"
 
     # Ensure it ends with alphanumeric
-    while not normalized_name[-1].isalnum():
-        normalized_name = normalized_name[:-1]
+    while not normalized[-1].isalnum():
+        normalized = normalized[:-1]
 
     # Ensure minimum length of 3
-    while len(normalized_name) < 3:
-        normalized_name += "0"
+    while len(normalized) < 3:
+        normalized += "0"
 
-    return normalized_name
+    return normalized
+
+
+def get_user_collections_prefix(user: str) -> str:
+    """
+    Gets the prefix for finding all collections belonging to a user.
+    """
+    user_hash = hash_user_id(user)
+    return f"u{user_hash}_"
 
 
 def get_base_collection_name(user: str, agent_name: str) -> str:
@@ -239,13 +259,11 @@ class Memories:
         self.collection_name = get_base_collection_name(user, agent_name)
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
-        self.collection_name = snake(f"{self.collection_name}_{collection_number}")
-        if len(collection_number) > 4:
-            self.collection_name = normalize_collection_name(collection_number)
-        else:
-            self.collection_name = normalize_collection_name(
-                self.collection_name, collection_number
-            )
+        self.collection_name = normalize_collection_name(
+            user=self.user,
+            agent_name=self.agent_name,
+            collection_id=self.collection_number,
+        )
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
@@ -333,12 +351,12 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        base_name = get_base_collection_name(self.user, self.agent_name)
-        # Returns collections that start with the base name
+        prefix = get_user_collections_prefix(self.user)
+        # Returns collections that start with the user's prefix
         return [
             collection.name
             for collection in collections
-            if collection.name.startswith(base_name)
+            if collection.name.startswith(prefix)
         ]
 
     async def get_collection(self):
