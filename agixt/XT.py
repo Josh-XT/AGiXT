@@ -48,11 +48,15 @@ class AGiXT:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
         self.api_key = api_key
         self.auth = MagicalAuth(token=api_key)
-        self.conversation = Conversations(
-            conversation_name=conversation_name, user=self.user_email
-        )
-        self.conversation_id = self.conversation.get_conversation_id()
-        self.conversation_name = conversation_name
+        self.conversation = None
+        self.conversation_id = None
+        self.conversation_name = None
+        if conversation_name != None:
+            self.conversation = Conversations(
+                conversation_name=conversation_name, user=self.user_email
+            )
+            self.conversation_id = self.conversation.get_conversation_id()
+            self.conversation_name = conversation_name
         self.agent_name = agent_name
         self.uri = getenv("AGIXT_URI")
         if collection_id is not None:
@@ -61,6 +65,12 @@ class AGiXT:
             self.collection_id = self.conversation_id
         else:
             self.collection_id = "0"
+        if self.conversation_name is None:
+            self.conversation_name = datetime.now().strftime("%Y-%m-%d")
+            self.conversation = Conversations(
+                conversation_name=self.conversation_name, user=self.user_email
+            )
+            self.conversation_id = self.conversation.get_conversation_id()
         self.ApiClient = get_api_client(api_key)
         self.agent_interactions = Interactions(
             agent_name=self.agent_name,
