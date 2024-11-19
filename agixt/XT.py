@@ -95,11 +95,11 @@ class AGiXT:
         self.failures = 0
         self.input_tokens = 0
         self.file_reader = None
-        if self.conversation_id:
+        if self.collection_id is not None:
             self.file_reader = FileReader(
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
-                collection_number=self.conversation_id,
+                collection_number=self.collection_id,
                 ApiClient=self.ApiClient,
                 user=self.user_email,
             )
@@ -715,7 +715,7 @@ class AGiXT:
         file_url: str = "",
         file_name: str = "",
         user_input: str = "",
-        collection_id: str = "1",
+        collection_id: str = "0",
     ):
         """
         Learn from a file
