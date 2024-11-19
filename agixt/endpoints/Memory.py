@@ -145,7 +145,11 @@ async def learn_text(
     )
 
 
-@app.post("/api/agent/{agent_name}/learn/file", tags=["Memory"])
+@app.post(
+    "/api/agent/{agent_name}/learn/file",
+    tags=["Memory"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def learn_file(
     agent_name: str,
     file: FileInput,
