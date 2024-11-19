@@ -501,6 +501,14 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
+        # If this is a conversation ID, update the collection name
+        if len(self.collection_number) > 4:
+            self.collection_name = normalize_collection_name(
+                user=self.user,
+                agent_name=self.agent_name,
+                collection_id=self.collection_number,
+            )
+
         logging.info(
             f"Retrieving Memories from collection name: {self.collection_name}"
         )
