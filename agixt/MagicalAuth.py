@@ -65,6 +65,72 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     return False
 
 
+def urlencode(data: str):
+    return (
+        str(data)
+        .replace("%2B", "+")
+        .replace("%2F", "/")
+        .replace("%3D", "=")
+        .replace("%20", " ")
+        .replace("%3A", ":")
+        .replace("%3F", "?")
+        .replace("%26", "&")
+        .replace("%23", "#")
+        .replace("%3B", ";")
+        .replace("%40", "@")
+        .replace("%21", "!")
+        .replace("%24", "$")
+        .replace("%27", "'")
+        .replace("%28", "(")
+        .replace("%29", ")")
+        .replace("%2A", "*")
+        .replace("%2C", ",")
+        .replace("%3B", ";")
+        .replace("%5B", "[")
+        .replace("%5D", "]")
+        .replace("%7B", "{")
+        .replace("%7D", "}")
+        .replace("%7C", "|")
+        .replace("%5C", "\\")
+        .replace("%5E", "^")
+        .replace("%60", "`")
+        .replace("%7E", "~")
+    )
+
+
+def urldecode(data: str):
+    return (
+        str(data)
+        .replace("+", "%2B")
+        .replace("/", "%2F")
+        .replace("=", "%3D")
+        .replace(" ", "%20")
+        .replace(":", "%3A")
+        .replace("?", "%3F")
+        .replace("&", "%26")
+        .replace("#", "%23")
+        .replace(";", "%3B")
+        .replace("@", "%40")
+        .replace("!", "%21")
+        .replace("$", "%24")
+        .replace("'", "%27")
+        .replace("(", "%28")
+        .replace(")", "%29")
+        .replace("*", "%2A")
+        .replace(",", "%2C")
+        .replace(";", "%3B")
+        .replace("[", "%5B")
+        .replace("]", "%5D")
+        .replace("{", "%7B")
+        .replace("}", "%7D")
+        .replace("|", "%7C")
+        .replace("\\", "%5C")
+        .replace("^", "%5E")
+        .replace("`", "%60")
+        .replace("~", "%7E")
+    )
+
+
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     if getenv("AUTH_PROVIDER") == "magicalauth":
@@ -240,9 +306,10 @@ class MagicalAuth:
         return True
 
     def user_exists(self, email: str = None):
-        self.email = email.lower()
+        email = urldecode(email)
+        email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
+        user = session.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         session.close()
