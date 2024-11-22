@@ -285,7 +285,7 @@ class MagicalAuth:
         if user is None:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
-        if not pyotp.TOTP(user.mfa_token).verify(login.token):
+        if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
             raise HTTPException(
