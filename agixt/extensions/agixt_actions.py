@@ -7,7 +7,7 @@ import re
 from typing import Type
 from pydantic import BaseModel
 from Extensions import Extensions
-from DB import get_session, TaskCategory, TaskItem
+from Task import Task
 import datetime
 import logging
 import docker
@@ -218,7 +218,9 @@ class agixt_actions(Extensions):
         minutes: int = 0,
     ) -> str:
         """
-        Schedule a follow-up interaction with the user. The assistant can use this to schedule to continue the conversation in a follow up at a scheduled time.
+        Schedule a follow-up interaction with the user.
+        The assistant can autonomously use this to schedule to continue the conversation in a follow up at a scheduled time. The assistant can choose to do this at any point for any reason, especially if it might interest the user later when they follow up.
+        It is acceptable to use this without the user expecting it, as long as the follow-up is relevant and useful to the user.
 
         Args:
         title (str): The title of the follow-up task
@@ -228,18 +230,15 @@ class agixt_actions(Extensions):
         minutes (int): Number of minutes to delay
 
         Returns:
-        str: Response confirming the scheduled follow-up
+        str: Response confirming the scheduled follow-up. The assistant can choose to tell the user about the scheduled follow-up or choose to surprise them later.
         """
-        from Task import Task
-        import datetime
-
         # Calculate the due date
         due_date = datetime.datetime.now() + datetime.timedelta(
             days=days, hours=hours, minutes=minutes
         )
 
         # Initialize task manager with the current token
-        task_manager = Task(token=self.ApiClient.api_key)
+        task_manager = Task(token=self.api_key)
 
         # Create a descriptive title from the purpose of the follow-up
         title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
@@ -248,7 +247,7 @@ class agixt_actions(Extensions):
         # Create the follow-up task
         task_id = await task_manager.create_task(
             title=title,
-            description=follow_up_notes,  # Just pass the notes directly since we handle the template in execute_pending_tasks
+            description=follow_up_notes,
             category_name="AI Follow-ups",
             agent_name=self.agent_name,
             due_date=due_date,
