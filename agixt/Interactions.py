@@ -68,13 +68,6 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.github_memories = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="7",
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
             self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
@@ -83,7 +76,6 @@ class Interactions:
             self.agent_memory = None
             self.positive_feedback_memories = None
             self.negative_feedback_memories = None
-            self.github_memories = None
             self.outputs = f"{self.uri}/outputs"
         self.response = ""
         self.failures = 0
@@ -151,11 +143,6 @@ class Interactions:
                     except:
                         min_relevance_score = 0.2
                 context += await self.agent_memory.get_memories(
-                    user_input=user_input,
-                    limit=top_results,
-                    min_relevance_score=min_relevance_score,
-                )
-                context += await self.github_memories.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
@@ -481,6 +468,9 @@ class Interactions:
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
 - The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
 - Once the assistant executes a command, it should stop at </execute> and wait for the command output before continuing.
+- The assistant should never generate a <output> tag in the response. The assistant will receive the command output and will be able to reference the output in the response.
+- If there is an <output> tag in the assistants previous responses in context, it refers to the command execution output. Use this output to determine if the command was successful, and to course correct if needed.
+- Any time the assistant executes a command, the text generation should end with </execute>. The assistant will be informed of the command output before the user receives the response to give the assistant the opportunity to evaluate the output and ensure it is correct, exploring different options if needed.
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
         formatted_prompt = self.custom_format(
             string=prompt,
@@ -776,7 +766,39 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
+            response = self.response
             await self.execution_agent(conversation_name=conversation_name)
+            # While "</output>" is the ending of self.response, we need to keep executing commands or asking the agent if it should proceed
+            while self.response.endswith("</output>"):
+                response = self.response
+                await self.execution_agent(conversation_name=conversation_name)
+                if self.response != response:
+                    # There is a command output now, we need to feed it back to the LLM to continue its thought process
+                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                    command_response = await self.agent.inference(
+                        prompt=new_prompt, tokens=tokens
+                    )
+                    self.response = f"{self.response}{command_response}"
+        if "<answer>" in formatted_prompt and "</answer>" not in self.response:
+            while "</answer>" not in self.response:
+                new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
+                response = await self.agent.inference(prompt=new_prompt, tokens=tokens)
+                self.response = f"{self.response}{response}"
+                if (
+                    "</answer>" not in self.response
+                    and "{COMMANDS}" in unformatted_prompt
+                ):
+                    await self.execution_agent(conversation_name=conversation_name)
+                    while self.response.endswith("</output>"):
+                        response = self.response
+                        await self.execution_agent(conversation_name=conversation_name)
+                        if self.response != response:
+                            # There is a command output now, we need to feed it back to the LLM to continue its thought process
+                            new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                            command_response = await self.agent.inference(
+                                prompt=new_prompt, tokens=tokens
+                            )
+                            self.response = f"{self.response}{command_response}"
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
@@ -1018,6 +1040,5 @@ class Interactions:
                     role=self.agent_name,
                     message=f"[ACTIVITY] Executed command `{command_name}` with output: {command_output}",
                 )
-
         if reformatted_response != self.response:
             self.response = reformatted_response
