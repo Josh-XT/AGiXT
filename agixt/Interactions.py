@@ -787,10 +787,31 @@ class Interactions:
                 await self.execution_agent(conversation_name=conversation_name)
                 if self.response != response:
                     # There is a command output now, we need to feed it back to the LLM to continue its thought process
-                    new_prompt = f"{formatted_prompt}\n\nAssistant: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
-                    self.response = await self.agent.inference(
+                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                    command_response = await self.agent.inference(
                         prompt=new_prompt, tokens=tokens
                     )
+                    self.response = f"{command_response}{self.response}"
+        if "<answer>" in formatted_prompt and "</answer>" not in self.response:
+            while "</answer>" not in self.response:
+                new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
+                response = await self.agent.inference(prompt=new_prompt, tokens=tokens)
+                self.response = f"{response}{self.response}"
+                if (
+                    "</answer>" not in self.response
+                    and "{COMMANDS}" in unformatted_prompt
+                ):
+                    await self.execution_agent(conversation_name=conversation_name)
+                    while self.response.endswith("</output>"):
+                        response = self.response
+                        await self.execution_agent(conversation_name=conversation_name)
+                        if self.response != response:
+                            # There is a command output now, we need to feed it back to the LLM to continue its thought process
+                            new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                            command_response = await self.agent.inference(
+                                prompt=new_prompt, tokens=tokens
+                            )
+                            self.response = f"{command_response}{self.response}"
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
@@ -1032,6 +1053,5 @@ class Interactions:
                     role=self.agent_name,
                     message=f"[ACTIVITY] Executed command `{command_name}` with output: {command_output}",
                 )
-
         if reformatted_response != self.response:
             self.response = reformatted_response
