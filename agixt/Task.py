@@ -139,7 +139,7 @@ class Task:
                             conversation_id=task.memory_collection,
                             user_id=self.user_id,
                         )
-                        prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user. The user isn't exactly expecting your response, so greet them by name, be friendly, relate to the user with context available, and specifically follow up on the task as a new unprompted message to the user."
+                        prompt = f"## Notes about scheduled follow-up task\n{task.description}\n\nThe assistant {agent.name} is doing a scheduled follow up with the user. The user isn't exactly expecting your response, so greet them, be friendly, relate to the user with context available, and specifically follow up on the task as a new unprompted message to the user."
                         response = await self.ApiClient.prompt_agent(
                             agent_name=agent.name,
                             prompt_name="Think About It",
@@ -148,6 +148,8 @@ class Task:
                                 "conversation_name": conversation_name,
                                 "websearch": False,
                                 "analyze_user_input": False,
+                                "log_user_input": False,
+                                "log_output": True,
                             },
                         )
                         logging.info(
