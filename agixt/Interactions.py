@@ -776,7 +776,18 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt:
+            response = self.response
             await self.execution_agent(conversation_name=conversation_name)
+            # While "</output>" is the ending of self.response, we need to keep executing commands or asking the agent if it should proceed
+            while self.response.endswith("</output>"):
+                response = self.response
+                await self.execution_agent(conversation_name=conversation_name)
+                if self.response != response:
+                    # There is a command output now, we need to feed it back to the LLM to continue its thought process
+                    new_prompt = f"{formatted_prompt}\n\nAssistant: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                    self.response = await self.agent.inference(
+                        prompt=new_prompt, tokens=tokens
+                    )
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
