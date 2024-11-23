@@ -68,13 +68,6 @@ class Interactions:
                 ApiClient=self.ApiClient,
                 user=self.user,
             )
-            self.github_memories = FileReader(
-                agent_name=self.agent_name,
-                agent_config=self.agent.AGENT_CONFIG,
-                collection_number="7",
-                user=self.user,
-                ApiClient=self.ApiClient,
-            )
             self.outputs = f"{self.uri}/outputs/{self.agent.agent_id}"
         else:
             self.agent_name = ""
@@ -83,7 +76,6 @@ class Interactions:
             self.agent_memory = None
             self.positive_feedback_memories = None
             self.negative_feedback_memories = None
-            self.github_memories = None
             self.outputs = f"{self.uri}/outputs"
         self.response = ""
         self.failures = 0
@@ -151,11 +143,6 @@ class Interactions:
                     except:
                         min_relevance_score = 0.2
                 context += await self.agent_memory.get_memories(
-                    user_input=user_input,
-                    limit=top_results,
-                    min_relevance_score=min_relevance_score,
-                )
-                context += await self.github_memories.get_memories(
                     user_input=user_input,
                     limit=top_results,
                     min_relevance_score=min_relevance_score,
