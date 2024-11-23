@@ -922,7 +922,6 @@ Please take the presented idea and write a detailed scope for a junior developer
 Follow all patterns in the current framework to maintain maintainability and consistency.
 The developer may have little to no guidance outside of this scope.""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-                "auto_continue": True,
                 "log_user_input": False,
                 "log_output": False,
                 "browse_links": False,
@@ -975,7 +974,6 @@ When referencing files in the issue, please use the following format:
 // Code snippet here
 ```""",
                     "context": f"""### Content of {repo_url}\n\n{repo_content}\n{additional_context}\n### Scope of Work\n\n{scope}""",
-                    "auto_continue": True,
                     "log_user_input": False,
                     "log_output": False,
                     "browse_links": False,
