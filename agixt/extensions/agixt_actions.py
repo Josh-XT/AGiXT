@@ -4,9 +4,11 @@ import uuid
 import requests
 import os
 import re
-from typing import List, Type
+from typing import Type
 from pydantic import BaseModel
 from Extensions import Extensions
+from DB import get_session, TaskCategory, TaskItem
+import datetime
 import logging
 import docker
 import asyncio
@@ -178,6 +180,7 @@ class agixt_actions(Extensions):
             "Plan Multistep Task": self.plan_multistep_task,
             "Replace init in File": self.replace_init_in_file,
             "Explain Chain": self.chain_to_mermaid,
+            "Schedule Follow Up with User": self.schedule_follow_up,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -205,6 +208,55 @@ class agixt_actions(Extensions):
             )
         )
         self.failures = 0
+
+    async def schedule_follow_up(
+        self,
+        title: str,
+        follow_up_notes: str,
+        days: int = 0,
+        hours: int = 0,
+        minutes: int = 0,
+    ) -> str:
+        """
+        Schedule a follow-up interaction with the user. The assistant can use this to schedule to continue the conversation in a follow up at a scheduled time.
+
+        Args:
+        title (str): The title of the follow-up task
+        follow_up_notes (str): AI's notes about what to follow up on, including key context and purpose
+        days (int): Number of days to delay
+        hours (int): Number of hours to delay
+        minutes (int): Number of minutes to delay
+
+        Returns:
+        str: Response confirming the scheduled follow-up
+        """
+        from Task import Task
+        import datetime
+
+        # Calculate the due date
+        due_date = datetime.datetime.now() + datetime.timedelta(
+            days=days, hours=hours, minutes=minutes
+        )
+
+        # Initialize task manager with the current token
+        task_manager = Task(token=self.ApiClient.api_key)
+
+        # Create a descriptive title from the purpose of the follow-up
+        title_preview = title.split("\n")[0][:50] + ("..." if len(title) > 50 else "")
+        title = f"AI Follow-up: {title_preview}"
+
+        # Create the follow-up task
+        task_id = await task_manager.create_task(
+            title=title,
+            description=follow_up_notes,  # Just pass the notes directly since we handle the template in execute_pending_tasks
+            category_name="AI Follow-ups",
+            agent_name=self.agent_name,
+            due_date=due_date,
+            priority=1,  # High priority for follow-ups
+            memory_collection=self.conversation_id,  # This ensures context preservation
+        )
+
+        return f"Scheduled follow-up task {task_id} for {due_date.strftime('%Y-%m-%d %H:%M:%S')}"
 
     async def read_file_content(self, file_path: str):
         """
