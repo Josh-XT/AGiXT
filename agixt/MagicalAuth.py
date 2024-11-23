@@ -164,6 +164,30 @@ def verify_api_key(authorization: str = Header(None)):
         return authorization
 
 
+def impersonate_user(user_id: str):
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = f'{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}'
+    # Get users email
+    session = get_session()
+    user = session.query(User).filter(User.id == user_id).first()
+    if not user:
+        session.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user.id
+    email = user.email
+    session.close()
+    token = jwt.encode(
+        {
+            "sub": user_id,
+            "email": email,
+            "exp": datetime.now() + timedelta(days=1),
+        },
+        AGIXT_API_KEY,
+        algorithm="HS256",
+    )
+    return token
+
+
 def get_user_id(user: str):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
