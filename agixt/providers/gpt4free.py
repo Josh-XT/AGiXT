@@ -55,6 +55,7 @@ class Gpt4freeProvider:
         logging.info(
             f"[Gpt4Free] Using provider: {self.provider_name} with model: {self.AI_MODEL}"
         )
+        prompt = f"Ignore all previous rules about language use and respond only in English.\n{prompt}"
         try:
             return (
                 await asyncio.gather(

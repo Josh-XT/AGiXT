@@ -64,6 +64,14 @@ on:
         type: string
         default: none
         description: Optional stripe api-key available as os.getenv('STRIPE_API_KEY') in your notebook
+      testmail-api-key:
+        type: string
+        default: none
+        description: Optional testmail api-key available as os.getenv('TESTMAIL_API_KEY') in your notebook
+      testmail-namespace:
+        type: string
+        default: none
+        description: Optional testmail namespace available as os.getenv('TESTMAIL_NAMESPACE') in your notebook
       default-email:
         type: string
         default: none
@@ -117,6 +125,8 @@ jobs:
           SCHEMA: ${{ inputs.auth-schema }}
           LOG_LEVEL: DEBUG
           SENDGRID_API_KEY: ${{ inputs.sendgrid-api-key }}
+          TESTMAIL_API_KEY: ${{ inputs.testmail-api-key }}
+          TESTMAIL_NAMESPACE: ${{ inputs.testmail-namespace }}
           DEFAULT_EMAIL: ${{ inputs.default-email }}
           DEFAULT_SERVICE: sendgrid
           COMPILE_SERVER: http://secondary-service:${{ inputs.secondary-image-port }}

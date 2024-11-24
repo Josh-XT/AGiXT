@@ -65,6 +65,72 @@ def is_agixt_admin(email: str = "", api_key: str = ""):
     return False
 
 
+def urlencode(data: str):
+    return (
+        str(data)
+        .replace("%2B", "+")
+        .replace("%2F", "/")
+        .replace("%3D", "=")
+        .replace("%20", " ")
+        .replace("%3A", ":")
+        .replace("%3F", "?")
+        .replace("%26", "&")
+        .replace("%23", "#")
+        .replace("%3B", ";")
+        .replace("%40", "@")
+        .replace("%21", "!")
+        .replace("%24", "$")
+        .replace("%27", "'")
+        .replace("%28", "(")
+        .replace("%29", ")")
+        .replace("%2A", "*")
+        .replace("%2C", ",")
+        .replace("%3B", ";")
+        .replace("%5B", "[")
+        .replace("%5D", "]")
+        .replace("%7B", "{")
+        .replace("%7D", "}")
+        .replace("%7C", "|")
+        .replace("%5C", "\\")
+        .replace("%5E", "^")
+        .replace("%60", "`")
+        .replace("%7E", "~")
+    )
+
+
+def urldecode(data: str):
+    return (
+        str(data)
+        .replace("+", "%2B")
+        .replace("/", "%2F")
+        .replace("=", "%3D")
+        .replace(" ", "%20")
+        .replace(":", "%3A")
+        .replace("?", "%3F")
+        .replace("&", "%26")
+        .replace("#", "%23")
+        .replace(";", "%3B")
+        .replace("@", "%40")
+        .replace("!", "%21")
+        .replace("$", "%24")
+        .replace("'", "%27")
+        .replace("(", "%28")
+        .replace(")", "%29")
+        .replace("*", "%2A")
+        .replace(",", "%2C")
+        .replace(";", "%3B")
+        .replace("[", "%5B")
+        .replace("]", "%5D")
+        .replace("{", "%7B")
+        .replace("}", "%7D")
+        .replace("|", "%7C")
+        .replace("\\", "%5C")
+        .replace("^", "%5E")
+        .replace("`", "%60")
+        .replace("~", "%7E")
+    )
+
+
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
     if getenv("AUTH_PROVIDER") == "magicalauth":
@@ -96,6 +162,30 @@ def verify_api_key(authorization: str = Header(None)):
         return user
     else:
         return authorization
+
+
+def impersonate_user(user_id: str):
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    AGIXT_API_KEY = f'{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}'
+    # Get users email
+    session = get_session()
+    user = session.query(User).filter(User.id == user_id).first()
+    if not user:
+        session.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_id = user.id
+    email = user.email
+    session.close()
+    token = jwt.encode(
+        {
+            "sub": user_id,
+            "email": email,
+            "exp": datetime.now() + timedelta(days=1),
+        },
+        AGIXT_API_KEY,
+        algorithm="HS256",
+    )
+    return token
 
 
 def get_user_id(user: str):
@@ -240,9 +330,10 @@ class MagicalAuth:
         return True
 
     def user_exists(self, email: str = None):
-        self.email = email.lower()
+        email = urldecode(email)
+        email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
+        user = session.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         session.close()
@@ -285,7 +376,7 @@ class MagicalAuth:
         if user is None:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
-        if not pyotp.TOTP(user.mfa_token).verify(login.token):
+        if not pyotp.TOTP(user.mfa_token).verify(login.token, valid_window=60):
             self.add_failed_login(ip_address=ip_address)
             session.close()
             raise HTTPException(
@@ -508,8 +599,6 @@ class MagicalAuth:
             .filter(UserPreferences.user_id == self.user_id)
             .all()
         )
-        if "stripe_id" in kwargs:
-            del kwargs["stripe_id"]
         if "email" in kwargs:
             del kwargs["email"]
         if "input_tokens" in kwargs:
@@ -673,62 +762,7 @@ class MagicalAuth:
                 requirements = json.load(file)
         if not requirements:
             requirements = {}
-        if "stripe_id" not in requirements:
-            requirements["stripe_id"] = "None"
         return requirements
-
-    def get_subscribed_products(self, stripe_api_key, stripe_customer_id):
-        import stripe
-
-        # TODO make sure if the stripe request fails, an exception gets thrown.
-        stripe.api_key = stripe_api_key
-        logging.info(f"Checking subscriptions for customer {stripe_customer_id}...")
-        all_subscriptions = stripe.Subscription.list(
-            customer=stripe_customer_id,
-            expand=["data.items.data.price"],
-        )
-        logging.info(f"Found {len(all_subscriptions)} subscriptions.")
-        relevant_subscriptions = []
-        for subscription in all_subscriptions:
-            logging.info(f"Checking subscription {subscription['id']}")
-            if subscription.status == "active":
-                logging.info(f"Subscription {subscription['id']} active.")
-                relevant_to_this_app = None
-                for item in subscription["items"]:
-                    product_id = item["price"]["product"]
-                    product = stripe.Product.retrieve(product_id)
-                    try:
-                        relevant_app = product["metadata"]["APP_NAME"]
-                    except:
-                        relevant_app = "[No App Defined in Product]"
-                        logging.warning(
-                            f"Subscription detected with items missing relevant APP_NAME metadata: {subscription['id']}"
-                        )
-                    print(product)
-                    print(relevant_app)
-                    if relevant_app == getenv("APP_NAME"):
-                        if relevant_to_this_app == False:
-                            raise Exception(
-                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
-                            )
-                        relevant_to_this_app = True
-                        logging.info(
-                            f"Subscription {subscription['id']} relevant to this app {getenv('APP_NAME')}."
-                        )
-                    else:
-                        if relevant_to_this_app == True:
-                            raise Exception(
-                                f"Subscription detected with items from multiple apps (or products missing metadata): {subscription['id']}"
-                            )
-                        relevant_to_this_app = False
-                        logging.info(
-                            f"Subscription {subscription['id']} not relevant to this app {getenv('APP_NAME')}, is for {relevant_app}."
-                        )
-                    if relevant_to_this_app:
-                        relevant_subscriptions.append(subscription)
-            else:
-                logging.info(f"Subscription {subscription['id']} not active.")
-        return relevant_subscriptions
 
     def get_user_preferences(self):
         session = get_session()
@@ -746,54 +780,6 @@ class MagicalAuth:
             user_preferences["input_tokens"] = 0
         if "output_tokens" not in user_preferences:
             user_preferences["output_tokens"] = 0
-        if user.email != getenv("DEFAULT_USER"):
-            api_key = getenv("STRIPE_API_KEY")
-            if api_key != "" and api_key is not None and str(api_key).lower() != "none":
-                import stripe
-
-                stripe.api_key = api_key
-                if "stripe_id" not in user_preferences or not user_preferences[
-                    "stripe_id"
-                ].startswith("cus_"):
-                    logging.info("No Stripe ID found in user preferences.")
-                    customer = stripe.Customer.create(email=user.email)
-                    user_preferences["stripe_id"] = customer.id
-                    user_preference = UserPreferences(
-                        user_id=self.user_id,
-                        pref_key="stripe_id",
-                        pref_value=customer.id,
-                    )
-                    session.add(user_preference)
-                    session.commit()
-
-                else:
-                    logging.info("Stripe ID found: " + user_preferences["stripe_id"])
-                    relevant_subscriptions = self.get_subscribed_products(
-                        api_key, user_preferences["stripe_id"]
-                    )
-                    if not relevant_subscriptions:
-                        logging.info(f"No active subscriptions for this app detected.")
-                        c_session = stripe.CustomerSession.create(
-                            customer=user_preferences["stripe_id"],
-                            components={"pricing_table": {"enabled": True}},
-                        )
-                        user = (
-                            session.query(User).filter(User.id == self.user_id).first()
-                        )
-                        user.is_active = False
-                        session.commit()
-                        session.close()
-                        raise HTTPException(
-                            status_code=402,
-                            detail={
-                                "message": f"No active subscriptions.",
-                                "customer_session": c_session,
-                            },
-                        )
-                    else:
-                        logging.info(
-                            f"{len(relevant_subscriptions)} subscriptions relevant to this app detected."
-                        )
         if "email" in user_preferences:
             del user_preferences["email"]
         if "first_name" in user_preferences:
@@ -806,8 +792,7 @@ class MagicalAuth:
         if user_requirements:
             for key, value in user_requirements.items():
                 if key not in user_preferences:
-                    if key != "stripe_id":
-                        missing_requirements.append({key: value})
+                    missing_requirements.append({key: value})
         if missing_requirements:
             user_preferences["missing_requirements"] = missing_requirements
         session.close()

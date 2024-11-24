@@ -6,7 +6,6 @@ from agixtsdk import AGiXTSDK
 from Models import WebhookUser, WebhookModel
 from Globals import getenv
 import pyotp
-import stripe
 import logging
 
 app = APIRouter()
@@ -144,63 +143,6 @@ async def createuser(account: WebhookUser):
             file_content=zip_file_content,
         )
     return {"status": "Success"}, 200
-
-
-if getenv("STRIPE_WEBHOOK_SECRET") != "":
-
-    @app.post(
-        "/v1/webhook",
-        summary="Webhook endpoint for events.",
-        response_model=WebhookModel,
-        tags=["Webhook"],
-    )
-    async def webhook(request: Request):
-        event = None
-        data = None
-        try:
-            event = stripe.Webhook.construct_event(
-                payload=(await request.body()).decode("utf-8"),
-                sig_header=request.headers.get("stripe-signature"),
-                secret=getenv("STRIPE_WEBHOOK_SECRET"),
-            )
-            data = event["data"]["object"]
-        except stripe.error.SignatureVerificationError as e:
-            logging.debug(f"Webhook signature verification failed: {str(e)}.")
-            raise HTTPException(
-                status_code=400, detail="Webhook signature verification failed."
-            )
-        logging.debug(f"Stripe Webhook Event of type {event['type']} received")
-        if event and event["type"] == "checkout.session.completed":
-            session = get_session()
-            logging.debug("Checkout session completed.")
-            email = data["customer_details"]["email"]
-            user = session.query(User).filter_by(email=email).first()
-            stripe_id = data["customer"]
-            name = data["customer_details"]["name"]
-            if not user:
-                logging.debug("User not found.")
-                return {"success": "false"}
-            user_preference_stripe_id = (
-                session.query(UserPreferences)
-                .filter_by(user_id=user.id, pref_key="stripe_id")
-                .first()
-            )
-            if not user_preference_stripe_id:
-                user_preference_stripe_id = UserPreferences(
-                    user_id=user.id, pref_key="stripe_id", pref_value=stripe_id
-                )
-                session.add(user_preference_stripe_id)
-                session.commit()
-            name = name.split(" ")
-            user.is_active = True
-            session.commit()
-            session.close()
-            return {"success": "true"}
-        elif event and event["type"] == "customer.subscription.updated":
-            logging.debug("Customer Subscription Update session completed.")
-        else:
-            logging.debug("Unhandled Stripe event type {}".format(event["type"]))
-        return {"success": "true"}
 
 
 @app.post(

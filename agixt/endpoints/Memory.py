@@ -157,18 +157,18 @@ async def learn_file(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     timestamp = datetime.now().strftime("%Y-%m-%d")
-    conversation_name = str(file.collection_number)
-    if len(file.collection_number) > 4:
-        conversation = Conversations(
-            conversation_name=file.collection_number, user=user
-        )
-        file.collection_number = conversation.get_conversation_id()
+    collection_number = str(file.collection_number)
+    conversation_name = None
+    if len(collection_number) > 4:
+        conversation = Conversations(conversation_name=collection_number, user=user)
+        collection_number = conversation.get_conversation_id()
+        conversation_name = collection_number
     agent = AGiXT(
         user=user,
         agent_name=agent_name,
         api_key=authorization,
         conversation_name=conversation_name,
-        collection_id=file.collection_number,
+        collection_id=collection_number,
     )
     file.file_name = os.path.basename(file.file_name)
     file_path = os.path.normpath(

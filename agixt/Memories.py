@@ -148,6 +148,97 @@ def get_chroma_client():
     )
 
 
+def hash_user_id(user: str, length: int = 8) -> str:
+    """
+    Creates a consistent, short hash of a user identifier (usually email).
+
+    Args:
+        user: User identifier (email)
+        length: Desired length of the hash
+
+    Returns:
+        str: Short, consistent hash of the user ID
+    """
+    from hashlib import sha256
+    import base64
+
+    # Generate hash of the user identifier
+    hash_obj = sha256(user.encode())
+    hash_bytes = hash_obj.digest()[:6]  # Take first 6 bytes
+    # Use base32 for alphanumeric, url-safe output
+    hash_str = base64.b32encode(hash_bytes).decode().lower()
+
+    # Return consistent length hash
+    return hash_str[:length]
+
+
+def normalize_collection_name(
+    user: str, agent_name: str, collection_id: str = "0", max_length: int = 63
+) -> str:
+    """
+    Normalizes a collection name with hashed user ID for consistent length.
+    Format: uhash_agentname_collectionid
+
+    Args:
+        user: User identifier (email)
+        agent_name: Name of the agent
+        collection_id: Collection identifier/number
+        max_length: Maximum length for collection name
+
+    Returns:
+        str: Normalized collection name meeting Chroma's requirements
+    """
+    # Hash the user ID first
+    user_hash = hash_user_id(user)
+
+    # Snake case the agent name
+    agent_snake = snake(agent_name)
+
+    # Handle conversation IDs (long collection_id)
+    if len(collection_id) > 4:
+        # For conversation IDs, we'll hash the ID too
+        conv_hash = hash_user_id(collection_id, length=10)
+        normalized = f"u{user_hash}_{agent_snake}_{conv_hash}"
+    else:
+        # For normal collections, keep the number
+        normalized = f"u{user_hash}_{agent_snake}_{collection_id}"
+
+    # Ensure we're within length limits
+    if len(normalized) > max_length:
+        # If still too long, truncate agent name but keep user hash and collection id
+        available_space = (
+            max_length - len(user_hash) - len(collection_id) - 3
+        )  # 3 for u_ _
+        agent_snake = agent_snake[:available_space]
+        normalized = f"u{user_hash}_{agent_snake}_{collection_id}"
+
+    # Ensure it ends with alphanumeric
+    while not normalized[-1].isalnum():
+        normalized = normalized[:-1]
+
+    # Ensure minimum length of 3
+    while len(normalized) < 3:
+        normalized += "0"
+
+    return normalized
+
+
+def get_user_collections_prefix(user: str) -> str:
+    """
+    Gets the prefix for finding all collections belonging to a user.
+    """
+    user_hash = hash_user_id(user)
+    return f"u{user_hash}_"
+
+
+def get_base_collection_name(user: str, agent_name: str) -> str:
+    """
+    Gets the base collection name before normalization.
+    This is used to maintain consistent prefix for get_collections().
+    """
+    return snake(f"{user}_{agent_name}")
+
+
 class Memories:
     def __init__(
         self,
@@ -164,17 +255,15 @@ class Memories:
             DEFAULT_USER = "user"
         if not user:
             user = "user"
-        if user != DEFAULT_USER:
-            self.collection_name = f"{snake(user)}_{snake(agent_name)}"
-        else:
-            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{agent_name}")
         self.user = user
+        self.collection_name = get_base_collection_name(user, agent_name)
         self.collection_number = collection_number
         # Check if collection_number is a number, it might be a string
-        if collection_number != "0":
-            self.collection_name = snake(f"{self.collection_name}_{collection_number}")
-        if len(collection_number) > 4:
-            self.collection_name = snake(f"{collection_number}")
+        self.collection_name = normalize_collection_name(
+            user=self.user,
+            agent_name=self.agent_name,
+            collection_id=self.collection_number,
+        )
         if agent_config is None:
             agent_config = ApiClient.get_agentconfig(agent_name=agent_name)
         self.agent_config = (
@@ -246,10 +335,9 @@ class Memories:
             for key, value in data.items():
                 self.collection_number = key if key else "0"
                 self.collection_name = snake(f"{self.user}_{self.agent_name}")
-                if str(self.collection_number) != "0":
-                    self.collection_name = (
-                        f"{self.collection_name}_{self.collection_number}"
-                    )
+                self.collection_name = (
+                    f"{self.collection_name}_{self.collection_number}"
+                )
                 for val in value[self.collection_name]:
                     try:
                         await self.write_text_to_memory(
@@ -263,14 +351,12 @@ class Memories:
     # get collections that start with the collection name
     async def get_collections(self):
         collections = self.chroma_client.list_collections()
-        if str(self.collection_number) != "0":
-            collection_name = snake(f"{self.user}_{self.agent_name}")
-        else:
-            collection_name = self.collection_name
+        prefix = get_user_collections_prefix(self.user)
+        # Returns collections that start with the user's prefix
         return [
-            collection
+            collection.name
             for collection in collections
-            if collection.startswith(collection_name)
+            if collection.name.startswith(prefix)
         ]
 
     async def get_collection(self):
@@ -278,15 +364,20 @@ class Memories:
             return self.chroma_client.get_or_create_collection(
                 name=self.collection_name, embedding_function=self.embedder
             )
-        except:
+        except Exception as e:
             try:
+                logging.warning(
+                    f"Error275 {e} getting collection: {self.collection_name}"
+                )
                 return self.chroma_client.create_collection(
                     name=self.collection_name,
                     embedding_function=self.embedder,
                     get_or_create=True,
                 )
-            except:
-                logging.warning(f"Error getting collection: {self.collection_name}")
+            except Exception as e:
+                logging.warning(
+                    f"Error282 {e} getting collection: {self.collection_name}"
+                )
                 return None
 
     async def delete_memory(self, key: str):
@@ -318,6 +409,8 @@ class Memories:
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
+        # Log the collection number and agent name
+        logging.info(f"Saving to collection name: {self.collection_name}")
         collection = await self.get_collection()
         if text:
             if not isinstance(text, str):
@@ -408,47 +501,25 @@ class Memories:
         limit: int,
         min_relevance_score: float = 0.0,
     ) -> List[str]:
-        global DEFAULT_USER
-        logging.info(f"Collection name: {self.collection_name}")
-        default_collection_name = self.collection_name
-        default_results = []
-        if self.user != DEFAULT_USER:
-            # Get global memories for the agent first
-            self.collection_name = snake(f"{snake(DEFAULT_USER)}_{self.agent_name}")
-            if str(self.collection_number) != "0":
-                self.collection_name = (
-                    f"{self.collection_name}_{self.collection_number}"
-                )
-            if len(self.collection_number) > 4:
-                self.collection_name = snake(f"{self.collection_number}")
-        try:
-            default_results = await self.get_memories_data(
-                user_input=user_input,
-                limit=limit,
-                min_relevance_score=min_relevance_score,
-            )
-            logging.info(
-                f"{len(default_results)} default results found in {self.collection_name}"
-            )
-        except:
-            default_results = []
-        self.collection_name = default_collection_name
+        # If this is a conversation ID, update the collection name
         if len(self.collection_number) > 4:
-            self.collection_name = snake(f"{self.collection_number}")
-        logging.info(f"Collection name: {self.collection_name}")
-        user_results = await self.get_memories_data(
+            self.collection_name = normalize_collection_name(
+                user=self.user,
+                agent_name=self.agent_name,
+                collection_id=self.collection_number,
+            )
+
+        logging.info(
+            f"Retrieving Memories from collection name: {self.collection_name}"
+        )
+        results = await self.get_memories_data(
             user_input=user_input,
             limit=limit,
             min_relevance_score=min_relevance_score,
         )
-        logging.info(
-            f"{len(user_results)} user results found in {self.collection_name}"
-        )
-        if isinstance(user_results, str):
-            user_results = [user_results]
-        if isinstance(default_results, str):
-            default_results = [default_results]
-        results = user_results + default_results
+        logging.info(f"{len(results)} user results found in {self.collection_name}")
+        if isinstance(results, str):
+            results = [results]
         response = []
         if results:
             for result in results:
