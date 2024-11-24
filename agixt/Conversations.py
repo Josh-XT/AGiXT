@@ -16,6 +16,24 @@ logging.basicConfig(
 )
 
 
+def get_conversation_name_by_id(conversation_id, user_id):
+    session = get_session()
+    conversation = (
+        session.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+        .first()
+    )
+    if not conversation:
+        session.close()
+        return "-"
+    conversation_name = conversation.name
+    session.close()
+    return conversation_name
+
+
 class Conversations:
     def __init__(self, conversation_name=None, user=DEFAULT_USER):
         self.conversation_name = conversation_name
