@@ -3,11 +3,13 @@ import re
 import time
 import datetime
 import requests
+import difflib
 from pydantic import BaseModel
-from typing import List
+from typing import List, Literal, Union
 from Extensions import Extensions
 from agixtsdk import AGiXTSDK
 from Globals import getenv
+from dataclasses import dataclass
 
 try:
     import git
@@ -35,6 +37,97 @@ class Issue(BaseModel):
 
 class Issues(BaseModel):
     issues: List[Issue]
+
+
+@dataclass
+class CodeBlock:
+    start_line: int
+    end_line: int
+    content: str
+
+
+@dataclass
+class FileModification:
+    operation: Literal["replace", "insert", "delete"]
+    target: Union[str, CodeBlock]
+    new_content: str = None
+    context_lines: int = 3
+    fuzzy_match: bool = True
+
+
+class IndentationHelper:
+    @staticmethod
+    def detect_indentation(content: str) -> tuple[str, int]:
+        """Detect whether spaces or tabs are used and how many"""
+        lines = content.splitlines()
+        space_pattern = re.compile(r"^ +")
+        tab_pattern = re.compile(r"^\t+")
+
+        space_counts = {}
+        tab_counts = {}
+
+        for line in lines:
+            if line.strip():  # Skip empty lines
+                space_match = space_pattern.match(line)
+                tab_match = tab_pattern.match(line)
+
+                if space_match:
+                    count = len(space_match.group())
+                    space_counts[count] = space_counts.get(count, 0) + 1
+                elif tab_match:
+                    count = len(tab_match.group())
+                    tab_counts[count] = tab_counts.get(count, 0) + 1
+
+        # Determine most common indentation
+        if space_counts and (
+            not tab_counts
+            or max(space_counts.values()) >= max(tab_counts.values(), default=0)
+        ):
+            most_common_count = max(space_counts.items(), key=lambda x: x[1])[0]
+            return (" " * most_common_count, most_common_count)
+        elif tab_counts:
+            most_common_count = max(tab_counts.items(), key=lambda x: x[1])[0]
+            return ("\t" * most_common_count, most_common_count)
+        return ("    ", 4)  # Default to 4 spaces if no pattern is found
+
+    @staticmethod
+    def normalize_indentation(content: str) -> str:
+        """Convert all indentation to spaces for comparison"""
+        lines = content.splitlines()
+        normalized = []
+        for line in lines:
+            normalized_line = line.replace("\t", "    ")
+            normalized.append(normalized_line)
+        return "\n".join(normalized)
+
+    @staticmethod
+    def adjust_indentation(
+        content: str, base_indent: str, relative_level: int = 0
+    ) -> str:
+        """Adjust content indentation to match target style"""
+        lines = content.splitlines()
+        adjusted = []
+
+        # Find minimum indentation in the content
+        min_indent = float("inf")
+        for line in lines:
+            if line.strip():  # Skip empty lines
+                indent = len(line) - len(line.lstrip())
+                min_indent = min(min_indent, indent)
+        min_indent = 0 if min_indent == float("inf") else min_indent
+
+        # Adjust each line's indentation
+        for line in lines:
+            if not line.strip():  # Preserve empty lines
+                adjusted.append("")
+                continue
+
+            current_indent = len(line) - len(line.lstrip())
+            relative_indent = current_indent - min_indent
+            new_indent = base_indent * (relative_level + (relative_indent // 4))
+            adjusted.append(new_indent + line.lstrip())
+
+        return "\n".join(adjusted)
 
 
 class github(Extensions):
@@ -69,6 +162,10 @@ class github(Extensions):
             "Create and Merge Github Repository Pull Request": self.create_and_merge_pull_request,
             "Improve Github Repository Codebase": self.improve_codebase,
             "Copy Github Repository Contents": self.copy_repo_contents,
+            "Modify File Content on Github": self.modify_file_content,
+            "Replace in File on Github": self.replace_in_file,
+            "Insert in File on Github": self.insert_in_file,
+            "Delete from File on Github": self.delete_from_file,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -78,6 +175,7 @@ class github(Extensions):
         else:
             self.gh = None
         self.failures = 0
+        self.indentation_helper = IndentationHelper()
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
             if "conversation_directory" in kwargs
@@ -1110,3 +1208,341 @@ When referencing files in the issue, please use the following format:
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
+
+    async def modify_file_content(
+        self,
+        repo_url: str,
+        file_path: str,
+        modification_commands: str,
+        branch: str = None,
+    ) -> str:
+        """
+        Apply a series of modifications to a file while preserving formatting and context.
+        Smart indentation handling ensures that code structure is maintained regardless of the
+        indentation in the modification commands.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository (e.g., "https://github.com/username/repo")
+            file_path (str): Path to the file within the repository (e.g., "src/example.py")
+            modification_commands (str): XML formatted string containing one or more modification commands
+            branch (str, optional): Branch to modify. Defaults to repository's default branch
+
+        The modification_commands should be formatted as follows:
+
+        <modification>
+        <operation>replace|insert|delete</operation>
+        <target>code_block_or_line_number</target>
+        <content>new_content</content>
+        <fuzzy_match>true|false</fuzzy_match>
+        </modification>
+
+        Operation Types:
+        - replace: Replaces the target code block with new content
+        - insert: Inserts new content at the target location
+        - delete: Removes the target code block
+
+        Target Options:
+        1. Code block: A string of code to match in the file
+           Example: "def old_function():\\n    pass"
+        2. Line number: A specific line number where the operation should occur
+           Example: "10" (to target line 10)
+
+        Fuzzy Matching:
+        - true: Enables smart matching that ignores whitespace differences (default)
+        - false: Requires exact match including whitespace
+
+        Examples:
+        1. Replace a function:
+        <modification>
+        <operation>replace</operation>
+        <target>def old_function():
+            pass</target>
+        <content>def new_function(param: str):
+            return param.upper()</content>
+        <fuzzy_match>true</fuzzy_match>
+        </modification>
+
+        2. Insert new code at line 10:
+        <modification>
+        <operation>insert</operation>
+        <target>10</target>
+        <content>    new_method = lambda x: x * 2</content>
+        </modification>
+
+        3. Delete a code block:
+        <modification>
+        <operation>delete</operation>
+        <target>    # Old comment
+            old_variable = None</target>
+        </modification>
+
+        4. Multiple modifications:
+        <modification>
+        <operation>replace</operation>
+        <target>old_code</target>
+        <content>new_code</content>
+        </modification>
+        <modification>
+        <operation>insert</operation>
+        <target>20</target>
+        <content>more_code</content>
+        </modification>
+
+        Returns:
+            str: A unified diff showing the changes made or error message
+        """
+        try:
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+            if not branch:
+                branch = repo.default_branch
+
+            # Get current file content
+            file_content = repo.get_contents(
+                file_path, ref=branch
+            ).decoded_content.decode("utf-8")
+            indent_str, indent_size = self.indent_helper.detect_indentation(
+                file_content
+            )
+
+            original_lines = file_content.splitlines()
+            modified_lines = original_lines.copy()
+
+            # Extract modifications from XML
+            modifications = re.findall(
+                r"<modification>(.*?)</modification>", modification_commands, re.DOTALL
+            )
+
+            for mod in modifications:
+                operation = re.search(r"<operation>(.*?)</operation>", mod, re.DOTALL)
+                target = re.search(r"<target>(.*?)</target>", mod, re.DOTALL)
+                content = re.search(r"<content>(.*?)</content>", mod, re.DOTALL)
+                fuzzy = re.search(r"<fuzzy_match>(.*?)</fuzzy_match>", mod, re.DOTALL)
+
+                if not operation or not target:
+                    continue
+
+                operation = operation.group(1).strip()
+                target = target.group(1).strip()
+                content = content.group(1).strip() if content else None
+                fuzzy_match = fuzzy.group(1).lower() == "true" if fuzzy else True
+
+                # Handle line numbers in target
+                if target.isdigit():
+                    start_line = int(target)
+                    end_line = start_line + 1
+                    indent_level = 0
+                    for line in modified_lines[start_line:end_line]:
+                        if line.strip():
+                            indent_level = (len(line) - len(line.lstrip())) // len(
+                                indent_str
+                            )
+                            break
+                else:
+                    # Find the target in the file content
+                    start_line, end_line, indent_level = self._find_pattern_boundaries(
+                        modified_lines, target, context_lines=3, fuzzy_match=fuzzy_match
+                    )
+
+                if operation == "replace" and content:
+                    adjusted_content = self.indent_helper.adjust_indentation(
+                        content, indent_str, indent_level
+                    )
+                    modified_lines[start_line:end_line] = adjusted_content.splitlines()
+                elif operation == "insert" and content:
+                    adjusted_content = self.indent_helper.adjust_indentation(
+                        content, indent_str, indent_level
+                    )
+                    for i, line in enumerate(adjusted_content.splitlines()):
+                        modified_lines.insert(start_line + i, line)
+                elif operation == "delete":
+                    del modified_lines[start_line:end_line]
+
+            # Generate diff for review
+            diff = list(
+                difflib.unified_diff(
+                    original_lines,
+                    modified_lines,
+                    fromfile=file_path,
+                    tofile=file_path,
+                    lineterm="",
+                    n=3,
+                )
+            )
+
+            if not diff:
+                return "No changes needed"
+
+            # Apply changes
+            new_content = "\n".join(modified_lines)
+            commit_message = f"Modified {file_path}"
+            file = repo.get_contents(file_path, ref=branch)
+            repo.update_file(
+                file_path, commit_message, new_content, file.sha, branch=branch
+            )
+
+            return "\n".join(diff)
+
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.modify_file_content(
+                    repo_url, file_path, modification_commands, branch
+                )
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    # Helper command methods for individual operations
+    async def replace_in_file(
+        self,
+        repo_url: str,
+        file_path: str,
+        target: str,
+        content: str,
+        fuzzy_match: str = "true",
+        branch: str = None,
+    ) -> str:
+        """
+        Replace a code block in a file while preserving formatting and indentation.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository
+            file_path (str): Path to the file within the repository
+            target (str): Code block to replace or line number
+            content (str): New code to insert in place of target
+            fuzzy_match (str): "true" for smart matching ignoring whitespace, "false" for exact match
+            branch (str, optional): Branch to modify. Defaults to repository's default branch
+
+        The target can be either:
+        1. A code block:
+           target="def old_function():
+                     pass"
+        2. A line number:
+           target="42"
+
+        Examples:
+            Replace a function:
+            <execute>
+            <name>Replace in File</name>
+            <repo_url>https://github.com/username/repo</repo_url>
+            <file_path>src/example.py</file_path>
+            <target>def old_function():
+                pass</target>
+            <content>def new_function(param: str):
+                return param.upper()</content>
+            <fuzzy_match>true</fuzzy_match>
+            </execute>
+
+        Returns:
+            str: A unified diff showing the changes made or error message
+        """
+        modification = f"""
+        <modification>
+        <operation>replace</operation>
+        <target>{target}</target>
+        <content>{content}</content>
+        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        </modification>
+        """
+        return await self.modify_file_content(repo_url, file_path, modification, branch)
+
+    async def insert_in_file(
+        self,
+        repo_url: str,
+        file_path: str,
+        target: str,
+        content: str,
+        fuzzy_match: str = "true",
+        branch: str = None,
+    ) -> str:
+        """
+        Insert new code at a specific location in a file while preserving formatting.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository
+            file_path (str): Path to the file within the repository
+            target (str): Location to insert code (line number or code block to insert after)
+            content (str): New code to insert
+            fuzzy_match (str): "true" for smart matching ignoring whitespace, "false" for exact match
+            branch (str, optional): Branch to modify. Defaults to repository's default branch
+
+        The target can be either:
+        1. A line number where the code should be inserted:
+           target="10"
+        2. A code block to insert after:
+           target="class ExampleClass:"
+
+        Examples:
+            Insert a new method:
+            <execute>
+            <name>Insert in File</name>
+            <repo_url>https://github.com/username/repo</repo_url>
+            <file_path>src/example.py</file_path>
+            <target>class MyClass:</target>
+            <content>    def new_method(self):
+                return "Hello World"</content>
+            <fuzzy_match>true</fuzzy_match>
+            </execute>
+
+        Returns:
+            str: A unified diff showing the changes made or error message
+        """
+        modification = f"""
+        <modification>
+        <operation>insert</operation>
+        <target>{target}</target>
+        <content>{content}</content>
+        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        </modification>
+        """
+        return await self.modify_file_content(repo_url, file_path, modification, branch)
+
+    async def delete_from_file(
+        self,
+        repo_url: str,
+        file_path: str,
+        target: str,
+        fuzzy_match: str = "true",
+        branch: str = None,
+    ) -> str:
+        """
+        Delete a code block from a file.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository
+            file_path (str): Path to the file within the repository
+            target (str): Code block to delete or line number range
+            fuzzy_match (str): "true" for smart matching ignoring whitespace, "false" for exact match
+            branch (str, optional): Branch to modify. Defaults to repository's default branch
+
+        The target can be either:
+        1. A code block to remove:
+           target="    # Old comment
+                      old_variable = None"
+        2. A specific line:
+           target="42"
+
+        Examples:
+            Delete an obsolete function:
+            <execute>
+            <name>Delete from File</name>
+            <repo_url>https://github.com/username/repo</repo_url>
+            <file_path>src/example.py</file_path>
+            <target>def deprecated_function():
+                # This function is no longer used
+                pass</target>
+            <fuzzy_match>true</fuzzy_match>
+            </execute>
+
+        Returns:
+            str: A unified diff showing the changes made or error message
+        """
+        modification = f"""
+        <modification>
+        <operation>delete</operation>
+        <target>{target}</target>
+        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        </modification>
+        """
+        return await self.modify_file_content(repo_url, file_path, modification, branch)

@@ -30,8 +30,8 @@ class GoogleProvider:
     def __init__(
         self,
         GOOGLE_API_KEY: str = "None",
-        AI_MODEL: str = "gemini-pro",
-        MAX_TOKENS: int = 4000,
+        AI_MODEL: str = "gemini-1.5-pro-002",
+        MAX_TOKENS: int = 2000000,
         AI_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
@@ -46,16 +46,15 @@ class GoogleProvider:
         return ["llm", "tts", "vision"]
 
     async def inference(self, prompt, tokens: int = 0, images: list = []):
-        new_max_tokens = int(self.MAX_TOKENS) - tokens
         if not self.GOOGLE_API_KEY or self.GOOGLE_API_KEY == "None":
             return "Please set your Google API key in the Agent Management page."
         try:
             genai.configure(api_key=self.GOOGLE_API_KEY)
             generation_config = genai.types.GenerationConfig(
-                max_output_tokens=new_max_tokens, temperature=float(self.AI_TEMPERATURE)
+                temperature=float(self.AI_TEMPERATURE)
             )
             model = genai.GenerativeModel(
-                model_name=self.AI_MODEL if not images else "gemini-pro-vision",
+                model_name=self.AI_MODEL,
                 generation_config=generation_config,
             )
             new_prompt = []
