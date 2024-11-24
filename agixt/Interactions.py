@@ -415,40 +415,37 @@ class Interactions:
             if arg in skip_args:
                 del args[arg]
         agent_commands = ""
-        if len(command_list) > 0:
-            agent_extensions = self.agent.get_agent_extensions()
-            agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
-            for extension in agent_extensions:
-                if extension["commands"] == []:
-                    continue
-                extension_name = extension["extension_name"]
-                extension_description = extension["description"]
-                enabled_commands = [
-                    command
-                    for command in extension["commands"]
-                    if command["enabled"] == True
-                ]
-                if enabled_commands == []:
-                    continue
-                agent_commands += (
-                    f"\n### {extension_name}\nDescription: {extension_description}\n"
-                )
-                for command in enabled_commands:
-                    command_friendly_name = command["friendly_name"]
-                    command_description = command["description"]
-                    agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
-                    agent_commands += (
-                        f"<execute>\n<name>{command_friendly_name}</name>\n"
-                    )
-                    for arg_name in command["command_args"].keys():
-                        if arg_name != "chain_name":
-                            agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
-                        else:
-                            agent_commands += (
-                                f"<chain_name>{command_friendly_name}</chain_name>\n"
-                            )
-                    agent_commands += "</execute>\n"
-            agent_commands += f"""## Command Execution Guidelines
+        if "disable_commands" not in kwargs:
+            if len(command_list) > 0:
+                agent_extensions = self.agent.get_agent_extensions()
+                agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
+                for extension in agent_extensions:
+                    if extension["commands"] == []:
+                        continue
+                    extension_name = extension["extension_name"]
+                    extension_description = extension["description"]
+                    enabled_commands = [
+                        command
+                        for command in extension["commands"]
+                        if command["enabled"] == True
+                    ]
+                    if enabled_commands == []:
+                        continue
+                    agent_commands += f"\n### {extension_name}\nDescription: {extension_description}\n"
+                    for command in enabled_commands:
+                        command_friendly_name = command["friendly_name"]
+                        command_description = command["description"]
+                        agent_commands += f"\n#### {command_friendly_name}\nDescription: {command_description}\nCommand execution format:\n"
+                        agent_commands += (
+                            f"<execute>\n<name>{command_friendly_name}</name>\n"
+                        )
+                        for arg_name in command["command_args"].keys():
+                            if arg_name != "chain_name":
+                                agent_commands += f"<{arg_name}>The assistant will fill in the value based on relevance to the conversation.</{arg_name}>\n"
+                            else:
+                                agent_commands += f"<chain_name>{command_friendly_name}</chain_name>\n"
+                        agent_commands += "</execute>\n"
+                agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
 - Reference examples for correct syntax and usage of commands.
 - To execute a command, the assistant should use the following format:
@@ -765,7 +762,7 @@ class Interactions:
         )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
-        if "{COMMANDS}" in unformatted_prompt:
+        if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
             response = self.response
             await self.execution_agent(conversation_name=conversation_name)
             # While "</output>" is the ending of self.response, we need to keep executing commands or asking the agent if it should proceed
@@ -787,6 +784,7 @@ class Interactions:
                 if (
                     "</answer>" not in self.response
                     and "{COMMANDS}" in unformatted_prompt
+                    and "disable_commands" not in kwargs
                 ):
                     await self.execution_agent(conversation_name=conversation_name)
                     while self.response.endswith("</output>"):
