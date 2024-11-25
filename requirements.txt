@@ -25,3 +25,4 @@ curl_cffi
 PyExecJS
 undetected_chromedriver
 platformdirs
+nbformat
