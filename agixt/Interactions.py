@@ -468,6 +468,7 @@ class Interactions:
 - The assistant should never generate a <output> tag in the response. The assistant will receive the command output and will be able to reference the output in the response.
 - If there is an <output> tag in the assistants previous responses in context, it refers to the command execution output. Use this output to determine if the command was successful, and to course correct if needed.
 - Any time the assistant executes a command, the text generation should end with </execute>. The assistant will be informed of the command output before the user receives the response to give the assistant the opportunity to evaluate the output and ensure it is correct, exploring different options if needed.
+- Command executions should all take place BEFORE the <answer> block!
 - **THE ASSISTANT CANNOT EXECUTE A COMMAND THAT IS NOT ON THE LIST OF EXAMPLES!**"""
         formatted_prompt = self.custom_format(
             string=prompt,

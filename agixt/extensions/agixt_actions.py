@@ -213,9 +213,9 @@ class agixt_actions(Extensions):
         self,
         title: str,
         follow_up_notes: str,
-        days: int = 0,
-        hours: int = 0,
-        minutes: int = 0,
+        days: str = 0,
+        hours: str = 0,
+        minutes: str = 0,
     ) -> str:
         """
         Schedule a follow-up interaction with the user.
@@ -232,6 +232,18 @@ class agixt_actions(Extensions):
         Returns:
         str: Response confirming the scheduled follow-up. The assistant can choose to tell the user about the scheduled follow-up or choose to surprise them later.
         """
+        try:
+            days = int(days)
+        except:
+            days = 0
+        try:
+            hours = int(hours)
+        except:
+            hours = 0
+        try:
+            minutes = int(minutes)
+        except:
+            minutes = 0
         # Calculate the due date
         due_date = datetime.datetime.now() + datetime.timedelta(
             days=days, hours=hours, minutes=minutes
