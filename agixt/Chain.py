@@ -524,6 +524,10 @@ class Chain:
         if chain_run_id is None:
             chain_run_id = self.get_last_chain_run_id(chain_name=chain_name)
         chain_data = self.get_chain(chain_name=chain_name)
+
+        if isinstance(chain_data, list) and not chain_data:  # Check if chain not found
+            return None
+
         session = get_session()
         if step_number == "all":
             chain_steps = (
