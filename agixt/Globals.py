@@ -173,5 +173,11 @@ def get_agixt_training_urls():
     ]
 
 
+def get_output_url(path: str):
+    agixt_uri = getenv("AGIXT_URI")
+    new_path = path.split("/WORKSPACE/")[-1]
+    return f"{agixt_uri}/{new_path}"
+
+
 DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
 DEFAULT_SETTINGS = get_default_agent_settings()
