@@ -442,6 +442,8 @@ class Extensions:
                         )
                 except Exception as e:
                     logging.error(f"Error getting commands: {e}")
+            if extension_name == "Agixt Actions":
+                extension_name = "AGiXT Actions"
             commands.append(
                 {
                     "extension_name": extension_name,

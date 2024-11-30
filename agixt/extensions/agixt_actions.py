@@ -1,4 +1,3 @@
-import datetime
 import json
 import uuid
 import requests
@@ -181,6 +180,7 @@ class agixt_actions(Extensions):
             "Replace init in File": self.replace_init_in_file,
             "Explain Chain": self.chain_to_mermaid,
             "Schedule Follow Up with User": self.schedule_follow_up,
+            "Get Datetime": self.get_datetime,
         }
         self.command_name = (
             kwargs["command_name"] if "command_name" in kwargs else "Smart Prompt"
@@ -1191,3 +1191,12 @@ class agixt_actions(Extensions):
 
         mermaid = "\n".join(mermaid_diagram)
         return f"```mermaid\n{mermaid}\n```"
+
+    async def get_datetime(self) -> str:
+        """
+        Get the current date and time
+
+        Returns:
+        str: The current date and time in the format "YYYY-MM-DD HH:MM:SS"
+        """
+        return "Current date and time: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")

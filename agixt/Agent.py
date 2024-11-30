@@ -423,6 +423,8 @@ class Agent:
                         or self.AGENT_CONFIG["settings"][key] == None
                     ):
                         new_extension["commands"] = []
+            if new_extension["commands"] == [] and new_extension["settings"] == []:
+                continue
             new_extensions.append(new_extension)
         for extension in new_extensions:
             for command in extension["commands"]:
