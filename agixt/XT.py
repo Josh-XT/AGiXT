@@ -1625,6 +1625,9 @@ class AGiXT:
         if "log_user_input" in prompt_args:
             log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
             del prompt_args["log_user_input"]
+        if "log_output" in prompt_args:
+            log_output = str(prompt_args["log_output"]).lower() == "true"
+            del prompt_args["log_output"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
@@ -1726,12 +1729,6 @@ class AGiXT:
                     prompt_args["uploaded_file_data"] = file_content
             if len(language) > 2:
                 language = language[:2]
-            if "log_output" in prompt_args:
-                log_output = prompt_args["log_output"]
-                del prompt_args["log_output"]
-            if "log_user_input" in prompt_args:
-                log_user_input = prompt_args["log_user_input"]
-                del prompt_args["log_user_input"]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1743,7 +1740,7 @@ class AGiXT:
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
-                log_output=False,
+                log_output=log_output,
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
