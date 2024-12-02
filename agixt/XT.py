@@ -1625,6 +1625,7 @@ class AGiXT:
         if "log_user_input" in prompt_args:
             log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
             del prompt_args["log_user_input"]
+        log_output = True
         if "log_output" in prompt_args:
             log_output = str(prompt_args["log_output"]).lower() == "true"
             del prompt_args["log_output"]
