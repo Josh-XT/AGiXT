@@ -245,9 +245,9 @@ class AGiXT:
             conversation_name=self.conversation_name,
             browse_links=browse_links,
             images=images,
-            tts=voice_response if language == "en" else False,
-            log_user_input=log_user_input if language == "en" else False,
-            log_output=log_output if language == "en" else False,
+            tts=voice_response,
+            log_user_input=log_user_input,
+            log_output=log_output,
             **kwargs,
         )
         if language == "en":
@@ -1876,12 +1876,14 @@ class AGiXT:
             prompt_name="Answer Question with Memory",
             injected_memories=injected_memories,
             log_user_input=False,
+            log_output=False,
         )
         rejected_async = self.inference(
             user_input=question,
             prompt_category="Default",
             prompt_name="Wrong Answers Only",
             log_user_input=False,
+            log_output=False,
         )
         chosen = await chosen_async
         rejected = await rejected_async
