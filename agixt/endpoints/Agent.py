@@ -31,7 +31,7 @@ import logging
 import base64
 import uuid
 import os
-from datetime import datetime
+from providers.default import DefaultProvider
 
 app = APIRouter()
 
@@ -444,7 +444,10 @@ async def text_to_speech(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     AGIXT_URI = getenv("AGIXT_URI")
-    tts_response = await agent.text_to_speech(text=text.text)
+    if agent.TTS_PROVIDER != None:
+        tts_response = await agent.text_to_speech(text=text.text)
+    else:
+        audio_data = await DefaultProvider().text_to_speech(text=text.text)
     if not str(tts_response).startswith("http"):
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
