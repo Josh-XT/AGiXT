@@ -15,7 +15,7 @@ stripe==10.10.0
 google-auth==2.34.0
 google-api-python-client==2.144.0
 google-auth-oauthlib
-python-multipart==0.0.9
+python-multipart==0.0.18
 nest_asyncio
 g4f==0.2.6.2
 pyotp
