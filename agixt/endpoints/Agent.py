@@ -262,7 +262,7 @@ async def prompt_agent(
     authorization: str = Header(None),
 ):
     if "conversation_name" not in agent_prompt.prompt_args:
-        conversation_name = datetime.now().strftime("%Y%m%d%H%M%S")
+        conversation_name = None
         agent_prompt.prompt_args["log_user_input"] = False
         agent_prompt.prompt_args["log_output"] = False
     else:
