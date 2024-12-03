@@ -331,10 +331,16 @@ class AGiXT:
                 f.write(audio_data)
             tts_url = f"{self.outputs}/{file_name}"
         if log_output:
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
-            )
+            if tts_url.endswith(".mp3"):
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f'<audio controls><source src="{tts_url}" type="audio/mpeg"></audio>',
+                )
+            else:
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+                )
         return tts_url
 
     async def audio_to_text(self, audio_path: str):
