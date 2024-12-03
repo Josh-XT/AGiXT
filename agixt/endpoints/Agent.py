@@ -447,7 +447,7 @@ async def text_to_speech(
     if agent.TTS_PROVIDER != None:
         tts_response = await agent.text_to_speech(text=text.text)
     else:
-        audio_data = await DefaultProvider().text_to_speech(text=text.text)
+        tts_response = await DefaultProvider().text_to_speech(text=text.text)
     if not str(tts_response).startswith("http"):
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
