@@ -27,6 +27,7 @@ import logging
 import json
 import numpy as np
 import os
+import re
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -403,6 +404,12 @@ class Agent:
 
     async def text_to_speech(self, text: str):
         if self.TTS_PROVIDER is not None:
+            if "```" in text:
+                text = re.sub(
+                    r"```[^```]+```",
+                    "See the chat for the full code block.",
+                    text,
+                )
             return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_agent_extensions(self):
