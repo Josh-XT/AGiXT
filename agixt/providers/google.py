@@ -85,14 +85,35 @@ class GoogleProvider:
             return f"Gemini Error: {e}"
 
     async def text_to_speech(self, text: str):
-        tts = ts.gTTS(text)
-        mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
-        tts.save(mp3_path)
-        wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
-        audio = AudioSegment.from_mp3(mp3_path)
-        audio.export(wav_path, format="wav")
-        os.remove(mp3_path)
-        with open(wav_path, "rb") as f:
-            audio_content = f.read()
-        os.remove(wav_path)
-        return audio_content
+        try:
+            tts = ts.gTTS(text)
+            mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
+            wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
+
+            print(f"Saving MP3 to: {mp3_path}")  # Debug logging
+            tts.save(mp3_path)
+
+            if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
+                raise Exception("MP3 file is empty or not created")
+
+            print("Converting to WAV")  # Debug logging
+            audio = AudioSegment.from_mp3(mp3_path)
+            audio.export(wav_path, format="wav")
+
+            if not os.path.exists(wav_path) or os.path.getsize(wav_path) == 0:
+                raise Exception("WAV file is empty or not created")
+
+            with open(wav_path, "rb") as f:
+                audio_content = f.read()
+
+            print(f"Audio content size: {len(audio_content)} bytes")  # Debug logging
+            return audio_content
+
+        except Exception as e:
+            print(f"TTS Error: {e}")  # Error logging
+            raise
+        finally:
+            # Cleanup
+            for path in [mp3_path, wav_path]:
+                if os.path.exists(path):
+                    os.remove(path)
