@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+from Globals import getenv
 
 try:
     import google.generativeai as genai  # Primary import attempt
@@ -22,18 +23,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "gTTS"])
     import gtts as ts
 
-from pydub import AudioSegment
 import uuid
-
-try:
-    import soundfile as sf
-except ImportError:
-    import sys
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "soundfile"])
-    import soundfile as sf
-import numpy as np
 
 
 class GoogleProvider:
@@ -95,25 +85,9 @@ class GoogleProvider:
             return f"Gemini Error: {e}"
 
     async def text_to_speech(self, text: str):
-        try:
-
-            tts = ts.gTTS(text)
-            mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
-            wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
-
-            tts.save(mp3_path)
-            audio = AudioSegment.from_mp3(mp3_path)
-
-            # Convert to numpy array
-            samples = np.array(audio.get_array_of_samples())
-
-            # Write WAV using soundfile
-            sf.write(wav_path, samples, audio.frame_rate, subtype="PCM_16")
-
-            with open(wav_path, "rb") as f:
-                return f.read()
-
-        finally:
-            for path in [mp3_path, wav_path]:
-                if os.path.exists(path):
-                    os.remove(path)
+        tts = ts.gTTS(text)
+        filename = f"{uuid.uuid4()}.mp3"
+        mp3_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
+        tts.save(mp3_path)
+        agixt_uri = getenv("AGIXT_URI")
+        return f"{agixt_uri}/outputs/{filename}"
