@@ -25,6 +25,16 @@ except ImportError:
 from pydub import AudioSegment
 import uuid
 
+try:
+    import soundfile as sf
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "soundfile"])
+    import soundfile as sf
+import numpy as np
+
 
 class GoogleProvider:
     def __init__(
@@ -86,6 +96,7 @@ class GoogleProvider:
 
     async def text_to_speech(self, text: str):
         try:
+
             tts = ts.gTTS(text)
             mp3_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.mp3")
             wav_path = os.path.join(os.getcwd(), "WORKSPACE", f"{uuid.uuid4()}.wav")
@@ -93,17 +104,14 @@ class GoogleProvider:
             tts.save(mp3_path)
             audio = AudioSegment.from_mp3(mp3_path)
 
-            # Set explicit audio parameters
-            audio = audio.set_frame_rate(44100)
-            audio = audio.set_channels(2)
-            audio = audio.set_sample_width(2)  # 16-bit
+            # Convert to numpy array
+            samples = np.array(audio.get_array_of_samples())
 
-            audio.export(wav_path, format="wav", parameters=["-acodec", "pcm_s16le"])
+            # Write WAV using soundfile
+            sf.write(wav_path, samples, audio.frame_rate, subtype="PCM_16")
 
             with open(wav_path, "rb") as f:
-                audio_content = f.read()
-
-            return audio_content
+                return f.read()
 
         finally:
             for path in [mp3_path, wav_path]:
