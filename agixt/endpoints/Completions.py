@@ -145,7 +145,7 @@ async def text_to_speech(
         audio_data = await agent.text_to_speech(text=tts.input)
     else:
         audio_data = await DefaultProvider().text_to_speech(text=tts.input)
-    return base64.b64encode(audio_data).decode("utf-8")
+    return {"url": audio_data}
 
 
 # Image Generation endpoint
