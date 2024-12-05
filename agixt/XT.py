@@ -245,9 +245,9 @@ class AGiXT:
             conversation_name=self.conversation_name,
             browse_links=browse_links,
             images=images,
-            tts=voice_response if language == "en" else False,
-            log_user_input=log_user_input if language == "en" else False,
-            log_output=log_output if language == "en" else False,
+            tts=voice_response,
+            log_user_input=log_user_input,
+            log_output=log_output,
             **kwargs,
         )
         if language == "en":
@@ -331,10 +331,16 @@ class AGiXT:
                 f.write(audio_data)
             tts_url = f"{self.outputs}/{file_name}"
         if log_output:
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
-            )
+            if tts_url.endswith(".mp3"):
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f'<audio controls><source src="{tts_url}" type="audio/mpeg"></audio>',
+                )
+            else:
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=f'<audio controls><source src="{tts_url}" type="audio/wav"></audio>',
+                )
         return tts_url
 
     async def audio_to_text(self, audio_path: str):
@@ -1289,7 +1295,8 @@ class AGiXT:
         tts = False
         websearch = False
         language = "en"
-
+        log_output = True
+        log_user_input = True
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -1372,6 +1379,10 @@ class AGiXT:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
                     mode = message["mode"]
+            if "log_output" in message:
+                log_output = str(message["log_output"]).lower() == "true"
+            if "log_user_input" in message:
+                log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
             if "language" in message:
@@ -1621,10 +1632,6 @@ class AGiXT:
         # Add user input to conversation
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
-        log_user_input = True
-        if "log_user_input" in prompt_args:
-            log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
-            del prompt_args["log_user_input"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
@@ -1726,12 +1733,6 @@ class AGiXT:
                     prompt_args["uploaded_file_data"] = file_content
             if len(language) > 2:
                 language = language[:2]
-            if "log_output" in prompt_args:
-                log_output = prompt_args["log_output"]
-                del prompt_args["log_output"]
-            if "log_user_input" in prompt_args:
-                log_user_input = prompt_args["log_user_input"]
-                del prompt_args["log_user_input"]
             response = await self.inference(
                 user_input=new_prompt,
                 prompt_name=prompt_name,
@@ -1743,7 +1744,7 @@ class AGiXT:
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
-                log_output=False,
+                log_output=log_output,
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
@@ -1878,12 +1879,14 @@ class AGiXT:
             prompt_name="Answer Question with Memory",
             injected_memories=injected_memories,
             log_user_input=False,
+            log_output=False,
         )
         rejected_async = self.inference(
             user_input=question,
             prompt_category="Default",
             prompt_name="Wrong Answers Only",
             log_user_input=False,
+            log_output=False,
         )
         chosen = await chosen_async
         rejected = await rejected_async

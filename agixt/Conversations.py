@@ -82,8 +82,16 @@ class Conversations:
             )
             .all()
         )
-        # return a list of conversation names
         conversation_list = [conversation.name for conversation in conversations]
+        # Check if there are any messages in the conversation, remove from list if not
+        for conversation in conversations:
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation.id)
+                .all()
+            )
+            if not messages:
+                conversation_list.remove(conversation.name)
         session.close()
         return conversation_list
 
@@ -99,6 +107,17 @@ class Conversations:
             .all()
         )
         session.close()
+        # Check if there are any messages in the conversation, remove from list if not
+        for conversation in conversations:
+            session = get_session()
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation.id)
+                .all()
+            )
+            if not messages:
+                conversations.remove(conversation)
+            session.close()
         return {
             str(conversation.id): conversation.name for conversation in conversations
         }

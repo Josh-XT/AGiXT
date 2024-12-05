@@ -31,7 +31,7 @@ import logging
 import base64
 import uuid
 import os
-from datetime import datetime
+from providers.default import DefaultProvider
 
 app = APIRouter()
 
@@ -262,7 +262,7 @@ async def prompt_agent(
     authorization: str = Header(None),
 ):
     if "conversation_name" not in agent_prompt.prompt_args:
-        conversation_name = datetime.now().strftime("%Y%m%d%H%M%S")
+        conversation_name = None
         agent_prompt.prompt_args["log_user_input"] = False
         agent_prompt.prompt_args["log_output"] = False
     else:
@@ -444,7 +444,10 @@ async def text_to_speech(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
     AGIXT_URI = getenv("AGIXT_URI")
-    tts_response = await agent.text_to_speech(text=text.text)
+    if agent.TTS_PROVIDER != None:
+        tts_response = await agent.text_to_speech(text=text.text)
+    else:
+        tts_response = await DefaultProvider().text_to_speech(text=text.text)
     if not str(tts_response).startswith("http"):
         file_type = "wav"
         file_name = f"{uuid.uuid4().hex}.{file_type}"
