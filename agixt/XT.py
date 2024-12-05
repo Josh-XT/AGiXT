@@ -1295,7 +1295,8 @@ class AGiXT:
         tts = False
         websearch = False
         language = "en"
-
+        log_output = True
+        log_user_input = True
         if "websearch" in self.agent_settings:
             websearch = str(self.agent_settings["websearch"]).lower() == "true"
         if "mode" in self.agent_settings:
@@ -1378,6 +1379,10 @@ class AGiXT:
             if "mode" in message:
                 if message["mode"] in ["prompt", "command", "chain"]:
                     mode = message["mode"]
+            if "log_output" in message:
+                log_output = str(message["log_output"]).lower() == "true"
+            if "log_user_input" in message:
+                log_user_input = str(message["log_user_input"]).lower() == "true"
             if "injected_memories" in message:
                 context_results = int(message["injected_memories"])
             if "language" in message:
@@ -1627,14 +1632,6 @@ class AGiXT:
         # Add user input to conversation
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
-        log_user_input = True
-        if "log_user_input" in prompt_args:
-            log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
-            del prompt_args["log_user_input"]
-        log_output = True
-        if "log_output" in prompt_args:
-            log_output = str(prompt_args["log_output"]).lower() == "true"
-            del prompt_args["log_output"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
