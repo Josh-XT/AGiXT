@@ -1632,6 +1632,12 @@ class AGiXT:
         # Add user input to conversation
         for file in files:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
+        if "log_output" in prompt_args:
+            log_output = str(prompt_args["log_output"]).lower() == "true"
+            del prompt_args["log_output"]
+        if "log_user_input" in prompt_args:
+            log_user_input = str(prompt_args["log_user_input"]).lower() == "true"
+            del prompt_args["log_user_input"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
         file_contents = []
@@ -1687,6 +1693,7 @@ class AGiXT:
             del prompt_args["shots"]
         if "data_analysis" in prompt_args:
             del prompt_args["data_analysis"]
+
         await self.learn_from_websites(
             urls=urls,
             summarize_content=False,
