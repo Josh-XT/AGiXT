@@ -1785,10 +1785,11 @@ class AGiXT:
                 answer = response.split("<answer>")[-1]
                 answer = answer.split("</answer>")[0]
                 response = answer
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=response,
-            )
+            if log_output:
+                self.conversation.log_interaction(
+                    role=self.agent_name,
+                    message=response,
+                )
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
