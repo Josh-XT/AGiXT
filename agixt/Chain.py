@@ -523,29 +523,16 @@ class Chain:
     def get_step_response(self, chain_name, chain_run_id=None, step_number="all"):
         if chain_run_id is None:
             chain_run_id = self.get_last_chain_run_id(chain_name=chain_name)
-        
         chain_data = self.get_chain(chain_name=chain_name)
-        
-        # Handle empty chain data
-        if not chain_data:
-            return None
-        
-        # Get chain ID safely
-        chain_id = chain_data.get("id") if isinstance(chain_data, dict) else None
-        
-        if not chain_id:
-            return None
-        
         session = get_session()
-        
         if step_number == "all":
             chain_steps = (
                 session.query(ChainStep)
-                .filter(ChainStep.chain_id == chain_id)
+                .filter(ChainStep.chain_id == chain_data["id"])
                 .order_by(ChainStep.step_number)
                 .all()
             )
-            
+
             responses = {}
             for step in chain_steps:
                 chain_step_responses = (
@@ -557,24 +544,21 @@ class Chain:
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
-                
                 step_responses = [response.content for response in chain_step_responses]
                 responses[str(step.step_number)] = step_responses
-            
             session.close()
             return responses
-        
         else:
             step_number = int(step_number)
             chain_step = (
                 session.query(ChainStep)
                 .filter(
-                    ChainStep.chain_id == chain_id,
+                    ChainStep.chain_id == chain_data["id"],
                     ChainStep.step_number == step_number,
                 )
                 .first()
             )
-            
+
             if chain_step:
                 chain_step_responses = (
                     session.query(ChainStepResponse)
@@ -585,11 +569,9 @@ class Chain:
                     .order_by(ChainStepResponse.timestamp)
                     .all()
                 )
-                
                 step_responses = [response.content for response in chain_step_responses]
                 session.close()
                 return step_responses
-            
             else:
                 session.close()
                 return None
