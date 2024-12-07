@@ -108,6 +108,7 @@ class ClaudeProvider:
         except Exception as e:
             self.failures += 1
             if self.failures > 3:
+                print(f"[CLAUDE PROVIDER] Error: {e}")
                 return "Claude API Error: Too many failures."
             if int(self.WAIT_AFTER_FAILURE) > 0:
                 time.sleep(int(self.WAIT_AFTER_FAILURE))
