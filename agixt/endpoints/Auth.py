@@ -177,7 +177,7 @@ async def update_oauth_token(
     data = await request.json()
     auth = MagicalAuth(token=authorization)
     return auth.update_sso(
-        provider=provider,
+        provider_name=provider,
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
