@@ -181,3 +181,15 @@ async def update_oauth_token(
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
+
+
+@app.delete(
+    "/v1/oauth2/{provider}",
+    tags=["User"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Delete OAuth2 provider access token",
+)
+async def delete_oauth_token(provider: str, authorization: str = Header(None)):
+    auth = MagicalAuth(token=authorization)
+    return auth.disconnect_sso(provider_name=provider)
