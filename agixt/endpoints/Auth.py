@@ -176,11 +176,12 @@ async def update_oauth_token(
 ):
     data = await request.json()
     auth = MagicalAuth(token=authorization)
-    return auth.update_sso(
+    response = auth.update_sso(
         provider_name=provider,
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
+    return Detail(detail=response)
 
 
 @app.delete(
@@ -192,4 +193,5 @@ async def update_oauth_token(
 )
 async def delete_oauth_token(provider: str, authorization: str = Header(None)):
     auth = MagicalAuth(token=authorization)
-    return auth.disconnect_sso(provider_name=provider)
+    response = auth.disconnect_sso(provider_name=provider)
+    return Detail(detail=response)
