@@ -7,7 +7,8 @@ import zipfile
 import shutil
 import logging
 from datetime import datetime
-import nbformat  # Import nbformat for reading .ipynb files
+import nbformat
+
 
 class FileReader(Memories):
     def __init__(
@@ -83,14 +84,14 @@ class FileReader(Memories):
                     command_name="Transcribe Audio from File",
                     command_args={"filename": file_path},
                 )
-             # If file extension is ipynb, extract code and markdown cells
+            # If file extension is ipynb, extract code and markdown cells
             elif file_path.endswith(".ipynb"):
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     nb = nbformat.read(f, as_version=4)
                 for cell in nb.cells:
-                    if cell.cell_type == 'markdown':
+                    if cell.cell_type == "markdown":
                         content += cell.source + "\n"
-                    elif cell.cell_type == 'code':
+                    elif cell.cell_type == "code":
                         content += cell.source + "\n"
             # Otherwise just read the file
             else:
