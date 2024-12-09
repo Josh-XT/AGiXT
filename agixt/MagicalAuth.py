@@ -946,3 +946,28 @@ class MagicalAuth:
         session.commit()
         session.close()
         return f"OAuth2 Credentials updated for {provider_name.capitalize()}."
+
+    def disconnect_sso(self, provider_name):
+        provider_name = str(provider_name).lower()
+        session = get_session()
+        provider = (
+            session.query(OAuthProvider)
+            .filter(OAuthProvider.name == provider_name)
+            .first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="User OAuth not found")
+        session.delete(user_oauth)
+        session.commit()
+        session.close()
+        return f"Disconnected {provider_name.capitalize()}."
