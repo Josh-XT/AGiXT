@@ -162,3 +162,36 @@ async def oauth_login(request: Request, provider: str):
         referrer=data["referrer"] if "referrer" in data else getenv("MAGIC_LINK_URL"),
     )
     return {"detail": magic_link, "email": auth.email, "token": auth.token}
+
+
+@app.put(
+    "/v1/oauth2/{provider}",
+    tags=["User"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Update OAuth2 provider access token",
+)
+async def update_oauth_token(
+    request: Request, provider: str, authorization: str = Header(None)
+):
+    data = await request.json()
+    auth = MagicalAuth(token=authorization)
+    response = auth.update_sso(
+        provider_name=provider,
+        access_token=data["access_token"],
+        refresh_token=data["refresh_token"] if "refresh_token" in data else None,
+    )
+    return Detail(detail=response)
+
+
+@app.delete(
+    "/v1/oauth2/{provider}",
+    tags=["User"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Delete OAuth2 provider access token",
+)
+async def delete_oauth_token(provider: str, authorization: str = Header(None)):
+    auth = MagicalAuth(token=authorization)
+    response = auth.disconnect_sso(provider_name=provider)
+    return Detail(detail=response)

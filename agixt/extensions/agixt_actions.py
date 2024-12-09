@@ -207,6 +207,7 @@ class agixt_actions(Extensions):
                 api_key=kwargs["api_key"] if "api_key" in kwargs else "",
             )
         )
+        self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
         self.failures = 0
 
     async def schedule_follow_up(
