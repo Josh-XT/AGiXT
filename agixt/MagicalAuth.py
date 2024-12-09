@@ -913,3 +913,36 @@ class MagicalAuth:
             "input_tokens": updated_input_tokens,
             "output_tokens": updated_output_tokens,
         }
+
+    def update_sso(self, provider_name, access_token, refresh_token=None):
+        provider_name = str(provider_name).lower()
+        session = get_session()
+        provider = (
+            session.query(OAuthProvider)
+            .filter(OAuthProvider.name == provider_name)
+            .first()
+        )
+        if not provider:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider.id)
+            .first()
+        )
+        if not user_oauth:
+            user_oauth = UserOAuth(
+                user_id=self.user_id,
+                provider_id=provider.id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
+            session.add(user_oauth)
+        else:
+            user_oauth.access_token = access_token
+            if refresh_token:
+                user_oauth.refresh_token = refresh_token
+        session.commit()
+        session.close()
+        return f"OAuth2 Credentials updated for {provider_name.capitalize()}."

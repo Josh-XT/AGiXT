@@ -162,3 +162,22 @@ async def oauth_login(request: Request, provider: str):
         referrer=data["referrer"] if "referrer" in data else getenv("MAGIC_LINK_URL"),
     )
     return {"detail": magic_link, "email": auth.email, "token": auth.token}
+
+
+@app.put(
+    "/v1/oauth2/{provider}",
+    tags=["User"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=Detail,
+    summary="Update OAuth2 provider access token",
+)
+async def update_oauth_token(
+    request: Request, provider: str, authorization: str = Header(None)
+):
+    data = await request.json()
+    auth = MagicalAuth(token=authorization)
+    return auth.update_sso(
+        provider=provider,
+        access_token=data["access_token"],
+        refresh_token=data["refresh_token"] if "refresh_token" in data else None,
+    )
