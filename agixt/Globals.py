@@ -33,7 +33,7 @@ def getenv(var_name: str):
         "DISABLED_EXTENSIONS": "",
         "DISABLED_PROVIDERS": "",
         "REGISTRATION_DISABLED": "false",
-        "AUTH_PROVIDER": "",
+        "AUTH_PROVIDER": "magicalauth",
         "CREATE_AGENT_ON_REGISTER": "true",
         "CREATE_AGIXT_AGENT": "true",
     }
