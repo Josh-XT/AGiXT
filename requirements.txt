@@ -26,3 +26,4 @@ PyExecJS
 undetected_chromedriver
 platformdirs
 soundfile
+nbformat
