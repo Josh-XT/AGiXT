@@ -924,7 +924,15 @@ class MagicalAuth:
         )
         if not provider:
             session.close()
-            raise HTTPException(status_code=404, detail="Provider not found")
+            # Create it if it doesn't exist
+            provider = OAuthProvider(name=provider_name)
+            session.add(provider)
+            session.commit()
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider_name)
+                .first()
+            )
         user_oauth = (
             session.query(UserOAuth)
             .filter(UserOAuth.user_id == self.user_id)
