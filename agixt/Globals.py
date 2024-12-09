@@ -9,7 +9,7 @@ load_dotenv()
 def getenv(var_name: str):
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
-        "AGIXT_API_KEY": None,
+        "AGIXT_API_KEY": "None",
         "EZLOCALAI_URI": "http://localhost:8091/v1/",
         "EZLOCALAI_API_KEY": "",
         "LLM_MAX_TOKENS": 8192,
