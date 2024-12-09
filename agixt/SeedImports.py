@@ -65,6 +65,7 @@ def import_agents(user=DEFAULT_USER):
 
 
 def import_extensions():
+    import json
     from Extensions import Extensions
 
     ext = Extensions()
@@ -82,52 +83,59 @@ def import_extensions():
 
         # Find or create extension
         extension = session.query(Extension).filter_by(name=extension_name).first()
-        if not extension:
+        if extension:
+            extension.description = description
+            logging.info(f"Updated extension: {extension_name}")
+        else:
             extension = Extension(name=extension_name, description=description)
             session.add(extension)
             session.flush()
             logging.info(f"Imported extension: {extension_name}")
 
-        # Process commands
-        commands = extension_data["commands"]
-        for command_data in commands:
-            if "friendly_name" not in command_data:
-                continue
+        # Process commands for this extension
+        if "commands" in extension_data:
+            for command_data in extension_data["commands"]:
+                if "friendly_name" not in command_data:
+                    continue
 
-            command_name = command_data["friendly_name"]
-            # Find or create command
-            command = (
-                session.query(Command)
-                .filter_by(extension_id=extension.id, name=command_name)
-                .first()
-            )
+                command_name = command_data["friendly_name"]
+                command_description = command_data.get("description", "")
 
-            if not command:
-                command = Command(
-                    extension_id=extension.id,
-                    name=command_name,
+                # Find or create command
+                command = (
+                    session.query(Command)
+                    .filter_by(extension_id=extension.id, name=command_name)
+                    .first()
                 )
-                session.add(command)
-                session.flush()
-                logging.info(f"Imported command: {command_name}")
 
-            # Process command arguments
-            if "command_args" in command_data:
-                for arg, arg_type in command_data["command_args"].items():
-                    existing_arg = (
-                        session.query(Argument)
-                        .filter_by(command_id=command.id, name=arg)
-                        .first()
+                if not command:
+                    command = Command(
+                        extension_id=extension.id,
+                        name=command_name,
                     )
-                    if not existing_arg:
-                        command_arg = Argument(
-                            command_id=command.id,
-                            name=arg,
+                    session.add(command)
+                    session.flush()
+                    logging.info(f"Imported command: {command_name}")
+
+                # Process command arguments if they exist
+                if "command_args" in command_data:
+                    for arg_name, arg_type in command_data["command_args"].items():
+                        # Check if argument already exists
+                        existing_arg = (
+                            session.query(Argument)
+                            .filter_by(command_id=command.id, name=arg_name)
+                            .first()
                         )
-                        session.add(command_arg)
-                        logging.info(
-                            f"Imported argument: {arg} to command: {command_name}"
-                        )
+
+                        if not existing_arg:
+                            command_arg = Argument(
+                                command_id=command.id,
+                                name=arg_name,
+                            )
+                            session.add(command_arg)
+                            logging.info(
+                                f"Imported argument: {arg_name} for command: {command_name}"
+                            )
 
     # Process extension settings
     for extension_name, settings in extension_settings_data.items():
@@ -139,12 +147,25 @@ def import_extensions():
             logging.info(f"Imported extension: {extension_name}")
 
         for setting_name, setting_value in settings.items():
+            # Convert dictionary or list values to JSON strings
+            if isinstance(setting_value, (dict, list)):
+                setting_value = json.dumps(setting_value)
+            else:
+                setting_value = str(setting_value)
+
+            # Find or update setting
             setting = (
                 session.query(Setting)
                 .filter_by(extension_id=extension.id, name=setting_name)
                 .first()
             )
-            if not setting:
+
+            if setting:
+                setting.value = setting_value
+                logging.info(
+                    f"Updated setting: {setting_name} for extension: {extension_name}"
+                )
+            else:
                 setting = Setting(
                     extension_id=extension.id,
                     name=setting_name,
@@ -154,14 +175,15 @@ def import_extensions():
                 logging.info(
                     f"Imported setting: {setting_name} for extension: {extension_name}"
                 )
-            else:
-                setting.value = setting_value
-                logging.info(
-                    f"Updated setting: {setting_name} for extension: {extension_name}"
-                )
 
-    session.commit()
-    session.close()
+    try:
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error importing extensions: {str(e)}")
+        raise
+    finally:
+        session.close()
 
 
 def import_chains(user=DEFAULT_USER):
