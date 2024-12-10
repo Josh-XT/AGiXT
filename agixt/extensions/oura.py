@@ -1,5 +1,6 @@
 from Extensions import Extensions
 import requests
+import json
 
 
 class oura(Extensions):
@@ -64,7 +65,9 @@ class oura(Extensions):
         try:
             response = await self.session.get(url)
             response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
-            return response.json()
+
+            data = await response.json()
+            return json.dumps(data, indent=4)
         except requests.exceptions.HTTPError as err:
             # Handle specific HTTP errors
             if response.status_code == 400:
