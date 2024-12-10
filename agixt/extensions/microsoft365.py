@@ -80,12 +80,12 @@ class microsoft365(Extensions):
                 )
         return self.access_token
 
-    def verify_user(self, access_token):
+    def verify_user(self):
         """
         Verifies that the current access token corresponds to a valid user.
         If the /me endpoint fails, raises an exception indicating the user is not found.
         """
-        headers = {"Authorization": f"Bearer {access_token}"}
+        headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
         logging.info(f"User verification response: {response.text}")
         if response.status_code != 200:
@@ -109,11 +109,11 @@ class microsoft365(Extensions):
             list: List of dictionaries containing email information
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -180,8 +180,8 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             email_data = {
                 "message": {
@@ -210,7 +210,7 @@ class microsoft365(Extensions):
             response = requests.post(
                 "https://graph.microsoft.com/v1.0/me/sendMail",
                 headers={
-                    "Authorization": f"Bearer {access_token}",
+                    "Authorization": f"Bearer {self.access_token}",
                     "Content-Type": "application/json",
                 },
                 json=email_data,
@@ -242,8 +242,8 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             draft_data = {
                 "subject": subject,
@@ -269,7 +269,7 @@ class microsoft365(Extensions):
             response = requests.post(
                 "https://graph.microsoft.com/v1.0/me/messages",
                 headers={
-                    "Authorization": f"Bearer {access_token}",
+                    "Authorization": f"Bearer {self.access_token}",
                     "Content-Type": "application/json",
                 },
                 json=draft_data,
@@ -300,11 +300,11 @@ class microsoft365(Extensions):
             list: List of matching email dictionaries
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -353,8 +353,8 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             reply_data = {"message": {"body": {"contentType": "HTML", "content": body}}}
 
@@ -375,7 +375,7 @@ class microsoft365(Extensions):
             response = requests.post(
                 f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/reply",
                 headers={
-                    "Authorization": f"Bearer {access_token}",
+                    "Authorization": f"Bearer {self.access_token}",
                     "Content-Type": "application/json",
                 },
                 json=reply_data,
@@ -401,12 +401,12 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             response = requests.delete(
                 f"https://graph.microsoft.com/v1.0/me/messages/{message_id}",
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {self.access_token}"},
             )
 
             if response.status_code == 204:
@@ -429,10 +429,10 @@ class microsoft365(Extensions):
             list: List of paths to saved attachment files
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
 
-            headers = {"Authorization": f"Bearer {access_token}"}
+            self.verify_user()
+
+            headers = {"Authorization": f"Bearer {self.access_token}"}
 
             # Get attachments metadata
             attachments_response = requests.get(
@@ -471,11 +471,11 @@ class microsoft365(Extensions):
             list: List of calendar event dictionaries
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
+
+            self.verify_user()
 
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -550,18 +550,16 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
             event_data = {
                 "subject": subject,
-                "start": {"dateTime": start_time.isoformat(), "timeZone": "UTC"},
-                "end": {"dateTime": end_time.isoformat(), "timeZone": "UTC"},
+                "start": {"dateTime": start_time, "timeZone": "UTC"},
+                "end": {"dateTime": end_time, "timeZone": "UTC"},
                 "isOnlineMeeting": is_online_meeting,
                 "reminderMinutesBeforeStart": reminder_minutes_before,
             }
@@ -573,6 +571,8 @@ class microsoft365(Extensions):
                 event_data["body"] = {"contentType": "HTML", "content": body}
 
             if attendees:
+                if isinstance(attendees, str):
+                    attendees = [attendees]
                 event_data["attendees"] = [
                     {"emailAddress": {"address": email}, "type": "required"}
                     for email in attendees
@@ -606,12 +606,10 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             response = requests.delete(
                 f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {self.access_token}"},
             )
 
             if response.status_code == 204:
@@ -635,11 +633,9 @@ class microsoft365(Extensions):
             list: List of task dictionaries
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -714,11 +710,9 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -787,11 +781,9 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
@@ -860,11 +852,9 @@ class microsoft365(Extensions):
             str: Success or failure message
         """
         try:
-            access_token = self.authenticate()
-            self.verify_user(access_token)
-
+            self.verify_user()
             headers = {
-                "Authorization": f"Bearer {access_token}",
+                "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json",
             }
 
