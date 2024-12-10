@@ -15,6 +15,8 @@ from DB import (
     Extension,
     UserPreferences,
     get_session,
+    UserOAuth,
+    OAuthProvider,
 )
 from Providers import Providers
 from Extensions import Extensions
@@ -415,7 +417,32 @@ class Agent:
     def get_agent_extensions(self):
         extensions = self.extensions.get_extensions()
         new_extensions = []
+        session = get_session()
+        user_oauth = (
+            session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
+        )
+        microsoft_sso = False
+        google_sso = False
+        if user_oauth:
+            for oauth in user_oauth:
+                provider = (
+                    session.query(OAuthProvider)
+                    .filter(OAuthProvider.id == oauth.provider_id)
+                    .first()
+                )
+                if provider:
+                    if str(provider.name).lower() == "microsoft":
+                        microsoft_sso = True
+                    if str(provider.name).lower() == "google":
+                        google_sso = True
+        session.close()
         for extension in extensions:
+            if str(extension["extension_name"]).lower() == "microsoft":
+                if not microsoft_sso:
+                    continue
+            if str(extension["extension_name"]).lower() == "google":
+                if not google_sso:
+                    continue
             required_keys = extension["settings"]
             new_extension = extension.copy()
             for key in required_keys:
