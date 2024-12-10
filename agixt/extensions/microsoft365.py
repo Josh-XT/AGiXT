@@ -1,24 +1,33 @@
 import os
 import logging
+import requests
 from datetime import datetime, timedelta
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
+import base64
 
 
 class microsoft365(Extensions):
     """
-    The Microsoft 365 extension provides functions to interact with Microsoft 365 services such as Outlook and Calendar. It uses logged in user's Microsoft 365 account to perform actions like sending emails, moving emails to folders, creating draft emails, deleting emails, searching emails, replying to emails, processing attachments, getting calendar items, adding calendar items, and removing calendar items if the user signed in with Microsoft 365.
+    The Microsoft 365 extension provides comprehensive integration with Microsoft Office 365 services.
+    This extension allows AI agents to:
+    - Manage emails (read, send, move, search)
+    - Handle calendar events
+    - Manage todo tasks
+    - Process email attachments
+
+    The extension requires the user to be authenticated with Microsoft 365 through OAuth.
+    AI agents should use this when they need to interact with a user's Microsoft 365 account
+    for tasks like scheduling meetings, sending emails, or managing tasks.
     """
 
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        api_key = kwargs["api_key"] if "api_key" in kwargs else None
+    def __init__(self, **kwargs):
+        api_key = kwargs.get("api_key")
         self.microsoft_auth = None
         microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
         microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
+
         if microsoft_client_id and microsoft_client_secret:
             self.commands = {
                 "Microsoft - Get Emails": self.get_emails,
@@ -37,450 +46,800 @@ class microsoft365(Extensions):
                 "Microsoft - Update Todo Task": self.update_todo_task,
                 "Microsoft - Delete Todo Task": self.delete_todo_task,
             }
+
             if api_key:
-                auth = MagicalAuth(token=api_key)
-                self.microsoft_auth = auth.get_oauth_functions("microsoft")
-        self.attachments_dir = (
-            kwargs["conversation_directory"]
-            if "conversation_directory" in kwargs
-            else "./WORKSPACE/attachments"
+                try:
+                    auth = MagicalAuth(token=api_key)
+                    self.microsoft_auth = auth.get_oauth_functions("microsoft")
+                    if self.microsoft_auth:
+                        logging.info("Microsoft365 client initialized successfully")
+                    else:
+                        logging.error("Failed to get OAuth data for Microsoft")
+                except Exception as e:
+                    logging.error(f"Error initializing Microsoft365 client: {str(e)}")
+
+        self.attachments_dir = kwargs.get(
+            "conversation_directory", "./WORKSPACE/attachments"
         )
         os.makedirs(self.attachments_dir, exist_ok=True)
 
     def authenticate(self):
+        """
+        Ensures we have a valid Microsoft auth object and returns it.
+        Raises ValueError if auth is not initialized.
+        """
+        if not self.microsoft_auth:
+            raise ValueError(
+                "Microsoft365 authentication not initialized. Please check authentication."
+            )
         return self.microsoft_auth.access_token
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
         """
-        Get emails from the specified folder in the Microsoft 365 email account
+        Retrieves emails from a specified folder in the user's Microsoft 365 mailbox.
 
         Args:
-        folder_name (str): The name of the folder to retrieve emails from
-        max_emails (int): The maximum number of emails to retrieve
-        page_size (int): The number of emails to retrieve per page
+            folder_name (str): Name of the folder to fetch emails from (e.g., "Inbox", "Sent Items")
+            max_emails (int): Maximum number of emails to retrieve
+            page_size (int): Number of emails to fetch per page
 
         Returns:
-        list: A list of dictionaries containing email date
+            list: List of dictionaries containing email information
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            folder = mailbox.get_folder(folder_name=folder_name)
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # First get the folder id
+            folder_response = requests.get(
+                f"https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq '{folder_name}'",
+                headers=headers,
+            )
+
+            if folder_response.status_code != 200:
+                raise Exception(f"Failed to find folder: {folder_response.text}")
+
+            folder_id = folder_response.json()["value"][0]["id"]
+
+            # Then get the messages
             emails = []
-            query = folder.new_query().order_by("receivedDateTime", ascending=False)
-            page_count = max_emails // page_size
-            for i in range(page_count):
-                page = query.skip(i * page_size).top(page_size).get()
-                for message in page:
-                    email_data = {
-                        "id": message.object_id,
-                        "sender": message.sender.address,
-                        "subject": message.subject,
-                        "body": message.body,
-                        "attachments": [
-                            attachment.name for attachment in message.attachments
-                        ],
-                        "received_time": message.received.strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                    emails.append(email_data)
+            url = f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder_id}/messages?$top={page_size}&$orderby=receivedDateTime desc"
+
+            while len(emails) < max_emails:
+                response = requests.get(url, headers=headers)
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch emails: {response.text}")
+
+                data = response.json()
+                for message in data["value"]:
+                    emails.append(
+                        {
+                            "id": message["id"],
+                            "subject": message["subject"],
+                            "sender": message["from"]["emailAddress"]["address"],
+                            "received_time": message["receivedDateTime"],
+                            "body": message["body"]["content"],
+                            "has_attachments": message["hasAttachments"],
+                        }
+                    )
+                    if len(emails) >= max_emails:
+                        break
+
+                if "@odata.nextLink" in data and len(emails) < max_emails:
+                    url = data["@odata.nextLink"]
+                else:
+                    break
+
             return emails
+
         except Exception as e:
-            logging.info(f"Error retrieving emails: {str(e)}")
+            logging.error(f"Error retrieving emails: {str(e)}")
             return []
 
     async def send_email(
-        self, recipient, subject, body, attachments=None, priority=None
+        self, recipient, subject, body, attachments=None, importance="normal"
     ):
         """
-        Send an email using the Microsoft 365 email account
+        Sends an email using the Microsoft 365 account.
 
         Args:
-        recipient (str): The email address of the recipient
-        subject (str): The subject of the email
-        body (str): The body of the email
-        attachments (list): A list of file paths to attach to the email
-        priority (str): The priority of the email (e.g. "normal", "high", "low")
+            recipient (str): Email address of the recipient
+            subject (str): Email subject
+            body (str): Email content
+            attachments (list): Optional list of file paths to attach
+            importance (str): Email importance level ("low", "normal", or "high")
 
         Returns:
-        str: The result of sending the email
+            str: Success or failure message
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            message = mailbox.new_message()
-            message.to.add(recipient)
-            message.subject = subject
-            message.body = body
-            if priority:
-                message.importance = priority
-            if attachments:
-                for attachment in attachments:
-                    message.attachments.add(attachment)
-            message.send()
-            return "Email sent successfully."
-        except Exception as e:
-            logging.info(f"Error sending email: {str(e)}")
-            return "Failed to send email."
+            access_token = self.authenticate()
+            email_data = {
+                "message": {
+                    "subject": subject,
+                    "body": {"contentType": "HTML", "content": body},
+                    "toRecipients": [{"emailAddress": {"address": recipient}}],
+                    "importance": importance,
+                },
+                "saveToSentItems": "true",
+            }
 
-    async def move_email_to_folder(self, message_id, destination_folder):
-        try:
-            mailbox = self.authenticate().mailbox()
-            message = mailbox.get_message(object_id=message_id)
-            message.move(destination_folder)
-            return f"Email moved to {destination_folder} folder."
+            if attachments:
+                email_data["message"]["attachments"] = []
+                for attachment_path in attachments:
+                    if os.path.exists(attachment_path):
+                        with open(attachment_path, "rb") as file:
+                            content = file.read()
+                            email_data["message"]["attachments"].append(
+                                {
+                                    "@odata.type": "#microsoft.graph.fileAttachment",
+                                    "name": os.path.basename(attachment_path),
+                                    "contentBytes": base64.b64encode(content).decode(),
+                                }
+                            )
+
+            response = requests.post(
+                "https://graph.microsoft.com/v1.0/me/sendMail",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=email_data,
+            )
+
+            if response.status_code == 202:
+                return "Email sent successfully."
+            else:
+                raise Exception(f"Failed to send email: {response.text}")
+
         except Exception as e:
-            logging.info(f"Error moving email: {str(e)}")
-            return "Failed to move email."
+            logging.error(f"Error sending email: {str(e)}")
+            return f"Failed to send email: {str(e)}"
 
     async def create_draft_email(
-        self, recipient, subject, body, attachments=None, priority=None
+        self, recipient, subject, body, attachments=None, importance="normal"
     ):
         """
-        Create a draft email in the Microsoft 365 email account
+        Creates a draft email in the Microsoft 365 account.
 
         Args:
-        recipient (str): The email address of the recipient
-        subject (str): The subject of the email
-        body (str): The body of the email
-        attachments (list): A list of file paths to attach to the email
-        priority (str): The priority of the email (e.g. "normal", "high", "low")
+            recipient (str): Email address of the recipient
+            subject (str): Email subject
+            body (str): Email content
+            attachments (list): Optional list of file paths to attach
+            importance (str): Email importance level ("low", "normal", or "high")
 
         Returns:
-        str: The result of creating the draft email
+            str: Success or failure message
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            draft = mailbox.new_message()
-            draft.to.add(recipient)
-            draft.subject = subject
-            draft.body = body
-            if priority:
-                draft.importance = priority
+            access_token = self.authenticate()
+            draft_data = {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": body},
+                "toRecipients": [{"emailAddress": {"address": recipient}}],
+                "importance": importance,
+            }
+
             if attachments:
-                for attachment in attachments:
-                    draft.attachments.add(attachment)
-            draft.save_draft()
-            return "Draft email created successfully."
+                draft_data["attachments"] = []
+                for attachment_path in attachments:
+                    if os.path.exists(attachment_path):
+                        with open(attachment_path, "rb") as file:
+                            content = file.read()
+                            draft_data["attachments"].append(
+                                {
+                                    "@odata.type": "#microsoft.graph.fileAttachment",
+                                    "name": os.path.basename(attachment_path),
+                                    "contentBytes": base64.b64encode(content).decode(),
+                                }
+                            )
+
+            response = requests.post(
+                "https://graph.microsoft.com/v1.0/me/messages",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=draft_data,
+            )
+
+            if response.status_code == 201:
+                return "Draft email created successfully."
+            else:
+                raise Exception(f"Failed to create draft: {response.text}")
+
         except Exception as e:
-            logging.info(f"Error creating draft email: {str(e)}")
-            return "Failed to create draft email."
-
-    async def delete_email(self, message_id):
-        """
-        Delete an email from the Microsoft 365 email account
-
-        Args:
-        message_id (str): The ID of the email message to delete
-
-        Returns:
-        str: The result of deleting the email
-        """
-        try:
-            mailbox = self.authenticate().mailbox()
-            message = mailbox.get_message(object_id=message_id)
-            message.delete()
-            return "Email deleted successfully."
-        except Exception as e:
-            logging.info(f"Error deleting email: {str(e)}")
-            return "Failed to delete email."
+            logging.error(f"Error creating draft email: {str(e)}")
+            return f"Failed to create draft email: {str(e)}"
 
     async def search_emails(
         self, query, folder_name="Inbox", max_emails=10, date_range=None
     ):
         """
-        Search for emails in the Microsoft 365 email account
+        Searches for emails in a specified folder.
 
         Args:
-        query (str): The search query to use
-        folder_name (str): The name of the folder to search in
-        max_emails (int): The maximum number of emails to retrieve
-        date_range (tuple): A tuple containing the start and end dates for the search
+            query (str): Search query
+            folder_name (str): Folder to search in
+            max_emails (int): Maximum number of results
+            date_range (tuple): Optional (start_date, end_date) tuple
 
         Returns:
-        list: A list of dictionaries containing email data
+            list: List of matching email dictionaries
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            folder = mailbox.get_folder(folder_name=folder_name)
-            emails = []
-            search_query = folder.new_query(query)
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            search_params = f"$search='{query}'"
             if date_range:
                 start_date, end_date = date_range
-                search_query = search_query.filter(
-                    datetime_received__range=(start_date, end_date)
+                search_params += f" AND receivedDateTime ge {start_date.isoformat()}Z AND receivedDateTime le {end_date.isoformat()}Z"
+
+            response = requests.get(
+                f"https://graph.microsoft.com/v1.0/me/messages?{search_params}&$top={max_emails}",
+                headers=headers,
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"Failed to search emails: {response.text}")
+
+            emails = []
+            for message in response.json()["value"]:
+                emails.append(
+                    {
+                        "id": message["id"],
+                        "subject": message["subject"],
+                        "sender": message["from"]["emailAddress"]["address"],
+                        "received_time": message["receivedDateTime"],
+                        "body": message["body"]["content"],
+                        "has_attachments": message["hasAttachments"],
+                    }
                 )
-            for message in search_query.fetch(limit=max_emails):
-                email_data = {
-                    "id": message.object_id,
-                    "sender": message.sender.address,
-                    "subject": message.subject,
-                    "body": message.body,
-                    "attachments": [
-                        attachment.name for attachment in message.attachments
-                    ],
-                    "received_time": message.received.strftime("%Y-%m-%d %H:%M:%S"),
-                }
-                emails.append(email_data)
+
             return emails
+
         except Exception as e:
-            logging.info(f"Error searching emails: {str(e)}")
+            logging.error(f"Error searching emails: {str(e)}")
             return []
 
     async def reply_to_email(self, message_id, body, attachments=None):
         """
-        Reply to an email in the Microsoft 365 email account
+        Replies to a specific email.
 
         Args:
-        message_id (str): The ID of the email message to reply to
-        body (str): The body of the reply email
-        attachments (list): A list of file paths to attach to the reply email
+            message_id (str): ID of the email to reply to
+            body (str): Reply content
+            attachments (list): Optional list of file paths to attach
 
         Returns:
-        str: The result of sending the reply email
+            str: Success or failure message
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            message = mailbox.get_message(object_id=message_id)
-            reply = message.reply()
-            reply.body = body
+            access_token = self.authenticate()
+            reply_data = {"message": {"body": {"contentType": "HTML", "content": body}}}
+
             if attachments:
-                for attachment in attachments:
-                    reply.attachments.add(attachment)
-            reply.send()
-            return "Reply sent successfully."
+                reply_data["message"]["attachments"] = []
+                for attachment_path in attachments:
+                    if os.path.exists(attachment_path):
+                        with open(attachment_path, "rb") as file:
+                            content = file.read()
+                            reply_data["message"]["attachments"].append(
+                                {
+                                    "@odata.type": "#microsoft.graph.fileAttachment",
+                                    "name": os.path.basename(attachment_path),
+                                    "contentBytes": base64.b64encode(content).decode(),
+                                }
+                            )
+
+            response = requests.post(
+                f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/reply",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=reply_data,
+            )
+
+            if response.status_code == 202:
+                return "Reply sent successfully."
+            else:
+                raise Exception(f"Failed to send reply: {response.text}")
+
         except Exception as e:
-            logging.info(f"Error replying to email: {str(e)}")
-            return "Failed to send reply."
+            logging.error(f"Error sending reply: {str(e)}")
+            return f"Failed to send reply: {str(e)}"
+
+    async def delete_email(self, message_id):
+        """
+        Deletes a specific email.
+
+        Args:
+            message_id (str): ID of the email to delete
+
+        Returns:
+            str: Success or failure message
+        """
+        try:
+            access_token = self.authenticate()
+            response = requests.delete(
+                f"https://graph.microsoft.com/v1.0/me/messages/{message_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
+            if response.status_code == 204:
+                return "Email deleted successfully."
+            else:
+                raise Exception(f"Failed to delete email: {response.text}")
+
+        except Exception as e:
+            logging.error(f"Error deleting email: {str(e)}")
+            return f"Failed to delete email: {str(e)}"
 
     async def process_attachments(self, message_id):
         """
-        Process attachments from an email in the Microsoft 365 email account
+        Downloads attachments from a specific email.
 
         Args:
-        message_id (str): The ID of the email message to process attachments from
+            message_id (str): ID of the email containing attachments
 
         Returns:
-        list: A list of file paths to the saved attachments
+            list: List of paths to saved attachment files
         """
         try:
-            mailbox = self.authenticate().mailbox()
-            message = mailbox.get_message(object_id=message_id)
-            attachments = message.attachments
-            saved_attachments = []
-            for attachment in attachments:
-                attachment_path = os.path.join(self.attachments_dir, attachment.name)
-                with open(attachment_path, "wb") as file:
-                    file.write(attachment.content)
-                saved_attachments.append(attachment_path)
-            return saved_attachments
+            access_token = self.authenticate()
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            # Get attachments metadata
+            attachments_response = requests.get(
+                f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/attachments",
+                headers=headers,
+            )
+
+            if attachments_response.status_code != 200:
+                raise Exception(
+                    f"Failed to get attachments: {attachments_response.text}"
+                )
+
+            saved_files = []
+            for attachment in attachments_response.json()["value"]:
+                if attachment["@odata.type"] == "#microsoft.graph.fileAttachment":
+                    file_path = os.path.join(self.attachments_dir, attachment["name"])
+                    with open(file_path, "wb") as f:
+                        f.write(base64.b64decode(attachment["contentBytes"]))
+                    saved_files.append(file_path)
+            return saved_files
+
         except Exception as e:
-            logging.info(f"Error processing attachments: {str(e)}")
+            logging.error(f"Error processing attachments: {str(e)}")
             return []
 
     async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
         """
-        Get calendar items from the Microsoft 365 calendar account
+        Retrieves calendar events within a date range.
 
         Args:
-        start_date (datetime): The start date for the calendar items
-        end_date (datetime): The end date for the calendar items
-        max_items (int): The maximum number of items to retrieve
+            start_date (datetime): Start date for events (defaults to today)
+            end_date (datetime): End date for events (defaults to 7 days from start)
+            max_items (int): Maximum number of events to retrieve
 
         Returns:
-        list: A list of dictionaries containing calendar item data
+            list: List of calendar event dictionaries
         """
-
         try:
-            schedule = self.authenticate().schedule()
-            calendar = schedule.get_default_calendar()
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
 
-            if start_date is None:
-                start_date = datetime.now().date()
-            if end_date is None:
+            if not start_date:
+                start_date = datetime.now()
+            if not end_date:
                 end_date = start_date + timedelta(days=7)
 
-            query = calendar.new_query("start").greater_equal(start_date)
-            query.chain("and").on_attribute("end").less_equal(end_date)
+            url = (
+                f"https://graph.microsoft.com/v1.0/me/calendar/calendarView?"
+                f"startDateTime={start_date.isoformat()}Z&"
+                f"endDateTime={end_date.isoformat()}Z&"
+                f"$top={max_items}&$orderby=start/dateTime"
+            )
 
-            events = query.top(max_items).get()
+            response = requests.get(url, headers=headers)
 
-            calendar_items = []
-            for event in events:
-                item_data = {
-                    "id": event.object_id,
-                    "subject": event.subject,
-                    "start_time": event.start.strftime("%Y-%m-%d %H:%M:%S"),
-                    "end_time": event.end.strftime("%Y-%m-%d %H:%M:%S"),
-                    "location": event.location.display_name,
-                    "organizer": event.organizer.address,
-                }
-                calendar_items.append(item_data)
+            if response.status_code != 200:
+                raise Exception(f"Failed to fetch calendar items: {response.text}")
 
-            return calendar_items
+            events = []
+            for event in response.json()["value"]:
+                events.append(
+                    {
+                        "id": event["id"],
+                        "subject": event["subject"],
+                        "start_time": event["start"]["dateTime"],
+                        "end_time": event["end"]["dateTime"],
+                        "location": event.get("location", {}).get("displayName", ""),
+                        "is_online_meeting": event.get("isOnlineMeeting", False),
+                        "meeting_url": event.get("onlineMeeting", {}).get(
+                            "joinUrl", ""
+                        ),
+                        "organizer": event["organizer"]["emailAddress"]["address"],
+                        "is_all_day": event.get("isAllDay", False),
+                        "sensitivity": event.get("sensitivity", "normal"),
+                        "status": event["showAs"],
+                    }
+                )
+
+            return events
+
         except Exception as e:
-            logging.info(f"Error retrieving calendar items: {str(e)}")
+            logging.error(f"Error retrieving calendar items: {str(e)}")
             return []
 
     async def add_calendar_item(
-        self, subject, start_time, end_time, location, attendees=None, body=None
+        self,
+        subject,
+        start_time,
+        end_time,
+        location=None,
+        attendees=None,
+        body=None,
+        is_online_meeting=False,
+        reminder_minutes_before=15,
     ):
         """
-        Add a calendar item to the Microsoft 365 calendar account
+        Creates a new calendar event.
 
         Args:
-        subject (str): The subject of the calendar item
-        start_time (datetime): The start time of the calendar item
-        end_time (datetime): The end time of the calendar item
-        location (str): The location of the calendar item
-        attendees (list): A list of email addresses of attendees
-        body (str): The body of the calendar item
+            subject (str): Event title/subject
+            start_time (datetime): Event start time
+            end_time (datetime): Event end time
+            location (str): Optional physical location
+            attendees (list): Optional list of attendee email addresses
+            body (str): Optional event description
+            is_online_meeting (bool): Whether to create as Teams meeting
+            reminder_minutes_before (int): Minutes before event to send reminder
 
         Returns:
-        str: The result of adding the calendar item
+            str: Success or failure message
         """
         try:
-            schedule = self.authenticate().schedule()
-            calendar = schedule.get_default_calendar()
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
 
-            new_event = calendar.new_event()
-            new_event.subject = subject
-            new_event.start = start_time
-            new_event.end = end_time
-            new_event.location = location
+            event_data = {
+                "subject": subject,
+                "start": {"dateTime": start_time.isoformat(), "timeZone": "UTC"},
+                "end": {"dateTime": end_time.isoformat(), "timeZone": "UTC"},
+                "isOnlineMeeting": is_online_meeting,
+                "reminderMinutesBeforeStart": reminder_minutes_before,
+            }
+
+            if location:
+                event_data["location"] = {"displayName": location}
+
+            if body:
+                event_data["body"] = {"contentType": "HTML", "content": body}
 
             if attendees:
-                for attendee in attendees:
-                    new_event.attendees.add(attendee)
+                event_data["attendees"] = [
+                    {"emailAddress": {"address": email}, "type": "required"}
+                    for email in attendees
+                ]
 
-            if body:
-                new_event.body = body
+            response = requests.post(
+                "https://graph.microsoft.com/v1.0/me/events",
+                headers=headers,
+                json=event_data,
+            )
 
-            new_event.save()
+            if response.status_code == 201:
+                return "Calendar event created successfully."
+            else:
+                raise Exception(f"Failed to create event: {response.text}")
 
-            return "Calendar item added successfully."
         except Exception as e:
-            logging.info(f"Error adding calendar item: {str(e)}")
-            return "Failed to add calendar item."
+            logging.error(f"Error creating calendar event: {str(e)}")
+            return f"Failed to create calendar event: {str(e)}"
 
-    async def remove_calendar_item(self, item_id):
+    async def remove_calendar_item(self, event_id):
         """
-        Remove a calendar item from the Microsoft 365 calendar account
+        Deletes a calendar event.
 
         Args:
-        item_id (str): The ID of the calendar item to remove
+            event_id (str): ID of the event to delete
 
         Returns:
-        str: The result of removing the calendar item
+            str: Success or failure message
         """
         try:
-            schedule = self.authenticate().schedule()
-            calendar = schedule.get_default_calendar()
+            access_token = self.authenticate()
+            response = requests.delete(
+                f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
 
-            event = calendar.get_event(item_id)
-            event.delete()
+            if response.status_code == 204:
+                return "Calendar event deleted successfully."
+            else:
+                raise Exception(f"Failed to delete event: {response.text}")
 
-            return "Calendar item removed successfully."
         except Exception as e:
-            logging.info(f"Error removing calendar item: {str(e)}")
-            return "Failed to remove calendar item."
+            logging.error(f"Error deleting calendar event: {str(e)}")
+            return f"Failed to delete calendar event: {str(e)}"
 
-    async def get_todo_tasks(self, max_tasks=10):
+    async def get_todo_tasks(self, list_name="Tasks", max_tasks=50):
         """
-        Get Todo tasks from the Microsoft 365 account
+        Retrieves tasks from a specified todo list.
 
         Args:
-        max_tasks (int): The maximum number of tasks to retrieve
+            list_name (str): Name of the todo list to fetch from
+            max_tasks (int): Maximum number of tasks to retrieve
 
         Returns:
-        list: A list of dictionaries containing task data
+            list: List of task dictionaries
         """
         try:
-            account = self.authenticate()
-            todo = account.todo()
-            tasks = todo.get_tasks(top=max_tasks)
-            todo_tasks = []
-            for task in tasks:
-                task_data = {
-                    "id": task.object_id,
-                    "title": task.title,
-                    "body": task.body,
-                    "due_date": task.due_date,
-                    "completed": task.is_completed,
-                }
-                todo_tasks.append(task_data)
-            return todo_tasks
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get lists
+            lists_response = requests.get(
+                "https://graph.microsoft.com/v1.0/me/todo/lists", headers=headers
+            )
+
+            if lists_response.status_code != 200:
+                raise Exception(f"Failed to fetch todo lists: {lists_response.text}")
+
+            list_id = None
+            for todo_list in lists_response.json()["value"]:
+                if todo_list["displayName"].lower() == list_name.lower():
+                    list_id = todo_list["id"]
+                    break
+
+            if not list_id:
+                raise Exception(f"Todo list '{list_name}' not found")
+
+            # Get tasks
+            tasks_response = requests.get(
+                f"https://graph.microsoft.com/v1.0/me/todo/lists/{list_id}/tasks?$top={max_tasks}",
+                headers=headers,
+            )
+
+            if tasks_response.status_code != 200:
+                raise Exception(f"Failed to fetch tasks: {tasks_response.text}")
+
+            tasks = []
+            for task in tasks_response.json()["value"]:
+                tasks.append(
+                    {
+                        "id": task["id"],
+                        "title": task["title"],
+                        "body": task.get("body", {}).get("content", ""),
+                        "due_date": task.get("dueDateTime", {}).get("dateTime", ""),
+                        "completed": task["status"] == "completed",
+                        "importance": task["importance"],
+                        "created_date": task["createdDateTime"],
+                        "last_modified": task["lastModifiedDateTime"],
+                    }
+                )
+
+            return tasks
+
         except Exception as e:
-            logging.info(f"Error retrieving Todo tasks: {str(e)}")
+            logging.error(f"Error retrieving todo tasks: {str(e)}")
             return []
 
-    async def create_todo_task(self, title, body, due_date):
+    async def create_todo_task(
+        self,
+        title,
+        list_name="Tasks",
+        body=None,
+        due_date=None,
+        importance="normal",
+        reminder=None,
+    ):
         """
-        Create a new Todo task in the Microsoft 365 account
+        Creates a new task in a todo list.
 
         Args:
-        title (str): The title of the task
-        body (str): The body of the task
-        due_date (datetime): The due date of the task
+            title (str): Task title
+            list_name (str): Name of the todo list to add task to
+            body (str): Optional task description
+            due_date (datetime): Optional due date
+            importance (str): Task importance ("low", "normal", "high")
+            reminder (datetime): Optional reminder date/time
 
         Returns:
-        str: The result of creating the task
+            str: Success or failure message
         """
         try:
-            account = self.authenticate()
-            todo = account.todo()
-            new_task = todo.new_task()
-            new_task.title = title
-            new_task.body = body
-            new_task.due_date = due_date
-            new_task.save()
-            return "Todo task created successfully."
-        except Exception as e:
-            logging.info(f"Error creating Todo task: {str(e)}")
-            return "Failed to create Todo task."
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
 
-    async def update_todo_task(self, task_id, title=None, body=None, due_date=None):
-        """
-        Update a Todo task in the Microsoft 365 account
+            # Get list ID
+            lists_response = requests.get(
+                "https://graph.microsoft.com/v1.0/me/todo/lists", headers=headers
+            )
 
-        Args:
-        task_id (str): The ID of the task to update
-        title (str): The new title of the task
-        body (str): The new body of the task
-        due_date (datetime): The new due date of the task
+            list_id = None
+            for todo_list in lists_response.json()["value"]:
+                if todo_list["displayName"].lower() == list_name.lower():
+                    list_id = todo_list["id"]
+                    break
 
-        Returns:
-        str: The result of updating the task
-        """
-        try:
-            account = self.authenticate()
-            todo = account.todo()
-            task = todo.get_task(task_id)
-            if title:
-                task.title = title
+            if not list_id:
+                raise Exception(f"Todo list '{list_name}' not found")
+
+            task_data = {"title": title, "importance": importance}
+
             if body:
-                task.body = body
-            if due_date:
-                task.due_date = due_date
-            task.save()
-            return "Todo task updated successfully."
-        except Exception as e:
-            logging.info(f"Error updating Todo task: {str(e)}")
-            return "Failed to update Todo task."
+                task_data["body"] = {"content": body, "contentType": "text"}
 
-    async def delete_todo_task(self, task_id):
+            if due_date:
+                task_data["dueDateTime"] = {
+                    "dateTime": due_date.isoformat(),
+                    "timeZone": "UTC",
+                }
+
+            if reminder:
+                task_data["reminderDateTime"] = {
+                    "dateTime": reminder.isoformat(),
+                    "timeZone": "UTC",
+                }
+
+            response = requests.post(
+                f"https://graph.microsoft.com/v1.0/me/todo/lists/{list_id}/tasks",
+                headers=headers,
+                json=task_data,
+            )
+
+            if response.status_code == 201:
+                return "Task created successfully."
+            else:
+                raise Exception(f"Failed to create task: {response.text}")
+
+        except Exception as e:
+            logging.error(f"Error creating todo task: {str(e)}")
+            return f"Failed to create task: {str(e)}"
+
+    async def update_todo_task(self, task_id, list_name="Tasks", **updates):
         """
-        Delete a Todo task from the Microsoft 365 account
+        Updates an existing todo task.
 
         Args:
-        task_id (str): The ID of the task to delete
+            task_id (str): ID of the task to update
+            list_name (str): Name of the todo list containing the task
+            **updates: Keyword arguments for fields to update:
+                - title (str): New task title
+                - body (str): New task description
+                - due_date (datetime): New due date
+                - importance (str): New importance level
+                - status (str): New status
+                - reminder (datetime): New reminder time
 
         Returns:
-        str: The result of deleting the task
+            str: Success or failure message
         """
         try:
-            account = self.authenticate()
-            todo = account.todo()
-            task = todo.get_task(task_id)
-            task.delete()
-            return "Todo task deleted successfully."
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get list ID
+            lists_response = requests.get(
+                "https://graph.microsoft.com/v1.0/me/todo/lists", headers=headers
+            )
+
+            list_id = None
+            for todo_list in lists_response.json()["value"]:
+                if todo_list["displayName"].lower() == list_name.lower():
+                    list_id = todo_list["id"]
+                    break
+
+            if not list_id:
+                raise Exception(f"Todo list '{list_name}' not found")
+
+            update_data = {}
+
+            if "title" in updates:
+                update_data["title"] = updates["title"]
+            if "body" in updates:
+                update_data["body"] = {
+                    "content": updates["body"],
+                    "contentType": "text",
+                }
+            if "due_date" in updates:
+                update_data["dueDateTime"] = {
+                    "dateTime": updates["due_date"].isoformat(),
+                    "timeZone": "UTC",
+                }
+            if "importance" in updates:
+                update_data["importance"] = updates["importance"]
+            if "status" in updates:
+                update_data["status"] = updates["status"]
+            if "reminder" in updates:
+                update_data["reminderDateTime"] = {
+                    "dateTime": updates["reminder"].isoformat(),
+                    "timeZone": "UTC",
+                }
+
+            response = requests.patch(
+                f"https://graph.microsoft.com/v1.0/me/todo/lists/{list_id}/tasks/{task_id}",
+                headers=headers,
+                json=update_data,
+            )
+
+            if response.status_code == 200:
+                return "Task updated successfully."
+            else:
+                raise Exception(f"Failed to update task: {response.text}")
+
         except Exception as e:
-            logging.info(f"Error deleting Todo task: {str(e)}")
-            return "Failed to delete Todo task."
+            logging.error(f"Error updating todo task: {str(e)}")
+            return f"Failed to update task: {str(e)}"
+
+    async def delete_todo_task(self, task_id, list_name="Tasks"):
+        """
+        Deletes a task from a todo list.
+
+        Args:
+            task_id (str): ID of the task to delete
+            list_name (str): Name of the todo list containing the task
+
+        Returns:
+            str: Success or failure message
+        """
+        try:
+            access_token = self.authenticate()
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Get list ID
+            lists_response = requests.get(
+                "https://graph.microsoft.com/v1.0/me/todo/lists", headers=headers
+            )
+
+            list_id = None
+            for todo_list in lists_response.json()["value"]:
+                if todo_list["displayName"].lower() == list_name.lower():
+                    list_id = todo_list["id"]
+                    break
+
+            if not list_id:
+                raise Exception(f"Todo list '{list_name}' not found")
+
+            response = requests.delete(
+                f"https://graph.microsoft.com/v1.0/me/todo/lists/{list_id}/tasks/{task_id}",
+                headers=headers,
+            )
+
+            if response.status_code == 204:
+                return "Task deleted successfully."
+            else:
+                raise Exception(f"Failed to delete task: {response.text}")
+
+        except Exception as e:
+            logging.error(f"Error deleting todo task: {str(e)}")
+            return f"Failed to delete task: {str(e)}"
