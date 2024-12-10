@@ -5,7 +5,7 @@ from inspect import signature, Parameter
 import logging
 import inspect
 from Globals import getenv, DEFAULT_USER
-from MagicalAuth import get_user_id
+from MagicalAuth import get_user_id, get_sso_credentials
 from agixtsdk import AGiXTSDK
 from Prompts import Prompts
 from DB import (
@@ -341,6 +341,7 @@ class Extensions:
         return settings
 
     async def execute_command(self, command_name: str, command_args: dict = None):
+        credentials = get_sso_credentials(user_id=self.user_id)
         injection_variables = {
             "user": self.user,
             "agent_name": self.agent_name,
@@ -355,6 +356,7 @@ class Extensions:
                 os.getcwd(), "WORKSPACE", self.agent_id, self.conversation_id
             ),
             **self.agent_config["settings"],
+            **credentials,
         }
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
