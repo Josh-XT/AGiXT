@@ -24,6 +24,7 @@ class microsoft365(Extensions):
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
+        self.access_token = kwargs.get("access_token", None)
         self.microsoft_auth = None
         microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
         microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
@@ -54,6 +55,7 @@ class microsoft365(Extensions):
                         logging.info("Microsoft365 client initialized successfully")
                     else:
                         logging.error("Failed to get OAuth data for Microsoft")
+                    self.access_token = self.microsoft_auth.access_token
                 except Exception as e:
                     logging.error(f"Error initializing Microsoft365 client: {str(e)}")
 
@@ -67,15 +69,16 @@ class microsoft365(Extensions):
         Ensures we have a valid Microsoft auth object and returns it.
         Raises ValueError if auth is not initialized.
         """
-        if not self.microsoft_auth:
+        if not self.access_token:
             self.microsoft_auth = MagicalAuth(token=self.api_key).get_oauth_functions(
                 "microsoft"
             )
-            if not self.microsoft_auth or not self.microsoft_auth.access_token:
+            self.access_token = self.microsoft_auth.access_token
+            if not self.microsoft_auth or not self.access_token:
                 raise ValueError(
                     "Microsoft365 authentication not initialized. Please check authentication."
                 )
-        return self.microsoft_auth.access_token
+        return self.access_token
 
     def verify_user(self, access_token):
         """
