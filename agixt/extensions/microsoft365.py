@@ -71,11 +71,27 @@ class microsoft365(Extensions):
             self.microsoft_auth = MagicalAuth(token=self.api_key).get_oauth_functions(
                 "microsoft"
             )
-            if not self.microsoft_auth.access_token:
+            if not self.microsoft_auth or not self.microsoft_auth.access_token:
                 raise ValueError(
                     "Microsoft365 authentication not initialized. Please check authentication."
                 )
         return self.microsoft_auth.access_token
+
+    def verify_user(self, access_token):
+        """
+        Verifies that the current access token corresponds to a valid user.
+        If the /me endpoint fails, raises an exception indicating the user is not found.
+        """
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
+        logging.info(f"User verification response: {response.text}")
+        if response.status_code != 200:
+            # Provide details and suggestions
+            raise Exception(
+                f"User not found or invalid token. Status: {response.status_code}, "
+                f"Response: {response.text}. Ensure the token is a user-delegated token "
+                "with the correct scopes (e.g., Calendars.ReadWrite), and the user is properly signed in."
+            )
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
         """
@@ -91,6 +107,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -160,6 +178,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             email_data = {
                 "message": {
                     "subject": subject,
@@ -220,6 +240,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             draft_data = {
                 "subject": subject,
                 "body": {"contentType": "HTML", "content": body},
@@ -276,6 +298,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -327,6 +351,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             reply_data = {"message": {"body": {"contentType": "HTML", "content": body}}}
 
             if attachments:
@@ -373,6 +399,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             response = requests.delete(
                 f"https://graph.microsoft.com/v1.0/me/messages/{message_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -399,6 +427,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {"Authorization": f"Bearer {access_token}"}
 
             # Get attachments metadata
@@ -439,6 +469,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -516,6 +548,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -550,7 +584,9 @@ class microsoft365(Extensions):
             if response.status_code == 201:
                 return "Calendar event created successfully."
             else:
-                raise Exception(f"Failed to create event: {response.text}")
+                raise Exception(
+                    f"Failed to create event: {response.status_code}: {response.text}"
+                )
 
         except Exception as e:
             logging.error(f"Error creating calendar event: {str(e)}")
@@ -568,6 +604,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             response = requests.delete(
                 f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -595,6 +633,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -672,6 +712,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -743,6 +785,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -814,6 +858,8 @@ class microsoft365(Extensions):
         """
         try:
             access_token = self.authenticate()
+            self.verify_user(access_token)
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
