@@ -39,11 +39,14 @@ def ensure_default_user():
 
 
 def import_agents(user=DEFAULT_USER):
-    agents = [
-        f.name
-        for f in os.scandir("agents")
-        if f.is_dir() and not f.name.startswith("__")
-    ]
+    try:
+        agents = [
+            f.name
+            for f in os.scandir("agents")
+            if f.is_dir() and not f.name.startswith("__")
+        ]
+    except:
+        return None
     session = get_session()
     for agent_name in agents:
         # Check if agent already exists
