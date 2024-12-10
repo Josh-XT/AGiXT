@@ -423,6 +423,7 @@ class Agent:
         )
         microsoft_sso = False
         google_sso = False
+        github_sso = False
         if user_oauth:
             for oauth in user_oauth:
                 provider = (
@@ -435,6 +436,8 @@ class Agent:
                         microsoft_sso = True
                     if str(provider.name).lower() == "google":
                         google_sso = True
+                    if str(provider.name).lower() == "github":
+                        github_sso = True
         session.close()
         for extension in extensions:
             if str(extension["extension_name"]).lower() == "microsoft":
@@ -459,6 +462,8 @@ class Agent:
                         new_extension["commands"] = []
             if new_extension["commands"] == [] and new_extension["settings"] == []:
                 continue
+            if github_sso and str(extension["extension_name"]).lower() == "github":
+                new_extension["missing_keys"] = []
             new_extensions.append(new_extension)
         for extension in new_extensions:
             for command in extension["commands"]:
