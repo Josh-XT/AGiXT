@@ -37,7 +37,7 @@ class google(Extensions):
     """
 
     def __init__(self, **kwargs):
-        api_key = kwargs.get("api_key")
+        self.api_key = kwargs.get("api_key")
         self.google_auth = None
         google_client_id = getenv("GOOGLE_CLIENT_ID")
         google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
@@ -60,9 +60,9 @@ class google(Extensions):
                 "Google - Delete Keep Note": self.delete_keep_note,
             }
 
-            if api_key:
+            if self.api_key:
                 try:
-                    auth = MagicalAuth(token=api_key)
+                    auth = MagicalAuth(token=self.api_key)
                     self.google_auth = auth.get_oauth_functions("google")
                     if self.google_auth:
                         logging.info("Google client initialized successfully")
@@ -82,9 +82,13 @@ class google(Extensions):
         Raises ValueError if auth is not initialized.
         """
         if not self.google_auth:
-            raise ValueError(
-                "Google authentication not initialized. Please check authentication."
+            self.google_auth = MagicalAuth(token=self.api_key).get_oauth_functions(
+                "google"
             )
+            if not self.google_auth:
+                raise ValueError(
+                    "Google authentication not initialized. Please check authentication."
+                )
         return self.google_auth
 
     async def get_emails(self, query=None, max_emails=10):
