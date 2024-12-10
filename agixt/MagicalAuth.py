@@ -1005,3 +1005,9 @@ class MagicalAuth:
         session.commit()
         session.close()
         return f"Disconnected {provider_name.capitalize()}."
+
+    def get_timezone(self):
+        user_preferences = self.get_user_preferences()
+        if "timezone" in user_preferences:
+            return user_preferences["timezone"]
+        return getenv("TZ")

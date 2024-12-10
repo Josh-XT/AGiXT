@@ -28,7 +28,8 @@ class microsoft365(Extensions):
         self.microsoft_auth = None
         microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
         microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
-
+        self.timezone = getenv("TZ")
+        self.auth = None
         if microsoft_client_id and microsoft_client_secret:
             self.commands = {
                 "Microsoft - Get Emails": self.get_emails,
@@ -49,8 +50,9 @@ class microsoft365(Extensions):
 
             if self.api_key:
                 try:
-                    auth = MagicalAuth(token=self.api_key)
-                    self.microsoft_auth = auth.get_oauth_functions("microsoft")
+                    self.auth = MagicalAuth(token=self.api_key)
+                    self.timezone = self.auth.get_timezone()
+                    self.microsoft_auth = self.auth.get_oauth_functions("microsoft")
                     if self.microsoft_auth:
                         logging.info("Microsoft365 client initialized successfully")
                     else:
@@ -85,6 +87,7 @@ class microsoft365(Extensions):
         Verifies that the current access token corresponds to a valid user.
         If the /me endpoint fails, raises an exception indicating the user is not found.
         """
+        logging.info(f"Verifying user with token: {self.access_token}")
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
         logging.info(f"User verification response: {response.text}")
@@ -558,8 +561,8 @@ class microsoft365(Extensions):
 
             event_data = {
                 "subject": subject,
-                "start": {"dateTime": start_time, "timeZone": "UTC"},
-                "end": {"dateTime": end_time, "timeZone": "UTC"},
+                "start": {"dateTime": start_time, "timeZone": self.timezone},
+                "end": {"dateTime": end_time, "timeZone": self.timezone},
                 "isOnlineMeeting": is_online_meeting,
                 "reminderMinutesBeforeStart": reminder_minutes_before,
             }
@@ -737,14 +740,14 @@ class microsoft365(Extensions):
 
             if due_date:
                 task_data["dueDateTime"] = {
-                    "dateTime": due_date.isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": due_date,
+                    "timeZone": self.timezone,
                 }
 
             if reminder:
                 task_data["reminderDateTime"] = {
-                    "dateTime": reminder.isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": reminder,
+                    "timeZone": self.timezone,
                 }
 
             response = requests.post(
@@ -812,8 +815,8 @@ class microsoft365(Extensions):
                 }
             if "due_date" in updates:
                 update_data["dueDateTime"] = {
-                    "dateTime": updates["due_date"].isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": updates["due_date"],
+                    "timeZone": self.timezone,
                 }
             if "importance" in updates:
                 update_data["importance"] = updates["importance"]
@@ -821,8 +824,8 @@ class microsoft365(Extensions):
                 update_data["status"] = updates["status"]
             if "reminder" in updates:
                 update_data["reminderDateTime"] = {
-                    "dateTime": updates["reminder"].isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": updates["reminder"],
+                    "timeZone": self.timezone,
                 }
 
             response = requests.patch(
