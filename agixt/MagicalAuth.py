@@ -914,6 +914,31 @@ class MagicalAuth:
             "output_tokens": updated_output_tokens,
         }
 
+    def get_sso_connections(self):
+        session = get_session()
+        user_oauth = (
+            session.query(UserOAuth).filter(UserOAuth.user_id == self.user_id).all()
+        )
+        response = []
+        creds = []
+        for oauth in user_oauth:
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.id == oauth.provider_id)
+                .first()
+            )
+            response.append(provider.name)
+            creds.append(
+                {
+                    "provider": provider.name,
+                    "access_token": oauth.access_token,
+                    "refresh_token": oauth.refresh_token,
+                }
+            )
+        logging.info(f"User {self.user_id} has SSO connections: {creds}")
+        session.close()
+        return response
+
     def update_sso(self, provider_name, access_token, refresh_token=None):
         provider_name = str(provider_name).lower()
         session = get_session()
@@ -953,6 +978,7 @@ class MagicalAuth:
                 user_oauth.refresh_token = refresh_token
         session.commit()
         session.close()
+        self.get_sso_connections()
         return f"OAuth2 Credentials updated for {provider_name.capitalize()}."
 
     def disconnect_sso(self, provider_name):
