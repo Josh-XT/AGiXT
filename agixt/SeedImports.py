@@ -12,6 +12,7 @@ from DB import (
     Setting,
     Command,
     User,
+    Agent,
 )
 from Providers import get_providers, get_provider_options
 from Agent import add_agent
