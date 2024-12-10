@@ -446,9 +446,9 @@ class Agent:
             if str(extension["extension_name"]).lower() == "google":
                 if not google_sso:
                     continue
-            required_keys = extension["settings"]
             if github_sso and str(extension["extension_name"]).lower() == "github":
-                required_keys = []
+                extension["settings"] = []
+            required_keys = extension["settings"]
             new_extension = extension.copy()
             for key in required_keys:
                 if key not in self.AGENT_CONFIG["settings"]:
