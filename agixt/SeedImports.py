@@ -202,6 +202,7 @@ def import_chains(user=DEFAULT_USER):
         return
 
     from Chain import Chain
+    from DB import Chain as ChainDB
 
     chain_importer = Chain(user=user)
     session = get_session()
@@ -209,9 +210,7 @@ def import_chains(user=DEFAULT_USER):
     failures = []
     for file in chain_files:
         chain_name = os.path.splitext(file)[0]
-
-        # Check if chain already exists
-        existing_chain = session.query(Chain).filter_by(name=chain_name).first()
+        existing_chain = session.query(ChainDB).filter_by(name=chain_name).first()
         if existing_chain:
             logging.info(f"Chain {chain_name} already exists, skipping...")
             continue
