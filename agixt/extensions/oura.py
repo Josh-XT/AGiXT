@@ -1,6 +1,7 @@
 from Extensions import Extensions
 import requests
 import json
+from datetime import date, timedelta
 
 
 class oura(Extensions):
@@ -49,23 +50,64 @@ class oura(Extensions):
             "Get heart rate data": self.get_heart_rate_data,
         }
 
-    async def get_personal_info(self):
+    async def get_personal_info(self, start_date=None, end_date=None):
         """
-        Fetch the single personal info document of the user.
+        Fetch and aggregate user personal info along with other user-related data from Oura.
+        This allows specifying a date range to capture as much data as possible from various endpoints.
 
-        Makes an authenticated GET request to the /v2/usercollection/personal_info endpoint to retrieve the personal information.
+        Args:
+            start_date (str): Optional. Start date in 'YYYY-MM-DD' format.
+            end_date (str): Optional. End date in 'YYYY-MM-DD' format.
 
         Returns:
-            dict: The personal info document if the request is successful.
-
-        Raises:
-            requests.exceptions.HTTPError: If an HTTP error occurs.
+            str: A JSON-formatted string containing combined user data.
         """
-        url = f"{self.base_uri}/v2/usercollection/personal_info"
-        response = self.session.get(url)
-        response.raise_for_status()
-        data = response.json()
-        return json.dumps(data, indent=4)
+        # If no dates are provided, default to the past 7 days
+        if not start_date:
+            start_date = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+        if not end_date:
+            end_date = date.today().strftime("%Y-%m-%d")
+
+        # Define endpoints that require date ranges
+        endpoints = {
+            "personal_info": "v2/usercollection/personal_info",
+            "daily_activity": f"v2/usercollection/daily_activity?start_date={start_date}&end_date={end_date}",
+            "daily_sleep": f"v2/usercollection/daily_sleep?start_date={start_date}&end_date={end_date}",
+            "daily_readiness": f"v2/usercollection/daily_readiness?start_date={start_date}&end_date={end_date}",
+            "daily_stress": f"v2/usercollection/daily_stress?start_date={start_date}&end_date={end_date}",
+            "daily_spo2": f"v2/usercollection/daily_spo2?start_date={start_date}&end_date={end_date}",
+            "sleep_time": f"v2/usercollection/sleep_time?start_date={start_date}&end_date={end_date}",
+            "workout": f"v2/usercollection/workout?start_date={start_date}&end_date={end_date}",
+            "session": f"v2/usercollection/session?start_date={start_date}&end_date={end_date}",
+        }
+
+        combined_data = {}
+
+        for key, endpoint in endpoints.items():
+            url = f"{self.base_uri}/{endpoint}"
+            try:
+                response = self.session.get(url)
+                response.raise_for_status()
+                resp_json = response.json()
+
+                # The personal_info endpoint usually returns a single object under 'data'
+                # Others may return lists of documents under 'data'
+                if key == "personal_info":
+                    combined_data[key] = resp_json.get("data", {})
+                else:
+                    combined_data[key] = resp_json.get("data", [])
+
+            except requests.exceptions.HTTPError as err:
+                # Capture the error information rather than failing completely
+                status_code = err.response.status_code if err.response else None
+                combined_data[key] = {
+                    "error": True,
+                    "status_code": status_code,
+                    "message": str(err),
+                }
+
+        # Return the combined data as a JSON-formatted string
+        return json.dumps(combined_data, indent=4)
 
     async def get_usercollection_tag(
         self, start_date=None, end_date=None, next_token=None
