@@ -32,7 +32,6 @@ class microsoft365(Extensions):
             self.commands = {
                 "Microsoft - Get Emails": self.get_emails,
                 "Microsoft - Send Email": self.send_email,
-                "Microsoft - Move Email to Folder": self.move_email_to_folder,
                 "Microsoft - Create Draft Email": self.create_draft_email,
                 "Microsoft - Delete Email": self.delete_email,
                 "Microsoft - Search Emails": self.search_emails,
