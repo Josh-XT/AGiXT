@@ -23,7 +23,7 @@ class microsoft365(Extensions):
     """
 
     def __init__(self, **kwargs):
-        api_key = kwargs.get("api_key")
+        self.api_key = kwargs.get("api_key")
         self.microsoft_auth = None
         microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
         microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
@@ -46,9 +46,9 @@ class microsoft365(Extensions):
                 "Microsoft - Delete Todo Task": self.delete_todo_task,
             }
 
-            if api_key:
+            if self.api_key:
                 try:
-                    auth = MagicalAuth(token=api_key)
+                    auth = MagicalAuth(token=self.api_key)
                     self.microsoft_auth = auth.get_oauth_functions("microsoft")
                     if self.microsoft_auth:
                         logging.info("Microsoft365 client initialized successfully")
@@ -68,9 +68,13 @@ class microsoft365(Extensions):
         Raises ValueError if auth is not initialized.
         """
         if not self.microsoft_auth:
-            raise ValueError(
-                "Microsoft365 authentication not initialized. Please check authentication."
+            self.microsoft_auth = MagicalAuth(token=self.api_key).get_oauth_functions(
+                "microsoft"
             )
+            if not self.microsoft_auth.access_token:
+                raise ValueError(
+                    "Microsoft365 authentication not initialized. Please check authentication."
+                )
         return self.microsoft_auth.access_token
 
     async def get_emails(self, folder_name="Inbox", max_emails=10, page_size=10):
