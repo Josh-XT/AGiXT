@@ -1808,6 +1808,8 @@ class AGiXT:
             )
         except Exception as e:
             logging.warning(f"Error increasing token counts: {e}")
+        response = re.sub(r"<execute>.*?</execute>", "", response)
+        response = re.sub(r"<output>.*?</output>", "", response)
         res_model = {
             "id": self.conversation_id,
             "object": "chat.completion",
