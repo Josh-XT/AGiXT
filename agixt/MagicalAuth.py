@@ -198,14 +198,14 @@ def get_sso_credentials(user_id):
     if not user_oauth:
         session.close()
         raise HTTPException(status_code=404, detail="User OAuth not found.")
-    credentials = []
+    credentials = {}
     for oauth in user_oauth:
         provider = (
             session.query(OAuthProvider)
             .filter(OAuthProvider.id == oauth.provider_id)
             .first()
         )
-        credentials.append(
+        credentials.update(
             {f"{str(provider.name).upper()}_ACCESS_TOKEN": oauth.access_token}
         )
     session.close()
