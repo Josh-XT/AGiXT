@@ -62,24 +62,10 @@ class oura(Extensions):
             requests.exceptions.HTTPError: If an HTTP error occurs.
         """
         url = f"{self.base_uri}/v2/usercollection/personal_info"
-        try:
-            response = await self.session.get(url)
-            response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
-
-            data = await response.json()
-            return json.dumps(data, indent=4)
-        except requests.exceptions.HTTPError as err:
-            # Handle specific HTTP errors
-            if response.status_code == 400:
-                return {"error": "Client Exception", "message": str(err)}
-            elif response.status_code == 401:
-                return {"error": "Unauthorized access", "message": str(err)}
-            elif response.status_code == 403:
-                return {"error": "Access forbidden", "message": str(err)}
-            elif response.status_code == 429:
-                return {"error": "Request Rate Limit Exceeded", "message": str(err)}
-            else:
-                raise
+        response = self.session.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return json.dumps(data, indent=4)
 
     async def get_usercollection_tag(
         self, start_date=None, end_date=None, next_token=None
