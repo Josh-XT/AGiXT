@@ -188,6 +188,30 @@ def impersonate_user(user_id: str):
     return token
 
 
+def get_sso_credentials(user_id):
+    session = get_session()
+    user = session.query(User).filter(User.id == user_id).first()
+    if not user:
+        session.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_oauth = session.query(UserOAuth).filter(UserOAuth.user_id == user_id).all()
+    if not user_oauth:
+        session.close()
+        raise HTTPException(status_code=404, detail="User OAuth not found.")
+    credentials = []
+    for oauth in user_oauth:
+        provider = (
+            session.query(OAuthProvider)
+            .filter(OAuthProvider.id == oauth.provider_id)
+            .first()
+        )
+        credentials.append(
+            {f"{str(provider.name).upper()}_ACCESS_TOKEN": oauth.access_token}
+        )
+    session.close()
+    return credentials
+
+
 def get_user_id(user: str):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()

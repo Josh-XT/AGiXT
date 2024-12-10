@@ -24,8 +24,7 @@ class microsoft365(Extensions):
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")
-        self.access_token = kwargs.get("access_token", None)
-        self.microsoft_auth = None
+        self.access_token = kwargs.get("MICROSOFT_ACCESS_TOKEN", None)
         microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
         microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
         self.timezone = getenv("TZ")
@@ -52,12 +51,6 @@ class microsoft365(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                     self.timezone = self.auth.get_timezone()
-                    self.microsoft_auth = self.auth.get_oauth_functions("microsoft")
-                    if self.microsoft_auth:
-                        logging.info("Microsoft365 client initialized successfully")
-                    else:
-                        logging.error("Failed to get OAuth data for Microsoft")
-                    self.access_token = self.microsoft_auth.access_token
                 except Exception as e:
                     logging.error(f"Error initializing Microsoft365 client: {str(e)}")
 
@@ -65,22 +58,6 @@ class microsoft365(Extensions):
             "conversation_directory", "./WORKSPACE/attachments"
         )
         os.makedirs(self.attachments_dir, exist_ok=True)
-
-    def authenticate(self):
-        """
-        Ensures we have a valid Microsoft auth object and returns it.
-        Raises ValueError if auth is not initialized.
-        """
-        if not self.access_token:
-            self.microsoft_auth = MagicalAuth(token=self.api_key).get_oauth_functions(
-                "microsoft"
-            )
-            self.access_token = self.microsoft_auth.access_token
-            if not self.microsoft_auth or not self.access_token:
-                raise ValueError(
-                    "Microsoft365 authentication not initialized. Please check authentication."
-                )
-        return self.access_token
 
     def verify_user(self):
         """
