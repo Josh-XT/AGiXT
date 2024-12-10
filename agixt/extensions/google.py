@@ -34,30 +34,28 @@ class google(Extensions):
     ):
         api_key = kwargs["api_key"] if "api_key" in kwargs else None
         self.google_auth = None
-        self.commands = {}
-        if api_key:
-            google_client_id = getenv("GOOGLE_CLIENT_ID")
-            google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
-            if google_client_id and google_client_secret:
+        google_client_id = getenv("GOOGLE_CLIENT_ID")
+        google_client_secret = getenv("GOOGLE_CLIENT_SECRET")
+        if google_client_id and google_client_secret:
+            self.commands = {
+                "Google - Get Emails": self.get_emails,
+                "Google - Send Email": self.send_email,
+                "Google - Move Email to Folder": self.move_email_to_folder,
+                "Google - Create Draft Email": self.create_draft_email,
+                "Google - Delete Email": self.delete_email,
+                "Google - Search Emails": self.search_emails,
+                "Google - Reply to Email": self.reply_to_email,
+                "Google - Process Attachments": self.process_attachments,
+                "Google - Get Calendar Items": self.get_calendar_items,
+                "Google - Add Calendar Item": self.add_calendar_item,
+                "Google - Remove Calendar Item": self.remove_calendar_item,
+                "Google - Get Keep Notes": self.get_keep_notes,
+                "Google - Create Keep Note": self.create_keep_note,
+                "Google - Delete Keep Note": self.delete_keep_note,
+            }
+            if api_key:
                 auth = MagicalAuth(token=api_key)
                 self.google_auth = auth.get_oauth_functions("google")
-                if self.google_auth.access_token:
-                    self.commands = {
-                        "Google - Get Emails": self.get_emails,
-                        "Google - Send Email": self.send_email,
-                        "Google - Move Email to Folder": self.move_email_to_folder,
-                        "Google - Create Draft Email": self.create_draft_email,
-                        "Google - Delete Email": self.delete_email,
-                        "Google - Search Emails": self.search_emails,
-                        "Google - Reply to Email": self.reply_to_email,
-                        "Google - Process Attachments": self.process_attachments,
-                        "Google - Get Calendar Items": self.get_calendar_items,
-                        "Google - Add Calendar Item": self.add_calendar_item,
-                        "Google - Remove Calendar Item": self.remove_calendar_item,
-                        "Google - Get Keep Notes": self.get_keep_notes,
-                        "Google - Create Keep Note": self.create_keep_note,
-                        "Google - Delete Keep Note": self.delete_keep_note,
-                    }
         self.attachments_dir = (
             kwargs["conversation_directory"]
             if "conversation_directory" in kwargs

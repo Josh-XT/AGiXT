@@ -17,31 +17,29 @@ class microsoft365(Extensions):
     ):
         api_key = kwargs["api_key"] if "api_key" in kwargs else None
         self.microsoft_auth = None
-        self.commands = {}
-        if api_key:
-            microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
-            microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
-            if microsoft_client_id and microsoft_client_secret:
+        microsoft_client_id = getenv("MICROSOFT_CLIENT_ID")
+        microsoft_client_secret = getenv("MICROSOFT_CLIENT_SECRET")
+        if microsoft_client_id and microsoft_client_secret:
+            self.commands = {
+                "Microsoft - Get Emails": self.get_emails,
+                "Microsoft - Send Email": self.send_email,
+                "Microsoft - Move Email to Folder": self.move_email_to_folder,
+                "Microsoft - Create Draft Email": self.create_draft_email,
+                "Microsoft - Delete Email": self.delete_email,
+                "Microsoft - Search Emails": self.search_emails,
+                "Microsoft - Reply to Email": self.reply_to_email,
+                "Microsoft - Process Attachments": self.process_attachments,
+                "Microsoft - Get Calendar Items": self.get_calendar_items,
+                "Microsoft - Add Calendar Item": self.add_calendar_item,
+                "Microsoft - Remove Calendar Item": self.remove_calendar_item,
+                "Microsoft - Get Todo Tasks": self.get_todo_tasks,
+                "Microsoft - Create Todo Task": self.create_todo_task,
+                "Microsoft - Update Todo Task": self.update_todo_task,
+                "Microsoft - Delete Todo Task": self.delete_todo_task,
+            }
+            if api_key:
                 auth = MagicalAuth(token=api_key)
                 self.microsoft_auth = auth.get_oauth_functions("microsoft")
-                if self.microsoft_auth.access_token:
-                    self.commands = {
-                        "Microsoft - Get Emails": self.get_emails,
-                        "Microsoft - Send Email": self.send_email,
-                        "Microsoft - Move Email to Folder": self.move_email_to_folder,
-                        "Microsoft - Create Draft Email": self.create_draft_email,
-                        "Microsoft - Delete Email": self.delete_email,
-                        "Microsoft - Search Emails": self.search_emails,
-                        "Microsoft - Reply to Email": self.reply_to_email,
-                        "Microsoft - Process Attachments": self.process_attachments,
-                        "Microsoft - Get Calendar Items": self.get_calendar_items,
-                        "Microsoft - Add Calendar Item": self.add_calendar_item,
-                        "Microsoft - Remove Calendar Item": self.remove_calendar_item,
-                        "Microsoft - Get Todo Tasks": self.get_todo_tasks,
-                        "Microsoft - Create Todo Task": self.create_todo_task,
-                        "Microsoft - Update Todo Task": self.update_todo_task,
-                        "Microsoft - Delete Todo Task": self.delete_todo_task,
-                    }
         self.attachments_dir = (
             kwargs["conversation_directory"]
             if "conversation_directory" in kwargs
