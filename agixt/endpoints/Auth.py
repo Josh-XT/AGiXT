@@ -178,6 +178,8 @@ async def update_oauth_token(
     auth = MagicalAuth(token=authorization)
     response = auth.update_sso(
         provider_name=provider,
+        account_name=data["account_name"],
+        token_expires_at=data["token_expires_at"],
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
