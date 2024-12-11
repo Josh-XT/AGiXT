@@ -24,6 +24,7 @@ from sendgrid.helpers.mail import (
 )
 import pyotp
 import requests
+import importlib
 import logging
 import jwt
 import json
@@ -690,57 +691,163 @@ class MagicalAuth:
         user_data = sso_data.user_info
         access_token = sso_data.access_token
         refresh_token = sso_data.refresh_token
-        self.email = str(user_data["email"]).lower()
-        if not user_data:
-            logging.warning(f"Error on {provider.capitalize()}: {user_data}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to get user data from {provider.capitalize()}.",
+        token_expires_at = (
+            datetime.now() + timedelta(seconds=sso_data.expires_in)
+            if hasattr(sso_data, "expires_in")
+            else None
+        )
+
+        # Get account identifier based on provider
+        if provider == "microsoft":
+            account_name = (
+                user_data["mail"] or user_data["userPrincipalName"]
+            )  # Microsoft sometimes uses userPrincipalName instead of mail
+        elif provider == "google":
+            account_name = user_data["email"]
+        elif provider == "github":
+            account_name = user_data["login"]  # GitHub username
+        else:
+            account_name = (
+                user_data.get("email")
+                or user_data.get("mail")
+                or user_data.get("login")
             )
+
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
-        if not user:
-            register = Register(
-                email=self.email,
-                first_name=user_data["first_name"] if "first_name" in user_data else "",
-                last_name=user_data["last_name"] if "last_name" in user_data else "",
-            )
-            mfa_token = self.register(new_user=register)
-            # Create the UserOAuth record
+
+        # First try to find existing OAuth connection by account_name
+        provider_record = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider_record:
+            provider_record = OAuthProvider(name=provider)
+            session.add(provider_record)
+            session.commit()
+
+        existing_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.provider_id == provider_record.id)
+            .filter(UserOAuth.account_name == account_name)
+            .first()
+        )
+
+        if existing_oauth:
+            # Update existing OAuth connection
+            user = existing_oauth.user
+            existing_oauth.access_token = access_token
+            existing_oauth.refresh_token = refresh_token
+            existing_oauth.token_expires_at = token_expires_at
+            session.commit()
+        else:
+            # Check if user exists by email
+            self.email = str(user_data["email"]).lower()
             user = session.query(User).filter(User.email == self.email).first()
-            provider = (
-                session.query(OAuthProvider)
-                .filter(OAuthProvider.name == provider)
-                .first()
-            )
-            if not provider:
-                provider = OAuthProvider(name=provider)
-                session.add(provider)
+
+            if not user:
+                # Create new user
+                register = Register(
+                    email=self.email,
+                    first_name=user_data.get("first_name", ""),
+                    last_name=user_data.get("last_name", ""),
+                )
+                mfa_token = self.register(new_user=register)
+                user = session.query(User).filter(User.email == self.email).first()
+
+            # Create new OAuth connection
             user_oauth = UserOAuth(
                 user_id=user.id,
-                provider_id=provider.id,
+                provider_id=provider_record.id,
+                account_name=account_name,
                 access_token=access_token,
                 refresh_token=refresh_token,
+                token_expires_at=token_expires_at,
             )
             session.add(user_oauth)
-        else:
-            mfa_token = user.mfa_token
-            user_oauth = (
-                session.query(UserOAuth).filter(UserOAuth.user_id == user.id).first()
-            )
-            if user_oauth:
-                user_oauth.access_token = access_token
-                user_oauth.refresh_token = refresh_token
+
         session.commit()
         session.close()
-        totp = pyotp.TOTP(mfa_token)
-        login = Login(email=self.email, token=totp.now())
+        # Generate login token
+        totp = pyotp.TOTP(user.mfa_token)
+        login = Login(email=user.email, token=totp.now())
         return self.send_magic_link(
             ip_address=ip_address,
             login=login,
             referrer=referrer,
             send_link=False,
         )
+
+    def refresh_oauth_token(self, provider: str):
+        """Refresh OAuth token if expired"""
+        session = get_session()
+        provider_record = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == provider).first()
+        )
+        if not provider_record:
+            session.close()
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        user_oauth = (
+            session.query(UserOAuth)
+            .filter(UserOAuth.user_id == self.user_id)
+            .filter(UserOAuth.provider_id == provider_record.id)
+            .first()
+        )
+
+        if not user_oauth:
+            session.close()
+            raise HTTPException(status_code=404, detail="OAuth connection not found")
+
+        # Check if token needs refresh
+        if (
+            user_oauth.token_expires_at
+            and user_oauth.token_expires_at <= datetime.now() + timedelta(minutes=5)
+            and user_oauth.refresh_token
+        ):
+            try:
+                if provider == "microsoft":
+                    from sso.microsoft import MicrosoftSSO
+
+                    sso_instance = MicrosoftSSO(
+                        refresh_token=user_oauth.refresh_token,
+                    )
+                elif provider == "google":
+                    from sso.google import GoogleSSO
+
+                    sso_instance = GoogleSSO(
+                        refresh_token=user_oauth.refresh_token,
+                    )
+                else:
+                    session.close()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Token refresh not implemented for provider: {provider}",
+                    )
+
+                # Get new tokens
+                new_tokens = sso_instance.get_new_token()
+
+                # Update stored tokens
+                user_oauth.access_token = new_tokens["access_token"]
+                if "refresh_token" in new_tokens:
+                    user_oauth.refresh_token = new_tokens["refresh_token"]
+                if "expires_in" in new_tokens:
+                    user_oauth.token_expires_at = datetime.now() + timedelta(
+                        seconds=new_tokens["expires_in"]
+                    )
+
+                session.commit()
+                session.close()
+                return new_tokens["access_token"]
+
+            except Exception as e:
+                session.close()
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Failed to refresh {provider} token: {str(e)}",
+                )
+
+        session.close()
+        return user_oauth.access_token
 
     def get_oauth_functions(self, provider: str):
         session = get_session()

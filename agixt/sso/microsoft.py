@@ -19,9 +19,14 @@ then add the `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` environment var
 
 Required scopes for Microsoft OAuth
 
+- offline_access
 - https://graph.microsoft.com/User.Read
 - https://graph.microsoft.com/Mail.Send
+- https://graph.microsoft.com/Calendars.ReadWrite.Shared
+- https://graph.microsoft.com/Calendars.ReadWrite
+
 """
+scopes = "offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Calendars.ReadWrite.Shared https://graph.microsoft.com/Calendars.ReadWrite"
 
 
 class MicrosoftSSO:
@@ -44,7 +49,7 @@ class MicrosoftSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
-                "scope": "https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Send",
+                "scope": scopes,
             },
         )
         return response.json()["access_token"]
@@ -77,53 +82,6 @@ class MicrosoftSSO:
                 detail="Error getting user info from Microsoft",
             )
 
-    def send_email(self, to, subject, message_text):
-        if not self.user_info.get("email"):
-            user_info = self.get_user_info()
-            self.email_address = user_info["email"]
-        message = MIMEText(message_text)
-        message["to"] = to
-        message["from"] = self.email_address
-        message["subject"] = subject
-        raw = base64.urlsafe_b64encode(message.as_bytes())
-        raw = raw.decode()
-        email_data = {
-            "message": {
-                "subject": subject,
-                "body": {
-                    "contentType": "Text",
-                    "content": message_text,
-                },
-                "toRecipients": [
-                    {
-                        "emailAddress": {
-                            "address": to,
-                        }
-                    }
-                ],
-            },
-            "saveToSentItems": "true",
-        }
-        response = requests.post(
-            "https://graph.microsoft.com/v1.0/me/sendMail",
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps(email_data),
-        )
-        if response.status_code == 401:
-            self.access_token = self.get_new_token()
-            response = requests.post(
-                "https://graph.microsoft.com/v1.0/me/sendMail",
-                headers={
-                    "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(email_data),
-            )
-        return response.json()
-
 
 def microsoft_sso(code, redirect_uri=None) -> MicrosoftSSO:
     if not redirect_uri:
@@ -143,7 +101,7 @@ def microsoft_sso(code, redirect_uri=None) -> MicrosoftSSO:
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
-            "scope": "https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Calendars.ReadWrite.Shared",
+            "scope": scopes,
         },
     )
     if response.status_code != 200:

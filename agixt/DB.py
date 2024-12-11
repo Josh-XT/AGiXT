@@ -102,8 +102,10 @@ class UserOAuth(Base):
         ForeignKey("oauth_provider.id"),
     )
     provider = relationship("OAuthProvider")
+    account_name = Column(String, nullable=False)
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
+    token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
