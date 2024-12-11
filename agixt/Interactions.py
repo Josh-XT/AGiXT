@@ -1037,7 +1037,7 @@ class Interactions:
 
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Executed command `{command_name}` with output: {command_output}",
+                    message=f"[ACTIVITY] Executed command `{command_name}` with output: `{command_output}`",
                 )
         if reformatted_response != self.response:
             self.response = reformatted_response
