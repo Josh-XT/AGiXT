@@ -99,7 +99,7 @@ def google_sso(code, redirect_uri=None) -> GoogleSSO:
     )
     response = requests.post(
         "https://accounts.google.com/o/oauth2/token",
-        data={
+        params={
             "code": code,
             "client_id": getenv("GOOGLE_CLIENT_ID"),
             "client_secret": getenv("GOOGLE_CLIENT_SECRET"),
