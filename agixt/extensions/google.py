@@ -21,6 +21,7 @@ except:
         [sys.executable, "-m", "pip", "install", "google-api-python-client"]
     )
     from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 
 class google(Extensions):
@@ -75,7 +76,13 @@ class google(Extensions):
         """
         if self.auth:
             self.access_token = self.auth.refresh_oauth_token(provider="google")
-        return self.access_token
+        credentials = Credentials(
+            token=self.access_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=getenv("GOOGLE_CLIENT_ID"),
+            client_secret=getenv("GOOGLE_CLIENT_SECRET"),
+        )
+        return credentials
 
     async def get_emails(self, query=None, max_emails=10):
         """
@@ -89,11 +96,11 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             result = (
@@ -146,13 +153,9 @@ class google(Extensions):
         str: The result of sending the email
         """
         try:
-            self.access_token = self.authenticate()
-            service = build(
-                "gmail",
-                "v1",
-                credentials=self.access_token,
-                always_use_jwt_access=True,
-            )
+            access_token = self.authenticate()
+
+            service = build("gmail", "v1", credentials=access_token)
 
             message = MIMEMultipart()
             message["to"] = to
@@ -167,7 +170,7 @@ class google(Extensions):
 
             return "Email sent successfully."
         except Exception as e:
-            logging.info(f"Error sending email: {str(e)}")
+            logging.error(f"Error sending email: {str(e)}")
             return "Failed to send email."
 
     async def move_email_to_folder(self, message_id, folder_name):
@@ -182,11 +185,11 @@ class google(Extensions):
         str: The result of moving the email
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
 
@@ -233,11 +236,11 @@ class google(Extensions):
         str: The result of creating the draft email
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
 
@@ -286,11 +289,11 @@ class google(Extensions):
         str: The result of deleting the email
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             service.users().messages().delete(userId="me", id=message_id).execute()
@@ -311,11 +314,11 @@ class google(Extensions):
         List[Dict]: A list of email data
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             result = (
@@ -368,11 +371,11 @@ class google(Extensions):
         str: The result of sending the reply
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             message = (
@@ -431,11 +434,11 @@ class google(Extensions):
         List[str]: A list of file paths to the saved attachments
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "gmail",
                 "v1",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             message = (
@@ -480,11 +483,11 @@ class google(Extensions):
         List[Dict]: A list of calendar item data
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "calendar",
                 "v3",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
 
@@ -546,11 +549,11 @@ class google(Extensions):
         str: The result of adding the calendar item
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "calendar",
                 "v3",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
 
@@ -588,11 +591,11 @@ class google(Extensions):
         str: The result of removing the calendar item
         """
         try:
-            self.access_token = self.authenticate()
+            access_token = self.authenticate()
             service = build(
                 "calendar",
                 "v3",
-                credentials=self.access_token,
+                credentials=access_token,
                 always_use_jwt_access=True,
             )
             service.events().delete(calendarId="primary", eventId=item_id).execute()
@@ -609,8 +612,8 @@ class google(Extensions):
         List[Dict]: A list of note data
         """
         try:
-            self.access_token = self.authenticate()
-            service = build("keep", "v1", credentials=self.access_token)
+            access_token = self.authenticate()
+            service = build("keep", "v1", credentials=access_token)
             notes = service.notes().list().execute()
             return notes.get("items", [])
         except Exception as e:
@@ -629,8 +632,8 @@ class google(Extensions):
         str: The result of creating the note
         """
         try:
-            self.access_token = self.authenticate()
-            service = build("keep", "v1", credentials=self.access_token)
+            access_token = self.authenticate()
+            service = build("keep", "v1", credentials=access_token)
             note = {"title": title, "content": content}
             service.notes().create(body=note).execute()
             return "Note created successfully."
@@ -649,8 +652,8 @@ class google(Extensions):
         str: The result of deleting the note
         """
         try:
-            self.access_token = self.authenticate()
-            service = build("keep", "v1", credentials=self.access_token)
+            access_token = self.authenticate()
+            service = build("keep", "v1", credentials=access_token)
             service.notes().delete(noteId=note_id).execute()
             return "Note deleted successfully."
         except Exception as e:
