@@ -1640,6 +1640,8 @@ class AGiXT:
             del prompt_args["log_user_input"]
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
+        if log_output:
+            c.log_interaction(role=self.agent_name, message="[ACTIVITY] Thinking.")
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
         for file in files:
@@ -1790,6 +1792,7 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
+                self.conversation.delete_message("[ACTIVITY] Thinking.")
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
