@@ -64,12 +64,14 @@ class microsoft365(Extensions):
         Verifies that the current access token corresponds to a valid user.
         If the /me endpoint fails, raises an exception indicating the user is not found.
         """
+        if self.auth:
+            self.access_token = self.auth.refresh_oauth_token(provider="microsoft")
+
         logging.info(f"Verifying user with token: {self.access_token}")
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
         logging.info(f"User verification response: {response.text}")
         if response.status_code != 200:
-            # Provide details and suggestions
             raise Exception(
                 f"User not found or invalid token. Status: {response.status_code}, "
                 f"Response: {response.text}. Ensure the token is a user-delegated token "
