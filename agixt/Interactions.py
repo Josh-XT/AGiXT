@@ -764,40 +764,45 @@ class Interactions:
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
         if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
-            response = self.response
-            await self.execution_agent(conversation_name=conversation_name)
-            # While "</output>" is the ending of self.response, we need to keep executing commands or asking the agent if it should proceed
-            while self.response.endswith("</output>"):
-                response = self.response
+            processed_length = 0
+
+            # First handle any initial commands
+            if "<execute>" in self.response:
                 await self.execution_agent(conversation_name=conversation_name)
-                if self.response != response:
-                    # There is a command output now, we need to feed it back to the LLM to continue its thought process
-                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
-                    command_response = await self.agent.inference(
+                processed_length = len(self.response)
+
+            # Then enter the main processing loop
+            while True:
+                # Check if we have new commands to process
+                if self.response[processed_length:].strip().endswith("</output>"):
+                    await self.execution_agent(conversation_name=conversation_name)
+                    new_processed_length = len(self.response)
+
+                    if new_processed_length > processed_length:
+                        # Only continue if we actually got new content
+                        new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
+                        command_response = await self.agent.inference(
+                            prompt=new_prompt, tokens=tokens
+                        )
+                        self.response = f"{self.response}{command_response}"
+                        processed_length = new_processed_length
+                    else:
+                        break  # No new content, stop processing
+
+                # If no answer block yet, try to get it
+                elif "</answer>" not in self.response:
+                    new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
+                    response = await self.agent.inference(
                         prompt=new_prompt, tokens=tokens
                     )
-                    self.response = f"{self.response}{command_response}"
-        if "<answer>" in formatted_prompt and "</answer>" not in self.response:
-            while "</answer>" not in self.response:
-                new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
-                response = await self.agent.inference(prompt=new_prompt, tokens=tokens)
-                self.response = f"{self.response}{response}"
-                if (
-                    "</answer>" not in self.response
-                    and "{COMMANDS}" in unformatted_prompt
-                    and "disable_commands" not in kwargs
-                ):
-                    await self.execution_agent(conversation_name=conversation_name)
-                    while self.response.endswith("</output>"):
-                        response = self.response
-                        await self.execution_agent(conversation_name=conversation_name)
-                        if self.response != response:
-                            # There is a command output now, we need to feed it back to the LLM to continue its thought process
-                            new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nThe assistant has executed a command and should continue its thought process, the user does not see this message. Proceed with thinking, responding, or executing more commands before the response to the user. This can be used also to evaluate output of previously executed commands and retry executing a command if the output of the command was not as expected. The assistant should never try to fill in the command output, it will be returned to the assistant after the command is executed by the system."
-                            command_response = await self.agent.inference(
-                                prompt=new_prompt, tokens=tokens
-                            )
-                            self.response = f"{self.response}{command_response}"
+                    self.response = f"{self.response}{response}"
+
+                    # After getting more response, let the loop continue to check for any new commands
+                    continue
+
+                else:
+                    # We have an answer block and no new commands to process
+                    break
         if self.response != "" and self.response != None:
             agent_settings = self.agent.AGENT_CONFIG["settings"]
             if "<audio controls>" in self.response:
