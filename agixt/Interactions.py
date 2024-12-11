@@ -997,7 +997,7 @@ class Interactions:
                     try:
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[ACTIVITY] Executing command `{command_name}` with args `{command_args}`.",
+                            message=f"[ACTIVITY] Executing command `{command_name}`.",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
@@ -1034,10 +1034,6 @@ class Interactions:
                 reformatted_response = reformatted_response.replace(
                     command_block, formatted_execution
                 )
-
-                c.log_interaction(
-                    role=self.agent_name,
-                    message=f"[ACTIVITY] Executed command `{command_name}` with output: `{command_output}`",
-                )
+                logging.info(f"Command output: {command_output}")
         if reformatted_response != self.response:
             self.response = reformatted_response
