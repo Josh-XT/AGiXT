@@ -1070,7 +1070,14 @@ class MagicalAuth:
         session.close()
         return response
 
-    def update_sso(self, provider_name, access_token, refresh_token=None):
+    def update_sso(
+        self,
+        provider_name,
+        access_token,
+        account_name=None,
+        token_expires_at=None,
+        refresh_token=None,
+    ):
         provider_name = str(provider_name).lower()
         session = get_session()
         provider = (
@@ -1099,12 +1106,18 @@ class MagicalAuth:
             user_oauth = UserOAuth(
                 user_id=self.user_id,
                 provider_id=provider.id,
+                account_name=account_name,
                 access_token=access_token,
+                token_expires_at=token_expires_at,
                 refresh_token=refresh_token,
             )
             session.add(user_oauth)
         else:
             user_oauth.access_token = access_token
+            if token_expires_at:
+                user_oauth.token_expires_at = token_expires_at
+            if account_name:
+                user_oauth.account_name = account_name
             if refresh_token:
                 user_oauth.refresh_token = refresh_token
         session.commit()
