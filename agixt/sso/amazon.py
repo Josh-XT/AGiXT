@@ -1,8 +1,5 @@
-import base64
-import json
 import requests
 import logging
-from email.mime.text import MIMEText
 from fastapi import HTTPException
 from Globals import getenv
 
