@@ -103,7 +103,7 @@ def github_sso(code, redirect_uri=None) -> GitHubSSO:
     )
     if response.status_code != 200:
         logging.error(f"Error getting GitHub access token: {response.text}")
-        return None, None
+        return None
     data = response.json()
     access_token = data["access_token"]
     refresh_token = data.get("refresh_token", "Not provided")

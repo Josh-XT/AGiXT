@@ -1,8 +1,5 @@
-import base64
-import json
 import requests
 import logging
-from email.mime.text import MIMEText
 from fastapi import HTTPException
 from Globals import getenv
 
@@ -21,11 +18,15 @@ then add the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` environment variables
 - Gmail API https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com
 
 Required scopes for Google SSO
-
-- https://www.googleapis.com/auth/userinfo.profile
-- https://www.googleapis.com/auth/userinfo.email
-- https://www.googleapis.com/auth/gmail.send
 """
+
+scopes = (
+    "https://www.googleapis.com/auth/userinfo.profile "
+    "https://www.googleapis.com/auth/userinfo.email "
+    "https://www.googleapis.com/auth/calendar.events.owned "
+    "https://www.googleapis.com/auth/contacts.readonly "
+    "https://www.googleapis.com/auth/gmail.modify"
+)
 
 
 class GoogleSSO:
@@ -38,6 +39,7 @@ class GoogleSSO:
         self.refresh_token = refresh_token
         self.client_id = getenv("GOOGLE_CLIENT_ID")
         self.client_secret = getenv("GOOGLE_CLIENT_SECRET")
+        self.email_address = None  # Initialize this
         self.user_info = self.get_user_info()
 
     def get_new_token(self):
@@ -48,8 +50,11 @@ class GoogleSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
+                "scope": scopes,
             },
         )
+        if response.status_code != 200:
+            raise Exception(f"Token refresh failed: {response.text}")
         return response.json()["access_token"]
 
     def get_user_info(self):
@@ -69,6 +74,7 @@ class GoogleSSO:
             first_name = data["names"][0]["givenName"]
             last_name = data["names"][0]["familyName"]
             email = data["emailAddresses"][0]["value"]
+            self.email_address = email  # Set this here
             return {
                 "email": email,
                 "first_name": first_name,
@@ -79,37 +85,6 @@ class GoogleSSO:
                 status_code=400,
                 detail="Error getting user info from Google",
             )
-
-    def send_email(self, to, subject, message_text):
-        if not self.email_address:
-            user_info = self.get_user_info()
-            self.email_address = user_info["email"]
-        message = MIMEText(message_text)
-        message["to"] = to
-        message["from"] = self.email_address
-        message["subject"] = subject
-        raw = base64.urlsafe_b64encode(message.as_bytes())
-        raw = raw.decode()
-        message = {"raw": raw}
-        response = requests.post(
-            "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps(message),
-        )
-        if response.status_code == 401:
-            self.access_token = self.get_new_token()
-            response = requests.post(
-                "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-                headers={
-                    "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(message),
-            )
-        return response.json()
 
 
 def google_sso(code, redirect_uri=None) -> GoogleSSO:
@@ -123,19 +98,21 @@ def google_sso(code, redirect_uri=None) -> GoogleSSO:
         .replace("%3D", "=")
     )
     response = requests.post(
-        f"https://accounts.google.com/o/oauth2/token",
+        "https://accounts.google.com/o/oauth2/token",
         params={
             "code": code,
             "client_id": getenv("GOOGLE_CLIENT_ID"),
             "client_secret": getenv("GOOGLE_CLIENT_SECRET"),
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
+            "scope": scopes,
+            "access_type": "offline",
         },
     )
     if response.status_code != 200:
         logging.error(f"Error getting Google access token: {response.text}")
-        return None, None
+        return None  # Fixed from return None, None
     data = response.json()
     access_token = data["access_token"]
-    refresh_token = data["refresh_token"] if "refresh_token" in data else "Not provided"
+    refresh_token = data["refresh_token"] if "refresh_token" in data else None
     return GoogleSSO(access_token=access_token, refresh_token=refresh_token)

@@ -1,8 +1,5 @@
-import base64
-import json
 import requests
 import logging
-from email.mime.text import MIMEText
 from fastapi import HTTPException
 from Globals import getenv
 
@@ -76,52 +73,6 @@ class AmazonSSO:
                 status_code=400,
                 detail="Error getting user info from AWS",
             )
-
-    def send_email(self, to, subject, message_text):
-        if not self.user_info.get("email"):
-            user_info = self.get_user_info()
-            self.email_address = user_info["email"]
-        message = MIMEText(message_text)
-        message["to"] = to
-        message["from"] = self.email_address
-        message["subject"] = subject
-        raw = base64.urlsafe_b64encode(message.as_bytes())
-        raw = raw.decode()
-        email_data = {
-            "Source": self.email_address,
-            "Destination": {
-                "ToAddresses": [to],
-            },
-            "Message": {
-                "Subject": {
-                    "Data": subject,
-                },
-                "Body": {
-                    "Text": {
-                        "Data": message_text,
-                    },
-                },
-            },
-        }
-        response = requests.post(
-            f"https://email.{self.region}.amazonaws.com/v2/email/outbound-emails",
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps(email_data),
-        )
-        if response.status_code == 401:
-            self.access_token = self.get_new_token()
-            response = requests.post(
-                f"https://email.{self.region}.amazonaws.com/v2/email/outbound-emails",
-                headers={
-                    "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(email_data),
-            )
-        return response.json()
 
 
 def amazon_sso(code, redirect_uri=None) -> AmazonSSO:
