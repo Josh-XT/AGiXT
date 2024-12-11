@@ -72,15 +72,43 @@ class google(Extensions):
     def authenticate(self):
         """
         Verifies that the current access token corresponds to a valid user.
-        If the /me endpoint fails, raises an exception indicating the user is not found.
+        If the /me endpoint fails, refreshes the token using the OAuth refresh flow.
         """
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="google")
+            # Get both access and refresh tokens from MagicalAuth
+            oauth_data = self.auth.get_oauth_functions("google")
+            if oauth_data and hasattr(oauth_data, "refresh_token"):
+                credentials = Credentials(
+                    token=self.access_token,
+                    refresh_token=oauth_data.refresh_token,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=getenv("GOOGLE_CLIENT_ID"),
+                    client_secret=getenv("GOOGLE_CLIENT_SECRET"),
+                    scopes=[
+                        "https://www.googleapis.com/auth/gmail.modify",
+                        "https://www.googleapis.com/auth/gmail.compose",
+                        "https://www.googleapis.com/auth/gmail.send",
+                        "https://www.googleapis.com/auth/calendar",
+                        "https://www.googleapis.com/auth/calendar.events",
+                    ],
+                )
+                return credentials
+            else:
+                # Fallback to just access token if refresh token isn't available
+                self.access_token = self.auth.refresh_oauth_token(provider="google")
+
         credentials = Credentials(
             token=self.access_token,
             token_uri="https://oauth2.googleapis.com/token",
             client_id=getenv("GOOGLE_CLIENT_ID"),
             client_secret=getenv("GOOGLE_CLIENT_SECRET"),
+            scopes=[
+                "https://www.googleapis.com/auth/gmail.modify",
+                "https://www.googleapis.com/auth/gmail.compose",
+                "https://www.googleapis.com/auth/gmail.send",
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/calendar.events",
+            ],
         )
         return credentials
 
