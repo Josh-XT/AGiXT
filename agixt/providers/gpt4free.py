@@ -9,11 +9,12 @@ from g4f.Provider import (
 
 
 class Gpt4freeProvider:
-    def __init__(self, AI_MODEL: str = "gpt-3.5-turbo", **kwargs):
+    def __init__(self, GPT4FREE_MAX_TOKENS: int = 8192, **kwargs):
         # Breaking changes were made after g4f v0.2.6.2
         # Unable to get it to work in containers in newer versions.
         self.requirements = ["g4f==0.2.6.2"]
         self.AI_MODEL = "gemini-pro"
+        self.MAX_TOKENS = GPT4FREE_MAX_TOKENS
         self.provider = Liaobots
         self.provider_name = "Liaobots"
         self.providers = [

@@ -13,29 +13,33 @@ import time
 
 # List of models available at https://docs.anthropic.com/claude/docs/models-overview
 # Get API key at https://console.anthropic.com/settings/keys
-class ClaudeProvider:
+class AnthropicProvider:
     def __init__(
         self,
         ANTHROPIC_API_KEY: str = "",
-        AI_MODEL: str = "claude-3-5-sonnet-20240620",
-        MAX_TOKENS: int = 200000,
-        AI_TEMPERATURE: float = 0.7,
-        GOOGLE_VERTEX_REGION: str = "europe-west1",
-        GOOGLE_VERTEX_PROJECT_ID: str = "",  # Leave empty if using Anthropic service
-        WAIT_BETWEEN_REQUESTS: int = 1,
-        WAIT_AFTER_FAILURE: int = 3,
+        ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20240620",
+        ANTHROPIC_MAX_TOKENS: int = 200000,
+        ANTHROPIC_TEMPERATURE: float = 0.7,
+        ANTHROPIC_GOOGLE_VERTEX_REGION: str = "europe-west1",
+        ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID: str = "",  # Leave empty if using Anthropic service
+        ANTHROPIC_WAIT_BETWEEN_REQUESTS: int = 1,
+        ANTHROPIC_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 200000
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "claude-3-5-sonnet-20240620"
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
-        self.GOOGLE_VERTEX_REGION = GOOGLE_VERTEX_REGION
-        self.GOOGLE_VERTEX_PROJECT_ID = GOOGLE_VERTEX_PROJECT_ID
-        self.WAIT_BETWEEN_REQUESTS = (
-            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
+        self.MAX_TOKENS = ANTHROPIC_MAX_TOKENS if ANTHROPIC_MAX_TOKENS else 200000
+        self.AI_MODEL = (
+            ANTHROPIC_MODEL if ANTHROPIC_MODEL else "claude-3-5-sonnet-20240620"
         )
-        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+        self.AI_TEMPERATURE = ANTHROPIC_TEMPERATURE if ANTHROPIC_TEMPERATURE else 0.7
+        self.GOOGLE_VERTEX_REGION = ANTHROPIC_GOOGLE_VERTEX_REGION
+        self.GOOGLE_VERTEX_PROJECT_ID = ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID
+        self.WAIT_BETWEEN_REQUESTS = (
+            ANTHROPIC_WAIT_BETWEEN_REQUESTS if ANTHROPIC_WAIT_BETWEEN_REQUESTS else 1
+        )
+        self.WAIT_AFTER_FAILURE = (
+            ANTHROPIC_WAIT_AFTER_FAILURE if ANTHROPIC_WAIT_AFTER_FAILURE else 3
+        )
         self.failures = 0
 
     @staticmethod
