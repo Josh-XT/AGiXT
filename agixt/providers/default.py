@@ -16,13 +16,14 @@ import numpy as np
 class DefaultProvider:
     def __init__(
         self,
-        AI_MODEL: str = "mixtral-8x7b",
+        DEFAULT_MODEL: str = "mixtral-8x7b",
+        DEFAULT_MAX_TOKENS: int = 16000,
         **kwargs,
     ):
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "mixtral-8x7b"
+        self.AI_MODEL = DEFAULT_MODEL if DEFAULT_MODEL else "mixtral-8x7b"
         self.AI_TEMPERATURE = 0.7
         self.AI_TOP_P = 0.7
-        self.MAX_TOKENS = 16000
+        self.MAX_TOKENS = DEFAULT_MAX_TOKENS if DEFAULT_MAX_TOKENS else 16000
         self.TRANSCRIPTION_MODEL = (
             "base"
             if "TRANSCRIPTION_MODEL" not in kwargs

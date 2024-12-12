@@ -23,33 +23,33 @@ class EzlocalaiProvider:
         self,
         EZLOCALAI_API_KEY: str = "None",
         EZLOCALAI_API_URI: str = getenv("EZLOCALAI_URI"),
-        AI_MODEL: str = "ezlocalai",
-        MAX_TOKENS: int = 8192,
-        AI_TEMPERATURE: float = 1.33,
-        AI_TOP_P: float = 0.95,
-        VOICE: str = "HAL9000",
-        LANGUAGE: str = "en",
-        TRANSCRIPTION_MODEL: str = "base",
+        EZLOCALAI_AI_MODEL: str = "ezlocalai",
+        EZLOCALAI_MAX_TOKENS: int = 8192,
+        EZLOCALAI_TEMPERATURE: float = 1.33,
+        EZLOCALAI_TOP_P: float = 0.95,
+        EZLOCALAI_VOICE: str = "HAL9000",
+        EZLOCALAI_LANGUAGE: str = "en",
+        EZLOCALAI_TRANSCRIPTION_MODEL: str = "base",
         **kwargs,
     ):
         self.requirements = ["openai"]
-        self.AI_MODEL = AI_MODEL if AI_MODEL else "ezlocalai"
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 8192
+        self.AI_MODEL = EZLOCALAI_AI_MODEL if EZLOCALAI_AI_MODEL else "ezlocalai"
+        self.MAX_TOKENS = EZLOCALAI_MAX_TOKENS if EZLOCALAI_MAX_TOKENS else 8192
         if not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"
         self.API_URI = (
             EZLOCALAI_API_URI if EZLOCALAI_API_URI else getenv("EZLOCALAI_URI")
         )
-        self.VOICE = VOICE if VOICE else "HAL9000"
-        self.TTS_LANGUAGE = LANGUAGE if LANGUAGE else "en"
+        self.VOICE = EZLOCALAI_VOICE if EZLOCALAI_VOICE else "HAL9000"
+        self.TTS_LANGUAGE = EZLOCALAI_LANGUAGE if EZLOCALAI_LANGUAGE else "en"
         if len(self.TTS_LANGUAGE) > 2:
             self.TTS_LANGUAGE = self.TTS_LANGUAGE[:2].lower()
         self.OUTPUT_URL = self.API_URI.replace("/v1/", "") + "/outputs/"
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 1.33
-        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.95
+        self.AI_TEMPERATURE = EZLOCALAI_TEMPERATURE if EZLOCALAI_TEMPERATURE else 1.33
+        self.AI_TOP_P = EZLOCALAI_TOP_P if EZLOCALAI_TOP_P else 0.95
         self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY if EZLOCALAI_API_KEY else "None"
         self.TRANSCRIPTION_MODEL = (
-            TRANSCRIPTION_MODEL if TRANSCRIPTION_MODEL else "base"
+            EZLOCALAI_TRANSCRIPTION_MODEL if EZLOCALAI_TRANSCRIPTION_MODEL else "base"
         )
         self.FAILURES = []
         self.failure_count = 0
