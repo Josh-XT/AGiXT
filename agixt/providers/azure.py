@@ -9,23 +9,25 @@ class AzureProvider:
         AZURE_API_KEY: str = "",
         AZURE_OPENAI_ENDPOINT: str = "https://your-endpoint.openai.azure.com",
         AZURE_DEPLOYMENT_NAME: str = "gpt-4o",
-        AI_TEMPERATURE: float = 0.7,
-        AI_TOP_P: float = 0.7,
-        MAX_TOKENS: int = 120000,
-        WAIT_BETWEEN_REQUESTS: int = 1,
-        WAIT_AFTER_FAILURE: int = 3,
+        AZURE_TEMPERATURE: float = 0.7,
+        AZURE_TOP_P: float = 0.7,
+        AZURE_MAX_TOKENS: int = 120000,
+        AZURE_WAIT_BETWEEN_REQUESTS: int = 1,
+        AZURE_WAIT_AFTER_FAILURE: int = 3,
         **kwargs,
     ):
         self.requirements = ["openai"]
         self.AZURE_API_KEY = AZURE_API_KEY
         self.AZURE_OPENAI_ENDPOINT = AZURE_OPENAI_ENDPOINT
         self.AI_MODEL = AZURE_DEPLOYMENT_NAME
-        self.AI_TEMPERATURE = AI_TEMPERATURE if AI_TEMPERATURE else 0.7
-        self.AI_TOP_P = AI_TOP_P if AI_TOP_P else 0.7
-        self.MAX_TOKENS = MAX_TOKENS if MAX_TOKENS else 120000
-        self.WAIT_AFTER_FAILURE = WAIT_AFTER_FAILURE if WAIT_AFTER_FAILURE else 3
+        self.AI_TEMPERATURE = AZURE_TEMPERATURE if AZURE_TEMPERATURE else 0.7
+        self.AI_TOP_P = AZURE_TOP_P if AZURE_TOP_P else 0.7
+        self.MAX_TOKENS = AZURE_MAX_TOKENS if AZURE_MAX_TOKENS else 120000
+        self.WAIT_AFTER_FAILURE = (
+            AZURE_WAIT_AFTER_FAILURE if AZURE_WAIT_AFTER_FAILURE else 3
+        )
         self.WAIT_BETWEEN_REQUESTS = (
-            WAIT_BETWEEN_REQUESTS if WAIT_BETWEEN_REQUESTS else 1
+            AZURE_WAIT_BETWEEN_REQUESTS if AZURE_WAIT_BETWEEN_REQUESTS else 1
         )
         self.failures = 0
 

@@ -9,14 +9,14 @@ class AgixtProvider:
         self,
         agents: list = [],
         ELEVENLABS_API_KEY: str = "",
-        VOICE: str = "Josh",
+        ELEVENLABS_VOICE: str = "Josh",
         **kwargs,
     ):
         self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
         self.MAX_TOKENS = 8192
         self.agents = self.ApiClient.get_agents() if agents == [] else agents
         self.ELEVENLABS_API_KEY = ELEVENLABS_API_KEY
-        self.ELEVENLABS_VOICE = VOICE
+        self.ELEVENLABS_VOICE = ELEVENLABS_VOICE
 
     @staticmethod
     def services():
@@ -27,7 +27,7 @@ class AgixtProvider:
             try:
                 return self.ApiClient.prompt_agent(
                     agent_name=agent,
-                    prompt="Custom Input",
+                    prompt_name="Custom Input",
                     prompt_args={"user_input": prompt},
                 )
             except Exception as e:

@@ -12,6 +12,3 @@ We do not know where your data goes when you use GPT4Free. We do not know if it 
 ### Update your agent settings
 
 1. Set `AI_PROVIDER` to `gpt4free`
-2. Set `AI_MODEL` to `gpt-4` or `gpt-3.5-turbo`.
-3. Set `AI_TEMPERATURE` to a value between 0 and 1. The higher the value, the more creative the output.
-4. Set `MAX_TOKENS` to the maximum number of input tokens.

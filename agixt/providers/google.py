@@ -30,16 +30,16 @@ class GoogleProvider:
     def __init__(
         self,
         GOOGLE_API_KEY: str = "None",
-        AI_MODEL: str = "gemini-1.5-pro-002",
-        MAX_TOKENS: int = 2000000,
-        AI_TEMPERATURE: float = 0.7,
+        GOOGLE_MODEL: str = "gemini-2.0-flash-exp",
+        GOOGLE_MAX_TOKENS: int = 1000000,
+        GOOGLE_TEMPERATURE: float = 0.7,
         **kwargs,
     ):
         self.requirements = ["google-generativeai", "gTTS", "pydub"]
         self.GOOGLE_API_KEY = GOOGLE_API_KEY
-        self.AI_MODEL = AI_MODEL
-        self.MAX_TOKENS = MAX_TOKENS
-        self.AI_TEMPERATURE = AI_TEMPERATURE
+        self.AI_MODEL = GOOGLE_MODEL
+        self.MAX_TOKENS = GOOGLE_MAX_TOKENS
+        self.AI_TEMPERATURE = GOOGLE_TEMPERATURE
 
     @staticmethod
     def services():
