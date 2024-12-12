@@ -11,7 +11,6 @@ class RotationProvider:
         self.requirements = []
         self.providers = get_providers()
         self.AGENT_SETTINGS = kwargs
-        self.ApiClient = kwargs["ApiClient"] if "ApiClient" in kwargs else None
 
     @staticmethod
     def services():
@@ -111,7 +110,6 @@ class RotationProvider:
             # Try inference
             provider_instance = Providers(
                 name=provider,
-                ApiClient=self.ApiClient,
                 **self.AGENT_SETTINGS,
             )
             return await provider_instance.inference(
