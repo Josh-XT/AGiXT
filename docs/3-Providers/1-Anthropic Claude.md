@@ -11,5 +11,5 @@
 
 1. Set `AI_PROVIDER` to `claude`.
 2. Set `ANTHROPIC_API_KEY` to your API key.
-3. Set `AI_MODEL` to `claude-3-5-sonnet-20240620`. List of models available at <https://docs.anthropic.com/claude/docs/models-overview> .
-4. Set `MAX_TOKENS` to the maximum number of input tokens. Default is `200000` for Claude.
+3. Set `ANTHROPIC_MODEL` to `claude-3-5-sonnet-20240620`. List of models available at <https://docs.anthropic.com/claude/docs/models-overview> .
+4. Set `ANTHROPIC_MAX_TOKENS` to the maximum number of input tokens. Default is `200000` for Claude.
