@@ -1275,6 +1275,21 @@ class AGiXT:
             enable_new_command=enable_new_command,
         )
 
+    def remove_tagged_content(self, text: str, tag: str) -> str:
+        """Safely remove content between tags without using regex."""
+        start_tag = f"[{tag}]"
+        end_tag = f"[/{tag}]"
+
+        while True:
+            start = text.find(start_tag)
+            if start == -1:
+                break
+            end = text.find(end_tag, start)
+            if end == -1:
+                break
+            text = text[:start] + text[end + len(end_tag) :]
+        return text
+
     async def chat_completions(self, prompt: ChatCompletions):
         """
         Generate an OpenAI style chat completion response with a ChatCompletion prompt
@@ -1811,8 +1826,8 @@ class AGiXT:
             )
         except Exception as e:
             logging.warning(f"Error increasing token counts: {e}")
-        response = re.sub(r"\[execute\].*?\[/execute\]", "", response)
-        response = re.sub(r"\[output\].*?\[/output\]", "", response)
+        response = self.remove_tagged_content(response, "execute")
+        response = self.remove_tagged_content(response, "output")
         res_model = {
             "id": self.conversation_id,
             "object": "chat.completion",
