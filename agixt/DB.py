@@ -633,6 +633,7 @@ def ensure_conversation_timestamps():
     import sqlite3
     import logging
     from Globals import getenv
+    from datetime import datetime
 
     db_path = getenv("DATABASE_NAME") + ".db"
     logging.info(f"Checking conversation table schema in {db_path}")
@@ -654,12 +655,21 @@ def ensure_conversation_timestamps():
             columns = [col[1] for col in cursor.fetchall()]
             logging.info(f"Current conversation columns: {columns}")
 
+            current_time = datetime.utcnow().isoformat()
+
             if "created_at" not in columns:
                 logging.info("Adding created_at column")
                 cursor.execute(
                     """
                     ALTER TABLE conversation 
-                    ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    ADD COLUMN created_at DATETIME
+                """
+                )
+                # Set default value for existing rows
+                cursor.execute(
+                    f"""
+                    UPDATE conversation 
+                    SET created_at = '{current_time}'
                 """
                 )
 
@@ -668,22 +678,29 @@ def ensure_conversation_timestamps():
                 cursor.execute(
                     """
                     ALTER TABLE conversation 
-                    ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    ADD COLUMN updated_at DATETIME
+                """
+                )
+                # Set default value for existing rows
+                cursor.execute(
+                    f"""
+                    UPDATE conversation 
+                    SET updated_at = '{current_time}'
                 """
                 )
 
             # Update any null values
             cursor.execute(
-                """
+                f"""
                 UPDATE conversation 
-                SET created_at = CURRENT_TIMESTAMP
+                SET created_at = '{current_time}'
                 WHERE created_at IS NULL
             """
             )
             cursor.execute(
-                """
+                f"""
                 UPDATE conversation 
-                SET updated_at = CURRENT_TIMESTAMP
+                SET updated_at = '{current_time}'
                 WHERE updated_at IS NULL
             """
             )
@@ -699,7 +716,6 @@ def ensure_conversation_timestamps():
 # Add this near the top of your file, after imports
 if getenv("DATABASE_TYPE") == "sqlite":
     ensure_conversation_timestamps()
-
 
 if __name__ == "__main__":
     logging.info("Connecting to database...")
