@@ -8,6 +8,7 @@ from DB import (
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
+from sqlalchemy.sql import func
 import pytz
 
 logging.basicConfig(
@@ -75,23 +76,18 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+
+        # Use a JOIN to get only conversations with messages in one query
         conversations = (
             session.query(Conversation)
-            .filter(
-                Conversation.user_id == user_id,
-            )
+            .join(Message, Message.conversation_id == Conversation.id)
+            .filter(Conversation.user_id == user_id)
+            .order_by(Conversation.updated_at.desc())
+            .distinct()
             .all()
         )
+
         conversation_list = [conversation.name for conversation in conversations]
-        # Check if there are any messages in the conversation, remove from list if not
-        for conversation in conversations:
-            messages = (
-                session.query(Message)
-                .filter(Message.conversation_id == conversation.id)
-                .all()
-            )
-            if not messages:
-                conversation_list.remove(conversation.name)
         session.close()
         return conversation_list
 
@@ -99,28 +95,22 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
+
+        # Use a JOIN to get only conversations with messages in one query
         conversations = (
             session.query(Conversation)
-            .filter(
-                Conversation.user_id == user_id,
-            )
+            .join(Message, Message.conversation_id == Conversation.id)
+            .filter(Conversation.user_id == user_id)
+            .order_by(Conversation.updated_at.desc())
+            .distinct()
             .all()
         )
-        session.close()
-        # Check if there are any messages in the conversation, remove from list if not
-        for conversation in conversations:
-            session = get_session()
-            messages = (
-                session.query(Message)
-                .filter(Message.conversation_id == conversation.id)
-                .all()
-            )
-            if not messages:
-                conversations.remove(conversation)
-            session.close()
-        return {
+
+        result = {
             str(conversation.id): conversation.name for conversation in conversations
         }
+        session.close()
+        return result
 
     def get_conversation(self, limit=100, page=1):
         session = get_session()
@@ -348,6 +338,8 @@ class Conversations:
                 content=message,
                 conversation_id=conversation.id,
             )
+            # Update the conversation's updated_at timestamp
+            conversation.updated_at = func.now()
         except Exception as e:
             conversation = self.new_conversation()
             session.close()
@@ -357,8 +349,12 @@ class Conversations:
                 content=message,
                 conversation_id=conversation.id,
             )
+            # Update the conversation's updated_at timestamp
+            conversation.updated_at = func.now()
+
         session.add(new_message)
         session.commit()
+
         if role.lower() == "user":
             logging.info(f"{self.user}: {message}")
         else:
