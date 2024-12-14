@@ -80,8 +80,9 @@ class Conversations:
             .filter(
                 Conversation.user_id == user_id,
             )
+            .order_by(Conversation.updated_at.desc())
             .all()
-        )
+        )       
         conversation_list = [conversation.name for conversation in conversations]
         # Check if there are any messages in the conversation, remove from list if not
         for conversation in conversations:

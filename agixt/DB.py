@@ -292,6 +292,8 @@ class Conversation(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     name = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
         UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
         ForeignKey("user.id"),
@@ -625,14 +627,71 @@ class Prompt(Base):
     user = relationship("User", backref="prompt")
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
+def run_safe_migration():
+    import sqlite3
+    import logging
+    from Globals import getenv
+    
+    db_path = getenv("DATABASE_NAME") + ".db"
+
+    def check_column_exists(cursor, table, column):
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = [col[1] for col in cursor.fetchall()]
+        return column in columns
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Check if the columns already exist
+            created_at_exists = check_column_exists(cursor, 'conversation', 'created_at')
+            updated_at_exists = check_column_exists(cursor, 'conversation', 'updated_at')
+            
+            if not created_at_exists and not updated_at_exists:
+                logging.info("Adding timestamp columns to conversation table...")
+                
+                # Add new columns
+                cursor.execute("""
+                    ALTER TABLE conversation 
+                    ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                """)
+                cursor.execute("""
+                    ALTER TABLE conversation 
+                    ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                """)
+                
+                # Update existing rows with current timestamp
+                cursor.execute("""
+                    UPDATE conversation 
+                    SET created_at = DATETIME('now'),
+                        updated_at = DATETIME('now')
+                """)
+                
+                logging.info("Migration completed successfully.")
+            else:
+                logging.info("Timestamp columns already exist in conversation table. No migration needed.")
+                
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+        raise
 
 if __name__ == "__main__":
     logging.info("Connecting to database...")
     if getenv("DATABASE_TYPE") != "sqlite":
         time.sleep(15)
+    
+    # Run migrations before creating tables
+    if getenv("DATABASE_TYPE") == "sqlite":
+        try:
+            run_safe_migration()
+        except Exception as e:
+            logging.error(f"Migration error: {e}")
+            # Continue with table creation even if migration fails
+    
+    # Create any missing tables
     Base.metadata.create_all(engine)
-    logging.info("Connected to database.")
-    # Check if the user table is empty
+    logging.info("Database tables verified/created.")
+    
+    # Import seed data
     from SeedImports import import_all_data
-
     import_all_data()
