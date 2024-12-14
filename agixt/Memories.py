@@ -409,12 +409,10 @@ class Memories:
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
-        """Write text to memory with file-based deduplication check"""
+        # Log the collection number and agent name
         logging.info(f"Saving to collection name: {self.collection_name}")
         collection = await self.get_collection()
         if text:
-            if isinstance(text, dict):
-                text = json.dumps(text, indent=4)
             if not isinstance(text, str):
                 text = str(text)
             # Check for file-based duplicates
