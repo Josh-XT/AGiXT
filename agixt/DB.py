@@ -628,40 +628,43 @@ class Prompt(Base):
     arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
-def run_safe_migration():
+def ensure_conversation_timestamps():
+    """Ensure the conversation table has timestamp columns"""
     import sqlite3
     import logging
     from Globals import getenv
 
     db_path = getenv("DATABASE_NAME") + ".db"
-
-    def check_column_exists(cursor, table, column):
-        cursor.execute(f"PRAGMA table_info({table})")
-        columns = [col[1] for col in cursor.fetchall()]
-        return column in columns
+    logging.info(f"Checking conversation table schema in {db_path}")
 
     try:
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
 
-            # Check if the columns already exist
-            created_at_exists = check_column_exists(
-                cursor, "conversation", "created_at"
+            # First check if table exists
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation'"
             )
-            updated_at_exists = check_column_exists(
-                cursor, "conversation", "updated_at"
-            )
+            if not cursor.fetchone():
+                logging.info("Conversation table doesn't exist yet")
+                return
 
-            if not created_at_exists and not updated_at_exists:
-                logging.info("Adding timestamp columns to conversation table...")
+            # Check columns
+            cursor.execute("PRAGMA table_info(conversation)")
+            columns = [col[1] for col in cursor.fetchall()]
+            logging.info(f"Current conversation columns: {columns}")
 
-                # Add new columns
+            if "created_at" not in columns:
+                logging.info("Adding created_at column")
                 cursor.execute(
                     """
                     ALTER TABLE conversation 
                     ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 """
                 )
+
+            if "updated_at" not in columns:
+                logging.info("Adding updated_at column")
                 cursor.execute(
                     """
                     ALTER TABLE conversation 
@@ -669,39 +672,42 @@ def run_safe_migration():
                 """
                 )
 
-                # Update existing rows with current timestamp
-                cursor.execute(
-                    """
-                    UPDATE conversation 
-                    SET created_at = DATETIME('now'),
-                        updated_at = DATETIME('now')
+            # Update any null values
+            cursor.execute(
                 """
-                )
+                UPDATE conversation 
+                SET created_at = CURRENT_TIMESTAMP
+                WHERE created_at IS NULL
+            """
+            )
+            cursor.execute(
+                """
+                UPDATE conversation 
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE updated_at IS NULL
+            """
+            )
 
-                logging.info("Migration completed successfully.")
-            else:
-                logging.info(
-                    "Timestamp columns already exist in conversation table. No migration needed."
-                )
+            conn.commit()
+            logging.info("Conversation table schema update completed")
 
     except Exception as e:
         logging.error(f"Migration error: {e}")
         raise
 
 
+# Add this near the top of your file, after imports
+if getenv("DATABASE_TYPE") == "sqlite":
+    ensure_conversation_timestamps()
+
+
 if __name__ == "__main__":
     logging.info("Connecting to database...")
     if getenv("DATABASE_TYPE") != "sqlite":
         time.sleep(15)
-
     # Run migrations before creating tables
     if getenv("DATABASE_TYPE") == "sqlite":
-        try:
-            run_safe_migration()
-        except Exception as e:
-            logging.error(f"Migration error: {e}")
-            # Continue with table creation even if migration fails
-
+        ensure_conversation_timestamps()
     # Create any missing tables
     Base.metadata.create_all(engine)
     logging.info("Database tables verified/created.")
