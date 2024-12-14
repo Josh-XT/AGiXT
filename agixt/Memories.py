@@ -88,7 +88,7 @@ def query_results_to_records(results: "QueryResult"):
         return []
     memory_records = [
         {
-            "external_source_name": metadata["external_source_name"],
+            "external_source_name": metadata.get("external_source_name", "user input"),
             "id": metadata["id"],
             "description": metadata["description"],
             "text": document,
