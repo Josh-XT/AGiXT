@@ -77,11 +77,12 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
 
-        # Use a JOIN to get only conversations with messages in one query
+        # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
             session.query(Conversation)
-            .join(Message, Message.conversation_id == Conversation.id)
+            .outerjoin(Message, Message.conversation_id == Conversation.id)
             .filter(Conversation.user_id == user_id)
+            .filter(Message.id != None)  # Only get conversations with messages
             .order_by(Conversation.updated_at.desc())
             .distinct()
             .all()
@@ -96,11 +97,12 @@ class Conversations:
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
 
-        # Use a JOIN to get only conversations with messages in one query
+        # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
             session.query(Conversation)
-            .join(Message, Message.conversation_id == Conversation.id)
+            .outerjoin(Message, Message.conversation_id == Conversation.id)
             .filter(Conversation.user_id == user_id)
+            .filter(Message.id != None)  # Only get conversations with messages
             .order_by(Conversation.updated_at.desc())
             .distinct()
             .all()
