@@ -415,24 +415,28 @@ class Memories:
         if text:
             if not isinstance(text, str):
                 text = str(text)
-            # Check for file-based duplicates
-            if external_source.startswith("file"):
+            # Check for duplicates from external sources (files or URLs)
+            if external_source.startswith(("file", "http://", "https://")):
                 try:
                     # Get all external sources in this collection
                     existing_sources = await self.get_external_data_sources()
-                    # Check if this file already exists in memory
+
+                    # Check if this source already exists in memory
                     for source in existing_sources:
                         if source == external_source:
                             logging.info(
-                                f"Found existing file in memory: {external_source}"
+                                f"Found existing content in memory from source: {external_source}"
                             )
-                            # Delete existing memories for this file
+                            # Delete existing memories for this source
                             await self.delete_memories_from_external_source(
                                 external_source
                             )
+                            logging.info(
+                                f"Deleted existing content from source: {external_source}"
+                            )
                             break
                 except Exception as e:
-                    logging.warning(f"Error checking for existing file content: {e}")
+                    logging.warning(f"Error checking for existing content: {e}")
             if self.summarize_content:
                 text = await self.summarize_text(text=text)
             chunks = await self.chunk_content(text=text, chunk_size=self.chunk_size)
