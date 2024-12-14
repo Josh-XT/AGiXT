@@ -76,7 +76,7 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
-        
+
         # Use a JOIN to get only conversations with messages in one query
         conversations = (
             session.query(Conversation)
@@ -86,7 +86,7 @@ class Conversations:
             .distinct()
             .all()
         )
-        
+
         conversation_list = [conversation.name for conversation in conversations]
         session.close()
         return conversation_list
@@ -95,7 +95,7 @@ class Conversations:
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
-        
+
         # Use a JOIN to get only conversations with messages in one query
         conversations = (
             session.query(Conversation)
@@ -105,8 +105,10 @@ class Conversations:
             .distinct()
             .all()
         )
-        
-        result = {str(conversation.id): conversation.name for conversation in conversations}
+
+        result = {
+            str(conversation.id): conversation.name for conversation in conversations
+        }
         session.close()
         return result
 
@@ -349,10 +351,10 @@ class Conversations:
             )
             # Update the conversation's updated_at timestamp
             conversation.updated_at = func.now()
-        
+
         session.add(new_message)
         session.commit()
-        
+
         if role.lower() == "user":
             logging.info(f"{self.user}: {message}")
         else:
