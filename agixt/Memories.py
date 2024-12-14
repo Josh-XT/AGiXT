@@ -409,12 +409,32 @@ class Memories:
     async def write_text_to_memory(
         self, user_input: str, text: str, external_source: str = "user input"
     ):
-        # Log the collection number and agent name
+        """Write text to memory with file-based deduplication check"""
         logging.info(f"Saving to collection name: {self.collection_name}")
         collection = await self.get_collection()
         if text:
+            if isinstance(text, dict):
+                text = json.dumps(text, indent=4)
             if not isinstance(text, str):
                 text = str(text)
+            # Check for file-based duplicates
+            if external_source.startswith("file"):
+                try:
+                    # Get all external sources in this collection
+                    existing_sources = await self.get_external_data_sources()
+                    # Check if this file already exists in memory
+                    for source in existing_sources:
+                        if source == external_source:
+                            logging.info(
+                                f"Found existing file in memory: {external_source}"
+                            )
+                            # Delete existing memories for this file
+                            await self.delete_memories_from_external_source(
+                                external_source
+                            )
+                            break
+                except Exception as e:
+                    logging.warning(f"Error checking for existing file content: {e}")
             if self.summarize_content:
                 text = await self.summarize_text(text=text)
             chunks = await self.chunk_content(text=text, chunk_size=self.chunk_size)
