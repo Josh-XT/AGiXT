@@ -989,21 +989,21 @@ class github(Extensions):
         repo_org: str,
         repo_name: str,
         additional_context: str = "",
-        auto_merge: bool = True,
+        auto_merge: bool = False,
     ):
         """
         Improve the codebase of a GitHub repository by scoping necessary work to implement changes based on a provided idea.
 
         Args:
         idea (str): The idea to improve the codebase
-        repo_org (str): The organization of the GitHub repository
+        repo_org (str): The organization of the GitHub repository, or the username if it's a personal repository
         repo_name (str): The name of the GitHub repository
         additional_context (str): Additional context to provide for the improvement. Useful for injecting additional documentation or code that isn't in the repository or agent's memory.
-        auto_merge (bool): Whether to automatically merge pull requests (default is True)
+        auto_merge (bool): Whether to automatically merge pull requests after creating them (default is False). Use with caution.
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        self.ApiClient.new_conversation_message(
+        activity_id = self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[ACTIVITY] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
@@ -1021,6 +1021,7 @@ Follow all patterns in the current framework to maintain maintainability and con
 The developer may have little to no guidance outside of this scope.""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
+                "disable_commands": True,
                 "log_output": False,
                 "browse_links": False,
                 "websearch": False,
@@ -1034,12 +1035,17 @@ The developer may have little to no guidance outside of this scope.""",
             input_string=f"### Scope of Work\n\n{scope}\nPlease create a GitHub issue for each task in the scope of work. Each issue should have detailed instructions for the junior developer to complete the task. The developer may have little to no guidance outside of these issues. The instructions should be clear and concise, and should include any necessary code snippets.",
             model=Issues,
             agent_name=self.agent_name,
+            disable_commands=True,
+            tts=False,
+            browse_links=False,
+            websearch=False,
+            analyze_user_input=False,
         )
         issues = issues.model_dump()
         issue_count = len(issues["issues"])
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[ACTIVITY] Creating {issue_count} issues in the repository.",
+            message=f"[SUBACTIVITY][{activity_id}] Creating {issue_count} issues in the repository.",
             conversation_name=self.conversation_name,
         )
         x = 0
@@ -1053,7 +1059,7 @@ The developer may have little to no guidance outside of this scope.""",
             issue_number = new_issue.split(f"{repo_url}\n\n")[-1].split(":")[-1]
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[ACTIVITY] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
+                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
                 conversation_name=self.conversation_name,
             )
             comment_content = self.ApiClient.prompt_agent(
@@ -1078,6 +1084,7 @@ When referencing files in the issue, please use the following format:
                     "websearch": False,
                     "analyze_user_input": False,
                     "tts": False,
+                    "disable_commands": True,
                     "conversation_name": self.conversation_name,
                 },
             )
@@ -1123,9 +1130,15 @@ When referencing files in the issue, please use the following format:
                 )
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[ACTIVITY] ({x}/{issue_count}) {pull_request}",
+                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) {pull_request}",
                 conversation_name=self.conversation_name,
             )
+        self.ApiClient.update_conversation_message(
+            agent_name=self.agent_name,
+            message=f"[ACTIVITY] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            new_message=f"[ACTIVITY] Completed necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation,
+        )
         response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
         if auto_merge:
             response += " Each pull request was automatically merged."
