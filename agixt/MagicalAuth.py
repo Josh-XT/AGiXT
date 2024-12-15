@@ -134,8 +134,6 @@ def urldecode(data: str):
 
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    if getenv("AUTH_PROVIDER") == "magicalauth":
-        AGIXT_API_KEY = f'{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}'
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization is None:
@@ -167,7 +165,6 @@ def verify_api_key(authorization: str = Header(None)):
 
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = getenv("AGIXT_API_KEY")
-    AGIXT_API_KEY = f'{AGIXT_API_KEY}{datetime.now().strftime("%Y%m%d")}'
     # Get users email
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -289,9 +286,8 @@ def decrypt(key: str, data: str):
 
 class MagicalAuth:
     def __init__(self, token: str = None):
-        encryption_key = getenv("AGIXT_API_KEY")
+        self.encryption_key = getenv("AGIXT_API_KEY")
         self.link = getenv("MAGIC_LINK_URL")
-        self.encryption_key = f'{encryption_key}{datetime.now().strftime("%Y%m%d")}'
         token = (
             str(token)
             .replace("%2B", "+")
@@ -341,7 +337,7 @@ class MagicalAuth:
             self.email = None
             self.token = None
             self.user_id = None
-        if token == encryption_key:
+        if token == self.encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
             self.token = token
