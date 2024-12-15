@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header
-from ApiClient import verify_api_key, Conversations
+from ApiClient import verify_api_key
+from Conversations import Conversations, get_conversation_name_by_id
 from XT import AGiXT
 from Models import (
     HistoryModel,
@@ -15,6 +16,7 @@ from Models import (
 )
 import json
 from datetime import datetime
+from MagicalAuth import MagicalAuth
 
 app = APIRouter()
 
@@ -34,6 +36,51 @@ async def get_conversations_list(user=Depends(verify_api_key)):
         "conversations": conversations,
         "conversations_with_ids": conversations_with_ids,
     }
+
+
+@app.get(
+    "/v1/conversations",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversations(user=Depends(verify_api_key)):
+    c = Conversations(user=user)
+    conversations = c.get_conversations_with_detail()
+    if not conversations:
+        conversations = {}
+    # Output: {"conversations": { "conversation_id": { "name": "conversation_name", "created_at": "datetime", "updated_at": "datetime" } } }
+    return {
+        "conversations": conversations,
+    }
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversation_history(
+    conversation_id: str, history: HistoryModel, user=Depends(verify_api_key)
+):
+
+    auth = MagicalAuth(token=user)
+    if not conversation_id:
+        conversation_name = history.conversation_name
+    else:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    conversation_history = Conversations(
+        conversation_name=conversation_name, user=user
+    ).get_conversation(
+        limit=history.limit,
+        page=history.page,
+    )
+    if conversation_history is None:
+        conversation_history = []
+    if "interactions" in conversation_history:
+        conversation_history = conversation_history["interactions"]
+    return {"conversation_history": conversation_history}
 
 
 @app.get(

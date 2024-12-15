@@ -114,6 +114,33 @@ class Conversations:
         session.close()
         return result
 
+    def get_conversations_with_detail(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+
+        # Use a LEFT OUTER JOIN to get conversations and their messages
+        conversations = (
+            session.query(Conversation)
+            .outerjoin(Message, Message.conversation_id == Conversation.id)
+            .filter(Conversation.user_id == user_id)
+            .filter(Message.id != None)  # Only get conversations with messages
+            .order_by(Conversation.updated_at.desc())
+            .distinct()
+            .all()
+        )
+
+        result = {
+            str(conversation.id): {
+                "name": conversation.name,
+                "created_at": conversation.created_at,
+                "updated_at": conversation.updated_at,
+            }
+            for conversation in conversations
+        }
+        session.close()
+        return result
+
     def get_conversation(self, limit=100, page=1):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
