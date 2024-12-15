@@ -231,7 +231,7 @@ class AgentCommands(BaseModel):
 
 class HistoryModel(BaseModel):
     agent_name: str
-    conversation_name: Optional[str] = "-"
+    conversation_name: Optional[str] = None
     limit: int = 100
     page: int = 1
 
