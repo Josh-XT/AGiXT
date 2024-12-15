@@ -26,22 +26,20 @@ def verify_api_key(authorization: str = Header(None)):
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "user"
-    if getenv("AUTH_PROVIDER") == "magicalauth":
-        auth_key = AGIXT_API_KEY + str(datetime.now().strftime("%Y%m%d"))
-        try:
-            token = jwt.decode(
-                jwt=authorization,
-                key=auth_key,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            return token["email"]
-        except Exception as e:
-            if authorization == auth_key:
-                return DEFAULT_USER
-            if authorization != AGIXT_API_KEY:
-                logging.info(f"Invalid API Key: {authorization}")
-                raise HTTPException(status_code=401, detail="Invalid API Key")
+    try:
+        token = jwt.decode(
+            jwt=authorization,
+            key=AGIXT_API_KEY,
+            algorithms=["HS256"],
+            leeway=timedelta(hours=5),
+        )
+        return token["email"]
+    except Exception as e:
+        if authorization == AGIXT_API_KEY:
+            return DEFAULT_USER
+        if authorization != AGIXT_API_KEY:
+            logging.info(f"Invalid API Key: {authorization}")
+            raise HTTPException(status_code=401, detail="Invalid API Key")
     if AGIXT_API_KEY:
         if authorization is None:
             logging.info("Authorization header is missing")

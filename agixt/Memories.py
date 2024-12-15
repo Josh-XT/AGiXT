@@ -86,24 +86,28 @@ def query_results_to_records(results: "QueryResult"):
                 results[k] = [v]
     except IndexError:
         return []
-    memory_records = [
-        {
-            "external_source_name": metadata.get("external_source_name", "user input"),
-            "id": metadata["id"],
-            "description": metadata["description"],
-            "text": document,
-            "embedding": embedding,
-            "additional_metadata": metadata["additional_metadata"],
-            "key": id,
-            "timestamp": metadata["timestamp"],
-        }
-        for id, document, embedding, metadata in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["embeddings"][0],
-            results["metadatas"][0],
-        )
-    ]
+    memory_records = []
+    for id, document, embedding, metadata in zip(
+        results["ids"][0],
+        results["documents"][0],
+        results["embeddings"][0],
+        results["metadatas"][0],
+    ):
+        if metadata:
+            memory_records.append(
+                {
+                    "external_source_name": metadata.get(
+                        "external_source_name", "user input"
+                    ),
+                    "id": metadata["id"],
+                    "description": metadata["description"],
+                    "text": document,
+                    "embedding": embedding,
+                    "additional_metadata": metadata["additional_metadata"],
+                    "key": id,
+                    "timestamp": metadata["timestamp"],
+                }
+            )
     return memory_records
 
 
