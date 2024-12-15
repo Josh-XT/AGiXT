@@ -230,13 +230,13 @@ async def delete_by_id(
 async def log_interaction(
     log_interaction: LogInteraction, user=Depends(verify_api_key)
 ) -> ResponseMessage:
-    Conversations(
+    interaction_id = Conversations(
         conversation_name=log_interaction.conversation_name, user=user
     ).log_interaction(
         message=log_interaction.message,
         role=log_interaction.role,
     )
-    return ResponseMessage(message=f"Interaction logged.")
+    return ResponseMessage(message=str(interaction_id))
 
 
 # Ask AI to rename the conversation
