@@ -17,7 +17,57 @@ from Agent import Agent, add_agent, delete_agent, rename_agent, get_agents
 from Chain import Chain
 from Prompts import Prompts
 from Conversations import Conversations
-from MagicalAuth import verify_api_key
+
+
+def verify_api_key(authorization: str = Header(None)):
+    USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
+    AGIXT_API_KEY = getenv("AGIXT_API_KEY")
+    DEFAULT_USER = getenv("DEFAULT_USER")
+    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
+        DEFAULT_USER = "user"
+    try:
+        token = jwt.decode(
+            jwt=authorization,
+            key=AGIXT_API_KEY,
+            algorithms=["HS256"],
+            leeway=timedelta(hours=5),
+        )
+        return token["email"]
+    except Exception as e:
+        if authorization == AGIXT_API_KEY:
+            return DEFAULT_USER
+        if authorization != AGIXT_API_KEY:
+            logging.info(f"Invalid API Key: {authorization}")
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+    if AGIXT_API_KEY:
+        if authorization is None:
+            logging.info("Authorization header is missing")
+            raise HTTPException(
+                status_code=401, detail="Authorization header is missing"
+            )
+        authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+        if AGIXT_API_KEY == authorization:
+            return DEFAULT_USER
+        if USING_JWT:
+            try:
+                token = jwt.decode(
+                    jwt=authorization,
+                    key=AGIXT_API_KEY,
+                    algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
+                )
+                return token["email"]
+            except Exception as e:
+                if authorization != AGIXT_API_KEY:
+                    logging.info(f"Invalid API Key: {authorization}")
+                    raise HTTPException(status_code=401, detail="Invalid API Key")
+                return DEFAULT_USER
+        if authorization != AGIXT_API_KEY:
+            logging.info(f"Invalid API Key: {authorization}")
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+    else:
+        return DEFAULT_USER
 
 
 def get_api_client(authorization: str = Header(None)):
