@@ -194,7 +194,6 @@ def get_default_env_vars():
         "APP_URI": "http://localhost:3437",
         "STREAMLIT_APP_URI": "http://localhost:8501",
         "AUTH_WEB": "http://localhost:3437/user",
-        "AUTH_PROVIDER": "magicalauth",
         "CREATE_AGENT_ON_REGISTER": "true",
         "CREATE_AGIXT_AGENT": "true",
         "DISABLED_PROVIDERS": "",
