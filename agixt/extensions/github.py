@@ -1296,17 +1296,23 @@ class github(Extensions):
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        activity_id = self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation_name,
-        )
-        self.activity_id = activity_id
+        if not self.activity_id:
+            self.activity_id = self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
+                conversation_name=self.conversation_name,
+            )
+        else:
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Improving [{repo_org}/{repo_name}]({repo_url}).",
+                conversation_name=self.conversation_name,
+            )
 
         # Prompt the model for a scope of work
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            message=f"[SUBACTIVITY][{self.activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
 
@@ -1358,7 +1364,7 @@ The developer may have little to no guidance outside of this scope.""",
         issue_count = len(issues["issues"])
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Creating {issue_count} issues in the repository.",
+            message=f"[SUBACTIVITY][{self.activity_id}] Creating {issue_count} issues in the repository.",
             conversation_name=self.conversation_name,
         )
 
@@ -1381,7 +1387,7 @@ The developer may have little to no guidance outside of this scope.""",
 
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
+                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
                 conversation_name=self.conversation_name,
             )
 
@@ -1433,7 +1439,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # Apply modifications
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Applying modifications for #{issue_number}.",
+                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Applying modifications for #{issue_number}.",
                 conversation_name=self.conversation_name,
             )
             # Since no file_path is directly known, we rely on modify_file_content to parse the target code blocks.
@@ -1449,7 +1455,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # Create and optionally merge the pull request
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Creating pull request to resolve #{issue_number}.",
+                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Creating pull request to resolve #{issue_number}.",
                 conversation_name=self.conversation_name,
             )
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
@@ -1473,17 +1479,9 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) {pull_request}",
+                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) {pull_request}",
                 conversation_name=self.conversation_name,
             )
-
-        self.ApiClient.update_conversation_message(
-            agent_name=self.agent_name,
-            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
-            new_message=f"[ACTIVITY] Improved [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation_name,
-        )
-
         response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
         if auto_merge:
             response += " Each pull request was automatically merged."
