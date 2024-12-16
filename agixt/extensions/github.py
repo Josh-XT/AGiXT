@@ -169,6 +169,7 @@ class github(Extensions):
             "Replace in File on Github": self.replace_in_file,
             "Insert in File on Github": self.insert_in_file,
             "Delete from File on Github": self.delete_from_file,
+            "Fix GitHub Issue": self.fix_github_issue,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
