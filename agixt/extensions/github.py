@@ -461,7 +461,7 @@ class github(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else ""
+        self.activity_id = None
 
     async def clone_repo(self, repo_url: str) -> str:
         """
@@ -1296,18 +1296,11 @@ class github(Extensions):
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        if not self.activity_id:
-            self.activity_id = self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
-                conversation_name=self.conversation_name,
-            )
-        else:
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Improving [{repo_org}/{repo_name}]({repo_url}).",
-                conversation_name=self.conversation_name,
-            )
+        self.activity_id = self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation_name,
+        )
 
         # Prompt the model for a scope of work
         self.ApiClient.new_conversation_message(
