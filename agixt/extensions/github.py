@@ -29,6 +29,7 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "PyGithub"])
     from github import Github, RateLimitExceededException
+import xml.etree.ElementTree as ET
 
 
 class Issue(BaseModel):
@@ -1766,6 +1767,60 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             best_match["indent"] // 4,  # Assuming 4-space indentation
         )
 
+    def _parse_modification_block(self, modification_block: str) -> dict:
+        """Parse a single modification block into its components.
+
+        Args:
+            modification_block (str): Raw XML string containing a single modification
+
+        Returns:
+            dict: Parsed modification with operation, target, content, and fuzzy_match
+        """
+        try:
+            # Normalize XML by removing excess whitespace around tags
+            normalized_xml = re.sub(r">\s+<", "><", modification_block.strip())
+            normalized_xml = re.sub(r"^\s+|\s+$", "", normalized_xml)
+
+            # Parse XML
+            root = ET.fromstring(normalized_xml)
+
+            # Extract components
+            result = {
+                "operation": (
+                    root.find("operation").text.strip()
+                    if root.find("operation") is not None
+                    else None
+                ),
+                "target": (
+                    root.find("target").text
+                    if root.find("target") is not None
+                    else None
+                ),
+                "content": (
+                    root.find("content").text
+                    if root.find("content") is not None
+                    else None
+                ),
+                "fuzzy_match": (
+                    root.find("fuzzy_match").text.lower() == "true"
+                    if root.find("fuzzy_match") is not None
+                    else True
+                ),
+            }
+
+            # Validate required fields
+            if not result["operation"] or not result["target"]:
+                raise ValueError("Missing required operation or target")
+
+            return result
+        except ET.ParseError as e:
+            # Add context about the XML being parsed
+            raise ValueError(
+                f"XML Parse Error at position {e.position}: {str(e)}\nXML:\n{modification_block}"
+            )
+        except Exception as e:
+            raise ValueError(f"Error parsing modification block: {str(e)}")
+
     def clean_content(self, content: str) -> str:
         """Clean content by normalizing line endings and removing any leading/trailing whitespace.
 
@@ -1878,24 +1933,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             conversation_name=self.conversation_name,
                         )
 
-                    repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-                    if not branch:
-                        branch = repo.default_branch
-
-                    # Get current file content
-                    file_content_obj = repo.get_contents(file_path, ref=branch)
-                    file_content = file_content_obj.decoded_content.decode("utf-8")
-
-                    # Detect the file's indentation style
-                    indent_str, indent_size = (
-                        self.indentation_helper.detect_indentation(file_content)
-                    )
-
-                    # Split content into lines and store original for diff
-                    original_lines = file_content.splitlines()
-                    modified_lines = original_lines.copy()
-
-                    # Extract modifications from XML
+                    # Extract and parse each modification block
                     modifications = re.findall(
                         r"<modification>(.*?)</modification>",
                         modification_commands,
@@ -1903,126 +1941,106 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     )
 
                     if not modifications:
-                        raise ValueError("No valid modification blocks found")
+                        raise ValueError("No modification blocks found")
 
-                    has_changes = False
-                    preserved_indent_levels = {}
-
+                    # Parse each modification into structured data
+                    parsed_mods = []
                     for mod in modifications:
-                        operation_match = re.search(
-                            r"<operation>(.*?)</operation>", mod, re.DOTALL
-                        )
-                        target_match = re.search(
-                            r"<target>(.*?)</target>", mod, re.DOTALL
-                        )
-                        content_match = re.search(
-                            r"<content>(.*?)</content>", mod, re.DOTALL
-                        )
-                        fuzzy_match_option = re.search(
-                            r"<fuzzy_match>(.*?)</fuzzy_match>", mod, re.DOTALL
-                        )
-
-                        if not operation_match or not target_match:
-                            raise ValueError(
-                                "Missing required operation or target tags"
+                        try:
+                            parsed_mod = self._parse_modification_block(
+                                f"<modification>{mod}</modification>"
                             )
+                            parsed_mods.append(parsed_mod)
+                        except ValueError as e:
+                            raise ValueError(f"Error parsing modification: {str(e)}")
 
-                        operation = operation_match.group(1).strip()
-                        target = target_match.group(1).strip()
-                        content = (
-                            content_match.group(1).strip() if content_match else None
-                        )
-                        fuzzy_match = (
-                            fuzzy_match_option.group(1).lower() == "true"
-                            if fuzzy_match_option
-                            else True
-                        )
+                    # Get repository and file content
+                    repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+                    if not branch:
+                        branch = repo.default_branch
+
+                    file_content_obj = repo.get_contents(file_path, ref=branch)
+                    file_content = file_content_obj.decoded_content.decode("utf-8")
+
+                    # Detect indentation
+                    indent_str, indent_size = (
+                        self.indentation_helper.detect_indentation(file_content)
+                    )
+
+                    # Process modifications
+                    original_lines = file_content.splitlines()
+                    modified_lines = original_lines.copy()
+                    has_changes = False
+
+                    for mod in parsed_mods:
+                        operation = mod["operation"]
+                        target = mod["target"]
+                        content = mod.get("content")
+                        fuzzy_match = mod["fuzzy_match"]
 
                         if (operation in ["replace", "insert"]) and not content:
                             raise ValueError(
                                 f"Content is required for {operation} operation"
                             )
 
-                        try:
-                            # Handle line number targets
-                            if target.isdigit():
-                                start_line = int(target) - 1  # Convert to 0-based index
-                                end_line = start_line + 1
-                                indent_level = (
-                                    self.indentation_helper.get_line_indent_level(
-                                        (
-                                            modified_lines[start_line]
-                                            if start_line < len(modified_lines)
-                                            else ""
-                                        ),
-                                        indent_size,
-                                    )
+                        # Find target location
+                        start_line, end_line, indent_level = (
+                            self._find_pattern_boundaries(
+                                modified_lines,
+                                target,
+                                fuzzy_match=fuzzy_match,
+                                operation=operation,
+                            )
+                        )
+
+                        # Apply modification
+                        if content:
+                            content = self.clean_content(content)
+
+                        if operation == "replace" and content:
+                            adjusted_content = (
+                                self.indentation_helper.adjust_indentation(
+                                    content, indent_str, indent_level
                                 )
-                            else:
-                                # Find the target code block
-                                start_line, end_line, indent_level = (
-                                    self._find_pattern_boundaries(
-                                        modified_lines,
-                                        target,
-                                        fuzzy_match=fuzzy_match,
-                                        operation=operation,
-                                    )
+                            )
+                            modified_lines[start_line:end_line] = (
+                                adjusted_content.splitlines()
+                            )
+                            has_changes = True
+
+                        elif operation == "insert" and content:
+                            adjusted_content = (
+                                self.indentation_helper.adjust_indentation(
+                                    content, indent_str, indent_level
                                 )
-                                preserved_indent_levels[target] = indent_level
+                            )
+                            insert_lines = adjusted_content.splitlines()
 
-                            if content:
-                                content = self.clean_content(content)
+                            # Handle spacing around insertion
+                            if (
+                                start_line > 0
+                                and modified_lines[start_line - 1].strip()
+                            ):
+                                insert_lines.insert(0, "")
+                            if (
+                                start_line < len(modified_lines)
+                                and modified_lines[start_line].strip()
+                            ):
+                                insert_lines.append("")
 
-                            if operation == "replace" and content:
-                                adjusted_content = (
-                                    self.indentation_helper.adjust_indentation(
-                                        content, indent_str, indent_level
-                                    )
-                                )
-                                modified_lines[start_line:end_line] = (
-                                    adjusted_content.splitlines()
-                                )
-                                has_changes = True
+                            # Insert the new lines
+                            for i, line in enumerate(insert_lines):
+                                modified_lines.insert(start_line + i, line)
+                            has_changes = True
 
-                            elif operation == "insert" and content:
-                                target_indent = preserved_indent_levels.get(
-                                    target, indent_level
-                                )
-                                adjusted_content = (
-                                    self.indentation_helper.adjust_indentation(
-                                        content, indent_str, target_indent
-                                    )
-                                )
-                                insert_lines = adjusted_content.splitlines()
-
-                                # Handle spacing around the insertion
-                                if (
-                                    start_line > 0
-                                    and modified_lines[start_line - 1].strip()
-                                ):
-                                    insert_lines.insert(0, "")
-                                if (
-                                    start_line < len(modified_lines)
-                                    and modified_lines[start_line].strip()
-                                ):
-                                    insert_lines.append("")
-
-                                # Insert the new lines
-                                for i, line in enumerate(insert_lines):
-                                    modified_lines.insert(start_line + i, line)
-                                has_changes = True
-
-                            elif operation == "delete":
-                                del modified_lines[start_line:end_line]
-                                has_changes = True
-
-                        except Exception as e:
-                            raise ValueError(f"Error applying modification: {str(e)}")
+                        elif operation == "delete":
+                            del modified_lines[start_line:end_line]
+                            has_changes = True
 
                     if not has_changes:
                         return "No changes needed"
 
-                    # Generate unified diff
+                    # Generate diff
                     diff = list(
                         difflib.unified_diff(
                             original_lines,
@@ -2080,6 +2098,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         raise ValueError(
                             f"Error recovery failed: {str(ve)}{error_history}"
                         )
+
         except Exception as e:
             return f"Error: {str(e)}"
 
