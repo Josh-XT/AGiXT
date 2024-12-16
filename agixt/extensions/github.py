@@ -1698,7 +1698,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         self,
         repo_org: str,
         repo_name: str,
-        issue_number: int,
+        issue_number: str,
         additional_context: str = "",
     ) -> str:
         """
@@ -1738,7 +1738,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
         repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-        issue = repo.get_issue(issue_number)
+        issue_number = "".join(filter(str.isdigit, issue_number))
+        issue = repo.get_issue(int(issue_number))
         issue_title = issue.title
         issue_body = issue.body
         activity_id = self.ApiClient.new_conversation_message(
@@ -1802,7 +1803,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         # Create or verify issue branch
         repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
         base_branch = repo.default_branch
-        issue_branch = str(issue_number)
+        issue_branch = f"issue-{issue_number}"
         try:
             repo.get_branch(issue_branch)
         except Exception:
