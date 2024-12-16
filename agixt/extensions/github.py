@@ -323,33 +323,35 @@ class GitHubErrorRecovery:
         file_path: str,
         original_modifications: str,
         activity_id: str = None,
+        retry_count: int = 0,
     ) -> str:
         """
         Retry a failed modification by providing the error context back to the model.
-
-        Args:
-            error_msg: The error message from the failed attempt
-            repo_url: The repository URL
-            file_path: The file that was being modified
-            original_modifications: The original modification commands that failed
-            activity_id: Optional activity ID for logging
-
-        Returns:
-            str: New modification commands from the model
         """
+        # Log the retry attempt
+        logging.info(f"Retry attempt #{retry_count + 1} for {file_path}")
+        if activity_id:
+            self.api_client.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{activity_id}] Retry attempt #{retry_count + 1} for {file_path}: {error_msg}",
+                conversation_name=self.conversation_name,
+            )
+
         # Extract the useful parts of the error message
         error_context = self._parse_error_message(error_msg)
 
-        # If we received an empty error context, don't retry
-        if not error_context:
-            raise ValueError(f"Unable to process modifications: {error_msg}")
+        # If we received an empty error context or hit retry limit, don't retry
+        if not error_context or retry_count >= 2:
+            raise ValueError(
+                f"[Attempt #{retry_count + 1}] Unable to process modifications: {error_msg}"
+            )
 
         # Check if the modifications are already in the correct format
         if self._is_valid_modification_format(original_modifications):
             raise ValueError(f"Invalid modification result: {error_msg}")
 
         # Construct the retry prompt
-        retry_prompt = f"""The previous modification attempt failed. Here's what I found:
+        retry_prompt = f"""Retry attempt #{retry_count + 1}. The previous modification attempt failed. Here's what I found:
 
 {error_context}
 
@@ -373,13 +375,6 @@ Please provide the modifications in the same XML format:
 Original intended changes were:
 {original_modifications}"""
 
-        if activity_id:
-            self.api_client.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] Retrying modification with corrected targets",
-                conversation_name=self.conversation_name,
-            )
-
         # Get new modifications from the model
         new_modifications = self.api_client.prompt_agent(
             agent_name=self.agent_name,
@@ -397,6 +392,12 @@ Original intended changes were:
             },
         )
 
+        if activity_id:
+            self.api_client.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{activity_id}] Retrying modification with corrected targets",
+                conversation_name=self.conversation_name,
+            )
         return new_modifications
 
     def _parse_error_message(self, error_msg: str) -> str:
@@ -1871,9 +1872,21 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             retry_count = 0
             max_retries = 3
+            errors = []
 
             while retry_count < max_retries:
                 try:
+                    # Log attempt
+                    logging.info(
+                        f"Modification attempt #{retry_count + 1} for {file_path}"
+                    )
+                    if self.activity_id:
+                        self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{self.activity_id}] Attempt #{retry_count + 1} to modify {file_path}",
+                            conversation_name=self.conversation_name,
+                        )
+
                     repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
                     if not branch:
                         branch = repo.default_branch
@@ -2046,25 +2059,36 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     return "\n".join(diff)
 
                 except Exception as e:
+                    error_msg = str(e)
+                    errors.append(f"Attempt #{retry_count + 1}: {error_msg}")
+
                     if retry_count >= max_retries - 1:
-                        raise
+                        # Final attempt failed
+                        error_history = "\n\nError history:\n" + "\n".join(errors)
+                        raise ValueError(
+                            f"Failed to apply modifications after {max_retries} attempts. {error_history}"
+                        )
+
                     retry_count += 1
+                    logging.warning(
+                        f"Modification attempt #{retry_count} failed: {error_msg}"
+                    )
+
                     try:
                         modification_commands = await error_recovery.retry_with_context(
-                            error_msg=str(e),
+                            error_msg=error_msg,
                             repo_url=repo_url,
                             file_path=file_path,
                             original_modifications=modification_commands,
                             activity_id=self.activity_id,
+                            retry_count=retry_count - 1,
                         )
                     except ValueError as ve:
-                        # If error recovery fails, propagate the original error
-                        raise ValueError(str(ve)) from e
-
-            raise ValueError(
-                f"Failed to apply modifications after {max_retries} attempts"
-            )
-
+                        # If error recovery fails, include all attempts in the error message
+                        error_history = "\n\nError history:\n" + "\n".join(errors)
+                        raise ValueError(
+                            f"Error recovery failed: {str(ve)}{error_history}"
+                        )
         except Exception as e:
             return f"Error: {str(e)}"
 
