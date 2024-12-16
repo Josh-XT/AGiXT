@@ -340,6 +340,14 @@ class GitHubErrorRecovery:
         # Extract the useful parts of the error message
         error_context = self._parse_error_message(error_msg)
 
+        # If we received an empty error context, don't retry
+        if not error_context:
+            raise ValueError(f"Unable to process modifications: {error_msg}")
+
+        # Check if the modifications are already in the correct format
+        if self._is_valid_modification_format(original_modifications):
+            raise ValueError(f"Invalid modification result: {error_msg}")
+
         # Construct the retry prompt
         retry_prompt = f"""The previous modification attempt failed. Here's what I found:
 
@@ -405,6 +413,13 @@ Original intended changes were:
 
         # For other errors, provide a more structured message
         return f"Error encountered: {error_msg}\n\nPlease ensure the target exists in the file and the modification is valid."
+
+    def _is_valid_modification_format(self, modifications: str) -> bool:
+        """
+        Check if the modifications string is already in the correct XML format.
+        """
+        required_tags = ["<modification>", "<operation>", "<target>"]
+        return all(tag in modifications for tag in required_tags)
 
 
 class github(Extensions):
@@ -1856,7 +1871,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             retry_count = 0
             max_retries = 3
-            current_commands = modification_commands
 
             while retry_count < max_retries:
                 try:
@@ -1880,14 +1894,15 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     # Extract modifications from XML
                     modifications = re.findall(
                         r"<modification>(.*?)</modification>",
-                        current_commands,
+                        modification_commands,
                         re.DOTALL,
                     )
 
+                    if not modifications:
+                        raise ValueError("No valid modification blocks found")
+
                     has_changes = False
-                    preserved_indent_levels = (
-                        {}
-                    )  # Store indent levels for fuzzy matching
+                    preserved_indent_levels = {}
 
                     for mod in modifications:
                         operation_match = re.search(
@@ -1904,7 +1919,9 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         )
 
                         if not operation_match or not target_match:
-                            continue
+                            raise ValueError(
+                                "Missing required operation or target tags"
+                            )
 
                         operation = operation_match.group(1).strip()
                         target = target_match.group(1).strip()
@@ -1916,6 +1933,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             if fuzzy_match_option
                             else True
                         )
+
+                        if (operation in ["replace", "insert"]) and not content:
+                            raise ValueError(
+                                f"Content is required for {operation} operation"
+                            )
 
                         try:
                             # Handle line number targets
@@ -1990,82 +2012,59 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 del modified_lines[start_line:end_line]
                                 has_changes = True
 
-                        except ValueError as ve:
-                            if retry_count < max_retries - 1:
-                                current_commands = (
-                                    await error_recovery.retry_with_context(
-                                        error_msg=str(ve),
-                                        repo_url=repo_url,
-                                        file_path=file_path,
-                                        original_modifications=modification_commands,
-                                        activity_id=self.activity_id,
-                                    )
-                                )
-                                retry_count += 1
-                                break
-                            else:
-                                raise
-
                         except Exception as e:
-                            logging.error(f"Error applying modification: {str(e)}")
-                            if retry_count < max_retries - 1:
-                                current_commands = (
-                                    await error_recovery.retry_with_context(
-                                        error_msg=str(e),
-                                        repo_url=repo_url,
-                                        file_path=file_path,
-                                        original_modifications=modification_commands,
-                                        activity_id=self.activity_id,
-                                    )
-                                )
-                                retry_count += 1
-                                break
-                            else:
-                                raise
-                    else:
-                        break
+                            raise ValueError(f"Error applying modification: {str(e)}")
+
+                    if not has_changes:
+                        return "No changes needed"
+
+                    # Generate unified diff
+                    diff = list(
+                        difflib.unified_diff(
+                            original_lines,
+                            modified_lines,
+                            fromfile=file_path,
+                            tofile=file_path,
+                            lineterm="",
+                            n=3,
+                        )
+                    )
+
+                    # Apply changes
+                    new_content = "\n".join(modified_lines)
+                    if new_content[-1] != "\n":
+                        new_content += "\n"  # Ensure file ends with newline
+
+                    commit_message = f"Modified {file_path}"
+                    repo.update_file(
+                        file_path,
+                        commit_message,
+                        new_content,
+                        file_content_obj.sha,
+                        branch=branch,
+                    )
+                    return "\n".join(diff)
 
                 except Exception as e:
                     if retry_count >= max_retries - 1:
                         raise
                     retry_count += 1
-                    current_commands = await error_recovery.retry_with_context(
-                        error_msg=str(e),
-                        repo_url=repo_url,
-                        file_path=file_path,
-                        original_modifications=modification_commands,
-                        activity_id=self.activity_id,
-                    )
+                    try:
+                        modification_commands = await error_recovery.retry_with_context(
+                            error_msg=str(e),
+                            repo_url=repo_url,
+                            file_path=file_path,
+                            original_modifications=modification_commands,
+                            activity_id=self.activity_id,
+                        )
+                    except ValueError as ve:
+                        # If error recovery fails, propagate the original error
+                        raise ValueError(str(ve)) from e
 
-            if not has_changes:
-                return "No changes needed"
-
-            # Generate unified diff
-            diff = list(
-                difflib.unified_diff(
-                    original_lines,
-                    modified_lines,
-                    fromfile=file_path,
-                    tofile=file_path,
-                    lineterm="",
-                    n=3,
-                )
+            raise ValueError(
+                f"Failed to apply modifications after {max_retries} attempts"
             )
 
-            # Apply changes
-            new_content = "\n".join(modified_lines)
-            if new_content[-1] != "\n":
-                new_content += "\n"  # Ensure file ends with newline
-
-            commit_message = f"Modified {file_path}"
-            repo.update_file(
-                file_path,
-                commit_message,
-                new_content,
-                file_content_obj.sha,
-                branch=branch,
-            )
-            return "\n".join(diff)
         except Exception as e:
             return f"Error: {str(e)}"
 
