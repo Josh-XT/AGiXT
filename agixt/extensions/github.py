@@ -1463,11 +1463,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 operation = operation_match.group(1).strip()
                 target = target_match.group(1).strip()
                 content = content_match.group(1).strip() if content_match else None
-                fuzzy_match = (
-                    fuzzy_match_option.group(1).lower() == "true"
-                    if fuzzy_match_option
-                    else True
-                )
+                fuzzy_match = True
 
                 if target.isdigit():
                     # If target is a line number
