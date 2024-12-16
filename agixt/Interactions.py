@@ -1000,9 +1000,14 @@ class Interactions:
                     logging.warning(command_output)
                 else:
                     try:
-                        c.log_interaction(
+                        activity_id = c.log_interaction(
                             role=self.agent_name,
                             message=f"[ACTIVITY] Executing command `{command_name}`.",
+                        )
+                        json_args = json.dumps(command_args)
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY]{activity_id} Details:\n```json\n{json_args}\n```",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
@@ -1016,6 +1021,10 @@ class Interactions:
                         command_output = await ext.execute_command(
                             command_name=command_name,
                             command_args=command_args,
+                        )
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY]{activity_id} Output:\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
                     except Exception as e:
