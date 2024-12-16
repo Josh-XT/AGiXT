@@ -1839,7 +1839,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
         pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-        if auto_merge:
+        if str(auto_merge).lower() == "true":
             pr_response = await self.create_and_merge_pull_request(
                 repo_url=repo_url,
                 title=f"Fix #{issue_number}: {issue_title}",
