@@ -1763,6 +1763,8 @@ If multiple modifications are needed, repeat the <modification> block.
 ### Important:
 - Each <modification> block must include a <file> tag specifying which file to modify.
 - Do not return the entire file content, only the minimal code modifications required.
+- When selecting a file, do not use the repository name or url in this, just the path within the repository
+- Do not use the LOCAL file path that includes `WORKSPACE`, the path should be relative to the repository root, not where it is cloned to locally.
 - For replace and insert operations, <content> is required.
 - For delete operations, <content> is not required.
 - <fuzzy_match> defaults to true if omitted.""",
