@@ -2172,6 +2172,9 @@ Example modifications:
             if not file_match:
                 raise Exception("No <file> tag found in a modification block.")
             file_path = file_match.group(1).strip()
+            # if it start with the repo name, remove that.
+            if file_path.startswith(repo_name):
+                file_path = file_path[len(repo_name) + 1 :]
 
             # Wrap this single block with <modification> for use in modify_file_content
             single_mod_xml = f"<modification>{block}</modification>"
