@@ -124,7 +124,10 @@ class IndentationHelper:
 
             current_indent = len(line) - len(line.lstrip())
             relative_indent = current_indent - min_indent
-            new_indent = base_indent * (relative_level + (relative_indent // 4))
+            # Calculate new indentation using base_indent times the relative level
+            # We assume a standard indent size of 4 here for steps
+            indent_steps = relative_indent // 4 if relative_indent > 0 else 0
+            new_indent = base_indent * (relative_level + indent_steps)
             adjusted.append(new_indent + line.lstrip())
 
         return "\n".join(adjusted)
@@ -1230,6 +1233,70 @@ When referencing files in the issue, please use the following format:
         except Exception as e:
             return f"Error: {str(e)}"
 
+    def _find_pattern_boundaries(
+        self,
+        file_lines: List[str],
+        target: str,
+        fuzzy_match: bool = True,
+    ):
+        """
+        Find the start and end line indices of the target code block in the file lines.
+        If fuzzy matching is enabled, attempt to find the best-match segment above a certain threshold.
+        """
+        target_lines = target.strip("\n").split("\n")
+        # Normalize target lines if fuzzy matching is enabled
+        if fuzzy_match:
+            target_normalized = [ln.strip() for ln in target_lines]
+        else:
+            target_normalized = target_lines
+
+        best_start = None
+        best_score = -1.0
+
+        # Try each possible start line in the file for a match
+        for i in range(len(file_lines) - len(target_lines) + 1):
+            segment = file_lines[i : i + len(target_lines)]
+
+            if fuzzy_match:
+                # Compare line-by-line using difflib ratio
+                segment_normalized = [ln.strip() for ln in segment]
+                line_scores = []
+                for s, t in zip(segment_normalized, target_normalized):
+                    ratio = difflib.SequenceMatcher(None, s, t).ratio()
+                    line_scores.append(ratio)
+                avg_score = sum(line_scores) / len(line_scores)
+            else:
+                # Exact match check
+                if segment == target_lines:
+                    avg_score = 1.0
+                else:
+                    avg_score = 0.0
+
+            if avg_score > best_score:
+                best_score = avg_score
+                best_start = i
+
+        # Set a threshold for what we consider a good match
+        threshold = 1.0 if not fuzzy_match else 0.8
+        if best_start is None or best_score < threshold:
+            raise Exception("Target code block not found in file for modification.")
+
+        start_line = best_start
+        end_line = best_start + len(target_lines)
+
+        # Determine indentation level
+        indent_level = 0
+        for line in file_lines[start_line:end_line]:
+            if line.strip():
+                base_indent, base_count = self.indentation_helper.detect_indentation(
+                    "\n".join(file_lines)
+                )
+                indent_spaces = len(line) - len(line.lstrip())
+                indent_level = indent_spaces // base_count if base_count > 0 else 0
+                break
+
+        return start_line, end_line, indent_level
+
     async def modify_file_content(
         self,
         repo_url: str,
@@ -1318,10 +1385,9 @@ When referencing files in the issue, please use the following format:
                 branch = repo.default_branch
 
             # Get current file content
-            file_content = repo.get_contents(
-                file_path, ref=branch
-            ).decoded_content.decode("utf-8")
-            indent_str, indent_size = self.indent_helper.detect_indentation(
+            file_content_obj = repo.get_contents(file_path, ref=branch)
+            file_content = file_content_obj.decoded_content.decode("utf-8")
+            indent_str, indent_size = self.indentation_helper.detect_indentation(
                 file_content
             )
 
@@ -1334,46 +1400,55 @@ When referencing files in the issue, please use the following format:
             )
 
             for mod in modifications:
-                operation = re.search(r"<operation>(.*?)</operation>", mod, re.DOTALL)
-                target = re.search(r"<target>(.*?)</target>", mod, re.DOTALL)
-                content = re.search(r"<content>(.*?)</content>", mod, re.DOTALL)
-                fuzzy = re.search(r"<fuzzy_match>(.*?)</fuzzy_match>", mod, re.DOTALL)
+                operation_match = re.search(
+                    r"<operation>(.*?)</operation>", mod, re.DOTALL
+                )
+                target_match = re.search(r"<target>(.*?)</target>", mod, re.DOTALL)
+                content_match = re.search(r"<content>(.*?)</content>", mod, re.DOTALL)
+                fuzzy_match_option = re.search(
+                    r"<fuzzy_match>(.*?)</fuzzy_match>", mod, re.DOTALL
+                )
 
-                if not operation or not target:
+                if not operation_match or not target_match:
                     continue
 
-                operation = operation.group(1).strip()
-                target = target.group(1).strip()
-                content = content.group(1).strip() if content else None
-                fuzzy_match = fuzzy.group(1).lower() == "true" if fuzzy else True
+                operation = operation_match.group(1).strip()
+                target = target_match.group(1).strip()
+                content = content_match.group(1).strip() if content_match else None
+                fuzzy_match = (
+                    fuzzy_match_option.group(1).lower() == "true"
+                    if fuzzy_match_option
+                    else True
+                )
 
-                # Handle line numbers in target
                 if target.isdigit():
+                    # If target is a line number
                     start_line = int(target)
                     end_line = start_line + 1
                     indent_level = 0
                     for line in modified_lines[start_line:end_line]:
                         if line.strip():
-                            indent_level = (len(line) - len(line.lstrip())) // len(
-                                indent_str
-                            )
+                            indent_level = (
+                                len(line) - len(line.lstrip())
+                            ) // indent_size
                             break
                 else:
-                    # Find the target in the file content
+                    # Find the target code block
                     start_line, end_line, indent_level = self._find_pattern_boundaries(
-                        modified_lines, target, context_lines=3, fuzzy_match=fuzzy_match
+                        modified_lines, target, fuzzy_match=fuzzy_match
                     )
 
                 if operation == "replace" and content:
-                    adjusted_content = self.indent_helper.adjust_indentation(
+                    adjusted_content = self.indentation_helper.adjust_indentation(
                         content, indent_str, indent_level
                     )
                     modified_lines[start_line:end_line] = adjusted_content.splitlines()
                 elif operation == "insert" and content:
-                    adjusted_content = self.indent_helper.adjust_indentation(
+                    adjusted_content = self.indentation_helper.adjust_indentation(
                         content, indent_str, indent_level
                     )
-                    for i, line in enumerate(adjusted_content.splitlines()):
+                    insert_lines = adjusted_content.splitlines()
+                    for i, line in enumerate(insert_lines):
                         modified_lines.insert(start_line + i, line)
                 elif operation == "delete":
                     del modified_lines[start_line:end_line]
@@ -1396,9 +1471,12 @@ When referencing files in the issue, please use the following format:
             # Apply changes
             new_content = "\n".join(modified_lines)
             commit_message = f"Modified {file_path}"
-            file = repo.get_contents(file_path, ref=branch)
             repo.update_file(
-                file_path, commit_message, new_content, file.sha, branch=branch
+                file_path,
+                commit_message,
+                new_content,
+                file_content_obj.sha,
+                branch=branch,
             )
 
             return "\n".join(diff)
