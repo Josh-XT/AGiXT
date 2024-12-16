@@ -1703,8 +1703,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
     ) -> str:
         """
         Fix a given GitHub issue by applying minimal code modifications to the repository.
+        If a PR is already open for this issue's branch, it will not create a new one.
+        Instead, it will apply changes to the existing branch and comment on the PR and issue.
+        If no PR is open, it creates a new PR and comments on the issue.
 
-        Now requires the model to return <file> tags in each <modification> block:
+        Requires the model to return <file> tags in each <modification> block.
 
         Example Model Output:
             <modification>
@@ -1720,6 +1723,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
         repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+
+        # Ensure issue_number is numeric
         issue_number = "".join(filter(str.isdigit, issue_number))
         issue = repo.get_issue(int(issue_number))
         issue_title = issue.title
@@ -1730,7 +1735,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
 
-        # Prompt for modifications with file paths
+        # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number}",
@@ -1782,14 +1787,14 @@ If multiple modifications are needed, repeat the <modification> block.
             conversation_name=self.conversation_name,
         )
 
-        # Create or verify issue branch
-        repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
         base_branch = repo.default_branch
         issue_branch = f"issue-{issue_number}"
+
+        # Ensure the issue branch exists
         try:
             repo.get_branch(issue_branch)
         except Exception:
-            # Branch doesn't exist, so create it
+            # Branch doesn't exist, so create it from base_branch
             source_branch = repo.get_branch(base_branch)
             repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
 
@@ -1798,16 +1803,27 @@ If multiple modifications are needed, repeat the <modification> block.
             r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
         )
 
-        # Dictionary to hold modifications per file
-        file_mod_map = {}
+        if not modifications_blocks:
+            # No modifications needed
+            issue.create_comment(
+                f"No changes needed for issue #{issue_number} based on the model's analysis."
+            )
+            self.ApiClient.update_conversation_message(
+                agent_name=self.agent_name,
+                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                new_message=f"[ACTIVITY] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                conversation_name=self.conversation_name,
+            )
+            return f"No changes needed for issue #{issue_number}."
 
+        file_mod_map = {}
         for block in modifications_blocks:
             file_match = re.search(r"<file>(.*?)</file>", block, re.DOTALL)
             if not file_match:
                 raise Exception("No <file> tag found in a modification block.")
             file_path = file_match.group(1).strip()
 
-            # Rebuild the single modification block with <modification>...</modification> tags
+            # Wrap this single block with <modification> for use in modify_file_content
             single_mod_xml = f"<modification>{block}</modification>"
 
             if file_path not in file_mod_map:
@@ -1822,7 +1838,6 @@ If multiple modifications are needed, repeat the <modification> block.
 
         # Apply modifications file by file
         for file_path, mods in file_mod_map.items():
-            # Combine all modifications for this file into one XML string
             combined_mods = "".join(mods)
             result = await self.modify_file_content(
                 repo_url=repo_url,
@@ -1831,9 +1846,17 @@ If multiple modifications are needed, repeat the <modification> block.
                 branch=issue_branch,
             )
             if "Error:" in result:
-                raise Exception(
-                    f"Error applying modifications to {file_path}: {result}"
+                # If something went wrong, comment on the issue and exit
+                issue.create_comment(
+                    f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
                 )
+                self.ApiClient.update_conversation_message(
+                    agent_name=self.agent_name,
+                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                    conversation_name=self.conversation_name,
+                )
+                return f"Error applying modifications: {result}"
 
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
@@ -1842,41 +1865,67 @@ If multiple modifications are needed, repeat the <modification> block.
             conversation_name=self.conversation_name,
         )
 
-        # Create a pull request
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Creating pull request to resolve #{issue_number}.",
-            conversation_name=self.conversation_name,
-        )
-        pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-        pull_request = repo.create_pull(
-            title=f"Fix #{issue_number}: {issue_title}",
-            body=pr_body,
-            head=issue_branch,
-            base=base_branch,
-        )
-        self.ApiClient.update_conversation_message(
-            agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Creating pull request to resolve #{issue_number}.",
-            new_message=f"[SUBACTIVITY][{activity_id}] Created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
-            conversation_name=self.conversation_name,
-        )
-        self.ApiClient.update_conversation_message(
-            agent_name=self.agent_name,
-            message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-            new_message=f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}).",
-            conversation_name=self.conversation_name,
-        )
+        # Check if a PR already exists for this branch
+        open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
+        if open_pulls.totalCount > 0:
+            # A PR already exists for this branch
+            existing_pr = open_pulls[0]
 
-        response = f"""### Issue #{issue_number}
+            # Comment on the PR and the issue about the new changes
+            comment_body = (
+                f"Additional changes have been pushed to the `{issue_branch}` branch:\n\n"
+                f"{modifications_xml}"
+            )
+            existing_pr.create_issue_comment(comment_body)
+            issue.create_comment(
+                f"Additional changes have been applied to resolve issue #{issue_number}. See PR #{existing_pr.number}."
+            )
+
+            self.ApiClient.update_conversation_message(
+                agent_name=self.agent_name,
+                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                new_message=(
+                    f"[ACTIVITY] Updated the branch `{issue_branch}` for [#{issue_number}]({repo_url}/issues/{issue_number}). "
+                    f"Changes are reflected in [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
+                ),
+                conversation_name=self.conversation_name,
+            )
+
+            return f"Updated existing PR #{existing_pr.number} for issue #{issue_number} with new changes."
+        else:
+            # No PR exists, create a new one
+            pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
+            new_pr = repo.create_pull(
+                title=f"Fix #{issue_number}: {issue_title}",
+                body=pr_body,
+                head=issue_branch,
+                base=base_branch,
+            )
+
+            # Comment on the issue about the new PR
+            issue.create_comment(
+                f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
+            )
+
+            self.ApiClient.update_conversation_message(
+                agent_name=self.agent_name,
+                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                new_message=(
+                    f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
+                    f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
+                ),
+                conversation_name=self.conversation_name,
+            )
+
+            response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
 {issue_body}
 
-### Pull Request #{pull_request.number}
-Title: {pull_request.title}
+### Pull Request #{new_pr.number}
+Title: {new_pr.title}
 Body: 
 {pr_body}
 
-I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
-        return response
+I have created pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
+            return response
