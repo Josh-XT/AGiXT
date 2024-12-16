@@ -1739,25 +1739,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        issue_details = await self.get_repo_issue(
-            repo_url=repo_url, issue_number=issue_number
-        )
-
-        # Parse issue title and body from the returned string
-        issue_lines = issue_details.split("\n")
-        title_line = next((l for l in issue_lines if f"{issue_number}:" in l), None)
-        issue_title = ""
-        issue_body = ""
-        if title_line:
-            parts = title_line.split(": ", 1)
-            if len(parts) > 1:
-                issue_title = parts[1].strip()
-        body_index = (
-            issue_lines.index(title_line) + 1 if title_line in issue_lines else None
-        )
-        if body_index is not None:
-            issue_body = "\n".join(issue_lines[body_index:]).strip()
-
+        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+        issue = repo.get_issue(issue_number)
+        issue_title = issue.title
+        issue_body = issue.body
         activity_id = self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
