@@ -901,7 +901,8 @@ class github(Extensions):
                 repo.create_git_ref(
                     ref=f"refs/heads/{branch}", sha=source_branch.commit.sha
                 )
-
+            if "/agixt/WORKSPACE" in file_path:
+                file_path = file_path.replace("/agixt/WORKSPACE", "")
             # Check if file already exists
             try:
                 contents = repo.get_contents(file_path, ref=branch)
