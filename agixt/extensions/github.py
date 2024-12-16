@@ -144,31 +144,28 @@ class IndentationHelper:
 
                 if space_match:
                     count = len(space_match.group())
-                    # Only count if it's a multiple of 2 or 4 (common indentation sizes)
-                    if count % 2 == 0 or count % 4 == 0:
-                        space_counts[count] = space_counts.get(count, 0) + 1
+                    space_counts[count] = space_counts.get(count, 0) + 1
                 elif tab_match:
                     count = len(tab_match.group())
                     tab_counts[count] = tab_counts.get(count, 0) + 1
 
-        # First check for the most common indent
-        if space_counts and (
-            not tab_counts
-            or max(space_counts.values()) >= max(tab_counts.values(), default=0)
-        ):
+        # For Python files, always prefer 4 spaces
+        lang = IndentationHelper.detect_language(content)
+        if lang == "python":
+            return ("    ", 4)
+
+        # For other files, use the most common indentation or language defaults
+        if space_counts:
             most_common_count = max(space_counts.items(), key=lambda x: x[1])[0]
-            # Prefer 4 spaces for Python, 2 for others
-            if most_common_count not in {2, 4}:
-                lang = IndentationHelper.detect_language(content)
-                most_common_count = 4 if lang == "python" else 2
-            return (" " * most_common_count, most_common_count)
+            if most_common_count % 2 == 0 and most_common_count <= 4:
+                return (" " * most_common_count, most_common_count)
+            return ("  ", 2)  # Default for JS/TS
         elif tab_counts:
             most_common_count = max(tab_counts.items(), key=lambda x: x[1])[0]
             return ("\t" * most_common_count, most_common_count)
 
-        # Default based on detected language
-        lang = IndentationHelper.detect_language(content)
-        return ("    ", 4) if lang == "python" else ("  ", 2)
+        # Default based on language
+        return ("  ", 2) if lang in ["javascript", "typescript"] else ("    ", 4)
 
     @staticmethod
     def adjust_indentation(
@@ -190,53 +187,49 @@ class IndentationHelper:
 
         lines = content.splitlines()
         adjusted_lines = []
-        indent_stack = [relative_level]
+        current_indent = relative_level
+        prev_indent = relative_level
 
-        # First pass: Calculate proper indentation levels
+        # Detect language to apply language-specific rules
+        lang = IndentationHelper.detect_language(content)
+        is_python = lang == "python"
+
         for i, line in enumerate(lines):
             stripped_line = line.strip()
             if not stripped_line:
                 adjusted_lines.append("")
                 continue
 
-            # Get the current indent level from the stack
-            current_indent = indent_stack[-1]
+            # Determine if this line should change the indentation level
+            if i > 0:
+                prev_line = lines[i - 1].strip()
+                # Python-specific: lines ending with ':' increase indent
+                if is_python and prev_line.endswith(":"):
+                    current_indent += 1
+                # JS/TS-specific: lines ending with '{' increase indent
+                elif not is_python and (
+                    prev_line.endswith("{") or prev_line.endswith("=>")
+                ):
+                    current_indent += 1
 
-            # Check if this line starts a new block
-            starts_block = (
-                stripped_line.endswith(":")  # Python block
-                or stripped_line.endswith("{")  # JS/TS block
-                or re.match(
-                    r"^(if|elif|else|try|except|finally|with|class|def|async\s+def)\b",
-                    stripped_line,
-                )
-            )
+            # Determine if this line should decrease indentation
+            if stripped_line in ["else:", "elif:", "except:", "finally:"]:
+                current_indent = max(0, current_indent - 1)
+            elif not is_python and (
+                stripped_line.startswith("}") or stripped_line == "});"
+            ):
+                current_indent = max(0, current_indent - 1)
 
-            # Check if this line ends a block
-            ends_block = (
-                i > 0
-                and lines[i - 1].strip()
-                and len(line) - len(line.lstrip())
-                < len(lines[i - 1]) - len(lines[i - 1].lstrip())
-            )
-
-            # Handle block endings
-            while ends_block and len(indent_stack) > 1:
-                if len(line) - len(line.lstrip()) <= len(indent_str) * indent_stack[-2]:
-                    indent_stack.pop()
-                else:
-                    break
-
-            # Special handling for first line to avoid double indentation
-            if i == 0 and not line.startswith((" ", "\t")):
+            # Apply indentation
+            if i == 0 and relative_level == 0:
+                # First line with no relative indentation
                 adjusted_lines.append(stripped_line)
             else:
-                # Add the line with proper indentation
+                # Apply the calculated indentation
                 adjusted_lines.append(indent_str * current_indent + stripped_line)
 
-            # Prepare indentation for the next line
-            if starts_block:
-                indent_stack.append(current_indent + 1)
+            # Store the previous indentation level
+            prev_indent = current_indent
 
         return "\n".join(adjusted_lines)
 
@@ -248,11 +241,15 @@ class IndentationHelper:
         if not content:
             return content
 
+        # Detect the language and get appropriate indentation
+        lang = IndentationHelper.detect_language(content)
+        indent_str = "    " if lang == "python" else "  "
+
         lines = content.splitlines()
         normalized = []
-        base_indent = None
 
-        # Find the base indentation level from non-empty lines
+        # Find the base indentation level
+        base_indent = None
         for line in lines:
             if line.strip():
                 current_indent = len(line) - len(line.lstrip())
@@ -270,12 +267,20 @@ class IndentationHelper:
 
             # Calculate relative indentation
             current_indent = len(line) - len(line.lstrip())
-            relative_indent = current_indent - base_indent
-            if relative_indent < 0:
-                relative_indent = 0
+            relative_indent = max(0, current_indent - base_indent)
 
-            # Add normalized line
-            normalized.append("    " * (relative_indent // 4) + line.lstrip())
+            # For Python, ensure indentation is in multiples of 4
+            if lang == "python":
+                indent_level = (
+                    relative_indent + 3
+                ) // 4  # Round up to nearest multiple of 4
+                normalized.append(indent_str * indent_level + line.lstrip())
+            else:
+                # For other languages, maintain 2-space indentation
+                indent_level = (
+                    relative_indent + 1
+                ) // 2  # Round up to nearest multiple of 2
+                normalized.append(indent_str * indent_level + line.lstrip())
 
         return "\n".join(normalized)
 
