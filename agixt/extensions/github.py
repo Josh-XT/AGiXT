@@ -125,11 +125,7 @@ class IndentationHelper:
 
     @staticmethod
     def detect_indentation(content: str) -> tuple[str, int]:
-        """Detect whether spaces or tabs are used and how many.
-
-        Returns:
-            tuple: (indentation_string, indentation_count)
-        """
+        """Detect whether spaces or tabs are used and how many."""
         lines = content.splitlines()
         space_pattern = re.compile(r"^ +")
         tab_pattern = re.compile(r"^\t+")
@@ -137,118 +133,106 @@ class IndentationHelper:
         space_counts = {}
         tab_counts = {}
 
-        for line in lines:
-            if line.strip():  # Skip empty lines
-                space_match = space_pattern.match(line)
-                tab_match = tab_pattern.match(line)
+        def count_leading_spaces(line: str) -> int:
+            match = space_pattern.match(line)
+            return len(match.group()) if match else 0
 
-                if space_match:
-                    count = len(space_match.group())
-                    space_counts[count] = space_counts.get(count, 0) + 1
-                elif tab_match:
-                    count = len(tab_match.group())
-                    tab_counts[count] = tab_counts.get(count, 0) + 1
+        # Analyze indentation of non-empty lines
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
 
-        # For Python files, always prefer 4 spaces
-        lang = IndentationHelper.detect_language(content)
-        if lang == "python":
-            return ("    ", 4)
+            space_match = space_pattern.match(line)
+            tab_match = tab_pattern.match(line)
 
-        # For other files, use the most common indentation or language defaults
+            if space_match:
+                count = len(space_match.group())
+                # Look for lines that are clearly nested (after colons, etc.)
+                if i > 0 and lines[i - 1].rstrip().endswith(":"):
+                    prev_spaces = count_leading_spaces(lines[i - 1])
+                    if count > prev_spaces:
+                        indent_size = count - prev_spaces
+                        space_counts[indent_size] = space_counts.get(indent_size, 0) + 1
+            elif tab_match:
+                count = len(tab_match.group())
+                tab_counts[count] = tab_counts.get(count, 0) + 1
+
+        # Determine the most common indentation
         if space_counts:
-            most_common_count = max(space_counts.items(), key=lambda x: x[1])[0]
-            if most_common_count % 2 == 0 and most_common_count <= 4:
-                return (" " * most_common_count, most_common_count)
-            return ("  ", 2)  # Default for JS/TS
+            most_common = max(space_counts.items(), key=lambda x: x[1])[0]
+            # For Python files, ensure we use 4 spaces
+            if IndentationHelper.detect_language(content) == "python":
+                return ("    ", 4)
+            return (" " * most_common, most_common)
         elif tab_counts:
-            most_common_count = max(tab_counts.items(), key=lambda x: x[1])[0]
-            return ("\t" * most_common_count, most_common_count)
+            most_common = max(tab_counts.items(), key=lambda x: x[1])[0]
+            return ("\t" * most_common, most_common)
 
-        # Default based on language
-        return ("  ", 2) if lang in ["javascript", "typescript"] else ("    ", 4)
+        # Default to 4 spaces for Python, 2 for others
+        lang = IndentationHelper.detect_language(content)
+        return ("    ", 4) if lang == "python" else ("  ", 2)
 
     @staticmethod
     def adjust_indentation(
         content: str, indent_str: str, relative_level: int = 0
     ) -> str:
-        """
-        Adjust the indentation of code content while preserving its structure.
-
-        Args:
-            content: The code content to adjust
-            indent_str: The indentation string (spaces or tabs)
-            relative_level: Base indentation level to start from
-
-        Returns:
-            Properly indented code content
-        """
+        """Adjust the indentation of code content while preserving its structure."""
         if not content:
             return content
 
         lines = content.splitlines()
         adjusted_lines = []
-        current_indent = relative_level
-        prev_indent = relative_level
+        indent_stack = [relative_level]
 
-        # Detect language to apply language-specific rules
-        lang = IndentationHelper.detect_language(content)
-        is_python = lang == "python"
+        def get_line_indent(line: str) -> int:
+            return len(line) - len(line.lstrip())
 
+        # Process each line
         for i, line in enumerate(lines):
             stripped_line = line.strip()
             if not stripped_line:
                 adjusted_lines.append("")
                 continue
 
-            # Determine if this line should change the indentation level
+            # Get the current indentation level
+            current_level = indent_stack[-1]
+
+            # Determine if this line changes indentation
             if i > 0:
                 prev_line = lines[i - 1].strip()
-                # Python-specific: lines ending with ':' increase indent
-                if is_python and prev_line.endswith(":"):
-                    current_indent += 1
-                # JS/TS-specific: lines ending with '{' increase indent
-                elif not is_python and (
-                    prev_line.endswith("{") or prev_line.endswith("=>")
-                ):
-                    current_indent += 1
+                # Check for indentation increase
+                if prev_line.endswith(":") or prev_line.endswith("{"):
+                    indent_stack.append(current_level + 1)
+                    current_level = indent_stack[-1]
+                # Check for indentation decrease
+                elif get_line_indent(line) < get_line_indent(lines[i - 1]):
+                    while (
+                        len(indent_stack) > 1
+                        and get_line_indent(line) < len(indent_str) * indent_stack[-1]
+                    ):
+                        indent_stack.pop()
+                    current_level = indent_stack[-1]
 
-            # Determine if this line should decrease indentation
-            if stripped_line in ["else:", "elif:", "except:", "finally:"]:
-                current_indent = max(0, current_indent - 1)
-            elif not is_python and (
-                stripped_line.startswith("}") or stripped_line == "});"
-            ):
-                current_indent = max(0, current_indent - 1)
-
-            # Apply indentation
+            # Special case for first line
             if i == 0 and relative_level == 0:
-                # First line with no relative indentation
                 adjusted_lines.append(stripped_line)
             else:
-                # Apply the calculated indentation
-                adjusted_lines.append(indent_str * current_indent + stripped_line)
-
-            # Store the previous indentation level
-            prev_indent = current_indent
+                # Apply indentation
+                adjusted_lines.append(indent_str * current_level + stripped_line)
 
         return "\n".join(adjusted_lines)
 
     @staticmethod
     def normalize_indentation(content: str) -> str:
-        """
-        Normalize all indentation to use consistent spacing while preserving structure.
-        """
+        """Normalize all indentation while preserving structure."""
         if not content:
             return content
 
-        # Detect the language and get appropriate indentation
-        lang = IndentationHelper.detect_language(content)
-        indent_str = "    " if lang == "python" else "  "
-
         lines = content.splitlines()
-        normalized = []
+        if not lines:
+            return content
 
-        # Find the base indentation level
+        # Find base indentation from non-empty lines
         base_indent = None
         for line in lines:
             if line.strip():
@@ -257,30 +241,28 @@ class IndentationHelper:
                     base_indent = current_indent
 
         if base_indent is None:
-            base_indent = 0
+            return content
 
-        # Normalize each line
+        # Normalize the indentation
+        normalized = []
         for line in lines:
             if not line.strip():
                 normalized.append("")
                 continue
 
-            # Calculate relative indentation
             current_indent = len(line) - len(line.lstrip())
-            relative_indent = max(0, current_indent - base_indent)
+            relative_indent = current_indent - base_indent
+            if relative_indent < 0:
+                relative_indent = 0
 
-            # For Python, ensure indentation is in multiples of 4
-            if lang == "python":
-                indent_level = (
-                    relative_indent + 3
-                ) // 4  # Round up to nearest multiple of 4
-                normalized.append(indent_str * indent_level + line.lstrip())
-            else:
-                # For other languages, maintain 2-space indentation
-                indent_level = (
-                    relative_indent + 1
-                ) // 2  # Round up to nearest multiple of 2
-                normalized.append(indent_str * indent_level + line.lstrip())
+            # Keep the original indentation multiple but normalize the character
+            indent_char = (
+                "    "
+                if IndentationHelper.detect_language(content) == "python"
+                else "  "
+            )
+            indent_level = relative_indent // len(indent_char) if indent_char else 0
+            normalized.append(indent_char * indent_level + line.lstrip())
 
         return "\n".join(normalized)
 
@@ -2155,7 +2137,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         file_content_obj.sha,
                         branch=branch,
                     )
-                    return "\n".join(final_diff)
+                    return "\n".join(diff)
 
                 except Exception as e:
                     error_msg = str(e)
