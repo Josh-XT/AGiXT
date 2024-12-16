@@ -88,6 +88,81 @@ class IndentationHelper:
     }
 
     @staticmethod
+    def detect_language(content: str) -> str:
+        """Attempt to detect the programming language from the content."""
+        # Count language-specific indicators
+        indicators = {
+            "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
+            "typescript": len(
+                re.findall(r"interface\s+\w+|type\s+\w+|:\s*\w+\s*=|<\w+>", content)
+            ),
+            "javascript": len(
+                re.findall(r"const\s+\w+|let\s+\w+|var\s+\w+|function\s+\w+", content)
+            ),
+        }
+
+        # Add weight for file extensions if present in the content
+        if ".py" in content.lower():
+            indicators["python"] += 5
+        if ".ts" in content.lower() or ".tsx" in content.lower():
+            indicators["typescript"] += 5
+        if ".js" in content.lower() or ".jsx" in content.lower():
+            indicators["javascript"] += 5
+
+        # Default to python if no strong indicators
+        if not any(indicators.values()):
+            return "python"
+
+        return max(indicators.items(), key=lambda x: x[1])[0]
+
+    @staticmethod
+    def detect_indentation(content: str) -> tuple[str, int]:
+        """Detect whether spaces or tabs are used and how many.
+
+        Returns:
+            tuple: (indentation_string, indentation_count)
+        """
+        lines = content.splitlines()
+        space_pattern = re.compile(r"^ +")
+        tab_pattern = re.compile(r"^\t+")
+
+        space_counts = {}
+        tab_counts = {}
+
+        for line in lines:
+            if line.strip():  # Skip empty lines
+                space_match = space_pattern.match(line)
+                tab_match = tab_pattern.match(line)
+
+                if space_match:
+                    count = len(space_match.group())
+                    # Only count if it's a multiple of 2 or 4 (common indentation sizes)
+                    if count % 2 == 0 or count % 4 == 0:
+                        space_counts[count] = space_counts.get(count, 0) + 1
+                elif tab_match:
+                    count = len(tab_match.group())
+                    tab_counts[count] = tab_counts.get(count, 0) + 1
+
+        # First check for the most common indent
+        if space_counts and (
+            not tab_counts
+            or max(space_counts.values()) >= max(tab_counts.values(), default=0)
+        ):
+            most_common_count = max(space_counts.items(), key=lambda x: x[1])[0]
+            # Prefer 4 spaces for Python, 2 for others
+            if most_common_count not in {2, 4}:
+                lang = IndentationHelper.detect_language(content)
+                most_common_count = 4 if lang == "python" else 2
+            return (" " * most_common_count, most_common_count)
+        elif tab_counts:
+            most_common_count = max(tab_counts.items(), key=lambda x: x[1])[0]
+            return ("\t" * most_common_count, most_common_count)
+
+        # Default based on detected language
+        lang = IndentationHelper.detect_language(content)
+        return ("    ", 4) if lang == "python" else ("  ", 2)
+
+    @staticmethod
     def adjust_indentation(
         content: str, indent_str: str, relative_level: int = 0
     ) -> str:
@@ -144,19 +219,18 @@ class IndentationHelper:
                 else:
                     break
 
-            # Add the line with proper indentation
-            adjusted_lines.append(indent_str * current_indent + stripped_line)
+            # Special handling for first line to avoid double indentation
+            if i == 0 and not line.startswith((" ", "\t")):
+                adjusted_lines.append(stripped_line)
+            else:
+                # Add the line with proper indentation
+                adjusted_lines.append(indent_str * current_indent + stripped_line)
 
             # Prepare indentation for the next line
             if starts_block:
                 indent_stack.append(current_indent + 1)
 
         return "\n".join(adjusted_lines)
-
-    @staticmethod
-    def detect_indent_of_line(line: str) -> int:
-        """Count the number of indentation levels in a line."""
-        return (len(line) - len(line.lstrip())) // 4  # Assuming 4 spaces per level
 
     @staticmethod
     def normalize_indentation(content: str) -> str:
@@ -196,6 +270,17 @@ class IndentationHelper:
             normalized.append("    " * (relative_indent // 4) + line.lstrip())
 
         return "\n".join(normalized)
+
+    @staticmethod
+    def is_block_starter(line: str, lang: str) -> bool:
+        """Check if the line starts a new block based on language patterns."""
+        patterns = IndentationHelper.LANG_PATTERNS.get(lang, {})
+        line = line.strip()
+
+        for pattern in patterns.values():
+            if re.search(pattern, line):
+                return True
+        return False
 
 
 class GitHubErrorRecovery:
