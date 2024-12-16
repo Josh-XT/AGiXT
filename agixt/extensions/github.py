@@ -471,6 +471,7 @@ class github(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
+        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else ""
 
     async def clone_repo(self, repo_url: str) -> str:
         """
@@ -1310,6 +1311,7 @@ class github(Extensions):
             message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
+        self.activity_id = activity_id
 
         # Prompt the model for a scope of work
         self.ApiClient.new_conversation_message(
@@ -1846,11 +1848,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 str: A unified diff showing the changes made or error message
         """
         try:
-            activity_id = self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Modifying {file_path} in {repo_url}",
-                conversation_name=self.conversation_name,
-            )
             error_recovery = GitHubErrorRecovery(
                 api_client=self.ApiClient,
                 agent_name=self.agent_name,
@@ -1994,7 +1991,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 has_changes = True
 
                         except ValueError as ve:
-                            # This is a specific error from our target validation
                             if retry_count < max_retries - 1:
                                 current_commands = (
                                     await error_recovery.retry_with_context(
@@ -2002,7 +1998,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                         repo_url=repo_url,
                                         file_path=file_path,
                                         original_modifications=modification_commands,
-                                        activity_id=activity_id,
+                                        activity_id=self.activity_id,
                                     )
                                 )
                                 retry_count += 1
@@ -2019,15 +2015,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                         repo_url=repo_url,
                                         file_path=file_path,
                                         original_modifications=modification_commands,
-                                        activity_id=activity_id,
+                                        activity_id=self.activity_id,
                                     )
                                 )
                                 retry_count += 1
                                 break
                             else:
                                 raise
-
-                    # If we've processed all modifications successfully, break the retry loop
                     else:
                         break
 
@@ -2040,7 +2034,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         repo_url=repo_url,
                         file_path=file_path,
                         original_modifications=modification_commands,
-                        activity_id=activity_id,
+                        activity_id=self.activity_id,
                     )
 
             if not has_changes:
@@ -2071,14 +2065,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 file_content_obj.sha,
                 branch=branch,
             )
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[ACTIVITY] Modifying {file_path} in {repo_url}",
-                new_message=f"[ACTIVITY] Successfully modified {file_path} in {repo_url}",
-                conversation_name=self.conversation_name,
-            )
             return "\n".join(diff)
-
         except Exception as e:
             return f"Error: {str(e)}"
 
@@ -2272,7 +2259,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
-
+        self.activity_id = activity_id
         # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
