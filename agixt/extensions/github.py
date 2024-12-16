@@ -1767,37 +1767,28 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         )
 
     def clean_content(self, content: str) -> str:
-        """Clean content by removing any common prefix (like 'agixt-1  |') and normalizing line endings."""
+        """Clean content by normalizing line endings and removing any leading/trailing whitespace.
+
+        Args:
+            content (str): The content to clean
+
+        Returns:
+            str: The cleaned content with normalized line endings
+        """
         if not content:
             return content
 
+        # Split into lines and clean each one
         lines = content.splitlines()
-        if not lines:
-            return content
 
-        # Check if all non-empty lines start with a common prefix
-        first_line = next((line for line in lines if line.strip()), "")
-        if not first_line:
-            return content
-
-        # Look for common prefix like 'agixt-1  |'
-        prefix = ""
-        if "|" in first_line:
-            prefix_match = re.match(r"^[^|]+\|\s*", first_line)
-            if prefix_match:
-                prefix = prefix_match.group(0)
-
-        # Remove prefix if it exists
+        # Clean up each line but preserve empty lines and indentation
         cleaned_lines = []
         for line in lines:
-            if line.strip():
-                if line.startswith(prefix):
-                    cleaned_lines.append(line[len(prefix) :])
-                else:
-                    cleaned_lines.append(line)
-            else:
-                cleaned_lines.append(line)
+            # Only strip trailing whitespace, preserve leading whitespace for indentation
+            line = line.rstrip()
+            cleaned_lines.append(line)
 
+        # Join lines back together with normalized line endings
         return "\n".join(cleaned_lines)
 
     async def modify_file_content(
