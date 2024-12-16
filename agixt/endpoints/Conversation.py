@@ -303,6 +303,10 @@ async def rename_conversation(
         except:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
         rename.new_conversation_name = new_name.replace("_", " ")
+    if "#" in rename.new_conversation_name:
+        rename.new_conversation_name = str(rename.new_conversation_name).replace(
+            "#", ""
+        )
     c.rename_conversation(new_name=rename.new_conversation_name)
     c = Conversations(conversation_name=rename.new_conversation_name, user=user)
     c.log_interaction(
