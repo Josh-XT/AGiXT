@@ -1866,5 +1866,16 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
 
-        response = f"I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."
+        response = f"""### Issue #{issue_number}
+Title: {issue_title}
+Body: 
+{issue_body}
+
+### Pull Request #{pull_request.number}
+Title: {pull_request.title}
+Body: 
+{pr_body}
+
+I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).
+        """
         return response
