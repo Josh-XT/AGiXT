@@ -94,7 +94,7 @@ class IndentationHelper:
         indicators = {
             "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
             "typescript": len(
-                re.findall(r"interface\s+\w+|type\s+\w+|:\s*\w+\s*=|<\w+>)", content)
+                re.findall(r"interface\s+\w+|type\s+\w+|:\s*\w+\s*=|<\w+>", content)
             ),
             "javascript": len(
                 re.findall(r"const\s+\w+|let\s+\w+|var\s+\w+|function\s+\w+", content)
@@ -108,6 +108,10 @@ class IndentationHelper:
             indicators["typescript"] += 5
         if ".js" in content.lower() or ".jsx" in content.lower():
             indicators["javascript"] += 5
+
+        # Default to python if no strong indicators
+        if not any(indicators.values()):
+            return "python"
 
         return max(indicators.items(), key=lambda x: x[1])[0]
 
