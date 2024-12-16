@@ -1998,6 +1998,15 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             modified_lines[start_line:end_line] = (
                                 adjusted_content.splitlines()
                             )
+                            # Remove the first tab from the first line
+                            if modified_lines[start_line].startswith("\t"):
+                                modified_lines[start_line] = modified_lines[
+                                    start_line
+                                ].replace("\t", "", 1)
+                            if modified_lines[start_line].startswith(indent_str):
+                                modified_lines[start_line] = modified_lines[
+                                    start_line
+                                ].replace(indent_str, "", 1)
                             has_changes = True
 
                         elif operation == "insert" and content:
@@ -2007,6 +2016,14 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 )
                             )
                             insert_lines = adjusted_content.splitlines()
+                            if not insert_lines:
+                                insert_lines = [""]
+                            if insert_lines[0].startswith(indent_str):
+                                insert_lines[0] = insert_lines[0].replace(
+                                    indent_str, "", 1
+                                )
+                            if insert_lines[0].startswith("\t"):
+                                insert_lines[0] = insert_lines[0].replace("\t", "", 1)
 
                             # Handle spacing around insertion
                             if (
