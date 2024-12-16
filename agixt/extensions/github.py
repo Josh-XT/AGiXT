@@ -1372,27 +1372,32 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         file_lines: List[str],
         target: str,
         fuzzy_match: bool = True,
-        operation: str = None,  # Add operation parameter
+        operation: str = None,
     ) -> tuple[int, int, int]:
         """
         Find the start and end line indices of the target code block in the file lines.
-        For inserts, returns the position after the target block.
         Returns (start_line, end_line, indent_level).
         """
-        # Normalize target by stripping whitespace from each line but preserving empty lines
+        # Normalize target and get its indentation properties
         target_lines = target.split("\n")
+        indent_str, indent_size = self.indentation_helper.detect_indentation(
+            "\n".join(target_lines)
+        )
+
+        # Get the normalized version of the target for comparison
         target_normalized = [line.strip() for line in target_lines]
         target_first_line = next((line for line in target_normalized if line), "")
 
-        # For insert operations after function/class definitions
+        # Special handling for insertions after function/class definitions
         if operation == "insert" and target_first_line.startswith(("def ", "class ")):
+            # Find the function/class definition and its scope
             for i in range(len(file_lines)):
-                current_line_stripped = file_lines[i].strip()
-
-                # Look for exact match of function/class definition
-                if current_line_stripped == target_first_line:
+                current_line = file_lines[i].strip()
+                if current_line == target_first_line:
                     current_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-                    # Find the end of the function/class by tracking indentation
+                    indent_level = current_indent // indent_size
+
+                    # Find the end of the function/class scope
                     func_end = i
                     while func_end + 1 < len(file_lines):
                         next_line = file_lines[func_end + 1]
@@ -1404,7 +1409,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             break
                         func_end += 1
 
-                    # Find first non-empty line after function
+                    # Find first non-empty line after function for insertion
                     insert_point = func_end + 1
                     while (
                         insert_point < len(file_lines)
@@ -1412,9 +1417,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     ):
                         insert_point += 1
 
-                    return insert_point, insert_point, current_indent
+                    return insert_point, insert_point, indent_level
 
-            # If we didn't find the function, give a helpful error
             raise Exception(
                 f"Could not find target function/class definition for insertion:\n{target}\n"
                 "Make sure the function definition line matches exactly, including parameters and spacing."
@@ -1425,9 +1429,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         for i in range(len(file_lines)):
             if i + len(target_lines) <= len(file_lines):
                 segment = file_lines[i : i + len(target_lines)]
+
+                # Normalize segment for comparison
                 segment_normalized = [line.strip() for line in segment]
 
-                # Calculate line-by-line match scores
+                # Calculate line-by-line match scores with weighted importance
                 line_scores = []
                 for s, t in zip(segment_normalized, target_normalized):
                     if not s and not t:  # Both empty
@@ -1439,12 +1445,16 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         line_scores.append(ratio)
 
                 if line_scores:
-                    # Weight first and last lines more heavily
+                    # Apply weights: first and last lines are more important
                     weighted_scores = [line_scores[0] * 1.5]  # First line
                     if len(line_scores) > 1:
                         weighted_scores.extend(line_scores[1:-1])  # Middle lines
                         weighted_scores.append(line_scores[-1] * 1.5)  # Last line
                     avg_score = sum(weighted_scores) / len(weighted_scores)
+
+                    indent_level = self.indentation_helper.get_line_indent_level(
+                        segment[0] if segment else "", indent_size
+                    )
 
                     best_matches.append(
                         {
@@ -1452,11 +1462,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             "score": avg_score,
                             "segment": segment,
                             "line_scores": line_scores,
-                            "indent": (
-                                len(segment[0]) - len(segment[0].lstrip())
-                                if segment
-                                else 0
-                            ),
+                            "indent": indent_level * indent_size,
                         }
                     )
 
@@ -1490,7 +1496,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         return (
             best_match["start_line"],
             best_match["start_line"] + len(target_lines),
-            best_match["indent"],
+            best_match["indent"] // indent_size,
         )
 
     def clean_content(self, content: str) -> str:
@@ -1598,10 +1604,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # Get current file content
             file_content_obj = repo.get_contents(file_path, ref=branch)
             file_content = file_content_obj.decoded_content.decode("utf-8")
+
+            # Detect the file's indentation style
             indent_str, indent_size = self.indentation_helper.detect_indentation(
                 file_content
             )
 
+            # Split content into lines and store original for diff
             original_lines = file_content.splitlines()
             modified_lines = original_lines.copy()
 
@@ -1611,6 +1620,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             )
 
             has_changes = False
+            preserved_indent_levels = {}  # Store indent levels for fuzzy matching
+
             for mod in modifications:
                 operation_match = re.search(
                     r"<operation>(.*?)</operation>", mod, re.DOTALL
@@ -1634,21 +1645,21 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 )
 
                 try:
+                    # Handle line number targets
                     if target.isdigit():
-                        # Line number target
-                        start_line = int(target)
+                        start_line = int(target) - 1  # Convert to 0-based index
                         end_line = start_line + 1
-                        indent_level = (
+                        # Get indent level from the target line
+                        indent_level = self.indentation_helper.get_line_indent_level(
                             (
-                                len(modified_lines[start_line])
-                                - len(modified_lines[start_line].lstrip())
-                            )
-                            // indent_size
-                            if modified_lines[start_line].strip()
-                            else 0
+                                modified_lines[start_line]
+                                if start_line < len(modified_lines)
+                                else ""
+                            ),
+                            indent_size,
                         )
                     else:
-                        # Find the target code block, passing the operation type
+                        # Find the target code block
                         start_line, end_line, indent_level = (
                             self._find_pattern_boundaries(
                                 modified_lines,
@@ -1657,9 +1668,14 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 operation=operation,
                             )
                         )
+                        # Store the indent level for future reference
+                        preserved_indent_levels[target] = indent_level
+
                     if content:
                         content = self.clean_content(content)
+
                     if operation == "replace" and content:
+                        # Adjust indentation while preserving relative levels
                         adjusted_content = self.indentation_helper.adjust_indentation(
                             content, indent_str, indent_level
                         )
@@ -1667,26 +1683,35 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             adjusted_content.splitlines()
                         )
                         has_changes = True
+
                     elif operation == "insert" and content:
+                        # For insertions, respect the context's indentation
+                        target_indent = preserved_indent_levels.get(
+                            target, indent_level
+                        )
                         adjusted_content = self.indentation_helper.adjust_indentation(
-                            content, indent_str, indent_level
+                            content, indent_str, target_indent
                         )
                         insert_lines = adjusted_content.splitlines()
-                        # Add a blank line before if there isn't one
+
+                        # Handle spacing around the insertion
                         if start_line > 0 and modified_lines[start_line - 1].strip():
                             insert_lines.insert(0, "")
-                        # Add a blank line after if there isn't one
                         if (
                             start_line < len(modified_lines)
                             and modified_lines[start_line].strip()
                         ):
                             insert_lines.append("")
+
+                        # Insert the new lines
                         for i, line in enumerate(insert_lines):
                             modified_lines.insert(start_line + i, line)
                         has_changes = True
+
                     elif operation == "delete":
                         del modified_lines[start_line:end_line]
                         has_changes = True
+
                 except Exception as e:
                     logging.error(f"Error applying modification: {str(e)}")
                     continue
@@ -1694,7 +1719,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             if not has_changes:
                 return "No changes needed"
 
-            # Generate diff for review
+            # Generate unified diff
             diff = list(
                 difflib.unified_diff(
                     original_lines,
@@ -1708,6 +1733,9 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             # Apply changes
             new_content = "\n".join(modified_lines)
+            if new_content[-1] != "\n":
+                new_content += "\n"  # Ensure file ends with newline
+
             commit_message = f"Modified {file_path}"
             repo.update_file(
                 file_path,
