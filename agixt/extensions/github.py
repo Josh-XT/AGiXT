@@ -1311,59 +1311,103 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         Find the start and end line indices of the target code block in the file lines.
         If fuzzy matching is enabled, attempt to find the best-match segment above a certain threshold.
         """
-        target_lines = target.strip("\n").split("\n")
-        # Normalize target lines if fuzzy matching is enabled
-        if fuzzy_match:
-            target_normalized = [ln.strip() for ln in target_lines]
-        else:
-            target_normalized = target_lines
+        # Normalize target by stripping whitespace from each line but preserving empty lines
+        target_lines = target.split("\n")
+        target_normalized = [line.strip() for line in target_lines]
+
+        # Get minimum indent level of non-empty target lines
+        target_indent = float("inf")
+        for line in target_lines:
+            if line.strip():
+                current_indent = len(line) - len(line.lstrip())
+                target_indent = min(target_indent, current_indent)
+        target_indent = 0 if target_indent == float("inf") else target_indent
+
+        # Remove common indentation from target lines
+        target_lines = [
+            line[target_indent:] if len(line) >= target_indent else line
+            for line in target_lines
+        ]
 
         best_start = None
         best_score = -1.0
+        best_indent = 0
 
         # Try each possible start line in the file for a match
-        for i in range(len(file_lines) - len(target_lines) + 1):
-            segment = file_lines[i : i + len(target_lines)]
+        for i in range(len(file_lines)):
+            # For insert operations, we need to match just the target function/class definition
+            # So we'll also try matching just the first non-empty line of the target
+            target_first_line = next((line for line in target_normalized if line), "")
+            current_line_stripped = file_lines[i].strip()
 
-            if fuzzy_match:
-                # Compare line-by-line using difflib ratio
-                segment_normalized = [ln.strip() for ln in segment]
-                line_scores = []
-                for s, t in zip(segment_normalized, target_normalized):
-                    ratio = difflib.SequenceMatcher(None, s, t).ratio()
-                    line_scores.append(ratio)
-                avg_score = sum(line_scores) / len(line_scores)
-            else:
-                # Exact match check
-                if segment == target_lines:
-                    avg_score = 1.0
-                else:
-                    avg_score = 0.0
+            # If we're looking for a function/class definition to insert after
+            if target_first_line.startswith(("def ", "class ")):
+                # Check if current line matches target first line
+                if current_line_stripped == target_first_line:
+                    # For insertions, return the line after the matched line
+                    return (
+                        i + 1,
+                        i + 1,
+                        len(file_lines[i]) - len(file_lines[i].lstrip()),
+                    )
 
-            if avg_score > best_score:
-                best_score = avg_score
-                best_start = i
+            # For other operations, try matching the whole block
+            if i + len(target_lines) <= len(file_lines):
+                segment = file_lines[i : i + len(target_lines)]
 
-        # Set a threshold for what we consider a good match
-        threshold = 1.0 if not fuzzy_match else 0.8
-        if best_start is None or best_score < threshold:
-            raise Exception("Target code block not found in file for modification.")
-
-        start_line = best_start
-        end_line = best_start + len(target_lines)
-
-        # Determine indentation level
-        indent_level = 0
-        for line in file_lines[start_line:end_line]:
-            if line.strip():
-                base_indent, base_count = self.indentation_helper.detect_indentation(
-                    "\n".join(file_lines)
+                # Get indentation level of current segment
+                segment_indent = (
+                    len(segment[0]) - len(segment[0].lstrip()) if segment else 0
                 )
-                indent_spaces = len(line) - len(line.lstrip())
-                indent_level = indent_spaces // base_count if base_count > 0 else 0
-                break
 
-        return start_line, end_line, indent_level
+                # Normalize segment lines
+                segment_normalized = [line.strip() for line in segment]
+
+                if fuzzy_match:
+                    # Compare line-by-line using difflib ratio
+                    line_scores = []
+                    for s, t in zip(segment_normalized, target_normalized):
+                        if not s and not t:  # Both lines empty
+                            line_scores.append(1.0)
+                        elif not s or not t:  # One line empty
+                            line_scores.append(0.0)
+                        else:
+                            ratio = difflib.SequenceMatcher(None, s, t).ratio()
+                            line_scores.append(ratio)
+
+                    # Calculate weighted average score, giving more weight to first and last lines
+                    if line_scores:
+                        weighted_scores = [
+                            line_scores[0] * 1.5
+                        ]  # Weight first line more
+                        if len(line_scores) > 1:
+                            weighted_scores.extend(
+                                line_scores[1:-1]
+                            )  # Middle lines normal weight
+                            weighted_scores.append(
+                                line_scores[-1] * 1.5
+                            )  # Weight last line more
+                        avg_score = sum(weighted_scores) / len(weighted_scores)
+                    else:
+                        avg_score = 0.0
+                else:
+                    # Exact match check
+                    avg_score = 1.0 if segment == target_lines else 0.0
+
+                if avg_score > best_score:
+                    best_score = avg_score
+                    best_start = i
+                    best_indent = segment_indent
+
+        # Set threshold based on operation type and fuzzy matching
+        threshold = 0.7 if fuzzy_match else 1.0
+
+        if best_start is None or best_score < threshold:
+            raise Exception(
+                f"Target code block not found in file for modification (best match score: {best_score:.2f})"
+            )
+
+        return best_start, best_start + len(target_lines), best_indent
 
     async def modify_file_content(
         self,
