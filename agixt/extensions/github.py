@@ -1915,6 +1915,7 @@ If multiple modifications are needed, repeat the <modification> block.
 - Content must match the indentation style of the target location
 - For replace and insert operations, <content> is required
 - For delete operations, <content> is not required
+- Put your <modification> blocks inside of the <answer> block!
 
 Example modifications:
 1. Insert after a function:
