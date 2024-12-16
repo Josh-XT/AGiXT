@@ -75,24 +75,6 @@ class IndentationHelper:
             "block_continue": r"^(elif|else|except|finally)\s*:",
             "comment": r"^\s*#",
         },
-        "javascript": {
-            "function_start": r"^(async\s+)?(function\s+\w+|\w+\s*=\s*(async\s+)?function|\w+\s*:\s*(async\s+)?function)\s*\(",
-            "class_start": r"^class\s+\w+\s*{?",
-            "method_start": r"^\w+\s*\([^)]*\)\s*{?",
-            "arrow_function": r"=>\s*{?$",
-            "block_start": r"{$",
-            "comment": r"^\s*(//|/\*)",
-        },
-        "typescript": {
-            "function_start": r"^(async\s+)?(function\s+\w+|\w+\s*=\s*(async\s+)?function|\w+\s*:\s*(async\s+)?function)\s*<?\w*>?\s*\(",
-            "class_start": r"^class\s+\w+(<[^>]+>)?\s*{?",
-            "method_start": r"^\w+\s*<?\w*>?\s*\([^)]*\)\s*:\s*\w+\s*{?",
-            "interface_start": r"^interface\s+\w+\s*{?",
-            "type_start": r"^type\s+\w+\s*=",
-            "arrow_function": r"=>\s*{?$",
-            "block_start": r"{$",
-            "comment": r"^\s*(//|/\*)",
-        },
     }
 
     @staticmethod
@@ -101,21 +83,11 @@ class IndentationHelper:
         # Count language-specific indicators
         indicators = {
             "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
-            "typescript": len(
-                re.findall(r"interface\s+\w+|type\s+\w+|:\s*\w+\s*=|<\w+>", content)
-            ),
-            "javascript": len(
-                re.findall(r"const\s+\w+|let\s+\w+|var\s+\w+|function\s+\w+", content)
-            ),
         }
 
         # Add weight for file extensions if present in the content
         if ".py" in content.lower():
             indicators["python"] += 5
-        if ".ts" in content.lower() or ".tsx" in content.lower():
-            indicators["typescript"] += 5
-        if ".js" in content.lower() or ".jsx" in content.lower():
-            indicators["javascript"] += 5
 
         # Default to python if no strong indicators
         if not any(indicators.values()):
@@ -147,7 +119,6 @@ class IndentationHelper:
 
             if space_match:
                 count = len(space_match.group())
-                # Look for lines that are clearly nested (after colons, etc.)
                 if i > 0 and lines[i - 1].rstrip().endswith(":"):
                     prev_spaces = count_leading_spaces(lines[i - 1])
                     if count > prev_spaces:
@@ -182,10 +153,17 @@ class IndentationHelper:
 
         lines = content.splitlines()
         adjusted_lines = []
-        indent_stack = [relative_level]
+        current_indent = relative_level
 
-        def get_line_indent(line: str) -> int:
-            return len(line) - len(line.lstrip())
+        # Get the base indentation level from the first non-empty line
+        base_indent = None
+        for line in lines:
+            if line.strip():
+                base_indent = len(line) - len(line.lstrip())
+                break
+
+        if base_indent is None:
+            base_indent = 0
 
         # Process each line
         for i, line in enumerate(lines):
@@ -194,31 +172,37 @@ class IndentationHelper:
                 adjusted_lines.append("")
                 continue
 
-            # Get the current indentation level
-            current_level = indent_stack[-1]
+            # Calculate the current line's relative indentation
+            current_line_indent = len(line) - len(line.lstrip())
+            relative_indent = (
+                current_line_indent - base_indent if base_indent >= 0 else 0
+            )
 
-            # Determine if this line changes indentation
+            # Adjust indentation level based on context
             if i > 0:
                 prev_line = lines[i - 1].strip()
-                # Check for indentation increase
-                if prev_line.endswith(":") or prev_line.endswith("{"):
-                    indent_stack.append(current_level + 1)
-                    current_level = indent_stack[-1]
-                # Check for indentation decrease
-                elif get_line_indent(line) < get_line_indent(lines[i - 1]):
+                # Increase indent after lines ending with :
+                if prev_line.endswith(":"):
+                    current_indent += 1
+                # Detect dedent based on current line's actual indentation compared to previous
+                elif current_line_indent < len(lines[i - 1]) - len(
+                    lines[i - 1].lstrip()
+                ):
+                    # Find the matching indentation level
                     while (
-                        len(indent_stack) > 1
-                        and get_line_indent(line) < len(indent_str) * indent_stack[-1]
+                        current_indent > relative_level
+                        and current_line_indent
+                        < base_indent + (current_indent * len(indent_str))
                     ):
-                        indent_stack.pop()
-                    current_level = indent_stack[-1]
+                        current_indent -= 1
 
-            # Special case for first line
-            if i == 0 and relative_level == 0:
-                adjusted_lines.append(stripped_line)
-            else:
-                # Apply indentation
-                adjusted_lines.append(indent_str * current_level + stripped_line)
+            # Special handling for else/elif/except/finally
+            if stripped_line.startswith(("else:", "elif ", "except", "finally:")):
+                current_indent = max(relative_level, current_indent - 1)
+
+            # Apply the calculated indentation
+            final_indent = max(0, current_indent) * len(indent_str)
+            adjusted_lines.append(" " * final_indent + stripped_line)
 
         return "\n".join(adjusted_lines)
 
@@ -243,26 +227,34 @@ class IndentationHelper:
         if base_indent is None:
             return content
 
+        # Use detect_indentation to get the proper indent string
+        indent_str, _ = IndentationHelper.detect_indentation(content)
+
         # Normalize the indentation
         normalized = []
-        for line in lines:
+        current_indent = 0
+
+        for i, line in enumerate(lines):
             if not line.strip():
                 normalized.append("")
                 continue
 
-            current_indent = len(line) - len(line.lstrip())
-            relative_indent = current_indent - base_indent
-            if relative_indent < 0:
-                relative_indent = 0
+            # Calculate relative indentation
+            current_line_indent = len(line) - len(line.lstrip())
+            if i > 0 and lines[i - 1].rstrip().endswith(":"):
+                current_indent += 1
+            elif current_line_indent < len(lines[i - 1]) - len(lines[i - 1].lstrip()):
+                while current_indent > 0 and current_line_indent < base_indent + (
+                    current_indent * len(indent_str)
+                ):
+                    current_indent -= 1
 
-            # Keep the original indentation multiple but normalize the character
-            indent_char = (
-                "    "
-                if IndentationHelper.detect_language(content) == "python"
-                else "  "
-            )
-            indent_level = relative_indent // len(indent_char) if indent_char else 0
-            normalized.append(indent_char * indent_level + line.lstrip())
+            # Handle else/elif/except/finally
+            if line.strip().startswith(("else:", "elif ", "except", "finally:")):
+                current_indent = max(0, current_indent - 1)
+
+            # Apply normalized indentation
+            normalized.append(indent_str * current_indent + line.lstrip())
 
         return "\n".join(normalized)
 
