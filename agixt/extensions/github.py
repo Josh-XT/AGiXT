@@ -1045,6 +1045,9 @@ The developer may have little to no guidance outside of this scope.""",
             browse_links=False,
             websearch=False,
             analyze_user_input=False,
+            log_user_input=False,
+            log_output=False,
+            conversation_name=self.conversation_name,
         )
         issues = issues.model_dump()
         issue_count = len(issues["issues"])
@@ -1142,7 +1145,7 @@ When referencing files in the issue, please use the following format:
             agent_name=self.agent_name,
             message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
             new_message=f"[ACTIVITY] Improved [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation,
+            conversation_name=self.conversation_name,
         )
         response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
         if auto_merge:
