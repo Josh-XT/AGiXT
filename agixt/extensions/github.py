@@ -1005,7 +1005,12 @@ class github(Extensions):
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
         activity_id = self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[ACTIVITY] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation_name,
+        )
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
         scope = self.ApiClient.prompt_agent(
@@ -1135,8 +1140,8 @@ When referencing files in the issue, please use the following format:
             )
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
-            message=f"[ACTIVITY] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
-            new_message=f"[ACTIVITY] Completed necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
+            new_message=f"[ACTIVITY] Improved [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation,
         )
         response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
