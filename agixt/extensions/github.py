@@ -88,180 +88,112 @@ class IndentationHelper:
     }
 
     @staticmethod
-    def detect_language(content: str) -> str:
-        """Attempt to detect the programming language from the content."""
-        # Count language-specific indicators
-        indicators = {
-            "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
-            "typescript": len(
-                re.findall(r"interface\s+\w+|type\s+\w+|:\s*\w+\s*=|<\w+>", content)
-            ),
-            "javascript": len(
-                re.findall(r"const\s+\w+|let\s+\w+|var\s+\w+|function\s+\w+", content)
-            ),
-        }
-
-        # Add weight for file extensions if present in the content
-        if ".py" in content.lower():
-            indicators["python"] += 5
-        if ".ts" in content.lower() or ".tsx" in content.lower():
-            indicators["typescript"] += 5
-        if ".js" in content.lower() or ".jsx" in content.lower():
-            indicators["javascript"] += 5
-
-        # Default to python if no strong indicators
-        if not any(indicators.values()):
-            return "python"
-
-        return max(indicators.items(), key=lambda x: x[1])[0]
-
-    @staticmethod
-    def detect_indentation(content: str) -> tuple[str, int]:
-        """Detect whether spaces or tabs are used and how many"""
-        lines = content.splitlines()
-        space_pattern = re.compile(r"^ +")
-        tab_pattern = re.compile(r"^\t+")
-
-        space_counts = {}
-        tab_counts = {}
-
-        for line in lines:
-            if line.strip():  # Skip empty lines
-                space_match = space_pattern.match(line)
-                tab_match = tab_pattern.match(line)
-
-                if space_match:
-                    count = len(space_match.group())
-                    space_counts[count] = space_counts.get(count, 0) + 1
-                elif tab_match:
-                    count = len(tab_match.group())
-                    tab_counts[count] = tab_counts.get(count, 0) + 1
-
-        # Determine most common indentation
-        if space_counts and (
-            not tab_counts
-            or max(space_counts.values()) >= max(tab_counts.values(), default=0)
-        ):
-            most_common_count = max(space_counts.items(), key=lambda x: x[1])[0]
-            return (" " * most_common_count, most_common_count)
-        elif tab_counts:
-            most_common_count = max(tab_counts.items(), key=lambda x: x[1])[0]
-            return ("\t" * most_common_count, most_common_count)
-
-        # Default indentation based on language
-        lang = IndentationHelper.detect_language(content)
-        if lang == "python":
-            return ("    ", 4)  # PEP 8
-        else:
-            return ("  ", 2)  # Common for JS/TS
-
-    @staticmethod
-    def is_block_starter(line: str, lang: str) -> bool:
-        """Check if the line starts a new block based on language patterns."""
-        patterns = IndentationHelper.LANG_PATTERNS.get(lang, {})
-        line = line.strip()
-
-        for pattern in patterns.values():
-            if re.search(pattern, line):
-                return True
-        return False
-
-    @staticmethod
     def adjust_indentation(
         content: str, indent_str: str, relative_level: int = 0
     ) -> str:
+        """
+        Adjust the indentation of code content while preserving its structure.
+
+        Args:
+            content: The code content to adjust
+            indent_str: The indentation string (spaces or tabs)
+            relative_level: Base indentation level to start from
+
+        Returns:
+            Properly indented code content
+        """
         if not content:
             return content
 
         lines = content.splitlines()
-        adjusted = []
-        block_depth = 0
+        adjusted_lines = []
+        indent_stack = [relative_level]
 
+        # First pass: Calculate proper indentation levels
         for i, line in enumerate(lines):
             stripped_line = line.strip()
             if not stripped_line:
-                adjusted.append("")
+                adjusted_lines.append("")
                 continue
 
-            if stripped_line.startswith(("def ", "class ", "async def ")):
-                adjusted.append(indent_str * relative_level + stripped_line)
-                block_depth = relative_level + 1
-                continue
+            # Get the current indent level from the stack
+            current_indent = indent_stack[-1]
 
-            if stripped_line.endswith(":"):
-                adjusted.append(
-                    indent_str * (relative_level + block_depth) + stripped_line
+            # Check if this line starts a new block
+            starts_block = (
+                stripped_line.endswith(":")  # Python block
+                or stripped_line.endswith("{")  # JS/TS block
+                or re.match(
+                    r"^(if|elif|else|try|except|finally|with|class|def|async\s+def)\b",
+                    stripped_line,
                 )
-                block_depth += 1
-                continue
+            )
 
-            adjusted.append(indent_str * (relative_level + block_depth) + stripped_line)
+            # Check if this line ends a block
+            ends_block = (
+                i > 0
+                and lines[i - 1].strip()
+                and len(line) - len(line.lstrip())
+                < len(lines[i - 1]) - len(lines[i - 1].lstrip())
+            )
 
-            if i < len(lines) - 1:
-                next_line = lines[i + 1].strip()
-                if (
-                    next_line
-                    and (len(lines[i + 1]) - len(lines[i + 1].lstrip()))
-                    <= len(indent_str) * relative_level
-                ):
-                    block_depth = 0
+            # Handle block endings
+            while ends_block and len(indent_stack) > 1:
+                if len(line) - len(line.lstrip()) <= len(indent_str) * indent_stack[-2]:
+                    indent_stack.pop()
+                else:
+                    break
 
-        return "\n".join(adjusted)
+            # Add the line with proper indentation
+            adjusted_lines.append(indent_str * current_indent + stripped_line)
+
+            # Prepare indentation for the next line
+            if starts_block:
+                indent_stack.append(current_indent + 1)
+
+        return "\n".join(adjusted_lines)
 
     @staticmethod
-    def get_line_indent_level(line: str, indent_size: int) -> int:
-        """Get the indentation level of a line based on the indent size"""
-        if not line.strip():
-            return 0
-        leading_spaces = len(line) - len(line.lstrip())
-        return leading_spaces // indent_size
+    def detect_indent_of_line(line: str) -> int:
+        """Count the number of indentation levels in a line."""
+        return (len(line) - len(line.lstrip())) // 4  # Assuming 4 spaces per level
 
     @staticmethod
     def normalize_indentation(content: str) -> str:
-        """Convert all indentation to spaces for comparison"""
-        lines = content.splitlines()
-        normalized = []
-        for line in lines:
-            # Replace tabs with appropriate spaces based on language
-            lang = IndentationHelper.detect_language(content)
-            if lang == "python":
-                normalized_line = line.expandtabs(4)
-            else:
-                normalized_line = line.expandtabs(2)
-            normalized.append(normalized_line)
-        return "\n".join(normalized)
-
-    @staticmethod
-    def strip_extra_indentation(content: str) -> str:
-        """Strip any common leading indentation from all lines while preserving relative indentation."""
+        """
+        Normalize all indentation to use consistent spacing while preserving structure.
+        """
         if not content:
             return content
 
         lines = content.splitlines()
-        min_indent = float("inf")
-
-        # Find minimum indentation in non-empty lines
-        for line in lines:
-            if line.strip():
-                current_indent = len(line) - len(line.lstrip())
-                min_indent = min(min_indent, current_indent)
-
-        if min_indent == float("inf"):
-            return content
-
-        # Remove the common indentation
         normalized = []
+        base_indent = None
+
+        # Find the base indentation level from non-empty lines
         for line in lines:
             if line.strip():
                 current_indent = len(line) - len(line.lstrip())
-                extra_indent = (
-                    line[: current_indent - min_indent]
-                    if current_indent > min_indent
-                    else ""
-                )
-                normalized.append(extra_indent + line[current_indent:])
-            else:
-                normalized.append(line)
+                if base_indent is None or current_indent < base_indent:
+                    base_indent = current_indent
+
+        if base_indent is None:
+            base_indent = 0
+
+        # Normalize each line
+        for line in lines:
+            if not line.strip():
+                normalized.append("")
+                continue
+
+            # Calculate relative indentation
+            current_indent = len(line) - len(line.lstrip())
+            relative_indent = current_indent - base_indent
+            if relative_indent < 0:
+                relative_indent = 0
+
+            # Add normalized line
+            normalized.append("    " * (relative_indent // 4) + line.lstrip())
 
         return "\n".join(normalized)
 
