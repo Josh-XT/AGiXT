@@ -1793,7 +1793,12 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 "conversation_name": self.conversation_name,
             },
         )
-
+        self.ApiClient.update_conversation_message(
+            agent_name=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number} `{issue_title}`.",
+            new_message=f"[SUBACTIVITY][{activity_id}] Analyzed code to fix #{issue_number} `{issue_title}`.",
+            conversation_name=self.conversation_name,
+        )
         # Create or verify issue branch
         repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
         base_branch = repo.default_branch
@@ -1829,7 +1834,12 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             modification_commands=modifications_xml,
             branch=issue_branch,
         )
-
+        self.ApiClient.update_conversation_message(
+            agent_name=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
+            new_message=f"[SUBACTIVITY][{activity_id}] Applied modifications for #{issue_number}.",
+            conversation_name=self.conversation_name,
+        )
         # Create a pull request
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
@@ -1837,20 +1847,24 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
         pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-        pr_response = await self.create_repo_pull_request(
-            repo_url=repo_url,
+        pull_request = repo.create_pull(
             title=f"Fix #{issue_number}: {issue_title}",
             body=pr_body,
             head=issue_branch,
             base=base_branch,
         )
-
+        self.ApiClient.update_conversation_message(
+            agent_name=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Creating pull request to resolve #{issue_number}.",
+            new_message=f"[SUBACTIVITY][{activity_id}] Created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
+            conversation_name=self.conversation_name,
+        )
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
             message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-            new_message=f"[ACTIVITY] Fixed issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+            new_message=f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}).",
             conversation_name=self.conversation_name,
         )
 
-        response = f"I have prepared a pull request to fix issue #{issue_number}. "
+        response = f"I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."
         return response
