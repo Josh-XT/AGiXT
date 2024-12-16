@@ -102,33 +102,56 @@ class IndentationHelper:
         return "\n".join(normalized)
 
     @staticmethod
+    def strip_extra_indentation(content: str) -> str:
+        """Strip any common leading indentation from all lines."""
+        if not content:
+            return content
+
+        # Split into lines, preserving empty lines
+        lines = content.splitlines()
+
+        # Find minimum indentation across non-empty lines
+        min_indent = float("inf")
+        for line in lines:
+            # Skip empty lines when calculating minimum indentation
+            if line.strip():
+                current_indent = len(line) - len(line.lstrip())
+                min_indent = min(min_indent, current_indent)
+
+        # If no valid indent found, return original content
+        if min_indent == float("inf"):
+            return content
+
+        # Remove the common indentation from all non-empty lines
+        normalized = []
+        for line in lines:
+            if line.strip():
+                # Only remove indentation from non-empty lines
+                normalized.append(line[min_indent:])
+            else:
+                # Preserve empty lines
+                normalized.append(line)
+
+        return "\n".join(normalized)
+
+    @staticmethod
     def adjust_indentation(
         content: str, base_indent: str, relative_level: int = 0
     ) -> str:
         """Adjust content indentation to match target style"""
+        # First strip any existing indentation
+        content = IndentationHelper.strip_extra_indentation(content)
+
         lines = content.splitlines()
         adjusted = []
 
-        # Find minimum indentation in the content
-        min_indent = float("inf")
         for line in lines:
-            if line.strip():  # Skip empty lines
-                indent = len(line) - len(line.lstrip())
-                min_indent = min(min_indent, indent)
-        min_indent = 0 if min_indent == float("inf") else min_indent
-
-        # Adjust each line's indentation
-        for line in lines:
-            if not line.strip():  # Preserve empty lines
+            if not line.strip():  # Preserve empty lines without indentation
                 adjusted.append("")
                 continue
 
-            current_indent = len(line) - len(line.lstrip())
-            relative_indent = current_indent - min_indent
-            # Calculate new indentation using base_indent times the relative level
-            # We assume a standard indent size of 4 here for steps
-            indent_steps = relative_indent // 4 if relative_indent > 0 else 0
-            new_indent = base_indent * (relative_level + indent_steps)
+            # Calculate new indentation
+            new_indent = base_indent * relative_level
             adjusted.append(new_indent + line.lstrip())
 
         return "\n".join(adjusted)
@@ -1428,6 +1451,40 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             best_match["indent"],
         )
 
+    def clean_content(self, content: str) -> str:
+        """Clean content by removing any common prefix (like 'agixt-1  |') and normalizing line endings."""
+        if not content:
+            return content
+
+        lines = content.splitlines()
+        if not lines:
+            return content
+
+        # Check if all non-empty lines start with a common prefix
+        first_line = next((line for line in lines if line.strip()), "")
+        if not first_line:
+            return content
+
+        # Look for common prefix like 'agixt-1  |'
+        prefix = ""
+        if "|" in first_line:
+            prefix_match = re.match(r"^[^|]+\|\s*", first_line)
+            if prefix_match:
+                prefix = prefix_match.group(0)
+
+        # Remove prefix if it exists
+        cleaned_lines = []
+        for line in lines:
+            if line.strip():
+                if line.startswith(prefix):
+                    cleaned_lines.append(line[len(prefix) :])
+                else:
+                    cleaned_lines.append(line)
+            else:
+                cleaned_lines.append(line)
+
+        return "\n".join(cleaned_lines)
+
     async def modify_file_content(
         self,
         repo_url: str,
@@ -1558,7 +1615,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 operation=operation,
                             )
                         )
-
+                    if content:
+                        content = self.clean_content(content)
                     if operation == "replace" and content:
                         adjusted_content = self.indentation_helper.adjust_indentation(
                             content, indent_str, indent_level
@@ -1572,9 +1630,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             content, indent_str, indent_level
                         )
                         insert_lines = adjusted_content.splitlines()
-                        # Add a blank line before and after the inserted content
+                        # Add a blank line before if there isn't one
                         if start_line > 0 and modified_lines[start_line - 1].strip():
                             insert_lines.insert(0, "")
+                        # Add a blank line after if there isn't one
                         if (
                             start_line < len(modified_lines)
                             and modified_lines[start_line].strip()
