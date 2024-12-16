@@ -60,7 +60,7 @@ class IndentationHelper:
     # Language-specific function/class definition patterns
     LANG_PATTERNS = {
         "python": {
-            "function_start": r"^(async\s+)?def\s+\w+\s*\(",
+            "function_start": r"^(async\s+)?def\s+\w+\s*\([^)]*\)\s*:",
             "class_start": r"^class\s+\w+[(\s:]",
             "block_start": r":\s*$",
             "block_continue": r"^(elif|else|except|finally)\s*:",
