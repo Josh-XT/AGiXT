@@ -92,18 +92,27 @@ class IndentationHelper:
         return ("    ", 4)  # Default to 4 spaces if no pattern is found
 
     @staticmethod
+    def get_line_indent_level(line: str, indent_size: int) -> int:
+        """Get the indentation level of a line based on the indent size"""
+        if not line.strip():
+            return 0
+        leading_spaces = len(line) - len(line.lstrip())
+        return leading_spaces // indent_size
+
+    @staticmethod
     def normalize_indentation(content: str) -> str:
         """Convert all indentation to spaces for comparison"""
         lines = content.splitlines()
         normalized = []
         for line in lines:
-            normalized_line = line.replace("\t", "    ")
+            # Replace tabs with 4 spaces for consistency
+            normalized_line = line.expandtabs(4)
             normalized.append(normalized_line)
         return "\n".join(normalized)
 
     @staticmethod
     def strip_extra_indentation(content: str) -> str:
-        """Strip any common leading indentation from all lines."""
+        """Strip any common leading indentation from all lines while preserving relative indentation."""
         if not content:
             return content
 
@@ -113,8 +122,7 @@ class IndentationHelper:
         # Find minimum indentation across non-empty lines
         min_indent = float("inf")
         for line in lines:
-            # Skip empty lines when calculating minimum indentation
-            if line.strip():
+            if line.strip():  # Only consider non-empty lines
                 current_indent = len(line) - len(line.lstrip())
                 min_indent = min(min_indent, current_indent)
 
@@ -126,8 +134,14 @@ class IndentationHelper:
         normalized = []
         for line in lines:
             if line.strip():
-                # Only remove indentation from non-empty lines
-                normalized.append(line[min_indent:])
+                # Remove only the common indentation amount
+                current_indent = len(line) - len(line.lstrip())
+                extra_indent = (
+                    line[: current_indent - min_indent]
+                    if current_indent > min_indent
+                    else ""
+                )
+                normalized.append(extra_indent + line[current_indent:])
             else:
                 # Preserve empty lines
                 normalized.append(line)
@@ -138,21 +152,49 @@ class IndentationHelper:
     def adjust_indentation(
         content: str, base_indent: str, relative_level: int = 0
     ) -> str:
-        """Adjust content indentation to match target style"""
-        # First strip any existing indentation
+        """
+        Adjust content indentation to match target style while preserving relative indentation.
+
+        Args:
+            content: The content to adjust
+            base_indent: The indentation string to use (e.g., "    " or "\t")
+            relative_level: The number of base indentation levels to add
+        """
+        # First normalize the content's indentation (convert tabs to spaces, etc.)
+        content = IndentationHelper.normalize_indentation(content)
+
+        # Strip any common indentation while preserving relative levels
         content = IndentationHelper.strip_extra_indentation(content)
 
         lines = content.splitlines()
         adjusted = []
 
+        if not lines:
+            return content
+
+        # Determine the base indentation level of the first non-empty line
+        first_indent = 0
+        for line in lines:
+            if line.strip():
+                first_indent = len(line) - len(line.lstrip())
+                break
+
+        # Process each line
         for line in lines:
             if not line.strip():  # Preserve empty lines without indentation
                 adjusted.append("")
                 continue
 
+            # Calculate the relative indentation from the first line
+            current_indent = len(line) - len(line.lstrip())
+            relative_indent = max(0, current_indent - first_indent)
+
             # Calculate new indentation
-            new_indent = base_indent * relative_level
-            adjusted.append(new_indent + line.lstrip())
+            new_base_indent = base_indent * relative_level
+            new_relative_indent = base_indent * (relative_indent // len(base_indent))
+
+            # Combine base and relative indentation with the line content
+            adjusted.append(new_base_indent + new_relative_indent + line.lstrip())
 
         return "\n".join(adjusted)
 
