@@ -687,7 +687,9 @@ class Conversations:
         session.close()
         return conversation_id
 
-    def rename_conversation(self, new_name):
+    def rename_conversation(self, new_name: str):
+        if "#" in new_name:
+            new_name = str(new_name).replace("#", "")
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
