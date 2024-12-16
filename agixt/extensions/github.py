@@ -1645,3 +1645,183 @@ When referencing files in the issue, please use the following format:
         </modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
+
+    async def fix_github_issue(
+        self,
+        repo_org: str,
+        repo_name: str,
+        issue_number: int,
+        additional_context: str = "",
+        auto_merge: bool = False,
+    ) -> str:
+        """
+        Fix a given GitHub issue by identifying necessary code changes, creating a branch for that issue,
+        committing the changes, and creating a pull request.
+
+        Steps:
+        1. Get the repository code contents.
+        2. Get the issue details.
+        3. Prompt the agent to produce a set of code changes that would fix the issue.
+        4. Parse the response for file paths and code snippets.
+        5. Commit and push changes to the issue branch.
+        6. Create a pull request resolving the issue.
+        7. Optionally merge the pull request if auto_merge is True.
+
+        Args:
+            repo_org (str): The GitHub organization or username.
+            repo_name (str): The GitHub repository name.
+            issue_number (int): The issue number to fix.
+            additional_context (str): Additional context to provide to the agent prompt.
+            auto_merge (bool): Whether to automatically merge the created PR.
+
+        Returns:
+            str: A message indicating the result of the fix process.
+        """
+        repo_url = f"https://github.com/{repo_org}/{repo_name}"
+        repo_content = await self.get_repo_code_contents(repo_url=repo_url)
+        issue_details = await self.get_repo_issue(
+            repo_url=repo_url, issue_number=issue_number
+        )
+
+        # Extract the issue title and body
+        # The issue details response is structured as:
+        # Issue Details for GitHub Repository at {repo_url}
+        # {issue_number}: {issue_title}
+        # {issue_body}
+        # We'll parse this out.
+        issue_lines = issue_details.split("\n")
+        # Find line with issue number and title
+        title_line = next((l for l in issue_lines if f"{issue_number}:" in l), None)
+        issue_title = ""
+        issue_body = ""
+        if title_line:
+            parts = title_line.split(": ", 1)
+            if len(parts) > 1:
+                issue_title = parts[1].strip()
+        # The rest of the lines after the title line represent the body
+        body_index = (
+            issue_lines.index(title_line) + 1 if title_line in issue_lines else None
+        )
+        if body_index is not None:
+            issue_body = "\n".join(issue_lines[body_index:]).strip()
+
+        activity_id = self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation_name,
+        )
+
+        # Prompt the agent to determine how to fix this issue
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number} `{issue_title}`.",
+            conversation_name=self.conversation_name,
+        )
+        instructions = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": f"""### Issue #{issue_number}: {issue_title}
+{issue_body}
+
+## User
+Please provide a detailed set of instructions and code changes to fix the above GitHub issue based on the provided repository code. The instructions should detail exactly which files need to be modified and show the full updated content of each modified file. Do not use placeholders in code as they will break automation.
+
+Format:
+## File: `path/to/file.py`
+```python
+# Updated code here
+If multiple files need modification, repeat the pattern. Keep output strictly in the provided format.""",
+                "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": False,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+            },
+        )
+
+        # Extract file changes from instructions
+        file_changes = re.findall(
+            r"## File: `(.+?)`\n```(.*?)\n(.+?)\n```", instructions, re.DOTALL
+        )
+
+        # Create a branch for the issue if it doesn't exist
+        # The branch should be named after the issue number. The create_repo_issue method
+        # already does this when creating an issue, but if it wasn't done, we can do it now.
+        # We will assume the branch exists if the issue was created via this system.
+        # Otherwise, we might need to create the branch manually:
+        repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
+        base_branch = repo.default_branch
+        issue_branch = str(issue_number)
+        try:
+            repo.get_branch(issue_branch)
+        except Exception:
+            # Branch doesn't exist, so create it
+            source_branch = repo.get_branch(base_branch)
+            repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
+
+        # Now commit the changes to the issue branch
+        x = 0
+        changes_count = len(file_changes)
+        for file_path, file_type, code_snippet in file_changes:
+            x += 1
+            if file_path.startswith("/"):
+                file_path = file_path[1:]
+            if file_path.startswith("./"):
+                file_path = file_path[2:]
+            # Upload file to the issue branch
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{activity_id}] ({x}/{changes_count}) Updating `{file_path}` for #{issue_number}.",
+                conversation_name=self.conversation_name,
+            )
+            await self.upload_file_to_repo(
+                repo_url=repo_url,
+                file_path=file_path,
+                file_content=code_snippet,
+                branch=issue_branch,
+                commit_message=f"Fix #{issue_number}",
+            )
+
+        # Create a pull request that resolves the issue
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Creating pull request to resolve #{issue_number}.",
+            conversation_name=self.conversation_name,
+        )
+        pr_body = f"Resolves #{issue_number}\n\n{instructions}"
+        if auto_merge:
+            pr_response = await self.create_and_merge_pull_request(
+                repo_url=repo_url,
+                title=f"Fix #{issue_number}: {issue_title}",
+                body=pr_body,
+                head=issue_branch,
+                base=base_branch,
+                merge_method="squash",
+            )
+        else:
+            pr_response = await self.create_repo_pull_request(
+                repo_url=repo_url,
+                title=f"Fix #{issue_number}: {issue_title}",
+                body=pr_body,
+                head=issue_branch,
+                base=base_branch,
+            )
+
+        self.ApiClient.update_conversation_message(
+            agent_name=self.agent_name,
+            message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+            new_message=f"[ACTIVITY] Fixed issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+            conversation_name=self.conversation_name,
+        )
+
+        response = f"I have prepared a pull request to fix issue #{issue_number}. "
+        if auto_merge:
+            response += "The pull request has been automatically merged."
+        else:
+            response += "Please review and merge the pull request."
+        return response
