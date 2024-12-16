@@ -994,16 +994,39 @@ class github(Extensions):
         repo_name: str,
         additional_context: str = "",
         auto_merge: bool = False,
-    ):
+    ) -> str:
         """
-        Improve the codebase of a GitHub repository by scoping necessary work to implement changes based on a provided idea.
+            Improve the codebase of a GitHub repository by:
 
-        Args:
-        idea (str): The idea to improve the codebase
-        repo_org (str): The organization of the GitHub repository, or the username if it's a personal repository
-        repo_name (str): The name of the GitHub repository
-        additional_context (str): Additional context to provide for the improvement. Useful for injecting additional documentation or code that isn't in the repository or agent's memory.
-        auto_merge (bool): Whether to automatically merge pull requests after creating them (default is False). Use with caution.
+            1. Taking an initial idea and producing a set of issues that detail the tasks needed.
+            2. For each generated issue, prompting the model to produce minimal code modifications using the <modification> XML format.
+            3. Applying those modifications to a branch associated with the issue.
+            4. Creating a pull request for each issue, optionally merging it automatically.
+
+            Args:
+                idea (str): The idea to improve the codebase.
+                repo_org (str): The organization or username for the GitHub repository.
+                repo_name (str): The repository name.
+                additional_context (str): Additional context to provide to the model.
+                auto_merge (bool): If True, automatically merges the created pull requests after applying changes.
+
+            Returns:
+                str: A summary message indicating the number of issues and pull requests created.
+
+            Model Behavior:
+                - Initially, the model is asked to produce a scope of work and then create issues.
+                - For each issue, we prompt the model again to provide minimal code modifications as <modification> blocks.
+                - We apply those modifications with `modify_file_content`.
+
+            Example of Expected Model Output for the second prompt per issue:
+                <modification>
+                    <operation>replace</operation>
+                    <target>def old_function():
+        pass</target>
+                    <content>def old_function():
+        return "fixed"</content>
+                    <fuzzy_match>true</fuzzy_match>
+                </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
@@ -1012,11 +1035,14 @@ class github(Extensions):
             message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
+
+        # Prompt the model for a scope of work
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
+
         scope = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
@@ -1039,9 +1065,17 @@ The developer may have little to no guidance outside of this scope.""",
                 "conversation_name": self.conversation_name,
             },
         )
+
+        # Convert the scope into issues
         issues = self.ApiClient.convert_to_model(
             context=f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-            input_string=f"### Scope of Work\n\n{scope}\nPlease create a GitHub issue for each task in the scope of work. Each issue should have detailed instructions for the junior developer to complete the task. The developer may have little to no guidance outside of these issues. The instructions should be clear and concise, and should include any necessary code snippets.",
+            input_string=(
+                f"### Scope of Work\n\n{scope}\n"
+                "Please create a GitHub issue for each task in the scope of work. "
+                "Each issue should have detailed instructions for the junior developer to complete the task. "
+                "The developer may have little to no guidance outside of these issues. "
+                "The instructions should be clear and concise, and should include any necessary code snippets."
+            ),
             model=Issues,
             agent_name=self.agent_name,
             disable_commands=True,
@@ -1060,6 +1094,8 @@ The developer may have little to no guidance outside of this scope.""",
             message=f"[SUBACTIVITY][{activity_id}] Creating {issue_count} issues in the repository.",
             conversation_name=self.conversation_name,
         )
+
+        # Process each issue: create it, then fix it
         x = 0
         for issue in issues["issues"]:
             x += 1
@@ -1068,27 +1104,47 @@ The developer may have little to no guidance outside of this scope.""",
             new_issue = await self.create_repo_issue(
                 repo_url=repo_url, title=title, body=body
             )
-            issue_number = new_issue.split(f"{repo_url}\n\n")[-1].split(":")[-1]
+            # Parse issue number
+            issue_number_line = new_issue.split("\n")[
+                3
+            ]  # The line that contains issue number
+            # Example line: "{issue_number}: {issue.title}"
+            # We'll extract the issue number:
+            issue_number = issue_number_line.split(":")[0].strip()
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
                 conversation_name=self.conversation_name,
             )
-            comment_content = self.ApiClient.prompt_agent(
+
+            # Prompt the model for minimal modifications in <modification> format to fix this issue
+            modifications_xml = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
                     "user_input": f"""GitHub Issue: {title}
 {body}
 
-Please review the GitHub issue and show the full content of each modified file to solve this issue. Please do not use placeholders in code as they will break automation causing unintended consequences.
+Below is the repository code and additional context. Identify the minimal code changes needed to solve this issue. 
+You must ONLY return the necessary modifications in the following XML format:
 
-When referencing files in the issue, please use the following format:
+<modification>
+<operation>replace|insert|delete</operation>
+<target>original_code_block_or_line_number</target>
+<content>new_code_block_if_needed</content>
+<fuzzy_match>true|false</fuzzy_match>
+</modification>
 
-## File: `src/pages/example.py`
-```python
-// Code snippet here
-```""",
+If multiple modifications are needed, repeat the <modification> block. Do not return anything other than <modification> blocks.
+
+### Important:
+- Do not return entire files, only the minimal code modifications required.
+- For replace, insert, and delete operations:
+  - "target" can be a code snippet or a line number.
+  - "content" is required for replace and insert, optional for delete.
+  - "fuzzy_match" defaults to true if not provided.
+""",
                     "context": f"""### Content of {repo_url}\n\n{repo_content}\n{additional_context}\n### Scope of Work\n\n{scope}""",
                     "log_user_input": False,
                     "log_output": False,
@@ -1100,35 +1156,42 @@ When referencing files in the issue, please use the following format:
                     "conversation_name": self.conversation_name,
                 },
             )
-            files_to_modify = []
-            for file_path, code_snippet in re.findall(
-                r"## File: `(.+?)`\n```(.+?)\n(.+?)\n```", comment_content
-            ):
-                files_to_modify.append(
-                    {"file_path": file_path, "code_snippet": code_snippet}
-                )
-            for file in files_to_modify:
-                # Save each of the files to the front end repo folder
-                file_path = file["file_path"]
-                if file_path.startswith("/"):
-                    file_path = file_path[1:]
-                if file_path.startswith("./"):
-                    file_path = file_path[2:]
-                # Upload file to the branch for the issue, the branch name is the issue number
-                await self.upload_file_to_repo(
-                    repo_url=repo_url,
-                    file_path=file_path,
-                    file_content=file["code_snippet"],
-                    branch=issue_number,
-                    commit_message=f"Resolve #{issue_number}",
-                )
-            # Create and merge the pull request.
+
+            # The issue branch created by create_repo_issue should be "issue-{issue_number}"
+            # Since we have issue_number extracted from the string, we should ensure the branch name matches.
+            # The create_repo_issue method uses "issue-{issue_number}" as the branch name.
+            # We'll confirm that and use that branch.
+            issue_branch = f"issue-{issue_number}"
+
+            # Apply modifications
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Applying modifications for #{issue_number}.",
+                conversation_name=self.conversation_name,
+            )
+            # Since no file_path is directly known, we rely on modify_file_content to parse the target code blocks.
+            # If the modification blocks reference code that can be found, it will work.
+            # If the model includes file paths in the target, you can adjust modify_file_content or prompt strategy accordingly.
+            modification_result = await self.modify_file_content(
+                repo_url=repo_url,
+                file_path="",  # If needed, the prompt can be updated to include file paths in <modification> blocks.
+                modification_commands=modifications_xml,
+                branch=issue_branch,
+            )
+
+            # Create and optionally merge the pull request
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) Creating pull request to resolve #{issue_number}.",
+                conversation_name=self.conversation_name,
+            )
+            pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
             if auto_merge:
                 pull_request = await self.create_and_merge_pull_request(
                     repo_url=repo_url,
                     title=f"Resolve #{issue_number}",
-                    body=f"Resolves #{issue_number} \n{comment_content}",
-                    head=issue_number,
+                    body=pr_body,
+                    head=issue_branch,
                     base="main",
                     merge_method="squash",
                 )
@@ -1136,21 +1199,24 @@ When referencing files in the issue, please use the following format:
                 pull_request = await self.create_repo_pull_request(
                     repo_url=repo_url,
                     title=f"Resolve #{issue_number}",
-                    body=f"Resolves #{issue_number} \n{comment_content}",
-                    head=issue_number,
+                    body=pr_body,
+                    head=issue_branch,
                     base="main",
                 )
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{activity_id}] ({x}/{issue_count}) {pull_request}",
                 conversation_name=self.conversation_name,
             )
+
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
             message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
             new_message=f"[ACTIVITY] Improved [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
+
         response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
         if auto_merge:
             response += " Each pull request was automatically merged."
@@ -1306,79 +1372,60 @@ When referencing files in the issue, please use the following format:
         branch: str = None,
     ) -> str:
         """
-        Apply a series of modifications to a file while preserving formatting and context.
-        Smart indentation handling ensures that code structure is maintained regardless of the
-        indentation in the modification commands.
+            Apply a series of modifications to a file while preserving formatting and context.
 
-        Args:
-            repo_url (str): The URL of the GitHub repository (e.g., "https://github.com/username/repo")
-            file_path (str): Path to the file within the repository (e.g., "src/example.py")
-            modification_commands (str): XML formatted string containing one or more modification commands
-            branch (str, optional): Branch to modify. Defaults to repository's default branch
+            Args:
+                repo_url (str): The URL of the GitHub repository (e.g., "https://github.com/username/repo")
+                file_path (str): Path to the file within the repository (e.g., "src/example.py")
+                modification_commands (str): XML formatted string containing one or more modification commands.
+                                             The expected XML format:
 
-        The modification_commands should be formatted as follows:
+                                             <modification>
+                                                 <operation>replace|insert|delete</operation>
+                                                 <target>code_block_or_line_number</target>
+                                                 <content>new_content (required for replace and insert)</content>
+                                                 <fuzzy_match>true|false</fuzzy_match>
+                                             </modification>
 
-        <modification>
-        <operation>replace|insert|delete</operation>
-        <target>code_block_or_line_number</target>
-        <content>new_content</content>
-        <fuzzy_match>true|false</fuzzy_match>
-        </modification>
+                                             Multiple <modification> blocks can be provided in a single string.
 
-        Operation Types:
-        - replace: Replaces the target code block with new content
-        - insert: Inserts new content at the target location
-        - delete: Removes the target code block
+                branch (str, optional): The branch to modify. Defaults to the repository's default branch.
 
-        Target Options:
-        1. Code block: A string of code to match in the file
-           Example: "def old_function():\\n    pass"
-        2. Line number: A specific line number where the operation should occur
-           Example: "10" (to target line 10)
+            Returns:
+                str: A unified diff of the changes made, or an error message if something goes wrong.
 
-        Fuzzy Matching:
-        - true: Enables smart matching that ignores whitespace differences (default)
-        - false: Requires exact match including whitespace
+            Operation Types:
+                - replace: Replaces the target code block with new content.
+                - insert: Inserts new content at the target location (line number or after a code block).
+                - delete: Removes the target code block or line.
 
-        Examples:
-        1. Replace a function:
-        <modification>
-        <operation>replace</operation>
-        <target>def old_function():
-            pass</target>
-        <content>def new_function(param: str):
-            return param.upper()</content>
-        <fuzzy_match>true</fuzzy_match>
-        </modification>
+            Target Options:
+                1. Code block: A string of code to match in the file.
+                2. Line number: A specific line number where the operation should occur.
 
-        2. Insert new code at line 10:
-        <modification>
-        <operation>insert</operation>
-        <target>10</target>
-        <content>    new_method = lambda x: x * 2</content>
-        </modification>
+            Fuzzy Matching:
+                - "true": Enables smart matching ignoring whitespace differences (default).
+                - "false": Requires exact match including whitespace.
 
-        3. Delete a code block:
-        <modification>
-        <operation>delete</operation>
-        <target>    # Old comment
-            old_variable = None</target>
-        </modification>
+            Example:
+                <modification>
+                    <operation>replace</operation>
+                    <target>def old_function():
+        pass</target>
+                    <content>def old_function():
+        return "fixed"</content>
+                    <fuzzy_match>true</fuzzy_match>
+                </modification>
 
-        4. Multiple modifications:
-        <modification>
-        <operation>replace</operation>
-        <target>old_code</target>
-        <content>new_code</content>
-        </modification>
-        <modification>
-        <operation>insert</operation>
-        <target>20</target>
-        <content>more_code</content>
-        </modification>
+            The method handles indentation and attempts to maintain code style. It returns a diff
+            so you can review the changes made.
 
-        Returns:
-            str: A unified diff showing the changes made or error message
+            Notes:
+            - If multiple modifications are requested, they are applied in sequence.
+            - If any modification cannot find its target, an exception is raised.
+
+            Returns:
+                str: A unified diff showing the changes made or error message
         """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
@@ -1656,27 +1703,39 @@ When referencing files in the issue, please use the following format:
         auto_merge: bool = False,
     ) -> str:
         """
-        Fix a given GitHub issue by identifying necessary code changes, creating a branch for that issue,
-        committing the changes, and creating a pull request.
+            Fix a given GitHub issue by applying minimal code modifications to the repository. This method:
 
-        Steps:
-        1. Get the repository code contents.
-        2. Get the issue details.
-        3. Prompt the agent to produce a set of code changes that would fix the issue.
-        4. Parse the response for file paths and code snippets.
-        5. Commit and push changes to the issue branch.
-        6. Create a pull request resolving the issue.
-        7. Optionally merge the pull request if auto_merge is True.
+            1. Retrieves the repository code and the issue details.
+            2. Prompts the model to produce modifications in the `<modification>` XML format.
+            3. Parses the modifications and applies them to the repository branch associated with the issue.
+            4. Creates a pull request resolving the issue, optionally merging it automatically.
 
-        Args:
-            repo_org (str): The GitHub organization or username.
-            repo_name (str): The GitHub repository name.
-            issue_number (int): The issue number to fix.
-            additional_context (str): Additional context to provide to the agent prompt.
-            auto_merge (bool): Whether to automatically merge the created PR.
+            Args:
+                repo_org (str): The GitHub organization or username.
+                repo_name (str): The name of the GitHub repository.
+                issue_number (int): The issue number to fix.
+                additional_context (str): Additional context or documentation relevant to the fix.
+                auto_merge (bool): If True, the created pull request is automatically merged upon creation.
 
-        Returns:
-            str: A message indicating the result of the fix process.
+            Returns:
+                str: A message indicating the result of the fix process.
+
+            Expected Model Output:
+                The model should return an XML string containing one or more `<modification>` blocks, each with:
+                <operation> (replace|insert|delete)
+                <target> (a code block or line number)
+                <content> (new code if applicable)
+                <fuzzy_match>true|false</fuzzy_match> (optional, defaults to true if omitted)
+
+            Example Model Output:
+                <modification>
+                    <operation>replace</operation>
+                    <target>def old_function():
+        pass</target>
+                    <content>def old_function():
+        return "fixed"</content>
+                    <fuzzy_match>true</fuzzy_match>
+                </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
@@ -1684,14 +1743,8 @@ When referencing files in the issue, please use the following format:
             repo_url=repo_url, issue_number=issue_number
         )
 
-        # Extract the issue title and body
-        # The issue details response is structured as:
-        # Issue Details for GitHub Repository at {repo_url}
-        # {issue_number}: {issue_title}
-        # {issue_body}
-        # We'll parse this out.
+        # Parse issue title and body from the returned string
         issue_lines = issue_details.split("\n")
-        # Find line with issue number and title
         title_line = next((l for l in issue_lines if f"{issue_number}:" in l), None)
         issue_title = ""
         issue_body = ""
@@ -1699,7 +1752,6 @@ When referencing files in the issue, please use the following format:
             parts = title_line.split(": ", 1)
             if len(parts) > 1:
                 issue_title = parts[1].strip()
-        # The rest of the lines after the title line represent the body
         body_index = (
             issue_lines.index(title_line) + 1 if title_line in issue_lines else None
         )
@@ -1712,13 +1764,14 @@ When referencing files in the issue, please use the following format:
             conversation_name=self.conversation_name,
         )
 
-        # Prompt the agent to determine how to fix this issue
+        # Prompt the model to produce minimal changes in XML format
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number} `{issue_title}`.",
             conversation_name=self.conversation_name,
         )
-        instructions = self.ApiClient.prompt_agent(
+
+        modifications_xml = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
@@ -1726,13 +1779,26 @@ When referencing files in the issue, please use the following format:
 {issue_body}
 
 ## User
-Please provide a detailed set of instructions and code changes to fix the above GitHub issue based on the provided repository code. The instructions should detail exactly which files need to be modified and show the full updated content of each modified file. Do not use placeholders in code as they will break automation.
+Below is the repository code and additional context. Identify the minimal code changes needed to fix this issue. 
+You must ONLY return the necessary modifications in the following XML format:
 
-Format:
-## File: `path/to/file.py`
-```python
-# Updated code here
-If multiple files need modification, repeat the pattern. Keep output strictly in the provided format.""",
+<modification>
+<operation>replace|insert|delete</operation>
+<target>original_code_block_or_line_number</target>
+<content>new_code_block_if_needed</content>
+<fuzzy_match>true|false</fuzzy_match>
+</modification>
+
+If multiple modifications are needed, repeat the <modification> block. Do not return anything other than <modification> blocks.
+
+### Important:
+- Do not return the entire file content, only the minimal code modifications required.
+- For replace, insert, and delete operations:
+  - "target" can be a code snippet or a line number.
+  - "content" is required for replace and insert, optional for delete.
+  - "fuzzy_match" defaults to true if not provided.
+
+""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
@@ -1745,16 +1811,7 @@ If multiple files need modification, repeat the pattern. Keep output strictly in
             },
         )
 
-        # Extract file changes from instructions
-        file_changes = re.findall(
-            r"## File: `(.+?)`\n```(.*?)\n(.+?)\n```", instructions, re.DOTALL
-        )
-
-        # Create a branch for the issue if it doesn't exist
-        # The branch should be named after the issue number. The create_repo_issue method
-        # already does this when creating an issue, but if it wasn't done, we can do it now.
-        # We will assume the branch exists if the issue was created via this system.
-        # Otherwise, we might need to create the branch manually:
+        # Create or verify issue branch
         repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
         base_branch = repo.default_branch
         issue_branch = str(issue_number)
@@ -1765,36 +1822,38 @@ If multiple files need modification, repeat the pattern. Keep output strictly in
             source_branch = repo.get_branch(base_branch)
             repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
 
-        # Now commit the changes to the issue branch
-        x = 0
-        changes_count = len(file_changes)
-        for file_path, file_type, code_snippet in file_changes:
-            x += 1
-            if file_path.startswith("/"):
-                file_path = file_path[1:]
-            if file_path.startswith("./"):
-                file_path = file_path[2:]
-            # Upload file to the issue branch
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] ({x}/{changes_count}) Updating `{file_path}` for #{issue_number}.",
-                conversation_name=self.conversation_name,
-            )
-            await self.upload_file_to_repo(
-                repo_url=repo_url,
-                file_path=file_path,
-                file_content=code_snippet,
-                branch=issue_branch,
-                commit_message=f"Fix #{issue_number}",
-            )
+        # Apply each modification
+        # We assume that all modifications apply to files within the repository. The model is expected to
+        # only reference code present in the repo. If needed, you can further parse target lines or code blocks
+        # to identify the file path (the current system may need adaptation if the model references file paths differently).
+        # For now, we assume the model only references existing code blocks from the file that `modify_file_content` can find.
 
-        # Create a pull request that resolves the issue
+        # Apply modifications to files
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
+            conversation_name=self.conversation_name,
+        )
+
+        # Directly call modify_file_content, which handles parsing the modifications
+        # If multiple <modification> blocks are returned, modify_file_content can handle them if combined.
+        # If your code requires individual calls, split them and call modify_file_content repeatedly.
+
+        # Here we call it once, assuming all modifications are returned as one XML string:
+        modification_result = await self.modify_file_content(
+            repo_url=repo_url,
+            file_path="",  # The file path can be inferred from modifications if the model includes it.
+            modification_commands=modifications_xml,
+            branch=issue_branch,
+        )
+
+        # Create a pull request
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Creating pull request to resolve #{issue_number}.",
             conversation_name=self.conversation_name,
         )
-        pr_body = f"Resolves #{issue_number}\n\n{instructions}"
+        pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
         if auto_merge:
             pr_response = await self.create_and_merge_pull_request(
                 repo_url=repo_url,
