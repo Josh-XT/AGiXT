@@ -1700,7 +1700,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         repo_name: str,
         issue_number: int,
         additional_context: str = "",
-        auto_merge: bool = False,
     ) -> str:
         """
             Fix a given GitHub issue by applying minimal code modifications to the repository. This method:
@@ -1715,7 +1714,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 repo_name (str): The name of the GitHub repository.
                 issue_number (int): The issue number to fix.
                 additional_context (str): Additional context or documentation relevant to the fix.
-                auto_merge (bool): If True, the created pull request is automatically merged upon creation.
 
             Returns:
                 str: A message indicating the result of the fix process.
@@ -1839,23 +1837,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
         pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-        if str(auto_merge).lower() == "true":
-            pr_response = await self.create_and_merge_pull_request(
-                repo_url=repo_url,
-                title=f"Fix #{issue_number}: {issue_title}",
-                body=pr_body,
-                head=issue_branch,
-                base=base_branch,
-                merge_method="squash",
-            )
-        else:
-            pr_response = await self.create_repo_pull_request(
-                repo_url=repo_url,
-                title=f"Fix #{issue_number}: {issue_title}",
-                body=pr_body,
-                head=issue_branch,
-                base=base_branch,
-            )
+        pr_response = await self.create_repo_pull_request(
+            repo_url=repo_url,
+            title=f"Fix #{issue_number}: {issue_title}",
+            body=pr_body,
+            head=issue_branch,
+            base=base_branch,
+        )
 
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
@@ -1865,8 +1853,4 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         )
 
         response = f"I have prepared a pull request to fix issue #{issue_number}. "
-        if auto_merge:
-            response += "The pull request has been automatically merged."
-        else:
-            response += "Please review and merge the pull request."
         return response
