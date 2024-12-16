@@ -13,6 +13,14 @@ from dataclasses import dataclass
 import logging
 
 try:
+    import black
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "black"])
+    import black
+try:
     import git
 except ImportError:
     import sys
@@ -461,6 +469,41 @@ class github(Extensions):
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
         self.activity_id = None
+
+    def _is_python_file(self, file_path: str) -> bool:
+        """
+        Check if a file is a Python file based on its extension.
+
+        Args:
+            file_path (str): Path to the file
+
+        Returns:
+            bool: True if the file is a Python file, False otherwise
+        """
+        return file_path.endswith(".py")
+
+    def _format_python_code(self, content: str) -> str:
+        """
+        Format Python code using Black.
+
+        Args:
+            content (str): Python code content to format
+
+        Returns:
+            str: Formatted Python code
+        """
+        try:
+            mode = black.Mode(
+                target_versions={black.TargetVersion.PY37},
+                line_length=88,
+                string_normalization=True,
+                is_pyi=False,
+            )
+            formatted_content = black.format_str(content, mode=mode)
+            return formatted_content
+        except Exception as e:
+            logging.warning(f"Failed to format Python code with Black: {str(e)}")
+            return content
 
     async def clone_repo(self, repo_url: str) -> str:
         """
@@ -2082,7 +2125,23 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     new_content = "\n".join(modified_lines)
                     if new_content[-1] != "\n":
                         new_content += "\n"  # Ensure file ends with newline
+                    if self._is_python_file(file_path):
+                        new_content = self._format_python_code(new_content)
 
+                    if new_content[-1] != "\n":
+                        new_content += "\n"  # Ensure file ends with newline
+
+                    # Generate the final diff after formatting
+                    final_diff = list(
+                        difflib.unified_diff(
+                            original_lines,
+                            new_content.splitlines(),
+                            fromfile=file_path,
+                            tofile=file_path,
+                            lineterm="",
+                            n=3,
+                        )
+                    )
                     commit_message = f"Modified {file_path}"
                     repo.update_file(
                         file_path,
@@ -2091,7 +2150,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         file_content_obj.sha,
                         branch=branch,
                     )
-                    return "\n".join(diff)
+                    return "\n".join(final_diff)
 
                 except Exception as e:
                     error_msg = str(e)
