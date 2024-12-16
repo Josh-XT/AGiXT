@@ -1806,12 +1806,42 @@ If multiple modifications are needed, repeat the <modification> block.
 
 ### Important:
 - Each <modification> block must include a <file> tag specifying which file to modify.
-- Do not return the entire file content, only the minimal code modifications required.
-- When selecting a file, do not use the repository name or url in this, just the path within the repository
-- Do not use the LOCAL file path that includes `WORKSPACE`, the path should be relative to the repository root, not where it is cloned to locally.
-- For replace and insert operations, <content> is required.
-- For delete operations, <content> is not required.
-- <fuzzy_match> defaults to true if omitted.""",
+- For <target>, you must use one of these formats:
+  1. For inserting after a function/method:
+     - Use the complete function definition line, e.g., "def verify_email_address(self, code: str = None):"
+     - The new content will be inserted after the entire function
+  2. For replacing code:
+     - Include the exact code block to replace, including correct indentation
+     - The first and last lines are especially important for matching
+  3. For specific line numbers:
+     - Use the line number as a string, e.g., "42"
+- Do not use the repository name or WORKSPACE path in file paths
+- The file path should be relative to the repository root
+- Content must match the indentation style of the target location
+- For replace and insert operations, <content> is required
+- For delete operations, <content> is not required
+
+Example modifications:
+1. Insert after a function:
+   <modification>
+   <file>auth.py</file>
+   <operation>insert</operation>
+   <target>def verify_email_address(self, code: str = None):</target>
+   <content>
+   def verify_mfa(self, token: str):
+       # Verify MFA token
+       pass</content>
+   </modification>
+
+2. Replace a code block:
+   <modification>
+   <file>auth.py</file>
+   <operation>replace</operation>
+   <target>    def verify_token(self):
+        return True</target>
+   <content>    def verify_token(self):
+        return self.validate_jwt()</content>
+   </modification>""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
