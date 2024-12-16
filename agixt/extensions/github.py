@@ -1777,49 +1777,90 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             dict: Parsed modification with operation, target, content, and fuzzy_match
         """
         try:
-            # Normalize XML by removing excess whitespace around tags
-            normalized_xml = re.sub(r">\s+<", "><", modification_block.strip())
-            normalized_xml = re.sub(r"^\s+|\s+$", "", normalized_xml)
+            # Debug logging
+            logging.debug(f"Parsing modification block:\n{modification_block}")
 
-            # Parse XML
-            root = ET.fromstring(normalized_xml)
+            # Pre-process XML to handle common issues
+            clean_xml = modification_block.strip()
 
-            # Extract components
-            result = {
-                "operation": (
-                    root.find("operation").text.strip()
-                    if root.find("operation") is not None
-                    else None
-                ),
-                "target": (
-                    root.find("target").text
-                    if root.find("target") is not None
-                    else None
-                ),
-                "content": (
-                    root.find("content").text
-                    if root.find("content") is not None
-                    else None
-                ),
-                "fuzzy_match": (
-                    root.find("fuzzy_match").text.lower() == "true"
-                    if root.find("fuzzy_match") is not None
+            # Try to parse XML
+            try:
+                root = ET.fromstring(clean_xml)
+            except ET.ParseError as xml_error:
+                # Get more context around the error position
+                lines = clean_xml.split("\n")
+                position = (
+                    xml_error.position[0]
+                    if isinstance(xml_error.position, tuple)
+                    else xml_error.position
+                )
+                line_num = 1
+                char_count = 0
+                error_line = ""
+                for line in lines:
+                    if char_count + len(line) + 1 >= position:
+                        error_line = line
+                        break
+                    char_count += len(line) + 1
+                    line_num += 1
+
+                # Create detailed error message
+                error_context = f"Error near line {line_num}:\n{error_line}\n"
+                if error_line:
+                    error_context += " " * (position - char_count) + "^"
+                raise ValueError(
+                    f"XML Parse Error: {str(xml_error)}\n{error_context}\nFull XML:\n{clean_xml}"
+                )
+
+            # Extract and validate components
+            try:
+                operation_elem = root.find("operation")
+                if operation_elem is None:
+                    raise ValueError("Missing required 'operation' tag")
+                operation = operation_elem.text.strip()
+                if operation not in ["replace", "insert", "delete"]:
+                    raise ValueError(
+                        f"Invalid operation '{operation}'. Must be one of: replace, insert, delete"
+                    )
+
+                target_elem = root.find("target")
+                if target_elem is None:
+                    raise ValueError("Missing required 'target' tag")
+                target = target_elem.text
+                if target is None:
+                    raise ValueError("Empty target tag")
+
+                content_elem = root.find("content")
+                content = content_elem.text if content_elem is not None else None
+                if operation in ["replace", "insert"] and not content:
+                    raise ValueError(f"Content is required for {operation} operation")
+
+                fuzzy_match_elem = root.find("fuzzy_match")
+                fuzzy_match = (
+                    fuzzy_match_elem.text.lower() == "true"
+                    if fuzzy_match_elem is not None
                     else True
-                ),
-            }
+                )
 
-            # Validate required fields
-            if not result["operation"] or not result["target"]:
-                raise ValueError("Missing required operation or target")
+                return {
+                    "operation": operation,
+                    "target": target,
+                    "content": content,
+                    "fuzzy_match": fuzzy_match,
+                }
 
-            return result
-        except ET.ParseError as e:
-            # Add context about the XML being parsed
-            raise ValueError(
-                f"XML Parse Error at position {e.position}: {str(e)}\nXML:\n{modification_block}"
-            )
+            except AttributeError as e:
+                raise ValueError(f"Invalid XML structure: {str(e)}")
+
         except Exception as e:
-            raise ValueError(f"Error parsing modification block: {str(e)}")
+            if "position" in str(e):
+                # Already formatted error
+                raise
+            else:
+                # Wrap other errors with more context
+                raise ValueError(
+                    f"Error parsing modification block: {str(e)}\nXML:\n{modification_block}"
+                )
 
     def clean_content(self, content: str) -> str:
         """Clean content by normalizing line endings and removing any leading/trailing whitespace.
@@ -1945,14 +1986,19 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
                     # Parse each modification into structured data
                     parsed_mods = []
-                    for mod in modifications:
+                    for i, mod in enumerate(modifications, 1):
                         try:
-                            parsed_mod = self._parse_modification_block(
-                                f"<modification>{mod}</modification>"
-                            )
+                            mod_xml = f"<modification>{mod}</modification>"
+                            parsed_mod = self._parse_modification_block(mod_xml)
                             parsed_mods.append(parsed_mod)
+                            logging.debug(
+                                f"Successfully parsed modification {i}: {parsed_mod['operation']} operation"
+                            )
                         except ValueError as e:
-                            raise ValueError(f"Error parsing modification: {str(e)}")
+                            logging.error(f"Failed to parse modification {i}: {str(e)}")
+                            raise ValueError(
+                                f"Error in modification block {i}: {str(e)}"
+                            )
 
                     # Get repository and file content
                     repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
@@ -2100,6 +2146,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         )
 
         except Exception as e:
+            logging.error(f"Modification failed: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"
 
     # Helper command methods for individual operations
