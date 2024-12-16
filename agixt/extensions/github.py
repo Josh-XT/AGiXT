@@ -177,20 +177,15 @@ class IndentationHelper:
         if not content:
             return content
 
-        # Detect language and get patterns
-        lang = IndentationHelper.detect_language(content)
-        patterns = IndentationHelper.LANG_PATTERNS.get(
-            lang, IndentationHelper.LANG_PATTERNS["python"]
-        )
+        # Force 4-space indentation for Python
+        indent_str = "    "  # Always use 4 spaces for Python
 
         # Normalize content
-        content = IndentationHelper.normalize_indentation(content)
         lines = content.splitlines()
         adjusted = []
 
-        # Track block depth and whether we're in a multiline comment
+        # Track block depth
         block_depth = 0
-        in_multiline_comment = False
 
         for i, line in enumerate(lines):
             stripped_line = line.strip()
@@ -198,62 +193,36 @@ class IndentationHelper:
                 adjusted.append("")
                 continue
 
-            # Handle first line special cases
-            if i == 0:
-                # For declarations (functions, classes, etc.), use base indentation
-                if any(
-                    re.match(pattern, stripped_line)
-                    for pattern in [
-                        patterns.get("function_start", ""),
-                        patterns.get("class_start", ""),
-                        patterns.get("interface_start", ""),
-                        patterns.get("type_start", ""),
-                    ]
+            # Determine if this line starts a new block
+            if stripped_line.startswith(("def ", "class ", "async def ")):
+                # Method/class definitions are at the base indentation level
+                adjusted.append(indent_str * relative_level + stripped_line)
+                block_depth = (
+                    relative_level + 1
+                )  # Next lines will be indented one more level
+                continue
+
+            if stripped_line.endswith(":"):
+                # Other block starters (if, for, etc.) maintain current indentation
+                # but increase depth for following lines
+                adjusted.append(
+                    indent_str * (relative_level + block_depth) + stripped_line
+                )
+                block_depth += 1
+                continue
+
+            # Handle normal lines
+            adjusted.append(indent_str * (relative_level + block_depth) + stripped_line)
+
+            # Check for block endings (look at next line's indentation)
+            if i < len(lines) - 1:
+                next_line = lines[i + 1].strip()
+                if (
+                    next_line
+                    and len(lines[i + 1]) - len(lines[i + 1].lstrip())
+                    <= len(indent_str) * relative_level
                 ):
-                    adjusted.append(base_indent * relative_level + stripped_line)
-                    if lang == "python" and re.search(r":\s*$", stripped_line):
-                        block_depth += 1
-                    elif re.search(r"{$", stripped_line):
-                        block_depth += 1
-                    continue
-
-            # Calculate indentation
-            current_indent = len(line) - len(line.lstrip())
-
-            # Handle multiline comments
-            if "/*" in line and "*/" not in line:
-                in_multiline_comment = True
-            elif "*/" in line:
-                in_multiline_comment = False
-
-            # Determine block depth changes
-            if not in_multiline_comment:
-                # Count opening braces/colons for block depth
-                if lang in ["javascript", "typescript"]:
-                    block_depth += stripped_line.count("{") - stripped_line.count("}")
-                elif lang == "python" and re.search(r":\s*$", stripped_line):
-                    if not any(
-                        re.match(pattern, stripped_line)
-                        for pattern in [patterns.get("block_continue", "")]
-                    ):
-                        block_depth += 1
-
-            # Calculate new indentation
-            new_indent = base_indent * (relative_level + block_depth)
-            adjusted.append(new_indent + stripped_line)
-
-            # Update block depth after processing the line
-            if not in_multiline_comment and lang == "python":
-                if i < len(lines) - 1:
-                    next_line = lines[i + 1].strip()
-                    if (
-                        next_line
-                        and IndentationHelper.get_line_indent_level(
-                            lines[i + 1], len(base_indent)
-                        )
-                        <= relative_level
-                    ):
-                        block_depth = 0
+                    block_depth = 0
 
         return "\n".join(adjusted)
 
