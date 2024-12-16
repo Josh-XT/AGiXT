@@ -10,6 +10,7 @@ from Extensions import Extensions
 from agixtsdk import AGiXTSDK
 from Globals import getenv
 from dataclasses import dataclass
+import logging
 
 try:
     import git
@@ -1306,108 +1307,126 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         file_lines: List[str],
         target: str,
         fuzzy_match: bool = True,
-    ):
+        operation: str = None,  # Add operation parameter
+    ) -> tuple[int, int, int]:
         """
         Find the start and end line indices of the target code block in the file lines.
-        If fuzzy matching is enabled, attempt to find the best-match segment above a certain threshold.
+        For inserts, returns the position after the target block.
+        Returns (start_line, end_line, indent_level).
         """
         # Normalize target by stripping whitespace from each line but preserving empty lines
         target_lines = target.split("\n")
         target_normalized = [line.strip() for line in target_lines]
+        target_first_line = next((line for line in target_normalized if line), "")
 
-        # Get minimum indent level of non-empty target lines
-        target_indent = float("inf")
-        for line in target_lines:
-            if line.strip():
-                current_indent = len(line) - len(line.lstrip())
-                target_indent = min(target_indent, current_indent)
-        target_indent = 0 if target_indent == float("inf") else target_indent
+        # For insert operations after function/class definitions
+        if operation == "insert" and target_first_line.startswith(("def ", "class ")):
+            for i in range(len(file_lines)):
+                current_line_stripped = file_lines[i].strip()
 
-        # Remove common indentation from target lines
-        target_lines = [
-            line[target_indent:] if len(line) >= target_indent else line
-            for line in target_lines
-        ]
-
-        best_start = None
-        best_score = -1.0
-        best_indent = 0
-
-        # Try each possible start line in the file for a match
-        for i in range(len(file_lines)):
-            # For insert operations, we need to match just the target function/class definition
-            # So we'll also try matching just the first non-empty line of the target
-            target_first_line = next((line for line in target_normalized if line), "")
-            current_line_stripped = file_lines[i].strip()
-
-            # If we're looking for a function/class definition to insert after
-            if target_first_line.startswith(("def ", "class ")):
-                # Check if current line matches target first line
+                # Look for exact match of function/class definition
                 if current_line_stripped == target_first_line:
-                    # For insertions, return the line after the matched line
-                    return (
-                        i + 1,
-                        i + 1,
-                        len(file_lines[i]) - len(file_lines[i].lstrip()),
-                    )
+                    current_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+                    # Find the end of the function/class by tracking indentation
+                    func_end = i
+                    while func_end + 1 < len(file_lines):
+                        next_line = file_lines[func_end + 1]
+                        if not next_line.strip():  # Skip empty lines
+                            func_end += 1
+                            continue
+                        next_indent = len(next_line) - len(next_line.lstrip())
+                        if next_indent <= current_indent:
+                            break
+                        func_end += 1
 
-            # For other operations, try matching the whole block
-            if i + len(target_lines) <= len(file_lines):
-                segment = file_lines[i : i + len(target_lines)]
+                    # Find first non-empty line after function
+                    insert_point = func_end + 1
+                    while (
+                        insert_point < len(file_lines)
+                        and not file_lines[insert_point].strip()
+                    ):
+                        insert_point += 1
 
-                # Get indentation level of current segment
-                segment_indent = (
-                    len(segment[0]) - len(segment[0].lstrip()) if segment else 0
-                )
+                    return insert_point, insert_point, current_indent
 
-                # Normalize segment lines
-                segment_normalized = [line.strip() for line in segment]
-
-                if fuzzy_match:
-                    # Compare line-by-line using difflib ratio
-                    line_scores = []
-                    for s, t in zip(segment_normalized, target_normalized):
-                        if not s and not t:  # Both lines empty
-                            line_scores.append(1.0)
-                        elif not s or not t:  # One line empty
-                            line_scores.append(0.0)
-                        else:
-                            ratio = difflib.SequenceMatcher(None, s, t).ratio()
-                            line_scores.append(ratio)
-
-                    # Calculate weighted average score, giving more weight to first and last lines
-                    if line_scores:
-                        weighted_scores = [
-                            line_scores[0] * 1.5
-                        ]  # Weight first line more
-                        if len(line_scores) > 1:
-                            weighted_scores.extend(
-                                line_scores[1:-1]
-                            )  # Middle lines normal weight
-                            weighted_scores.append(
-                                line_scores[-1] * 1.5
-                            )  # Weight last line more
-                        avg_score = sum(weighted_scores) / len(weighted_scores)
-                    else:
-                        avg_score = 0.0
-                else:
-                    # Exact match check
-                    avg_score = 1.0 if segment == target_lines else 0.0
-
-                if avg_score > best_score:
-                    best_score = avg_score
-                    best_start = i
-                    best_indent = segment_indent
-
-        # Set threshold based on operation type and fuzzy matching
-        threshold = 0.7 if fuzzy_match else 1.0
-
-        if best_start is None or best_score < threshold:
+            # If we didn't find the function, give a helpful error
             raise Exception(
-                f"Target code block not found in file for modification (best match score: {best_score:.2f})"
+                f"Could not find target function/class definition for insertion:\n{target}\n"
+                "Make sure the function definition line matches exactly, including parameters and spacing."
             )
 
-        return best_start, best_start + len(target_lines), best_indent
+        # For replace/delete operations or non-function targets
+        best_matches = []
+        for i in range(len(file_lines)):
+            if i + len(target_lines) <= len(file_lines):
+                segment = file_lines[i : i + len(target_lines)]
+                segment_normalized = [line.strip() for line in segment]
+
+                # Calculate line-by-line match scores
+                line_scores = []
+                for s, t in zip(segment_normalized, target_normalized):
+                    if not s and not t:  # Both empty
+                        line_scores.append(1.0)
+                    elif not s or not t:  # One empty
+                        line_scores.append(0.0)
+                    else:
+                        ratio = difflib.SequenceMatcher(None, s, t).ratio()
+                        line_scores.append(ratio)
+
+                if line_scores:
+                    # Weight first and last lines more heavily
+                    weighted_scores = [line_scores[0] * 1.5]  # First line
+                    if len(line_scores) > 1:
+                        weighted_scores.extend(line_scores[1:-1])  # Middle lines
+                        weighted_scores.append(line_scores[-1] * 1.5)  # Last line
+                    avg_score = sum(weighted_scores) / len(weighted_scores)
+
+                    best_matches.append(
+                        {
+                            "start_line": i,
+                            "score": avg_score,
+                            "segment": segment,
+                            "line_scores": line_scores,
+                            "indent": (
+                                len(segment[0]) - len(segment[0].lstrip())
+                                if segment
+                                else 0
+                            ),
+                        }
+                    )
+
+        # Handle threshold and error reporting
+        threshold = 0.7 if fuzzy_match else 1.0
+        best_matches.sort(key=lambda x: x["score"], reverse=True)
+
+        if not best_matches:
+            raise Exception(
+                f"No matching code blocks found for target. Ensure the target code exists:\n{target}"
+            )
+
+        best_match = best_matches[0]
+        if best_match["score"] < threshold:
+            message = [
+                f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
+                "Target:",
+                target,
+                "Best matching segment found:",
+                "\n".join(best_match["segment"]),
+                "Line-by-line match scores:",
+                "\n".join(
+                    f"{score:.2f}: {line}"
+                    for score, line in zip(
+                        best_match["line_scores"], best_match["segment"]
+                    )
+                ),
+            ]
+            raise Exception("\n".join(message))
+
+        return (
+            best_match["start_line"],
+            best_match["start_line"] + len(target_lines),
+            best_match["indent"],
+        )
 
     async def modify_file_content(
         self,
@@ -1492,6 +1511,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 r"<modification>(.*?)</modification>", modification_commands, re.DOTALL
             )
 
+            has_changes = False
             for mod in modifications:
                 operation_match = re.search(
                     r"<operation>(.*?)</operation>", mod, re.DOTALL
@@ -1508,39 +1528,70 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 operation = operation_match.group(1).strip()
                 target = target_match.group(1).strip()
                 content = content_match.group(1).strip() if content_match else None
-                fuzzy_match = True
+                fuzzy_match = (
+                    fuzzy_match_option.group(1).lower() == "true"
+                    if fuzzy_match_option
+                    else True
+                )
 
-                if target.isdigit():
-                    # If target is a line number
-                    start_line = int(target)
-                    end_line = start_line + 1
-                    indent_level = 0
-                    for line in modified_lines[start_line:end_line]:
-                        if line.strip():
-                            indent_level = (
-                                len(line) - len(line.lstrip())
-                            ) // indent_size
-                            break
-                else:
-                    # Find the target code block
-                    start_line, end_line, indent_level = self._find_pattern_boundaries(
-                        modified_lines, target, fuzzy_match=fuzzy_match
-                    )
+                try:
+                    if target.isdigit():
+                        # Line number target
+                        start_line = int(target)
+                        end_line = start_line + 1
+                        indent_level = (
+                            (
+                                len(modified_lines[start_line])
+                                - len(modified_lines[start_line].lstrip())
+                            )
+                            // indent_size
+                            if modified_lines[start_line].strip()
+                            else 0
+                        )
+                    else:
+                        # Find the target code block, passing the operation type
+                        start_line, end_line, indent_level = (
+                            self._find_pattern_boundaries(
+                                modified_lines,
+                                target,
+                                fuzzy_match=fuzzy_match,
+                                operation=operation,
+                            )
+                        )
 
-                if operation == "replace" and content:
-                    adjusted_content = self.indentation_helper.adjust_indentation(
-                        content, indent_str, indent_level
-                    )
-                    modified_lines[start_line:end_line] = adjusted_content.splitlines()
-                elif operation == "insert" and content:
-                    adjusted_content = self.indentation_helper.adjust_indentation(
-                        content, indent_str, indent_level
-                    )
-                    insert_lines = adjusted_content.splitlines()
-                    for i, line in enumerate(insert_lines):
-                        modified_lines.insert(start_line + i, line)
-                elif operation == "delete":
-                    del modified_lines[start_line:end_line]
+                    if operation == "replace" and content:
+                        adjusted_content = self.indentation_helper.adjust_indentation(
+                            content, indent_str, indent_level
+                        )
+                        modified_lines[start_line:end_line] = (
+                            adjusted_content.splitlines()
+                        )
+                        has_changes = True
+                    elif operation == "insert" and content:
+                        adjusted_content = self.indentation_helper.adjust_indentation(
+                            content, indent_str, indent_level
+                        )
+                        insert_lines = adjusted_content.splitlines()
+                        # Add a blank line before and after the inserted content
+                        if start_line > 0 and modified_lines[start_line - 1].strip():
+                            insert_lines.insert(0, "")
+                        if (
+                            start_line < len(modified_lines)
+                            and modified_lines[start_line].strip()
+                        ):
+                            insert_lines.append("")
+                        for i, line in enumerate(insert_lines):
+                            modified_lines.insert(start_line + i, line)
+                        has_changes = True
+                    elif operation == "delete":
+                        del modified_lines[start_line:end_line]
+                        has_changes = True
+                except Exception as e:
+                    logging.error(f"Error applying modification: {str(e)}")
+                    continue
+
+            if not has_changes:
+                return "No changes needed"
 
             # Generate diff for review
             diff = list(
@@ -1553,9 +1604,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     n=3,
                 )
             )
-
-            if not diff:
-                return "No changes needed"
 
             # Apply changes
             new_content = "\n".join(modified_lines)
@@ -1570,14 +1618,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             return "\n".join(diff)
 
-        except RateLimitExceededException:
-            if self.failures < 3:
-                self.failures += 1
-                time.sleep(5)
-                return await self.modify_file_content(
-                    repo_url, file_path, modification_commands, branch
-                )
-            return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
 
