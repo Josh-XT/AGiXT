@@ -168,23 +168,13 @@ class IndentationHelper:
 
     @staticmethod
     def adjust_indentation(
-        content: str, base_indent: str, relative_level: int = 0
+        content: str, indent_str: str, relative_level: int = 0
     ) -> str:
-        """
-        Adjust content indentation to match target style while preserving relative indentation.
-        Handles multiple programming languages appropriately.
-        """
         if not content:
             return content
 
-        # Force 4-space indentation for Python
-        indent_str = "    "  # Always use 4 spaces for Python
-
-        # Normalize content
         lines = content.splitlines()
         adjusted = []
-
-        # Track block depth
         block_depth = 0
 
         for i, line in enumerate(lines):
@@ -193,33 +183,25 @@ class IndentationHelper:
                 adjusted.append("")
                 continue
 
-            # Determine if this line starts a new block
             if stripped_line.startswith(("def ", "class ", "async def ")):
-                # Method/class definitions are at the base indentation level
                 adjusted.append(indent_str * relative_level + stripped_line)
-                block_depth = (
-                    relative_level + 1
-                )  # Next lines will be indented one more level
+                block_depth = relative_level + 1
                 continue
 
             if stripped_line.endswith(":"):
-                # Other block starters (if, for, etc.) maintain current indentation
-                # but increase depth for following lines
                 adjusted.append(
                     indent_str * (relative_level + block_depth) + stripped_line
                 )
                 block_depth += 1
                 continue
 
-            # Handle normal lines
             adjusted.append(indent_str * (relative_level + block_depth) + stripped_line)
 
-            # Check for block endings (look at next line's indentation)
             if i < len(lines) - 1:
                 next_line = lines[i + 1].strip()
                 if (
                     next_line
-                    and len(lines[i + 1]) - len(lines[i + 1].lstrip())
+                    and (len(lines[i + 1]) - len(lines[i + 1].lstrip()))
                     <= len(indent_str) * relative_level
                 ):
                     block_depth = 0
