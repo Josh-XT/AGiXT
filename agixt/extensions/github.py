@@ -1748,18 +1748,14 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         Instead, it will apply changes to the existing branch and comment on the PR and issue.
         If no PR is open, it creates a new PR and comments on the issue.
 
-        Requires the model to return <file> tags in each <modification> block.
+        Args:
+        repo_org (str): The organization or username for the GitHub repository
+        repo_name (str): The repository name
+        issue_number (str): The issue number to fix
+        additional_context (str): Additional context to provide to the model, if a user mentions anything that could be useful to pass to the coding model, mention it here.
 
-        Example Model Output:
-            <modification>
-                <file>src/example.py</file>
-                <operation>replace</operation>
-                <target>def old_function():
-        pass</target>
-                <content>def old_function():
-        return "fixed"</content>
-                <fuzzy_match>true</fuzzy_match>
-            </modification>
+        Returns:
+        str: A message indicating the result of the operation
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
