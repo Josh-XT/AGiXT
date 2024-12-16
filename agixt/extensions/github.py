@@ -1702,38 +1702,20 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         additional_context: str = "",
     ) -> str:
         """
-            Fix a given GitHub issue by applying minimal code modifications to the repository. This method:
+        Fix a given GitHub issue by applying minimal code modifications to the repository.
 
-            1. Retrieves the repository code and the issue details.
-            2. Prompts the model to produce modifications in the `<modification>` XML format.
-            3. Parses the modifications and applies them to the repository branch associated with the issue.
-            4. Creates a pull request resolving the issue, optionally merging it automatically.
+        Now requires the model to return <file> tags in each <modification> block:
 
-            Args:
-                repo_org (str): The GitHub organization or username.
-                repo_name (str): The name of the GitHub repository.
-                issue_number (int): The issue number to fix.
-                additional_context (str): Additional context or documentation relevant to the fix.
-
-            Returns:
-                str: A message indicating the result of the fix process.
-
-            Expected Model Output:
-                The model should return an XML string containing one or more `<modification>` blocks, each with:
-                <operation> (replace|insert|delete)
-                <target> (a code block or line number)
-                <content> (new code if applicable)
-                <fuzzy_match>true|false</fuzzy_match> (optional, defaults to true if omitted)
-
-            Example Model Output:
-                <modification>
-                    <operation>replace</operation>
-                    <target>def old_function():
+        Example Model Output:
+            <modification>
+                <file>src/example.py</file>
+                <operation>replace</operation>
+                <target>def old_function():
         pass</target>
-                    <content>def old_function():
+                <content>def old_function():
         return "fixed"</content>
-                    <fuzzy_match>true</fuzzy_match>
-                </modification>
+                <fuzzy_match>true</fuzzy_match>
+            </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
@@ -1748,10 +1730,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             conversation_name=self.conversation_name,
         )
 
-        # Prompt the model to produce minimal changes in XML format
+        # Prompt for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number} `{issue_title}`.",
+            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number}",
             conversation_name=self.conversation_name,
         )
 
@@ -1767,22 +1749,21 @@ Below is the repository code and additional context. Identify the minimal code c
 You must ONLY return the necessary modifications in the following XML format:
 
 <modification>
+<file>path/to/file.py</file>
 <operation>replace|insert|delete</operation>
 <target>original_code_block_or_line_number</target>
 <content>new_code_block_if_needed</content>
 <fuzzy_match>true|false</fuzzy_match>
 </modification>
 
-If multiple modifications are needed, repeat the <modification> block. Do not return anything other than <modification> blocks.
+If multiple modifications are needed, repeat the <modification> block.
 
 ### Important:
+- Each <modification> block must include a <file> tag specifying which file to modify.
 - Do not return the entire file content, only the minimal code modifications required.
-- For replace, insert, and delete operations:
-  - "target" can be a code snippet or a line number.
-  - "content" is required for replace and insert, optional for delete.
-  - "fuzzy_match" defaults to true if not provided.
-
-""",
+- For replace and insert operations, <content> is required.
+- For delete operations, <content> is not required.
+- <fuzzy_match> defaults to true if omitted.""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
@@ -1796,10 +1777,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         )
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number} `{issue_title}`.",
-            new_message=f"[SUBACTIVITY][{activity_id}] Analyzed code to fix #{issue_number} `{issue_title}`.",
+            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number}",
+            new_message=f"[SUBACTIVITY][{activity_id}] Analyzed code to fix #{issue_number}",
             conversation_name=self.conversation_name,
         )
+
         # Create or verify issue branch
         repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
         base_branch = repo.default_branch
@@ -1811,36 +1793,55 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             source_branch = repo.get_branch(base_branch)
             repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
 
-        # Apply each modification
-        # We assume that all modifications apply to files within the repository. The model is expected to
-        # only reference code present in the repo. If needed, you can further parse target lines or code blocks
-        # to identify the file path (the current system may need adaptation if the model references file paths differently).
-        # For now, we assume the model only references existing code blocks from the file that `modify_file_content` can find.
+        # Parse modifications by file
+        modifications_blocks = re.findall(
+            r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
+        )
 
-        # Apply modifications to files
+        # Dictionary to hold modifications per file
+        file_mod_map = {}
+
+        for block in modifications_blocks:
+            file_match = re.search(r"<file>(.*?)</file>", block, re.DOTALL)
+            if not file_match:
+                raise Exception("No <file> tag found in a modification block.")
+            file_path = file_match.group(1).strip()
+
+            # Rebuild the single modification block with <modification>...</modification> tags
+            single_mod_xml = f"<modification>{block}</modification>"
+
+            if file_path not in file_mod_map:
+                file_mod_map[file_path] = []
+            file_mod_map[file_path].append(single_mod_xml)
+
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
             conversation_name=self.conversation_name,
         )
 
-        # Directly call modify_file_content, which handles parsing the modifications
-        # If multiple <modification> blocks are returned, modify_file_content can handle them if combined.
-        # If your code requires individual calls, split them and call modify_file_content repeatedly.
+        # Apply modifications file by file
+        for file_path, mods in file_mod_map.items():
+            # Combine all modifications for this file into one XML string
+            combined_mods = "".join(mods)
+            result = await self.modify_file_content(
+                repo_url=repo_url,
+                file_path=file_path,
+                modification_commands=combined_mods,
+                branch=issue_branch,
+            )
+            if "Error:" in result:
+                raise Exception(
+                    f"Error applying modifications to {file_path}: {result}"
+                )
 
-        # Here we call it once, assuming all modifications are returned as one XML string:
-        modification_result = await self.modify_file_content(
-            repo_url=repo_url,
-            file_path="",  # The file path can be inferred from modifications if the model includes it.
-            modification_commands=modifications_xml,
-            branch=issue_branch,
-        )
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
             message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
             new_message=f"[SUBACTIVITY][{activity_id}] Applied modifications for #{issue_number}.",
             conversation_name=self.conversation_name,
         )
+
         # Create a pull request
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
@@ -1877,6 +1878,5 @@ Title: {pull_request.title}
 Body: 
 {pr_body}
 
-I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).
-        """
+I have created pull request [#{pull_request.number}]({repo_url}/pull/{pull_request.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
         return response
