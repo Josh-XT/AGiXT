@@ -2281,20 +2281,6 @@ def verify_mfa(self, token: str):
             issue.create_comment(
                 f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis."
             )
-            if activity_id:
-                self.ApiClient.update_conversation_message(
-                    agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                    new_message=f"[ACTIVITY] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                    conversation_name=self.conversation_name,
-                )
-            else:
-                self.ApiClient.update_conversation_message(
-                    agent_name=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                    new_message=f"[SUBACTIVITY][{self.activity_id}] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                    conversation_name=self.conversation_name,
-                )
             return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})."
 
         file_mod_map = {}
@@ -2328,12 +2314,15 @@ def verify_mfa(self, token: str):
                 issue.create_comment(
                     f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
                 )
-                self.ApiClient.update_conversation_message(
-                    agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                    new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                    conversation_name=self.conversation_name,
-                )
+                try:
+                    self.ApiClient.update_conversation_message(
+                        agent_name=self.agent_name,
+                        message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
+                        new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                        conversation_name=self.conversation_name,
+                    )
+                except:
+                    pass
                 return f"Error applying modifications: {result}"
 
         # Check if a PR already exists for this branch
