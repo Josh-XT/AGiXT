@@ -1656,7 +1656,7 @@ class AGiXT:
         if log_user_input:
             c.log_interaction(role="USER", message=new_prompt)
         if log_output:
-            c.log_interaction(role=self.agent_name, message="[ACTIVITY] Thinking.")
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         file_contents = []
         current_input_tokens = get_tokens(new_prompt)
         for file in files:
