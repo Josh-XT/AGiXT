@@ -1842,11 +1842,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     raise ValueError(f"Content is required for {operation} operation")
 
                 fuzzy_match_elem = root.find("fuzzy_match")
-                fuzzy_match = (
-                    fuzzy_match_elem.text.lower() == "true"
-                    if fuzzy_match_elem is not None
-                    else True
-                )
+                fuzzy_match = True
 
                 return {
                     "operation": operation,
@@ -2028,7 +2024,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         operation = mod["operation"]
                         target = mod["target"]
                         content = mod.get("content")
-                        fuzzy_match = mod["fuzzy_match"]
+                        fuzzy_match = True
 
                         if (operation in ["replace", "insert"]) and not content:
                             raise ValueError(
