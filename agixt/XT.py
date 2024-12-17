@@ -1791,8 +1791,22 @@ class AGiXT:
                         thoughts_and_reflections += after_thoughts
                 except:
                     pass
+                # Strip out any <execute> or <output> tags
+                thoughts_and_reflections = self.remove_tagged_content(
+                    thoughts_and_reflections, "execute"
+                )
+                thoughts_and_reflections = self.remove_tagged_content(
+                    thoughts_and_reflections, "output"
+                )
                 if len(thoughts_and_reflections) > 10:
-                    # Thoughts and reflections will get added to conversational memories
+                    # Parse each XML tag in thoughts_and_reflections, iterate over them and add subactivities with the content of the tag
+                    for tag in re.findall(r"<[^>]+>", thoughts_and_reflections):
+                        tag_content = re.sub(r"<[^>]+>", "", tag)
+                        if tag_content:
+                            self.conversation.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY] {tag_content}",
+                            )
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     await self.file_reader.write_text_to_memory(
                         user_input=new_prompt,

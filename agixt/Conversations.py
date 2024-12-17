@@ -344,6 +344,17 @@ class Conversations:
         return conversation
 
     def log_interaction(self, role, message):
+        if str(message).startswith("[SUBACTIVITY] "):
+            try:
+                last_activity_id = self.get_last_activity_id()
+            except:
+                last_activity_id = None
+            if last_activity_id:
+                message = message.replace(
+                    "[SUBACTIVITY] ", f"[SUBACTIVITY][{last_activity_id}] "
+                )
+            else:
+                message = message.replace("[SUBACTIVITY] ", "[ACTIVITY] ")
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
         user_id = user_data.id
