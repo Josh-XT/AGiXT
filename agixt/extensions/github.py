@@ -2349,6 +2349,9 @@ def verify_mfa(self, token: str):
         else:
             # No PR exists, create a new one
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
+            pr_body = pr_body.replace(
+                "<modification>", "```xml\n<modification>"
+            ).replace("</modification>", "</modification>\n```")
             new_pr = repo.create_pull(
                 title=f"Fix #{issue_number}: {issue_title}",
                 body=pr_body,
