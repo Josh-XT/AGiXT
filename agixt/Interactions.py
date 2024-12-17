@@ -530,6 +530,7 @@ class Interactions:
             if tag_identifier not in self._processed_tags:
                 # Log the thinking/reflection content as a subactivity
                 tag_content = re.sub(r"<rate>.*?</rate>", "", tag_content)
+                tag_content = re.sub(r"<reward>.*?</reward>", "", tag_content)
                 tag_content = tag_content.replace("</reflection>", "")
                 tag_content = re.sub(r"<execute>.*?</execute>", "", tag_content)
                 tag_content = re.sub(r"<output>.*?</output>", "", tag_content)
