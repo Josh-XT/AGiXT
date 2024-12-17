@@ -117,9 +117,13 @@ class IndentationHelper:
         current_block_level = relative_level
         continuation_level = 0
         in_continuation = False
+        in_function_body = False
 
         def is_block_starter(line: str) -> bool:
             return bool(line.strip().endswith(":"))
+
+        def is_function_def(line: str) -> bool:
+            return line.strip().startswith(("def ", "async def "))
 
         def is_statement_continuation(line: str) -> bool:
             stripped = line.strip()
@@ -144,7 +148,7 @@ class IndentationHelper:
         # Find the base indentation of the function/class definition
         base_indent = 0
         for line in lines:
-            if line.strip().startswith(("def ", "class ")):
+            if line.strip().startswith(("def ", "class ", "async def ")):
                 base_indent = get_indent_level(line)
                 break
 
@@ -156,20 +160,36 @@ class IndentationHelper:
             current_indent = get_indent_level(line)
             stripped_line = line.strip()
 
+            # Handle function definitions
+            if is_function_def(line):
+                in_function_body = True
+                current_block_level = relative_level
+                result.append(" " * base_indent + stripped_line)
+                block_stack = [(base_indent, stripped_line)]
+                current_block_level += 1
+                continue
+
             # Handle dedents
             while block_stack and current_indent <= block_stack[-1][0]:
-                block_stack.pop()
+                popped_indent, popped_line = block_stack.pop()
                 current_block_level -= 1
+                if is_function_def(popped_line):
+                    in_function_body = False
 
             # Calculate the proper indentation level
+            if in_function_body:
+                # Add one extra level of indentation for everything inside a function
+                base_level = base_indent + len(indent_str)
+            else:
+                base_level = base_indent
+
             if i > 0 and should_maintain_parent_indent(stripped_line):
-                # Maintain parent's indentation level for continuations and block-level elements
                 if block_stack:
                     indent_level = block_stack[-1][0] + len(indent_str)
                 else:
-                    indent_level = base_indent + len(indent_str)
+                    indent_level = base_level
             else:
-                indent_level = base_indent + (current_block_level * len(indent_str))
+                indent_level = base_level + (current_block_level * len(indent_str))
 
             # Handle statement continuations
             if is_statement_continuation(stripped_line):
