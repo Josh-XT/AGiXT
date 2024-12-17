@@ -72,7 +72,7 @@ class IndentationHelper:
             "function_start": r"^(async\s+)?def\s+\w+\s*\([^)]*\)\s*:",
             "class_start": r"^class\s+\w+[(\s:]",
             "block_start": r":\s*$",
-            "block_continue": r"^(elif|else|except|finally)\s*:",
+            "block_continue": r"^(def|async|elif|else|except|finally)\s*:",
             "comment": r"^\s*#",
         },
     }
