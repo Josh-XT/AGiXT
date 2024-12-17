@@ -2369,16 +2369,17 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         issue = repo.get_issue(int(issue_number))
         issue_title = issue.title
         issue_body = issue.body
-        activity_id = self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation_name,
-        )
-        self.activity_id = activity_id
+        activity_id = None
+        if not self.activity_id:
+            activity_id = self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                conversation_name=self.conversation_name,
+            )
         # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix #{issue_number}",
             conversation_name=self.conversation_name,
         )
 
@@ -2455,8 +2456,8 @@ Example modifications:
         )
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Analyzing code to fix #{issue_number}",
-            new_message=f"[SUBACTIVITY][{activity_id}] Analyzed code to fix #{issue_number}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix #{issue_number}",
+            new_message=f"[SUBACTIVITY][{self.activity_id}] Analyzed code to fix #{issue_number}",
             conversation_name=self.conversation_name,
         )
 
@@ -2481,12 +2482,20 @@ Example modifications:
             issue.create_comment(
                 f"No changes needed for issue #{issue_number} based on the model's analysis."
             )
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-                new_message=f"[ACTIVITY] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                conversation_name=self.conversation_name,
-            )
+            if activity_id:
+                self.ApiClient.update_conversation_message(
+                    agent_name=self.agent_name,
+                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    new_message=f"[ACTIVITY] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                    conversation_name=self.conversation_name,
+                )
+            else:
+                self.ApiClient.update_conversation_message(
+                    agent_name=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    new_message=f"[SUBACTIVITY][{self.activity_id}] No changes needed for issue #{issue_number}.",
+                    conversation_name=self.conversation_name,
+                )
             return f"No changes needed for issue #{issue_number}."
 
         file_mod_map = {}
@@ -2508,7 +2517,7 @@ Example modifications:
 
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
+            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for #{issue_number}.",
             conversation_name=self.conversation_name,
         )
 
@@ -2536,8 +2545,8 @@ Example modifications:
 
         self.ApiClient.update_conversation_message(
             agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{activity_id}] Applying modifications for #{issue_number}.",
-            new_message=f"[SUBACTIVITY][{activity_id}] Applied modifications for #{issue_number}.",
+            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for #{issue_number}.",
+            new_message=f"[SUBACTIVITY][{self.activity_id}] Applied modifications for #{issue_number}.",
             conversation_name=self.conversation_name,
         )
 
@@ -2557,11 +2566,10 @@ Example modifications:
                 f"Additional changes have been applied to resolve issue #{issue_number}. See PR #{existing_pr.number}."
             )
 
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-                new_message=(
-                    f"[ACTIVITY] Updated the branch `{issue_branch}` for [#{issue_number}]({repo_url}/issues/{issue_number}). "
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=(
+                    f"[SUBACTIVITY][{self.activity_id}] Updated the branch `{issue_branch}` for [#{issue_number}]({repo_url}/issues/{issue_number}). "
                     f"Changes are reflected in [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
                 ),
                 conversation_name=self.conversation_name,
@@ -2582,17 +2590,22 @@ Example modifications:
             issue.create_comment(
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
-
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-                new_message=(
-                    f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
-                    f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
-                ),
-                conversation_name=self.conversation_name,
-            )
-
+            if activity_id:
+                self.ApiClient.update_conversation_message(
+                    agent_name=self.agent_name,
+                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    new_message=(
+                        f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
+                        f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
+                    ),
+                    conversation_name=self.conversation_name,
+                )
+            else:
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    conversation_name=self.conversation_name,
+                )
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 

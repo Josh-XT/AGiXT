@@ -358,6 +358,9 @@ class Extensions:
             **self.agent_config["settings"],
             **credentials,
         }
+        if "activity_id" in command_args:
+            injection_variables["activity_id"] = command_args["activity_id"]
+            del command_args["activity_id"]
         command_function, module, params = self.find_command(command_name=command_name)
         logging.info(
             f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
