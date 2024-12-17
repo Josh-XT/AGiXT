@@ -117,7 +117,7 @@ class IndentationHelper:
     def adjust_indentation(
         content: str, indent_str: str = "    ", relative_level: int = 0
     ) -> str:
-        """Adjust indentation while preserving code structure and handling nested blocks."""
+        """Adjust indentation while preserving code structure."""
         if not content:
             return content
 
@@ -146,29 +146,21 @@ class IndentationHelper:
             # Determine base indentation from stack
             current_indent = indent_stack[-1][0]
 
-            # Handle block starters
-            if re.match(r"^(async\s+)?def\s+\w+\s*\([^)]*\)\s*:", stripped):
-                # Function definition
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), "function"))
-                continue
-            elif re.match(r"^class\s+\w+[(\s:]", stripped):
-                # Class definition
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), "class"))
-                continue
-            elif stripped.endswith(":"):
-                # Other block starters (if, for, while, etc.)
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), "block"))
+            # Handle special cases
+            block_type = IndentationHelper._get_block_type(line)
+
+            if block_type:
+                # For function/class definitions, don't indent the definition line
+                if block_type in ("function", "class"):
+                    result.append(" " * current_indent + stripped)
+                    indent_stack.append((current_indent + len(indent_str), block_type))
+                else:
+                    # For other blocks (if/else/try/etc), maintain current indent
+                    result.append(" " * current_indent + stripped)
+                    indent_stack.append((current_indent + len(indent_str), block_type))
                 continue
 
-            # Handle decorators
-            if stripped.startswith("@"):
-                result.append(" " * current_indent + stripped)
-                continue
-
-            # Handle special alignments and continuations
+            # Handle line continuations and special alignments
             if i > 0 and (
                 stripped.startswith(("and ", "or ", "+", "-", "*", "/", "=", "."))
                 or lines[i - 1].strip().endswith(("(", ","))
@@ -177,19 +169,18 @@ class IndentationHelper:
                 result.append(" " * (current_indent + len(indent_str)) + stripped)
                 continue
 
-            # Handle docstrings and multi-line strings
-            if stripped.startswith(('"""', "'''")):
-                result.append(" " * current_indent + stripped)
-                continue
-
-            # Handle comments
+            # Handle comments - align with current block
             if stripped.startswith("#"):
                 result.append(" " * current_indent + stripped)
                 continue
 
-            # Regular lines within blocks
+            # Handle normal lines within blocks
             result.append(" " * current_indent + stripped)
-
+        for i, line in enumerate(result):
+            if re.match(r"^\s+def\s+\w+\s*\(", line) or re.match(
+                r"^\s+async\s+def\s+\w+\s*\(", line
+            ):
+                result[i] = "    " + line
         return "\n".join(result)
 
     @staticmethod
