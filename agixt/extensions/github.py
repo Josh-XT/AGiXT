@@ -548,6 +548,7 @@ class github(Extensions):
             content = markdown_file.read()
 
         content = content.replace("<|endoftext|>", "")
+        content = content.replace(self.WORKING_DIRECTORY, "")
         return content
 
     async def get_repo_issues(self, repo_url: str) -> str:
