@@ -65,218 +65,6 @@ class FileModification:
     fuzzy_match: bool = True
 
 
-def indent_non_def_lines(text):
-    # Split into lines
-    lines = text.split("\n")
-
-    # Process each line
-    indented_lines = []
-    for line in lines:
-        # Strip trailing whitespace for cleaner processing
-        stripped_line = line.rstrip()
-
-        # Check if the line contains both "def " and "("
-        # We use `in` for simple substring checks here
-        if "def " in stripped_line and "(" in stripped_line:
-            # This line appears to be a function definition line.
-            indented_lines.append(stripped_line)
-        else:
-            # Add four spaces in front of the line if it's not a function definition
-            indented_lines.append("    " + stripped_line)
-
-    # Join lines back together
-    return "\n".join(indented_lines)
-
-
-class IndentationHelper:
-    LANG_PATTERNS = {
-        "python": {
-            "function_start": r"^(async\s+)?def\s+\w+\s*\([^)]*\)\s*:",
-            "class_start": r"^class\s+\w+[(\s:]",
-            "block_start": r":\s*$",
-            "block_continue": r"^(elif|else|except|finally)\s*:",
-            "comment": r"^\s*#",
-            "decorator": r"^\s*@[\w.]+(\s*\([^)]*\))?\s*$",
-        },
-    }
-
-    @staticmethod
-    def detect_language(content: str) -> str:
-        """Attempt to detect the programming language from the content."""
-        indicators = {
-            "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
-        }
-
-        if ".py" in content.lower():
-            indicators["python"] += 5
-
-        return (
-            "python"
-            if not any(indicators.values())
-            else max(indicators.items(), key=lambda x: x[1])[0]
-        )
-
-    @staticmethod
-    def detect_indentation(content: str) -> tuple[str, int]:
-        """Detect whether spaces or tabs are used and how many."""
-        if IndentationHelper.detect_language(content) == "python":
-            return ("    ", 4)
-        return ("    ", 4)
-
-    @staticmethod
-    def _get_block_type(line: str) -> tuple[str, int, bool]:
-        """
-        Determine the type of block starter and its properties.
-        Returns (block_type, indent_change, creates_new_scope)
-        """
-        stripped = line.strip()
-
-        # Handle function definitions
-        if re.match(r"^(async\s+)?def\s+\w+\s*\(", stripped):
-            return ("function", 1, True)
-
-        # Handle class definitions
-        if re.match(r"^class\s+\w+", stripped):
-            return ("class", 1, True)
-
-        # Handle control flow blocks (if/for/while/etc)
-        if re.match(
-            r"^(if|elif|else|for|while|try|except|finally|with|match|case)\b", stripped
-        ):
-            return ("control", 1, True)
-
-        # Handle method chains
-        if stripped.startswith((".", "=", "+", "-", "*", "/", "and ", "or ")):
-            return ("chain", 1, False)
-
-        # Handle parentheses continuations
-        if stripped.startswith(("(", "[", "{")) or line.rstrip().endswith(
-            ("(", "[", "{")
-        ):
-            return ("paren", 1, False)
-
-        # Handle any other block starters
-        if stripped.endswith(":"):
-            return ("block", 1, True)
-
-        # Handle comments
-        if stripped.startswith("#"):
-            return ("comment", 0, False)
-
-        # Handle decorators
-        if stripped.startswith("@"):
-            return ("decorator", 0, False)
-
-        return (None, 0, False)
-
-    @staticmethod
-    def _calculate_scope_indent(block_stack, line: str, base_indent: int) -> int:
-        """Calculate the proper indentation level based on the current scope stack."""
-        indent = base_indent
-
-        # If we're in any kind of scope, add its indentation
-        if block_stack:
-            indent += sum(level for _, level in block_stack)
-
-        # Special handling for continuations and chains
-        stripped = line.strip()
-        if any(
-            stripped.startswith(op)
-            for op in [".", ",", "and ", "or ", "+", "-", "*", "/", "="]
-        ):
-            indent += 4  # Extra indent for continuations
-
-        return indent
-
-    @staticmethod
-    def adjust_indentation(
-        content: str, indent_str: str = "    ", relative_level: int = 0
-    ) -> str:
-        """
-        Adjust indentation while preserving nested code structure.
-        Handles:
-        - Function/class definitions and their bodies
-        - Control structures (if/else, loops, etc)
-        - Method chains and continuations
-        - Comments and blank lines
-        - Multi-line expressions
-        """
-        if not content:
-            return content
-
-        lines = content.splitlines()
-        result = []
-        block_stack = []  # Stack of (block_type, indent_level) tuples
-        base_indent = relative_level * len(indent_str) // 4
-
-        for i, line in enumerate(lines):
-            if not line.strip():
-                result.append("")
-                continue
-
-            stripped = line.strip()
-            current_indent = len(line) - len(line.lstrip())
-
-            # Detect block type and properties
-            block_type, indent_change, creates_scope = (
-                IndentationHelper._get_block_type(line)
-            )
-
-            # Handle dedents - check if we're closing any blocks
-            while block_stack and current_indent <= base_indent * 4 + sum(
-                level * 4 for _, level in block_stack[:-1]
-            ):
-                block_stack.pop()
-
-            # Calculate proper indentation for this line
-            if block_type in ("chain", "paren"):
-                # For method chains and parentheses, indent relative to last block
-                indent = IndentationHelper._calculate_scope_indent(
-                    block_stack, line, base_indent
-                )
-            else:
-                # For normal blocks, use the current scope stack
-                indent = base_indent + sum(level for _, level in block_stack)
-
-            # Add the line with proper indentation
-            result.append(" " * (indent * 4) + stripped)
-
-            # Update block stack for new scopes
-            if creates_scope:
-                block_stack.append((block_type, indent_change))
-
-        result = "\n".join(result)
-        return indent_non_def_lines(result)
-
-    @staticmethod
-    def clean_content(content: str) -> str:
-        """Clean and normalize the indentation of the content."""
-        if not content:
-            return content
-
-        lines = content.splitlines()
-        cleaned_lines = []
-
-        for line in lines:
-            cleaned = line.rstrip()
-            if cleaned:
-                cleaned_lines.append(cleaned)
-            else:
-                cleaned_lines.append("")
-
-        normalized = IndentationHelper.adjust_indentation("\n".join(cleaned_lines))
-        return normalized
-
-    @staticmethod
-    def normalize_indentation(content: str) -> str:
-        """Normalize all indentation while preserving structure."""
-        if not content:
-            return content
-
-        indent_str, _ = IndentationHelper.detect_indentation(content)
-        return IndentationHelper.adjust_indentation(content, indent_str, 0)
-
-
 class GitHubErrorRecovery:
     def __init__(self, api_client, agent_name: str, conversation_name: str = ""):
         self.api_client = api_client
@@ -436,7 +224,6 @@ class github(Extensions):
         else:
             self.gh = None
         self.failures = 0
-        self.indentation_helper = IndentationHelper()
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
             if "conversation_directory" in kwargs
@@ -2034,11 +1821,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     file_content_obj = repo.get_contents(file_path, ref=branch)
                     file_content = file_content_obj.decoded_content.decode("utf-8")
 
-                    # Detect indentation
-                    indent_str, indent_size = (
-                        self.indentation_helper.detect_indentation(file_content)
-                    )
-
                     # Process modifications
                     original_lines = file_content.splitlines()
                     modified_lines = original_lines.copy()
@@ -2070,38 +1852,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             content = self.clean_content(content)
 
                         if operation == "replace" and content:
-                            adjusted_content = (
-                                self.indentation_helper.adjust_indentation(
-                                    content, indent_str, indent_level
-                                )
-                            )
-                            modified_lines[start_line:end_line] = (
-                                adjusted_content.splitlines()
-                            )
-                            # Remove the first tab from the first line
-                            if modified_lines[start_line].startswith("\t"):
-                                modified_lines[start_line] = modified_lines[
-                                    start_line
-                                ].replace("\t", "", 1)
-                            if modified_lines[start_line].startswith(indent_str):
-                                modified_lines[start_line] = modified_lines[
-                                    start_line
-                                ].replace(indent_str, "", 1)
+                            modified_lines[start_line:end_line] = content.splitlines()
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            adjusted_content = (
-                                self.indentation_helper.adjust_indentation(
-                                    content, indent_str, indent_level
-                                )
-                            )
-                            insert_lines = adjusted_content.splitlines()
+                            insert_lines = content.splitlines()
                             if not insert_lines:
                                 insert_lines = [""]
-                            if insert_lines[0].startswith(indent_str):
-                                insert_lines[0] = insert_lines[0].replace(
-                                    indent_str, "", 1
-                                )
                             if insert_lines[0].startswith("\t"):
                                 insert_lines[0] = insert_lines[0].replace("\t", "", 1)
 
@@ -2397,13 +2154,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         if not self.activity_id:
             activity_id = self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
                 conversation_name=self.conversation_name,
             )
         # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix #{issue_number}",
+            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix [#{issue_number}]({repo_url}/issues/{issue_number})",
             conversation_name=self.conversation_name,
         )
 
@@ -2445,28 +2202,30 @@ If multiple modifications are needed, repeat the <modification> block.
 - For replace and insert operations, <content> is required
 - For delete operations, <content> is not required
 - Put your <modification> blocks inside of the <answer> block!
+- Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
+- If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
 
 Example modifications:
 1. Insert after a function:
-   <modification>
-   <file>auth.py</file>
-   <operation>insert</operation>
-   <target>def verify_email_address(self, code: str = None):</target>
-   <content>
-   def verify_mfa(self, token: str):
-       # Verify MFA token
-       pass</content>
-   </modification>
+<modification>
+<file>auth.py</file>
+<operation>insert</operation>
+<target>def verify_email_address(self, code: str = None):</target>
+<content>
+def verify_mfa(self, token: str):
+    # Verify MFA token
+    pass</content>
+</modification>
 
 2. Replace a code block:
-   <modification>
-   <file>auth.py</file>
-   <operation>replace</operation>
-   <target>    def verify_token(self):
-        return True</target>
-   <content>    def verify_token(self):
-        return self.validate_jwt()</content>
-   </modification>""",
+<modification>
+<file>auth.py</file>
+<operation>replace</operation>
+<target>    def verify_token(self):
+    return True</target>
+<content>    def verify_token(self):
+    return self.validate_jwt()</content>
+</modification>""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
@@ -2497,23 +2256,23 @@ Example modifications:
         if not modifications_blocks:
             # No modifications needed
             issue.create_comment(
-                f"No changes needed for issue #{issue_number} based on the model's analysis."
+                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis."
             )
             if activity_id:
                 self.ApiClient.update_conversation_message(
                     agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
                     new_message=f"[ACTIVITY] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
                     conversation_name=self.conversation_name,
                 )
             else:
                 self.ApiClient.update_conversation_message(
                     agent_name=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
-                    new_message=f"[SUBACTIVITY][{self.activity_id}] No changes needed for issue #{issue_number}.",
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
+                    new_message=f"[SUBACTIVITY][{self.activity_id}] No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}).",
                     conversation_name=self.conversation_name,
                 )
-            return f"No changes needed for issue #{issue_number}."
+            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})."
 
         file_mod_map = {}
         for block in modifications_blocks:
@@ -2534,7 +2293,7 @@ Example modifications:
 
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for #{issue_number}.",
+            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for [#{issue_number}]({repo_url}/issues/{issue_number}).",
             conversation_name=self.conversation_name,
         )
 
@@ -2554,7 +2313,7 @@ Example modifications:
                 )
                 self.ApiClient.update_conversation_message(
                     agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
                     new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
                     conversation_name=self.conversation_name,
                 )
@@ -2573,7 +2332,7 @@ Example modifications:
             )
             existing_pr.create_issue_comment(comment_body)
             issue.create_comment(
-                f"Additional changes have been applied to resolve issue #{issue_number}. See PR #{existing_pr.number}."
+                f"Additional changes have been applied to resolve issue [#{issue_number}]({repo_url}/issues/{issue_number}). See [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
             )
 
             self.ApiClient.new_conversation_message(
@@ -2585,7 +2344,7 @@ Example modifications:
                 conversation_name=self.conversation_name,
             )
 
-            return f"Updated existing PR #{existing_pr.number} for issue #{issue_number} with new changes."
+            return f"Updated existing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
         else:
             # No PR exists, create a new one
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
@@ -2603,7 +2362,7 @@ Example modifications:
             if activity_id:
                 self.ApiClient.update_conversation_message(
                     agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
                     new_message=(
                         f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
                         f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
@@ -2613,7 +2372,7 @@ Example modifications:
             else:
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
+                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
                     conversation_name=self.conversation_name,
                 )
             try:
