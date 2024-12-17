@@ -529,6 +529,14 @@ class Interactions:
             # Only process if we haven't seen this tag before
             if tag_identifier not in self._processed_tags:
                 # Log the thinking/reflection content as a subactivity
+                tag_content = re.sub(r"<rate>.*?</rate>", "", tag_content)
+                tag_content = tag_content.replace("</reflection>", "")
+                tag_content = re.sub(r"<execute>.*?</execute>", "", tag_content)
+                tag_content = re.sub(r"<output>.*?</output>", "", tag_content)
+                tag_content = re.sub(r"<count>.*?</count>", "", tag_content)
+                tag_content = tag_content.replace("</thinking>", "")
+                tag_content = tag_content.replace("<step>", "")
+                tag_content = tag_content.replace("</step>", "")
                 log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
 
@@ -537,8 +545,6 @@ class Interactions:
 
             # Keep track of where we processed up to
             last_end = match.end()
-        processed_response = re.sub(r"<rate>.*?</rate>", "", processed_response)
-        processed_response = processed_response.replace("</reflection>", "")
         return processed_response
 
     async def run(
