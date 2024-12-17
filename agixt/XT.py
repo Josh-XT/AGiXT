@@ -1801,7 +1801,9 @@ class AGiXT:
                 if len(thoughts_and_reflections) > 10:
                     # Parse each XML tag in thoughts_and_reflections, iterate over them and add subactivities with the content of the tag
                     # c.get_thinking_id
-                    thinking_id = self.conversation.get_thinking_id()
+                    thinking_id = self.conversation.get_thinking_id(
+                        agent_name=self.agent_name
+                    )
                     for tag in re.findall(r"<[^>]+>", thoughts_and_reflections):
                         tag_content = re.sub(r"<[^>]+>", "", tag)
                         if tag_content:
