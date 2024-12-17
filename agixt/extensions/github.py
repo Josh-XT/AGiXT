@@ -1579,6 +1579,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         # First, check if the target exists at all in the file
         file_content = "\n".join(file_lines)
         target_normalized = target.strip()
+        fuzzy_match = True
 
         # For exact matches
         if not fuzzy_match and target_normalized not in file_content:
