@@ -1996,7 +1996,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if self.activity_id:
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Attempt #{retry_count + 1} to modify {file_path}",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying `{file_path}` in the repository.",
                             conversation_name=self.conversation_name,
                         )
 
