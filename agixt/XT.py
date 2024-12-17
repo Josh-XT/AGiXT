@@ -1821,7 +1821,6 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
-                self.conversation.delete_message("[ACTIVITY] Thinking.")
         try:
             prompt_tokens = get_tokens(new_prompt) + self.input_tokens
             completion_tokens = get_tokens(response)
