@@ -290,6 +290,11 @@ class github(Extensions):
             str: Formatted Python code
         """
         try:
+            # fix_python_indentation automatically formats the code according to PEP 8 style
+            content = fix_python_indentation(content)
+        except Exception as e:
+            logging.warning(f"Failed to format Python code with autopep8: {str(e)}")
+        try:
             mode = black.Mode(
                 target_versions={black.TargetVersion.PY37},
                 line_length=88,
@@ -1921,10 +1926,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if new_content[-1] != "\n":
                         new_content += "\n"  # Ensure file ends with newline
                     if self._is_python_file(file_path):
-                        try:
-                            new_content = fix_python_indentation(new_content)
-                        except Exception as e:
-                            pass
                         new_content = self._format_python_code(new_content)
 
                     if new_content[-1] != "\n":
