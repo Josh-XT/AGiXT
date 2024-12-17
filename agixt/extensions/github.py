@@ -1403,11 +1403,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
-        # First, check if the target exists at all in the file
-        file_content = "\n".join(file_lines)
-        target_normalized = target.strip()
-        # fuzzy_match = True
-
         # Normalize target by stripping whitespace from each line but preserving empty lines
         target_lines = target.split("\n")
         target_normalized = [line.strip() for line in target_lines]
@@ -1417,162 +1412,76 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         if operation == "insert" and re.match(
             r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_first_line
         ):
-            function_matches = []
-            for i in range(len(file_lines)):
-                current_line = file_lines[i].strip()
-                if current_line == target_first_line:
-                    function_matches.append(i)
-
-            if not function_matches:
-                similar_functions = []
-                target_func_name = re.search(
-                    r"(?:def|class)\s+(\w+)", target_first_line
-                )
-                if target_func_name:
-                    func_name = target_func_name.group(1)
-                    for line in file_lines:
-                        if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
-                            other_func = re.search(
-                                r"(?:def|class)\s+(\w+)", line.strip()
-                            )
-                            if other_func:
-                                other_name = other_func.group(1)
-                                if (
-                                    difflib.SequenceMatcher(
-                                        None, func_name, other_name
-                                    ).ratio()
-                                    > 0.6
-                                ):
-                                    similar_functions.append(line.strip())
-
-                error_msg = [
-                    f"Function/class definition not found: {target_first_line}",
-                    "",
-                    "Did you mean one of these?",
-                    *[f"- {func}" for func in similar_functions],
-                    "",
-                    "Please use an existing function/class definition as the target.",
-                ]
-                raise ValueError("\n".join(error_msg))
-
-            # Find function scope including docstring and body
-            i = function_matches[0]
-            # Get the actual indentation of the target function/class
-            target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-            current_line = i
-
-            # Skip past docstring if present
-            if current_line + 1 < len(file_lines):
-                next_line = file_lines[current_line + 1].strip()
-                if next_line.startswith('"""') or next_line.startswith("'''"):
-                    in_docstring = True
-                    current_line += 1
-                    while current_line + 1 < len(file_lines):
-                        current_line += 1
-                        if (
-                            '"""' in file_lines[current_line]
-                            or "'''" in file_lines[current_line]
-                        ):
-                            break
-
-            # Find the end of the function/class scope
-            while current_line + 1 < len(file_lines):
-                next_line = file_lines[current_line + 1]
-                if not next_line.strip():
-                    current_line += 1
-                    continue
-                next_indent = len(next_line) - len(next_line.lstrip())
-                if next_indent <= target_indent:
-                    break
-                current_line += 1
-
-            # Find the insert point after any trailing blank lines
-            insert_point = current_line + 1
-            while (
-                insert_point < len(file_lines) and not file_lines[insert_point].strip()
-            ):
-                insert_point += 1
-
-            # For top-level definitions, return the same indentation level as the target
-            return insert_point, insert_point, target_indent
+            return self._handle_insertion_point(file_lines, target_first_line)
 
         # For replace/delete operations
         best_matches = []
-        for i in range(len(file_lines)):
-            if i + len(target_lines) <= len(file_lines):
-                segment = file_lines[i : i + len(target_lines)]
-                segment_normalized = [line.strip() for line in segment]
+        current_match = []
+        current_score = 0
 
-                # Calculate match score
-                match_score = difflib.SequenceMatcher(
-                    None, "\n".join(target_normalized), "\n".join(segment_normalized)
+        for i in range(len(file_lines)):
+            # Reset match tracking for each potential starting point
+            current_match = []
+            matched_lines = 0
+            total_lines = len(target_normalized)
+
+            for j in range(len(target_normalized)):
+                if i + j >= len(file_lines):
+                    break
+
+                file_line = file_lines[i + j].strip()
+                target_line = target_normalized[j]
+
+                # Calculate line similarity using difflib
+                similarity = difflib.SequenceMatcher(
+                    None, file_line, target_line
                 ).ratio()
 
+                # Adjust thresholds based on line content
+                threshold = 0.8 if fuzzy_match else 1.0
+                if target_line.strip():  # Non-empty lines
+                    if similarity >= threshold:
+                        matched_lines += 1
+                        current_match.append(file_lines[i + j])
+                else:  # Empty lines
+                    matched_lines += 1
+                    current_match.append(file_lines[i + j])
+
+            # Calculate overall match score
+            if total_lines > 0:
+                match_score = matched_lines / total_lines
                 if match_score > 0:
+                    # Get indentation of first line
                     indent = (
-                        len(segment[0]) - len(segment[0].lstrip()) if segment else 0
+                        len(file_lines[i]) - len(file_lines[i].lstrip())
+                        if file_lines[i]
+                        else 0
                     )
-                    # For function definitions, include docstring and function body
-                    if target_first_line.strip().startswith(("def ", "class ")):
-                        current_line = i
-                        # Skip past docstring if present
-                        if current_line + 1 < len(file_lines):
-                            next_line = file_lines[current_line + 1].strip()
-                            if next_line.startswith('"""') or next_line.startswith(
-                                "'''"
-                            ):
-                                while current_line + 1 < len(file_lines):
-                                    current_line += 1
-                                    if (
-                                        '"""' in file_lines[current_line]
-                                        or "'''" in file_lines[current_line]
-                                    ):
-                                        break
-                        # Find function body
-                        while current_line + 1 < len(file_lines):
-                            next_line = file_lines[current_line + 1]
-                            if not next_line.strip():
-                                current_line += 1
-                                continue
-                            next_indent = len(next_line) - len(next_line.lstrip())
-                            if next_indent <= indent:
-                                break
-                            current_line += 1
-                        segment = file_lines[i : current_line + 1]
 
                     best_matches.append(
                         {
                             "start_line": i,
                             "score": match_score,
-                            "segment": segment,
+                            "segment": current_match,
                             "indent": indent,
                         }
                     )
 
         if not best_matches:
-            raise ValueError(
-                f"No matching code blocks found for target:\n{target}\n\n"
-                "Please ensure the target code exists in the file."
-            )
+            # Provide detailed error message with available functions
+            error_msg = self._generate_error_message(file_lines, target_first_line)
+            raise ValueError(error_msg)
 
-        # Sort by match score
-        best_matches.sort(key=lambda x: x["score"], reverse=True)
+        # Sort by match score and line count similarity
+        best_matches.sort(
+            key=lambda x: (
+                x["score"],
+                -abs(len(x["segment"]) - len(target_normalized)),
+            ),
+            reverse=True,
+        )
+
         best_match = best_matches[0]
-
-        # For non-fuzzy matches, require exact match
-        if not fuzzy_match and best_match["score"] < 1.0:
-            error_msg = [
-                f"No exact match found for target. Best match (score: {best_match['score']:.2f}):",
-                "",
-                "Target:",
-                target,
-                "",
-                "Best matching segment found:",
-                "\n".join(best_match["segment"]),
-                "",
-                "Please ensure the target exactly matches the existing code.",
-            ]
-            raise ValueError("\n".join(error_msg))
 
         # For fuzzy matches, require minimum threshold
         threshold = 0.7 if fuzzy_match else 1.0
@@ -1595,6 +1504,59 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             best_match["start_line"] + len(best_match["segment"]),
             best_match["indent"] // 4,  # Assuming 4-space indentation
         )
+
+    def _handle_insertion_point(
+        self, file_lines: List[str], target_first_line: str
+    ) -> tuple[int, int, int]:
+        """Handle finding insertion points for new code blocks."""
+        function_matches = []
+        for i in range(len(file_lines)):
+            current_line = file_lines[i].strip()
+            if current_line == target_first_line:
+                function_matches.append(i)
+
+        if not function_matches:
+            similar_functions = []
+            target_func_name = re.search(r"(?:def|class)\s+(\w+)", target_first_line)
+            if target_func_name:
+                func_name = target_func_name.group(1)
+                for line in file_lines:
+                    if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
+                        other_func = re.search(r"(?:def|class)\s+(\w+)", line.strip())
+                        if other_func:
+                            other_name = other_func.group(1)
+                            if (
+                                difflib.SequenceMatcher(
+                                    None, func_name, other_name
+                                ).ratio()
+                                > 0.6
+                            ):
+                                similar_functions.append(line.strip())
+
+            error_msg = [
+                f"Function/class definition not found: {target_first_line}",
+                "",
+                "Did you mean one of these?",
+                *[f"- {func}" for func in similar_functions],
+                "",
+                "Please use an existing function/class definition as the target.",
+            ]
+            raise ValueError("\n".join(error_msg))
+
+        # Find the end of the function scope
+        i = function_matches[0]
+        target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+        while i + 1 < len(file_lines):
+            next_line = file_lines[i + 1]
+            if not next_line.strip():
+                i += 1
+                continue
+            next_indent = len(next_line) - len(next_line.lstrip())
+            if next_indent <= target_indent:
+                break
+            i += 1
+
+        return i + 1, i + 1, target_indent // 4
 
     def _parse_modification_block(self, modification_block: str) -> dict:
         """Parse a single modification block into its components.
