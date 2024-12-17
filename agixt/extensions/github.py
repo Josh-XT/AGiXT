@@ -20,14 +20,7 @@ except ImportError:
 
     subprocess.check_call([sys.executable, "-m", "pip", "install", "black"])
     import black
-try:
-    import autopep8
-except ImportError:
-    import sys
-    import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "autopep8"])
-    import autopep8
 try:
     import git
 except ImportError:
@@ -103,8 +96,8 @@ class GitHubErrorRecovery:
         # Extract the useful parts of the error message
         error_context = self._parse_error_message(error_msg)
 
-        # If we received an empty error context or hit retry limit, don't retry
-        if not error_context or retry_count >= 2:
+        # If we received an empty error context or hit retry limit, raise an error
+        if not error_context:
             raise ValueError(
                 f"[Attempt #{retry_count + 1}] Unable to process modifications: {error_msg}"
             )
@@ -113,7 +106,7 @@ class GitHubErrorRecovery:
         if self._is_valid_modification_format(original_modifications):
             raise ValueError(f"Invalid modification result: {error_msg}")
 
-        # Construct the retry prompt
+        # Construct the retry prompt with improved context
         retry_prompt = f"""Retry attempt #{retry_count + 1}. The previous modification attempt failed. Here's what I found:
 
 {error_context}
@@ -138,30 +131,35 @@ Please provide the modifications in the same XML format:
 Original intended changes were:
 {original_modifications}"""
 
-        # Get new modifications from the model
-        new_modifications = self.api_client.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": retry_prompt,
-                "log_user_input": False,
-                "disable_commands": True,
-                "log_output": False,
-                "browse_links": False,
-                "websearch": False,
-                "analyze_user_input": False,
-                "tts": False,
-                "conversation_name": self.conversation_name,
-            },
-        )
-
-        if activity_id:
-            self.api_client.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] Retrying modification with corrected targets",
-                conversation_name=self.conversation_name,
+        try:
+            # Get new modifications from the model with a timeout
+            new_modifications = self.api_client.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": retry_prompt,
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
             )
-        return new_modifications
+
+            if activity_id:
+                self.api_client.new_conversation_message(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{activity_id}] Retrying modification with corrected targets",
+                    conversation_name=self.conversation_name,
+                )
+            return new_modifications
+
+        except Exception as e:
+            # If prompt fails, raise a clear error
+            raise ValueError(f"Failed to generate new modifications: {str(e)}")
 
     def _parse_error_message(self, error_msg: str) -> str:
         """
@@ -182,24 +180,8 @@ Original intended changes were:
         """
         Check if the modifications string is already in the correct XML format.
         """
-        required_tags = ["<modification>", "<operation>", "<target>"]
+        required_tags = ["<modification>", "<file>", "<operation>", "<target>"]
         return all(tag in modifications for tag in required_tags)
-
-
-def fix_python_indentation(code_str: str) -> str:
-    """
-    Take a Python code string and return a version formatted according to PEP 8 standards,
-    including corrected indentation, using autopep8.
-    """
-    # autopep8.fix_code automatically formats the code according to PEP 8 style
-    fixed_code = autopep8.fix_code(
-        code_str,
-        options={
-            "aggressive": 2,  # Increase the level of aggression (1 or 2)
-            "max_line_length": 88,  # You can adjust this if you have specific requirements
-        },
-    )
-    return fixed_code
 
 
 class github(Extensions):
@@ -267,6 +249,102 @@ class github(Extensions):
         )
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
 
+    async def _process_modifications(
+        self,
+        modifications_xml: str,
+        repo_url: str,
+        repo,
+        issue,
+        issue_number: str,
+        issue_branch: str,
+        base_branch: str,
+        issue_title: str,
+    ) -> str:
+        """Helper method to process modifications and create/update pull requests."""
+        # Parse modifications by file
+        modifications_blocks = re.findall(
+            r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
+        )
+
+        if not modifications_blocks:
+            issue.create_comment(
+                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis."
+            )
+            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})."
+
+        # Process each modification
+        for block in modifications_blocks:
+            file_path = self._extract_file_path(block)
+            result = await self.modify_file_content(
+                repo_url=repo_url,
+                file_path=file_path,
+                modification_commands=f"<modification>{block}</modification>",
+                branch=issue_branch,
+            )
+
+            if "Error:" in result:
+                raise ValueError(f"Failed to apply changes to {file_path}: {result}")
+
+        # Handle pull request creation/update
+        return await self._handle_pull_request(
+            repo,
+            repo_url,
+            issue,
+            issue_number,
+            issue_branch,
+            base_branch,
+            issue_title,
+            modifications_xml,
+        )
+
+    def _extract_file_path(self, modification_block: str) -> str:
+        """Extract and validate file path from modification block."""
+        file_match = re.search(r"<file>(.*?)</file>", modification_block, re.DOTALL)
+        if not file_match:
+            raise ValueError("No <file> tag found in modification block.")
+
+        file_path = file_match.group(1).strip()
+        if file_path.startswith(self.repo_name):
+            file_path = file_path[len(self.repo_name) + 1 :]
+        return file_path
+
+    async def _handle_pull_request(
+        self,
+        repo,
+        repo_url: str,
+        issue,
+        issue_number: str,
+        issue_branch: str,
+        base_branch: str,
+        issue_title: str,
+        modifications_xml: str,
+    ) -> str:
+        """Handle pull request creation or updates."""
+        open_pulls = repo.get_pulls(
+            state="open", head=f"{repo.owner.login}:{issue_branch}"
+        )
+
+        if open_pulls.totalCount > 0:
+            return await self._update_existing_pull_request(
+                open_pulls[0],
+                repo_url,
+                issue,
+                issue_number,
+                issue_branch,
+                modifications_xml,
+            )
+        else:
+            return await self._create_new_pull_request(
+                repo,
+                repo_url,
+                issue,
+                issue_number,
+                issue_branch,
+                base_branch,
+                issue_title,
+                modifications_xml,
+            )
+
     def _is_python_file(self, file_path: str) -> bool:
         """
         Check if a file is a Python file based on its extension.
@@ -289,11 +367,6 @@ class github(Extensions):
         Returns:
             str: Formatted Python code
         """
-        try:
-            # fix_python_indentation automatically formats the code according to PEP 8 style
-            content = fix_python_indentation(content)
-        except Exception as e:
-            logging.warning(f"Failed to format Python code with autopep8: {str(e)}")
         try:
             mode = black.Mode(
                 target_versions={black.TargetVersion.PY37},
@@ -2310,30 +2383,67 @@ def verify_mfa(self, token: str):
                 file_mod_map[file_path] = []
             file_mod_map[file_path].append(single_mod_xml)
 
-        # Apply modifications file by file
+        # Initialize error recovery handler
+        error_recovery = GitHubErrorRecovery(
+            api_client=self.ApiClient,
+            agent_name=self.agent_name,
+            conversation_name=self.conversation_name,
+        )
+
+        # Apply modifications file by file with retry logic
         for file_path, mods in file_mod_map.items():
             combined_mods = "".join(mods)
-            result = await self.modify_file_content(
-                repo_url=repo_url,
-                file_path=file_path,
-                modification_commands=combined_mods,
-                branch=issue_branch,
-            )
-            if "Error:" in result:
-                # If something went wrong, comment on the issue and exit
-                issue.create_comment(
-                    f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
-                )
+            retry_count = 0
+            max_retries = 3
+            last_error = None
+
+            while retry_count < max_retries:
                 try:
-                    self.ApiClient.update_conversation_message(
-                        agent_name=self.agent_name,
-                        message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                        new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                        conversation_name=self.conversation_name,
+                    result = await self.modify_file_content(
+                        repo_url=repo_url,
+                        file_path=file_path,
+                        modification_commands=combined_mods,
+                        branch=issue_branch,
                     )
-                except:
-                    pass
-                return f"Error applying modifications: {result}"
+                    if "Error:" in result:
+                        raise ValueError(result.replace("Error: ", ""))
+                    # If successful, break the retry loop
+                    break
+                except Exception as e:
+                    last_error = str(e)
+                    retry_count += 1
+
+                    if retry_count >= max_retries:
+                        # Final attempt failed, comment on issue and exit
+                        error_msg = f"Failed to apply changes to `{file_path}` for issue #{issue_number} after {max_retries} attempts. Error: {last_error}"
+                        issue.create_comment(error_msg)
+                        try:
+                            self.ApiClient.update_conversation_message(
+                                agent_name=self.agent_name,
+                                message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
+                                new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                                conversation_name=self.conversation_name,
+                            )
+                        except:
+                            pass
+                        return f"Error applying modifications: {error_msg}"
+
+                    try:
+                        # Attempt recovery and get new modifications
+                        new_mods = await error_recovery.retry_with_context(
+                            error_msg=last_error,
+                            repo_url=repo_url,
+                            file_path=file_path,
+                            original_modifications=combined_mods,
+                            activity_id=self.activity_id,
+                            retry_count=retry_count,
+                        )
+                        combined_mods = new_mods
+                    except Exception as recovery_error:
+                        # If recovery fails, raise the original error
+                        raise ValueError(
+                            f"Error recovery failed: {str(recovery_error)}"
+                        )
 
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
