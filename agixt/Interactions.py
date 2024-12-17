@@ -537,7 +537,8 @@ class Interactions:
 
             # Keep track of where we processed up to
             last_end = match.end()
-
+        processed_response = re.sub(r"<rate>.*?</rate>", "", processed_response)
+        processed_response = processed_response.replace("</reflection>", "")
         return processed_response
 
     async def run(
