@@ -1996,7 +1996,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if self.activity_id:
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying `{file_path}` in the repository.",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying `{file_path}` on branch `{branch}`.",
                             conversation_name=self.conversation_name,
                         )
 
@@ -2478,13 +2478,6 @@ Example modifications:
                 "conversation_name": self.conversation_name,
             },
         )
-        self.ApiClient.update_conversation_message(
-            agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix #{issue_number}",
-            new_message=f"[SUBACTIVITY][{self.activity_id}] Analyzed code to fix #{issue_number}",
-            conversation_name=self.conversation_name,
-        )
-
         base_branch = repo.default_branch
         issue_branch = f"issue-{issue_number}"
 
@@ -2566,13 +2559,6 @@ Example modifications:
                     conversation_name=self.conversation_name,
                 )
                 return f"Error applying modifications: {result}"
-
-        self.ApiClient.update_conversation_message(
-            agent_name=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for #{issue_number}.",
-            new_message=f"[SUBACTIVITY][{self.activity_id}] Applied modifications for #{issue_number}.",
-            conversation_name=self.conversation_name,
-        )
 
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
