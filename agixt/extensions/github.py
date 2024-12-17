@@ -1408,30 +1408,16 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         file_content = "\n".join(file_lines)
         target_normalized = target.strip()
         fuzzy_match = True
-        # For exact matches
-        if not fuzzy_match and target_normalized not in file_content:
-            available_functions = []
-            for i, line in enumerate(file_lines):
-                if re.match(r"^(\s*)(async\s+)?def\s+\w+\s*\(", line):
-                    available_functions.append(line.strip())
-
-            error_msg = [
-                f"Target not found in file: {target_normalized}",
-                "",
-                "Available function definitions:",
-                *[f"- {func}" for func in available_functions],
-                "",
-                "Please use one of the existing functions as the target.",
-            ]
-            raise ValueError("\n".join(error_msg))
 
         # Normalize target by stripping whitespace from each line but preserving empty lines
         target_lines = target.split("\n")
         target_normalized = [line.strip() for line in target_lines]
         target_first_line = next((line for line in target_normalized if line), "")
 
-        # Special handling for insertions after function/class definitions
-        if operation == "insert" and target_first_line.startswith(("def ", "class ")):
+        # Special handling for insertions after top-level definitions
+        if operation == "insert" and re.match(
+            r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_first_line
+        ):
             function_matches = []
             for i in range(len(file_lines)):
                 current_line = file_lines[i].strip()
@@ -1440,14 +1426,18 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             if not function_matches:
                 similar_functions = []
-                target_func_name = re.search(r"(def|class)\s+(\w+)", target_first_line)
+                target_func_name = re.search(
+                    r"(?:def|class)\s+(\w+)", target_first_line
+                )
                 if target_func_name:
-                    func_name = target_func_name.group(2)
+                    func_name = target_func_name.group(1)
                     for line in file_lines:
                         if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
-                            other_func = re.search(r"(def|class)\s+(\w+)", line.strip())
+                            other_func = re.search(
+                                r"(?:def|class)\s+(\w+)", line.strip()
+                            )
                             if other_func:
-                                other_name = other_func.group(2)
+                                other_name = other_func.group(1)
                                 if (
                                     difflib.SequenceMatcher(
                                         None, func_name, other_name
@@ -1468,7 +1458,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
             # Find function scope including docstring and body
             i = function_matches[0]
-            original_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+            # Get the actual indentation of the target function/class
+            target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
             current_line = i
 
             # Skip past docstring if present
@@ -1492,7 +1483,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     current_line += 1
                     continue
                 next_indent = len(next_line) - len(next_line.lstrip())
-                if next_indent <= original_indent:
+                if next_indent <= target_indent:
                     break
                 current_line += 1
 
@@ -1503,9 +1494,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             ):
                 insert_point += 1
 
-            # Calculate indent level for the insertion
-            base_indent = original_indent // 4
-            return insert_point, insert_point, base_indent
+            # For top-level definitions, return the same indentation level as the target
+            return insert_point, insert_point, target_indent
 
         # For replace/delete operations
         best_matches = []
