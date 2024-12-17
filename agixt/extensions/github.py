@@ -1395,36 +1395,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def _normalize_code_block(self, code_block: str) -> str:
-        """Normalize a code block by cleaning whitespace while preserving structure."""
-        lines = code_block.splitlines()
-        # Remove empty leading/trailing lines
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        while lines and not lines[-1].strip():
-            lines.pop()
-
-        if not lines:
-            return ""
-
-        # Find the base indentation level
-        base_indent = float("inf")
-        for line in lines:
-            if line.strip():  # Only check non-empty lines
-                indent = len(line) - len(line.lstrip())
-                base_indent = min(base_indent, indent)
-
-        # Remove common indentation but preserve relative structure
-        if base_indent < float("inf"):
-            normalized_lines = []
-            for line in lines:
-                if line.strip():
-                    normalized_lines.append(line[base_indent:])
-                else:
-                    normalized_lines.append("")
-            return "\n".join(normalized_lines)
-        return "\n".join(lines)
-
     def _find_pattern_boundaries(
         self,
         file_lines: List[str],
@@ -1433,178 +1403,106 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
+        # Normalize target by stripping whitespace from each line but preserving empty lines
+        target_lines = target.split("\n")
+        target_normalized = [line.strip() for line in target_lines]
+        target_first_line = next((line for line in target_normalized if line), "")
+
         # Special handling for insertions after top-level definitions
         if operation == "insert" and re.match(
-            r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target.strip()
+            r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_first_line
         ):
-            function_matches = []
-            target_first_line = target.strip().split("\n")[0]
+            return self._handle_insertion_point(file_lines, target_first_line)
 
-            # Find all matching function definitions
-            for i in range(len(file_lines)):
-                current_line = file_lines[i].strip()
-                if current_line == target_first_line:
-                    function_matches.append(i)
+        # For replace/delete operations
+        best_matches = []
+        current_match = []
+        current_score = 0
 
-            if not function_matches:
-                similar_functions = []
-                target_func_name = re.search(
-                    r"(?:def|class)\s+(\w+)", target_first_line
-                )
-                if target_func_name:
-                    func_name = target_func_name.group(1)
-                    for line in file_lines:
-                        if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
-                            other_func = re.search(
-                                r"(?:def|class)\s+(\w+)", line.strip()
-                            )
-                            if other_func:
-                                other_name = other_func.group(1)
-                                if (
-                                    difflib.SequenceMatcher(
-                                        None, func_name, other_name
-                                    ).ratio()
-                                    > 0.6
-                                ):
-                                    similar_functions.append(line.strip())
-
-                error_msg = [
-                    f"Function/class definition not found: {target_first_line}",
-                    "",
-                    "Did you mean one of these?",
-                    *[f"- {func}" for func in similar_functions],
-                    "",
-                    "Please use an existing function/class definition as the target.",
-                ]
-                raise ValueError("\n".join(error_msg))
-
-            # Find the end of the function scope
-            i = function_matches[0]
-            target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-
-            # Skip past docstring if present
-            if i + 1 < len(file_lines):
-                next_line = file_lines[i + 1].strip()
-                if next_line.startswith('"""') or next_line.startswith("'''"):
-                    i += 1
-                    while i + 1 < len(file_lines):
-                        i += 1
-                        if '"""' in file_lines[i] or "'''" in file_lines[i]:
-                            break
-
-            # Find the end of the function body
-            while i + 1 < len(file_lines):
-                next_line = file_lines[i + 1]
-                if not next_line.strip():
-                    i += 1
-                    continue
-                next_indent = len(next_line) - len(next_line.lstrip())
-                if next_indent <= target_indent:
-                    break
-                i += 1
-
-            # Return the insertion point and preserve indentation
-            return i + 1, i + 1, target_indent // 4
-
-        # Normal matching logic for replace/delete operations
-        logging.debug(f"Searching for target:\n{target}")
-
-        # Split target into lines and normalize
-        target_lines = target.split("\n")
-        target_lines = [line.rstrip() for line in target_lines]
-
-        # Remove empty lines at start and end of target
-        while target_lines and not target_lines[0].strip():
-            target_lines.pop(0)
-        while target_lines and not target_lines[-1].strip():
-            target_lines.pop()
-
-        if not target_lines:
-            raise ValueError("Empty target after normalization")
-
-        # Find all potential matches
-        matches = []
         for i in range(len(file_lines)):
+            # Reset match tracking for each potential starting point
             current_match = []
-            score = 0
             matched_lines = 0
+            total_lines = len(target_normalized)
 
-            for j, target_line in enumerate(target_lines):
+            for j in range(len(target_normalized)):
                 if i + j >= len(file_lines):
                     break
 
-                file_line = file_lines[i + j].rstrip()
-                target_line = target_line.rstrip()
+                file_line = file_lines[i + j].strip()
+                target_line = target_normalized[j]
 
-                # Skip empty lines in score calculation but include them in match
-                if not target_line.strip() and not file_line.strip():
-                    current_match.append(file_lines[i + j])
-                    continue
+                # Calculate line similarity using difflib
+                similarity = difflib.SequenceMatcher(
+                    None, file_line, target_line
+                ).ratio()
 
-                # Calculate similarity for non-empty lines
-                if target_line.strip() or file_line.strip():
-                    similarity = difflib.SequenceMatcher(
-                        None, target_line, file_line
-                    ).ratio()
-                    if similarity > 0.6:
+                # Adjust thresholds based on line content
+                threshold = 0.8 if fuzzy_match else 1.0
+                if target_line.strip():  # Non-empty lines
+                    if similarity >= threshold:
                         matched_lines += 1
-                        score += similarity
+                        current_match.append(file_lines[i + j])
+                else:  # Empty lines
+                    matched_lines += 1
                     current_match.append(file_lines[i + j])
 
-            if matched_lines:
-                avg_score = score / matched_lines if matched_lines > 0 else 0
-                if avg_score > 0.3:
-                    indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-                    matches.append(
+            # Calculate overall match score
+            if total_lines > 0:
+                match_score = matched_lines / total_lines
+                if match_score > 0:
+                    # Get indentation of first line
+                    indent = (
+                        len(file_lines[i]) - len(file_lines[i].lstrip())
+                        if file_lines[i]
+                        else 0
+                    )
+
+                    best_matches.append(
                         {
                             "start_line": i,
-                            "end_line": i + len(current_match),
-                            "score": avg_score,
+                            "score": match_score,
+                            "segment": current_match,
                             "indent": indent,
-                            "lines": current_match,
                         }
                     )
 
-        if not matches:
-            error_msg = [
-                "No matching code blocks found for target:",
-                "Target code:",
-                *[f"{i+1:3d} | {line}" for i, line in enumerate(target_lines)],
-                "",
-                "First few lines of file:",
-                *[f"{i+1:3d} | {line}" for i, line in enumerate(file_lines[:10])],
-                "...",
-            ]
-            raise ValueError("\n".join(error_msg))
+        if not best_matches:
+            # Provide detailed error message with available functions
+            error_msg = self._generate_error_message(file_lines, target_first_line)
+            raise ValueError(error_msg)
 
-        # Sort matches by score
-        matches.sort(key=lambda x: x["score"], reverse=True)
-        best_match = matches[0]
+        # Sort by match score and line count similarity
+        best_matches.sort(
+            key=lambda x: (
+                x["score"],
+                -abs(len(x["segment"]) - len(target_normalized)),
+            ),
+            reverse=True,
+        )
 
-        # More permissive threshold for fuzzy matches
-        threshold = 0.8 if not fuzzy_match else 0.3
+        best_match = best_matches[0]
+
+        # For fuzzy matches, require minimum threshold
+        threshold = 0.5 if fuzzy_match else 1.0
         if best_match["score"] < threshold:
             error_msg = [
                 f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
                 "",
                 "Target:",
-                *target_lines,
+                target,
                 "",
                 "Best matching segment found:",
-                *best_match["lines"],
+                "\n".join(best_match["segment"]),
                 "",
-                "Available similar segments:",
-                *[
-                    f"\nScore {m['score']:.2f}:\n" + "\n".join(m["lines"])
-                    for m in matches[:3]
-                ],
+                "Please provide a more accurate target.",
             ]
             raise ValueError("\n".join(error_msg))
 
         return (
             best_match["start_line"],
-            best_match["end_line"],
-            best_match["indent"] // 4,
+            best_match["start_line"] + len(best_match["segment"]),
+            best_match["indent"] // 4,  # Assuming 4-space indentation
         )
 
     def _handle_insertion_point(
@@ -1898,8 +1796,8 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     file_content = file_content_obj.decoded_content.decode("utf-8")
 
                     # Process modifications
-                    original_lines = file_content.splitlines()
-                    modified_lines = original_lines.copy()
+                    original_content = file_content
+                    modified_content = file_content
                     has_changes = False
 
                     for mod in parsed_mods:
@@ -1913,10 +1811,13 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 f"Content is required for {operation} operation"
                             )
 
+                        # Split content into lines while preserving empty lines
+                        modified_lines = modified_content.splitlines(keepends=True)
+
                         # Find target location
                         start_line, end_line, indent_level = (
                             self._find_pattern_boundaries(
-                                modified_lines,
+                                [line.rstrip("\n") for line in modified_lines],
                                 target,
                                 fuzzy_match=fuzzy_match,
                                 operation=operation,
@@ -1927,51 +1828,63 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         if content:
                             content = self.clean_content(content)
 
+                        new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            modified_lines[start_line:end_line] = content.splitlines()
+                            # Ensure content ends with newline if the replaced content did
+                            content_lines = content.splitlines(keepends=True)
+                            if modified_lines[end_line - 1].endswith("\n"):
+                                if not content_lines[-1].endswith("\n"):
+                                    content_lines[-1] += "\n"
+                            new_lines[start_line:end_line] = content_lines
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            insert_lines = content.splitlines()
+                            insert_lines = content.splitlines(keepends=True)
                             if not insert_lines:
-                                insert_lines = [""]
+                                insert_lines = ["\n"]
 
-                            # Add indentation to all non-empty lines in the content
+                            # Add indentation to all non-empty lines
                             if indent_level > 0:
-                                spaces = " " * indent_level
+                                indent = " " * (4 * indent_level)
                                 insert_lines = [
-                                    spaces + line if line.strip() else line
+                                    f"{indent}{line}" if line.strip() else line
                                     for line in insert_lines
                                 ]
+
+                            # Ensure proper line endings
+                            if not insert_lines[-1].endswith("\n"):
+                                insert_lines[-1] += "\n"
 
                             # Handle spacing around insertion
                             if (
                                 start_line > 0
                                 and modified_lines[start_line - 1].strip()
                             ):
-                                insert_lines.insert(0, "")
+                                insert_lines.insert(0, "\n")
                             if (
                                 start_line < len(modified_lines)
                                 and modified_lines[start_line].strip()
                             ):
-                                insert_lines.append("")
+                                insert_lines.append("\n")
 
                             # Insert the new lines
-                            for i, line in enumerate(insert_lines):
-                                modified_lines.insert(start_line + i, line)
+                            new_lines[start_line:start_line] = insert_lines
                             has_changes = True
+
                         elif operation == "delete":
-                            del modified_lines[start_line:end_line]
+                            del new_lines[start_line:end_line]
                             has_changes = True
+
+                        modified_content = "".join(new_lines)
 
                     if not has_changes:
                         return "No changes needed"
 
-                    # Generate diff
+                    # Generate diff from the original content to modified content
                     diff = list(
                         difflib.unified_diff(
-                            original_lines,
-                            modified_lines,
+                            original_content.splitlines(),
+                            modified_content.splitlines(),
                             fromfile=file_path,
                             tofile=file_path,
                             lineterm="",
@@ -1979,35 +1892,23 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         )
                     )
 
-                    # Apply changes
-                    new_content = "\n".join(modified_lines)
-                    if new_content[-1] != "\n":
-                        new_content += "\n"  # Ensure file ends with newline
+                    # Format Python files
                     if self._is_python_file(file_path):
-                        new_content = self._format_python_code(new_content)
+                        modified_content = self._format_python_code(modified_content)
 
-                    if new_content[-1] != "\n":
-                        new_content += "\n"  # Ensure file ends with newline
+                    # Ensure final newline
+                    if not modified_content.endswith("\n"):
+                        modified_content += "\n"
 
-                    # Generate the final diff after formatting
-                    final_diff = list(
-                        difflib.unified_diff(
-                            original_lines,
-                            new_content.splitlines(),
-                            fromfile=file_path,
-                            tofile=file_path,
-                            lineterm="",
-                            n=3,
-                        )
-                    )
                     commit_message = f"Modified {file_path}"
                     repo.update_file(
                         file_path,
                         commit_message,
-                        new_content,
+                        modified_content,
                         file_content_obj.sha,
                         branch=branch,
                     )
+
                     return "\n".join(diff)
 
                 except Exception as e:
@@ -2015,7 +1916,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     errors.append(f"Attempt #{retry_count + 1}: {error_msg}")
 
                     if retry_count >= max_retries - 1:
-                        # Final attempt failed
                         error_history = "\n\nError history:\n" + "\n".join(errors)
                         raise ValueError(
                             f"Failed to apply modifications after {max_retries} attempts. {error_history}"
@@ -2036,7 +1936,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             retry_count=retry_count - 1,
                         )
                     except ValueError as ve:
-                        # If error recovery fails, include all attempts in the error message
                         error_history = "\n\nError history:\n" + "\n".join(errors)
                         raise ValueError(
                             f"Error recovery failed: {str(ve)}{error_history}"
