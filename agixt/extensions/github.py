@@ -397,7 +397,10 @@ class github(Extensions):
         Returns:
         str: The code contents of the repository in markdown format
         """
-        repo_name = repo_url.split("/")[-1]
+        if "/tree/" in repo_url:
+            repo_name = repo_url.split("/")[-2]
+        else:
+            repo_name = repo_url.split("/")[-1]
         await self.clone_repo(repo_url)
         output_file = os.path.join(self.WORKING_DIRECTORY, f"{repo_name}.md")
         python_files = []
@@ -2160,21 +2163,24 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         str: A message indicating the result of the operation
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
-        repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-
+        repo = self.gh.get_repo(f"{repo_org}/{repo_name}")
+        base_branch = repo.default_branch
+        issue_branch = f"issue-{issue_number}"
+        # Ensure the issue branch exists
+        try:
+            repo.get_branch(issue_branch)
+        except Exception:
+            # Branch doesn't exist, so create it from base_branch
+            source_branch = repo.get_branch(base_branch)
+            repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
+        repo_content = await self.get_repo_code_contents(
+            repo_url=f"{repo_url}/tree/{issue_branch}"
+        )
         # Ensure issue_number is numeric
         issue_number = "".join(filter(str.isdigit, issue_number))
         issue = repo.get_issue(int(issue_number))
         issue_title = issue.title
         issue_body = issue.body
-        activity_id = None
-        if not self.activity_id:
-            activity_id = self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                conversation_name=self.conversation_name,
-            )
         # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
@@ -2255,16 +2261,6 @@ def verify_mfa(self, token: str):
                 "conversation_name": self.conversation_name,
             },
         )
-        base_branch = repo.default_branch
-        issue_branch = f"issue-{issue_number}"
-
-        # Ensure the issue branch exists
-        try:
-            repo.get_branch(issue_branch)
-        except Exception:
-            # Branch doesn't exist, so create it from base_branch
-            source_branch = repo.get_branch(base_branch)
-            repo.create_git_ref(f"refs/heads/{issue_branch}", source_branch.commit.sha)
 
         # Parse modifications by file
         modifications_blocks = re.findall(
