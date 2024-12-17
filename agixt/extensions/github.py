@@ -153,7 +153,7 @@ class IndentationHelper:
 
         lines = content.splitlines()
         adjusted_lines = []
-        current_indent = relative_level
+        indent_stack = [relative_level]
 
         # Get the base indentation level from the first non-empty line
         base_indent = None
@@ -165,44 +165,57 @@ class IndentationHelper:
         if base_indent is None:
             base_indent = 0
 
-        # Process each line
-        for i, line in enumerate(lines):
-            stripped_line = line.strip()
-            if not stripped_line:
-                adjusted_lines.append("")
-                continue
-
-            # Calculate the current line's relative indentation
-            current_line_indent = len(line) - len(line.lstrip())
-            relative_indent = (
-                current_line_indent - base_indent if base_indent >= 0 else 0
+        def is_block_start(line: str) -> bool:
+            """Check if line starts a new block"""
+            return line.strip().endswith(":") or line.strip().startswith(
+                ("if ", "else:", "elif ", "except ", "finally:", "try:", "with ")
             )
 
-            # Adjust indentation level based on context
-            if i > 0:
-                prev_line = lines[i - 1].strip()
-                # Increase indent after lines ending with :
-                if prev_line.endswith(":"):
-                    current_indent += 1
-                # Detect dedent based on current line's actual indentation compared to previous
-                elif current_line_indent < len(lines[i - 1]) - len(
-                    lines[i - 1].lstrip()
-                ):
-                    # Find the matching indentation level
-                    while (
-                        current_indent > relative_level
-                        and current_line_indent
-                        < base_indent + (current_indent * len(indent_str))
-                    ):
-                        current_indent -= 1
+        def is_block_end(current_indent: int, next_line: str) -> bool:
+            """Check if next line indicates end of current block"""
+            if not next_line.strip():
+                return False
+            next_indent = len(next_line) - len(next_line.lstrip())
+            return next_indent <= current_indent
 
-            # Special handling for else/elif/except/finally
-            if stripped_line.startswith(("else:", "elif ", "except", "finally:")):
-                current_indent = max(relative_level, current_indent - 1)
+        # Process each line
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped_line = line.strip()
 
-            # Apply the calculated indentation
-            final_indent = max(0, current_indent) * len(indent_str)
-            adjusted_lines.append(" " * final_indent + stripped_line)
+            if not stripped_line:
+                adjusted_lines.append("")
+                i += 1
+                continue
+
+            # Calculate current line's indentation
+            current_indent = len(line) - len(line.lstrip())
+
+            # Handle block starts
+            if is_block_start(line):
+                # Add current indentation level to stack
+                new_level = len(indent_stack[-1] * indent_str)
+                indent_stack.append(indent_stack[-1] + 1)
+
+                # Apply current indentation
+                adjusted_lines.append(indent_str * indent_stack[-2] + stripped_line)
+
+                i += 1
+                continue
+
+            # Handle dedents
+            while (
+                len(indent_stack) > 1
+                and i + 1 < len(lines)
+                and is_block_end(current_indent, lines[i])
+            ):
+                indent_stack.pop()
+
+            # Apply indentation from stack
+            adjusted_lines.append(indent_str * indent_stack[-1] + stripped_line)
+
+            i += 1
 
         return "\n".join(adjusted_lines)
 
@@ -212,62 +225,11 @@ class IndentationHelper:
         if not content:
             return content
 
-        lines = content.splitlines()
-        if not lines:
-            return content
-
-        # Find base indentation from non-empty lines
-        base_indent = None
-        for line in lines:
-            if line.strip():
-                current_indent = len(line) - len(line.lstrip())
-                if base_indent is None or current_indent < base_indent:
-                    base_indent = current_indent
-
-        if base_indent is None:
-            return content
-
         # Use detect_indentation to get the proper indent string
         indent_str, _ = IndentationHelper.detect_indentation(content)
 
-        # Normalize the indentation
-        normalized = []
-        current_indent = 0
-
-        for i, line in enumerate(lines):
-            if not line.strip():
-                normalized.append("")
-                continue
-
-            # Calculate relative indentation
-            current_line_indent = len(line) - len(line.lstrip())
-            if i > 0 and lines[i - 1].rstrip().endswith(":"):
-                current_indent += 1
-            elif current_line_indent < len(lines[i - 1]) - len(lines[i - 1].lstrip()):
-                while current_indent > 0 and current_line_indent < base_indent + (
-                    current_indent * len(indent_str)
-                ):
-                    current_indent -= 1
-
-            # Handle else/elif/except/finally
-            if line.strip().startswith(("else:", "elif ", "except", "finally:")):
-                current_indent = max(0, current_indent - 1)
-
-            # Apply normalized indentation
-            normalized.append(indent_str * current_indent + line.lstrip())
-
-        return "\n".join(normalized)
-
-    @staticmethod
-    def is_block_starter(line: str, lang: str) -> bool:
-        """Check if the line starts a new block based on language patterns."""
-        patterns = IndentationHelper.LANG_PATTERNS.get(lang, {})
-        line = line.strip()
-
-        for pattern in patterns.values():
-            if re.search(pattern, line):
-                return True
-        return False
+        # Use adjust_indentation with relative_level=0 to normalize
+        return IndentationHelper.adjust_indentation(content, indent_str, 0)
 
 
 class GitHubErrorRecovery:
