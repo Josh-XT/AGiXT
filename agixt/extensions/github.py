@@ -1433,94 +1433,110 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
-        # Pre-process the target and file content
-        target = self._normalize_code_block(target)
-        target_lines = target.splitlines()
+        # Debug logging
+        logging.debug(f"Searching for target:\n{target}")
+        logging.debug(f"In file lines:\n{chr(10).join(file_lines)}")
+
+        # Split target into lines and normalize
+        target_lines = target.split("\n")
+        target_lines = [line.rstrip() for line in target_lines]
+
+        # Remove empty lines at start and end of target
+        while target_lines and not target_lines[0].strip():
+            target_lines.pop(0)
+        while target_lines and not target_lines[-1].strip():
+            target_lines.pop()
 
         if not target_lines:
-            raise ValueError("Empty target provided")
+            raise ValueError("Empty target after normalization")
 
-        # Build line groups from file content, preserving structure
-        file_groups = []
-        i = 0
-        while i < len(file_lines):
-            # Find blocks with matching indentation
-            current_line = file_lines[i].rstrip()
-            if not current_line.strip():
-                i += 1
-                continue
+        # Find all potential matches
+        matches = []
+        for i in range(len(file_lines)):
+            # Try to match starting from each line
+            current_match = []
+            score = 0
+            matched_lines = 0
 
-            current_indent = len(current_line) - len(current_line.lstrip())
-            block_lines = [current_line]
+            # Look at a window of lines the same size as target
+            for j, target_line in enumerate(target_lines):
+                if i + j >= len(file_lines):
+                    break
 
-            j = i + 1
-            while j < len(file_lines):
-                next_line = file_lines[j].rstrip()
-                if not next_line.strip():
-                    block_lines.append(next_line)
-                    j += 1
+                file_line = file_lines[i + j].rstrip()
+                target_line = target_line.rstrip()
+
+                # Skip empty lines in score calculation but include them in match
+                if not target_line.strip() and not file_line.strip():
+                    current_match.append(file_lines[i + j])
                     continue
 
-                next_indent = len(next_line) - len(next_line.lstrip())
-                if next_indent < current_indent:
-                    break
-                block_lines.append(next_line)
-                j += 1
+                # Calculate similarity for non-empty lines
+                if target_line.strip() or file_line.strip():
+                    similarity = difflib.SequenceMatcher(
+                        None, target_line, file_line
+                    ).ratio()
+                    if similarity > 0.6:  # More permissive similarity threshold
+                        matched_lines += 1
+                        score += similarity
+                    current_match.append(file_lines[i + j])
 
-            normalized_block = self._normalize_code_block("\n".join(block_lines))
-            file_groups.append(
-                {
-                    "start": i,
-                    "end": j,
-                    "content": normalized_block,
-                    "indent": current_indent,
-                }
-            )
-            i = j
+            if matched_lines:
+                avg_score = score / matched_lines if matched_lines > 0 else 0
+                if avg_score > 0.3:  # More permissive overall threshold
+                    indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+                    matches.append(
+                        {
+                            "start_line": i,
+                            "end_line": i + len(current_match),
+                            "score": avg_score,
+                            "indent": indent,
+                            "lines": current_match,
+                        }
+                    )
 
-        # Find best matching block
-        best_match = None
-        best_score = 0
+        if not matches:
+            # Provide detailed debug information
+            error_msg = [
+                "No matching code blocks found for target:",
+                "Target code:",
+                *[f"{i+1:3d} | {line}" for i, line in enumerate(target_lines)],
+                "",
+                "First few lines of file:",
+                *[f"{i+1:3d} | {line}" for i, line in enumerate(file_lines[:10])],
+                "...",
+            ]
+            raise ValueError("\n".join(error_msg))
 
-        for group in file_groups:
-            # For exact matches
-            if not fuzzy_match and group["content"] == target:
-                return group["start"], group["end"], group["indent"] // 4
+        # Sort matches by score
+        matches.sort(key=lambda x: x["score"], reverse=True)
+        best_match = matches[0]
 
-            # For fuzzy matches
-            score = difflib.SequenceMatcher(None, group["content"], target).ratio()
+        # More permissive threshold for fuzzy matches
+        threshold = 0.8 if not fuzzy_match else 0.3
+        if best_match["score"] < threshold:
+            error_msg = [
+                f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
+                "",
+                "Target:",
+                *target_lines,
+                "",
+                "Best matching segment found:",
+                *best_match["lines"],
+                "",
+                "Available similar segments:",
+                *[
+                    f"\nScore {m['score']:.2f}:\n" + "\n".join(m["lines"])
+                    for m in matches[:3]
+                ],
+            ]
+            raise ValueError("\n".join(error_msg))
 
-            # Additional scoring factors
-            if score > 0.5:  # Only consider reasonably close matches
-                # Consider structure similarity
-                target_structure = [line.strip()[:10] for line in target_lines]
-                group_structure = [
-                    line.strip()[:10] for line in group["content"].splitlines()
-                ]
-                structure_score = difflib.SequenceMatcher(
-                    None, "\n".join(target_structure), "\n".join(group_structure)
-                ).ratio()
-
-                # Weighted score
-                final_score = (score * 0.7) + (structure_score * 0.3)
-
-                if final_score > best_score:
-                    best_score = final_score
-                    best_match = group
-
-        if not best_match:
-            raise ValueError(f"No matching code block found for target:\n{target}")
-
-        # For fuzzy matches, require minimum threshold
-        threshold = 0.5 if fuzzy_match else 1.0
-        if best_score < threshold:
-            raise ValueError(
-                f"Best match score ({best_score:.2f}) below threshold ({threshold})\n"
-                f"Target:\n{target}\n\n"
-                f"Best matching segment:\n{best_match['content']}"
-            )
-
-        return (best_match["start"], best_match["end"], best_match["indent"] // 4)
+        return (
+            best_match["start_line"],
+            best_match["end_line"],
+            best_match["indent"] // 4,  # Assuming 4-space indentation
+        )
 
     def _handle_insertion_point(
         self, file_lines: List[str], target_first_line: str
