@@ -538,10 +538,17 @@ class Interactions:
                 tag_content = re.sub(r"<rate>.*?</rate>", "", tag_content)
                 tag_content = re.sub(r"<reward>.*?</reward>", "", tag_content)
                 tag_content = re.sub(r"<count>.*?</count>", "", tag_content)
+                tag_content = tag_content.replace("\n\\n", "\n")
                 tag_content = tag_content.replace("</reflection>", "")
                 tag_content = tag_content.replace("</thinking>", "")
                 tag_content = tag_content.replace("<step>", "")
                 tag_content = tag_content.replace("</step>", "")
+                tag_content = tag_content.replace(
+                    "<modification>", "```xml\n<modification>"
+                )
+                tag_content = tag_content.replace(
+                    "</modification>", "</modification>\n```"
+                )
 
                 # Clean up any remaining execute/output related content
                 tag_content = re.sub(
