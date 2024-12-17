@@ -98,46 +98,72 @@ class IndentationHelper:
         """Detect whether spaces or tabs are used and how many."""
         if IndentationHelper.detect_language(content) == "python":
             return ("    ", 4)
-
         return ("    ", 4)
 
     @staticmethod
-    def _get_block_type(line: str) -> tuple[str, int]:
+    def _get_block_type(line: str) -> tuple[str, int, bool]:
         """
-        Determine the type of block starter and its continuation depth.
-        Returns (block_type, continuation_depth)
+        Determine the type of block starter and its properties.
+        Returns (block_type, indent_change, creates_new_scope)
         """
         stripped = line.strip()
 
-        # Handle continuations from previous line
-        if stripped.startswith(
-            ("and ", "or ", "in ", "+", "-", "*", "/", "=", ".", ",")
-        ):
-            return ("continuation", 2)
-
-        # Check for function definitions
+        # Handle function definitions
         if re.match(r"^(async\s+)?def\s+\w+\s*\(", stripped):
-            return ("function", 1)
+            return ("function", 1, True)
 
-        # Check for class definitions
+        # Handle class definitions
         if re.match(r"^class\s+\w+", stripped):
-            return ("class", 1)
+            return ("class", 1, True)
 
-        # Check for control flow blocks
+        # Handle control flow blocks (if/for/while/etc)
         if re.match(
             r"^(if|elif|else|for|while|try|except|finally|with|match|case)\b", stripped
         ):
-            return ("control", 1)
+            return ("control", 1, True)
 
-        # Check for any other block starters
+        # Handle method chains
+        if stripped.startswith((".", "=", "+", "-", "*", "/", "and ", "or ")):
+            return ("chain", 1, False)
+
+        # Handle parentheses continuations
+        if stripped.startswith(("(", "[", "{")) or line.rstrip().endswith(
+            ("(", "[", "{")
+        ):
+            return ("paren", 1, False)
+
+        # Handle any other block starters
         if stripped.endswith(":"):
-            return ("block", 1)
+            return ("block", 1, True)
+
+        # Handle comments
+        if stripped.startswith("#"):
+            return ("comment", 0, False)
 
         # Handle decorators
         if stripped.startswith("@"):
-            return ("decorator", 0)
+            return ("decorator", 0, False)
 
-        return (None, 0)
+        return (None, 0, False)
+
+    @staticmethod
+    def _calculate_scope_indent(block_stack, line: str, base_indent: int) -> int:
+        """Calculate the proper indentation level based on the current scope stack."""
+        indent = base_indent
+
+        # If we're in any kind of scope, add its indentation
+        if block_stack:
+            indent += sum(level for _, level in block_stack)
+
+        # Special handling for continuations and chains
+        stripped = line.strip()
+        if any(
+            stripped.startswith(op)
+            for op in [".", ",", "and ", "or ", "+", "-", "*", "/", "="]
+        ):
+            indent += 4  # Extra indent for continuations
+
+        return indent
 
     @staticmethod
     def adjust_indentation(
@@ -145,23 +171,20 @@ class IndentationHelper:
     ) -> str:
         """
         Adjust indentation while preserving nested code structure.
-        Now properly handles:
-        - Function and class definitions with their bodies
-        - Nested control structures (if/else, loops, etc)
-        - Line continuations
-        - Decorators
+        Handles:
+        - Function/class definitions and their bodies
+        - Control structures (if/else, loops, etc)
+        - Method chains and continuations
+        - Comments and blank lines
+        - Multi-line expressions
         """
         if not content:
             return content
 
         lines = content.splitlines()
         result = []
-        indent_stack = [
-            (relative_level * len(indent_str), None)
-        ]  # (indent_level, block_type)
-        continuation_indent = 0
-        in_multiline_string = False
-        string_quote = None
+        block_stack = []  # Stack of (block_type, indent_level) tuples
+        base_indent = relative_level * len(indent_str) // 4
 
         for i, line in enumerate(lines):
             if not line.strip():
@@ -169,60 +192,35 @@ class IndentationHelper:
                 continue
 
             stripped = line.strip()
-            original_indent = len(line) - len(line.lstrip())
+            current_indent = len(line) - len(line.lstrip())
 
-            # Handle multiline strings
-            if not in_multiline_string:
-                if (
-                    ('"""' in stripped or "'''" in stripped)
-                    and stripped.count('"""') % 2 == 1
-                    or stripped.count("'''") % 2 == 1
-                ):
-                    in_multiline_string = True
-                    string_quote = '"""' if '"""' in stripped else "'''"
-            else:
-                if string_quote in stripped:
-                    in_multiline_string = False
-                result.append(" " * indent_stack[-1][0] + stripped)
-                continue
+            # Detect block type and properties
+            block_type, indent_change, creates_scope = (
+                IndentationHelper._get_block_type(line)
+            )
 
-            # Check for dedents
-            while len(indent_stack) > 1 and original_indent <= indent_stack[-1][0]:
-                indent_stack.pop()
+            # Handle dedents - check if we're closing any blocks
+            while block_stack and current_indent <= base_indent * 4 + sum(
+                level * 4 for _, level in block_stack[:-1]
+            ):
+                block_stack.pop()
 
-            # Get current base indentation from stack
-            current_indent = indent_stack[-1][0]
-
-            # Determine block type and additional indentation needed
-            block_type, cont_depth = IndentationHelper._get_block_type(line)
-
-            # Handle different block types
-            if block_type == "continuation":
-                # Use continuation indent from previous line
-                result.append(
-                    " " * (current_indent + len(indent_str) * cont_depth) + stripped
+            # Calculate proper indentation for this line
+            if block_type in ("chain", "paren"):
+                # For method chains and parentheses, indent relative to last block
+                indent = IndentationHelper._calculate_scope_indent(
+                    block_stack, line, base_indent
                 )
-            elif block_type in ("function", "class"):
-                # For function/class definitions, use current indent
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), block_type))
-            elif block_type == "control":
-                # For control structures, use current indent
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), block_type))
-            elif block_type == "block":
-                result.append(" " * current_indent + stripped)
-                indent_stack.append((current_indent + len(indent_str), block_type))
-            elif block_type == "decorator":
-                # Decorators align with their function/class
-                result.append(" " * current_indent + stripped)
             else:
-                # Handle normal lines within blocks
-                if i > 0 and lines[i - 1].strip().endswith(("(", ",")):
-                    # Line continuation from previous line
-                    result.append(" " * (current_indent + len(indent_str)) + stripped)
-                else:
-                    result.append(" " * current_indent + stripped)
+                # For normal blocks, use the current scope stack
+                indent = base_indent + sum(level for _, level in block_stack)
+
+            # Add the line with proper indentation
+            result.append(" " * (indent * 4) + stripped)
+
+            # Update block stack for new scopes
+            if creates_scope:
+                block_stack.append((block_type, indent_change))
 
         return "\n".join(result)
 
@@ -232,7 +230,6 @@ class IndentationHelper:
         if not content:
             return content
 
-        # Split and clean lines
         lines = content.splitlines()
         cleaned_lines = []
 
@@ -243,7 +240,6 @@ class IndentationHelper:
             else:
                 cleaned_lines.append("")
 
-        # Normalize indentation
         normalized = IndentationHelper.adjust_indentation("\n".join(cleaned_lines))
         return normalized
 
