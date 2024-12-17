@@ -103,7 +103,6 @@ class IndentationHelper:
         if not lines:
             return ("    ", 4)
 
-        # Find the first indented line
         for i in range(1, len(lines)):
             current_line = lines[i]
             if not current_line.strip():
@@ -128,31 +127,46 @@ class IndentationHelper:
         lines = content.splitlines()
         result = []
 
-        # Stack to keep track of indentation contexts
-        # Each entry is a tuple of (indent_level, block_type)
-        # block_type can be 'if', 'else', 'try', 'except', etc.
-        indent_stack = [(relative_level, "root")]
+        # Find the base indentation level from the first def/class line
+        base_indent_level = 0
+        for line in lines:
+            if line.strip().startswith(("def ", "class ")):
+                base_indent_level = len(line) - len(line.lstrip())
+                break
+
+        # Convert base_indent_level to number of indent units
+        base_units = base_indent_level // len(indent_str)
+        if base_units == 0:
+            base_units = relative_level
+
+        # Stack to track indentation levels and block types
+        # Each entry is (indent_units, block_type, parent_if_level)
+        indent_stack = [(base_units, "root", None)]
 
         def get_line_indent(line: str) -> int:
             return len(line) - len(line.lstrip())
 
-        def get_block_type(line: str) -> str:
+        def get_block_type(line: str) -> tuple[str, bool]:
             stripped = line.strip()
+            starts_block = stripped.endswith(":")
+
             if stripped.startswith("if "):
-                return "if"
+                return "if", starts_block
             elif stripped.startswith("elif "):
-                return "elif"
+                return "elif", starts_block
             elif stripped == "else:":
-                return "else"
+                return "else", starts_block
             elif stripped.startswith("except"):
-                return "except"
+                return "except", starts_block
             elif stripped == "finally:":
-                return "finally"
+                return "finally", starts_block
             elif stripped == "try:":
-                return "try"
-            elif stripped.endswith(":"):
-                return "block"
-            return "statement"
+                return "try", starts_block
+            elif stripped.startswith("def "):
+                return "def", starts_block
+            elif stripped.startswith("class "):
+                return "class", starts_block
+            return "statement", starts_block
 
         for i, line in enumerate(lines):
             stripped_line = line.strip()
@@ -160,39 +174,46 @@ class IndentationHelper:
                 result.append("")
                 continue
 
-            current_indent = get_line_indent(line)
-            block_type = get_block_type(stripped_line)
+            # Get block type and if it starts a new block
+            block_type, starts_block = get_block_type(stripped_line)
 
-            # Handle dedents
-            while len(indent_stack) > 1 and (
-                current_indent < len(indent_stack[-1][0] * indent_str)
-                or block_type in ("elif", "else", "except", "finally")
-            ):
-                if block_type in ("elif", "else", "except", "finally"):
-                    # Look for matching parent block
-                    parent_level = None
-                    for j in range(len(indent_stack) - 1, -1, -1):
-                        if indent_stack[j][1] in ("if", "try", "block"):
-                            parent_level = indent_stack[j][0]
-                            indent_stack = indent_stack[:j]
-                            break
-                    if parent_level is not None:
-                        indent_stack.append((parent_level, block_type))
-                    break
-                indent_stack.pop()
+            # Handle dedents and block continuations
+            if block_type in ("elif", "else", "except", "finally"):
+                # Find matching parent block
+                for j in range(len(indent_stack) - 1, -1, -1):
+                    if indent_stack[j][1] in ("if", "try"):
+                        parent_level = indent_stack[j][0]
+                        indent_stack = indent_stack[: j + 1]
+                        break
+            else:
+                # Normal dedent based on actual indentation
+                current_indent = get_line_indent(line)
+                while len(indent_stack) > 1:
+                    if (
+                        current_indent
+                        > len(indent_stack[-1][0] * indent_str) + base_indent_level
+                    ):
+                        break
+                    indent_stack.pop()
 
-            # Calculate current indentation level
-            if not indent_stack:
-                indent_stack.append((relative_level, "root"))
-
+            # Get current indentation level
             current_level = indent_stack[-1][0]
 
             # Add the line with proper indentation
-            result.append(indent_str * current_level + stripped_line)
+            if block_type == "def":
+                # Keep original indentation for function definitions
+                result.append(indent_str * base_units + stripped_line)
+            else:
+                result.append(indent_str * current_level + stripped_line)
 
-            # Push new block onto stack if needed
-            if stripped_line.endswith(":"):
-                indent_stack.append((current_level + 1, block_type))
+            # Handle new blocks
+            if starts_block and block_type != "def":
+                if block_type in ("elif", "else", "except", "finally"):
+                    # Use the parent's level + 1 for the new block's content
+                    indent_stack.append((current_level + 1, block_type, current_level))
+                else:
+                    # Normal new block
+                    indent_stack.append((current_level + 1, block_type, None))
 
         return "\n".join(result)
 
