@@ -999,7 +999,7 @@ class github(Extensions):
                 action = "Created"
 
             self.failures = 0
-            return f"{action} file '{file_path}' in GitHub Repository at {repo_url} on branch '{branch}'"
+            return f"{action} file '{file_path}' in GitHub Repository at {repo_url} on branch [{branch}]({repo_url}/tree/{branch})"
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
@@ -1360,7 +1360,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         return f"Error copying file {file_content.path}: {str(e)}"
 
             self.failures = 0
-            return f"Successfully copied {files_copied} files from {source_repo_url} to {destination_repo_url} on branch '{branch}'"
+            return f"Successfully copied {files_copied} files from {source_repo_url} to {destination_repo_url} on branch [{branch}]({destination_repo_url}/tree/{branch})"
 
         except RateLimitExceededException:
             if self.failures < 3:
@@ -1783,7 +1783,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if self.activity_id:
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying `{file_path}` on branch `{branch}`.",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying [{file_path}]({repo_url}/blob/{branch}/{file_path}) on branch [{branch}]({repo_url}/tree/{branch}).",
                             conversation_name=self.conversation_name,
                         )
 
