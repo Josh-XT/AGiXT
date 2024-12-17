@@ -176,11 +176,6 @@ class IndentationHelper:
 
             # Handle normal lines within blocks
             result.append(" " * current_indent + stripped)
-        for i, line in enumerate(result):
-            if re.match(r"^\s+def\s+\w+\s*\(", line) or re.match(
-                r"^\s+async\s+def\s+\w+\s*\(", line
-            ):
-                result[i] = "    " + line
         return "\n".join(result)
 
     @staticmethod
