@@ -66,93 +66,163 @@ class FileModification:
 
 
 class IndentationHelper:
+    # Language-specific patterns remain the same
+    LANG_PATTERNS = {
+        "python": {
+            "function_start": r"^(async\s+)?def\s+\w+\s*\([^)]*\)\s*:",
+            "class_start": r"^class\s+\w+[(\s:]",
+            "block_start": r":\s*$",
+            "block_continue": r"^(elif|else|except|finally)\s*:",
+            "comment": r"^\s*#",
+        },
+    }
+
     @staticmethod
     def detect_language(content: str) -> str:
-        return "python"
+        """Attempt to detect the programming language from the content."""
+        indicators = {
+            "python": len(re.findall(r"def\s+\w+|async\s+def\s+\w+|:\s*$", content)),
+        }
+
+        if ".py" in content.lower():
+            indicators["python"] += 5
+
+        return (
+            "python"
+            if not any(indicators.values())
+            else max(indicators.items(), key=lambda x: x[1])[0]
+        )
 
     @staticmethod
     def detect_indentation(content: str) -> tuple[str, int]:
+        """Detect whether spaces or tabs are used and how many."""
+        if IndentationHelper.detect_language(content) == "python":
+            return ("    ", 4)
+
+        lines = [line for line in content.splitlines() if line.strip()]
+        if not lines:
+            return ("    ", 4)
+
+        for i in range(1, len(lines)):
+            current_line = lines[i]
+            if not current_line.strip():
+                continue
+
+            current_indent = len(current_line) - len(current_line.lstrip())
+            if current_indent > 0:
+                if current_line.lstrip().startswith("\t"):
+                    return ("\t", 1)
+                return (" " * current_indent, current_indent)
+
         return ("    ", 4)
 
     @staticmethod
     def adjust_indentation(
         content: str, indent_str: str, relative_level: int = 0
     ) -> str:
+        """Adjust the indentation of code content while preserving its structure."""
         if not content:
             return content
 
         lines = content.splitlines()
         result = []
-        indent_stack = []  # Stack of (level, type) tuples
 
-        def get_indent_level(line: str) -> int:
+        # Find the base indentation level from the first def/class line
+        base_indent_level = 0
+        for line in lines:
+            if line.strip().startswith(("def ", "class ")):
+                base_indent_level = len(line) - len(line.lstrip())
+                break
+
+        # Convert base_indent_level to number of indent units
+        base_units = base_indent_level // len(indent_str)
+        if base_units == 0:
+            base_units = relative_level
+
+        # Stack to track indentation levels and block types
+        # Each entry is (indent_units, block_type, parent_if_level)
+        indent_stack = [(base_units, "root", None)]
+
+        def get_line_indent(line: str) -> int:
             return len(line) - len(line.lstrip())
 
-        def is_def_line(line: str) -> bool:
-            return line.strip().startswith(("def ", "async def "))
+        def get_block_type(line: str) -> tuple[str, bool]:
+            stripped = line.strip()
+            starts_block = stripped.endswith(":")
 
-        def is_control_start(line: str) -> bool:
-            s = line.strip()
-            return s.endswith(":") and not s.startswith(
-                ("else:", "elif ", "except:", "finally:")
-            )
-
-        def is_control_else(line: str) -> bool:
-            s = line.strip()
-            return s.startswith(("else:", "elif ", "except:", "finally:"))
-
-        current_function_level = None
+            if stripped.startswith("if "):
+                return "if", starts_block
+            elif stripped.startswith("elif "):
+                return "elif", starts_block
+            elif stripped == "else:":
+                return "else", starts_block
+            elif stripped.startswith("except"):
+                return "except", starts_block
+            elif stripped == "finally:":
+                return "finally", starts_block
+            elif stripped == "try:":
+                return "try", starts_block
+            elif stripped.startswith("def "):
+                return "def", starts_block
+            elif stripped.startswith("class "):
+                return "class", starts_block
+            return "statement", starts_block
 
         for i, line in enumerate(lines):
-            if not line.strip():
+            stripped_line = line.strip()
+            if not stripped_line:
                 result.append("")
                 continue
 
-            stripped = line.strip()
-            current_indent = get_indent_level(line)
+            # Get block type and if it starts a new block
+            block_type, starts_block = get_block_type(stripped_line)
 
-            # Handle function definitions
-            if is_def_line(line):
-                current_function_level = relative_level
-                indent_stack = [(relative_level, "def")]
-                result.append(indent_str * relative_level + stripped)
-                continue
-
-            # Pop stack until we find matching indent
-            while indent_stack and current_indent <= get_indent_level(result[-1]):
-                if is_control_else(line) and len(indent_stack) > 1:
-                    # Keep parent block for else/elif
-                    indent_stack = indent_stack[:-1]
-                    break
-                indent_stack.pop()
-
-            # Calculate indent level
-            if not indent_stack:
-                # Outside any block, use relative_level
-                current_level = relative_level
-            elif is_control_else(line):
-                # else/elif align with their parent if
-                current_level = indent_stack[-1][0]
+            # Handle dedents and block continuations
+            if block_type in ("elif", "else", "except", "finally"):
+                # Find matching parent block
+                for j in range(len(indent_stack) - 1, -1, -1):
+                    if indent_stack[j][1] in ("if", "try"):
+                        parent_level = indent_stack[j][0]
+                        indent_stack = indent_stack[: j + 1]
+                        break
             else:
-                # Inside a block, indent one level from parent
-                parent_level = (
-                    current_function_level
-                    if current_function_level is not None
-                    else relative_level
-                )
-                current_level = max(parent_level + 1, indent_stack[-1][0])
+                # Normal dedent based on actual indentation
+                current_indent = get_line_indent(line)
+                while len(indent_stack) > 1:
+                    if (
+                        current_indent
+                        > len(indent_stack[-1][0] * indent_str) + base_indent_level
+                    ):
+                        break
+                    indent_stack.pop()
 
-            # Add line with calculated indent
-            result.append(indent_str * current_level + stripped)
+            # Get current indentation level
+            current_level = indent_stack[-1][0]
 
-            # Push new block onto stack
-            if is_control_start(line):
-                indent_stack.append((current_level + 1, "control"))
+            # Add the line with proper indentation
+            if block_type == "def":
+                # Keep original indentation for function definitions
+                result.append(indent_str * base_units + stripped_line)
+            else:
+                result.append(indent_str * current_level + stripped_line)
+
+            # Handle new blocks
+            if starts_block and block_type != "def":
+                if block_type in ("elif", "else", "except", "finally"):
+                    # Use the parent's level + 1 for the new block's content
+                    indent_stack.append((current_level + 1, block_type, current_level))
+                else:
+                    # Normal new block
+                    indent_stack.append((current_level + 1, block_type, None))
 
         return "\n".join(result)
 
     @staticmethod
     def normalize_indentation(content: str) -> str:
+        """Normalize all indentation while preserving structure."""
+        if not content:
+            return content
+
         indent_str, _ = IndentationHelper.detect_indentation(content)
         return IndentationHelper.adjust_indentation(content, indent_str, 0)
 
@@ -548,7 +618,6 @@ class github(Extensions):
             content = markdown_file.read()
 
         content = content.replace("<|endoftext|>", "")
-        content = content.replace(self.WORKING_DIRECTORY, "")
         return content
 
     async def get_repo_issues(self, repo_url: str) -> str:
