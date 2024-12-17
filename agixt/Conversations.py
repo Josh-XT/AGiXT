@@ -372,6 +372,7 @@ class Conversations:
             .filter(Message.conversation_id == conversation.id)
             .filter(Message.content.like("[ACTIVITY]%"))
             .filter(Message.content != "[ACTIVITY] Thinking.")
+            .filter(Message.content.notlike("[SUBACTIVITY]%"))
             .order_by(Message.timestamp.desc())
             .first()
         )
