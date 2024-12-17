@@ -21,6 +21,14 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "black"])
     import black
 try:
+    import autopep8
+except ImportError:
+    import sys
+    import subprocess
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "autopep8"])
+    import autopep8
+try:
     import git
 except ImportError:
     import sys
@@ -176,6 +184,22 @@ Original intended changes were:
         """
         required_tags = ["<modification>", "<operation>", "<target>"]
         return all(tag in modifications for tag in required_tags)
+
+
+def fix_python_indentation(code_str: str) -> str:
+    """
+    Take a Python code string and return a version formatted according to PEP 8 standards,
+    including corrected indentation, using autopep8.
+    """
+    # autopep8.fix_code automatically formats the code according to PEP 8 style
+    fixed_code = autopep8.fix_code(
+        code_str,
+        options={
+            "aggressive": 2,  # Increase the level of aggression (1 or 2)
+            "max_line_length": 88,  # You can adjust this if you have specific requirements
+        },
+    )
+    return fixed_code
 
 
 class github(Extensions):
@@ -1244,12 +1268,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # We'll confirm that and use that branch.
             issue_branch = f"issue-{issue_number}"
 
-            # Apply modifications
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Applying modifications for #{issue_number}.",
-                conversation_name=self.conversation_name,
-            )
             # Since no file_path is directly known, we rely on modify_file_content to parse the target code blocks.
             # If the modification blocks reference code that can be found, it will work.
             # If the model includes file paths in the target, you can adjust modify_file_content or prompt strategy accordingly.
@@ -1903,6 +1921,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if new_content[-1] != "\n":
                         new_content += "\n"  # Ensure file ends with newline
                     if self._is_python_file(file_path):
+                        try:
+                            new_content = fix_python_indentation(new_content)
+                        except Exception as e:
+                            pass
                         new_content = self._format_python_code(new_content)
 
                     if new_content[-1] != "\n":
@@ -2290,12 +2312,6 @@ def verify_mfa(self, token: str):
             if file_path not in file_mod_map:
                 file_mod_map[file_path] = []
             file_mod_map[file_path].append(single_mod_xml)
-
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications for [#{issue_number}]({repo_url}/issues/{issue_number}).",
-            conversation_name=self.conversation_name,
-        )
 
         # Apply modifications file by file
         for file_path, mods in file_mod_map.items():
