@@ -148,7 +148,7 @@ class IndentationHelper:
                 base_indent = get_indent_level(line)
                 break
         if base_indent != 0:
-            base_indent = base_indent + 1
+            base_indent = base_indent + len(indent_str)
         for i, line in enumerate(lines):
             if not line.strip():
                 result.append("")
