@@ -123,9 +123,8 @@ class IndentationHelper:
 
         lines = content.splitlines()
         result = []
-        indent_stack = [
-            (relative_level * len(indent_str), None)
-        ]  # Stack of (indent_level, block_type) tuples
+        # Stack tracks (indent_level, block_type)
+        indent_stack = [(relative_level * len(indent_str), None)]
 
         def get_line_indent(line: str) -> int:
             """Get the indentation level of a line."""
@@ -143,38 +142,43 @@ class IndentationHelper:
             while len(indent_stack) > 1 and original_indent <= indent_stack[-1][0]:
                 indent_stack.pop()
 
-            # Determine base indentation from stack
+            # Get current indent level from stack
             current_indent = indent_stack[-1][0]
 
             # Handle special cases
             block_type = IndentationHelper._get_block_type(line)
 
             if block_type:
-                # For function/class definitions, don't indent the definition line
                 if block_type in ("function", "class"):
+                    # Function/class definitions align with parent
                     result.append(" " * current_indent + stripped)
+                    # Their bodies get an extra indent
                     indent_stack.append((current_indent + len(indent_str), block_type))
                 else:
-                    # For other blocks (if/else/try/etc), maintain current indent
+                    # Control blocks (if/for/etc) get indented relative to their parent
                     result.append(" " * current_indent + stripped)
                     indent_stack.append((current_indent + len(indent_str), block_type))
                 continue
 
-            # Handle line continuations and special alignments
+            # Handle line continuations and special cases
             if i > 0 and (
                 stripped.startswith(("and ", "or ", "+", "-", "*", "/", "=", "."))
-                or lines[i - 1].strip().endswith(("(", ","))
-                or stripped.startswith(("elif ", "else:", "except", "finally:"))
+                or lines[i - 1].strip().endswith(("(", ",", "[", "{"))
+                or any(
+                    stripped.startswith(x)
+                    for x in ["elif ", "else:", "except", "finally:", "with "]
+                )
             ):
+                # Use current indent plus one level
                 result.append(" " * (current_indent + len(indent_str)) + stripped)
                 continue
 
-            # Handle comments - align with current block
+            # Handle comments
             if stripped.startswith("#"):
                 result.append(" " * current_indent + stripped)
                 continue
 
-            # Handle normal lines within blocks
+            # Normal line - use current indent
             result.append(" " * current_indent + stripped)
 
         return "\n".join(result)
