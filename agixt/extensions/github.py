@@ -1410,7 +1410,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         # First, check if the target exists at all in the file
         file_content = "\n".join(file_lines)
         target_normalized = target.strip()
-        fuzzy_match = True
+        # fuzzy_match = True
 
         # Normalize target by stripping whitespace from each line but preserving empty lines
         target_lines = target.split("\n")
