@@ -528,24 +528,50 @@ class Interactions:
 
             # Only process if we haven't seen this tag before
             if tag_identifier not in self._processed_tags:
-                # Log the thinking/reflection content as a subactivity
-                tag_content = re.sub(r"<rate>.*?</rate>", "", tag_content)
-                tag_content = re.sub(r"<reward>.*?</reward>", "", tag_content)
-                tag_content = tag_content.replace("</reflection>", "")
-                tag_content = re.sub(r"<execute>.*?</execute>", "", tag_content)
-                tag_content = re.sub(r"<output>.*?</output>", "", tag_content)
-                tag_content = re.sub(r"<count>.*?</count>", "", tag_content)
-                tag_content = tag_content.replace("</thinking>", "")
-                tag_content = tag_content.replace("<step>", "")
-                tag_content = tag_content.replace("</step>", "")
-                log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
-                c.log_interaction(role=self.agent_name, message=log_message)
+                # Clean the content of various tags
+                # First remove complete execute/output blocks
+                tag_content = re.sub(
+                    r"<execute>.*?</execute>", "", tag_content, flags=re.DOTALL
+                )
+                tag_content = re.sub(
+                    r"<output>.*?</output>", "", tag_content, flags=re.DOTALL
+                )
+
+                # Remove other tags
+                tags_to_remove = [
+                    (r"<rate>.*?</rate>", ""),
+                    (r"<reward>.*?</reward>", ""),
+                    (r"<count>.*?</count>", ""),
+                    (r"</reflection>", ""),
+                    (r"</thinking>", ""),
+                    (r"<step>", ""),
+                    (r"</step>", ""),
+                ]
+
+                for pattern, replacement in tags_to_remove:
+                    tag_content = re.sub(
+                        pattern, replacement, tag_content, flags=re.DOTALL
+                    )
+
+                # Clean up any remaining execute/output related content
+                tag_content = re.sub(
+                    r"<name>.*?</name>", "", tag_content, flags=re.DOTALL
+                )
+
+                # Remove extra whitespace and normalize spacing
+                tag_content = re.sub(r"\s+", " ", tag_content).strip()
+
+                # Only log if there's actual content after cleaning
+                if tag_content:
+                    log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
+                    c.log_interaction(role=self.agent_name, message=log_message)
 
                 # Mark this tag as processed
                 self._processed_tags.add(tag_identifier)
 
             # Keep track of where we processed up to
             last_end = match.end()
+
         return processed_response
 
     async def run(
