@@ -65,6 +65,29 @@ class FileModification:
     fuzzy_match: bool = True
 
 
+def indent_non_def_lines(text):
+    # Split into lines
+    lines = text.split("\n")
+
+    # Process each line
+    indented_lines = []
+    for line in lines:
+        # Strip trailing whitespace for cleaner processing
+        stripped_line = line.rstrip()
+
+        # Check if the line contains both "def " and "("
+        # We use `in` for simple substring checks here
+        if "def " in stripped_line and "(" in stripped_line:
+            # This line appears to be a function definition line.
+            indented_lines.append(stripped_line)
+        else:
+            # Add four spaces in front of the line if it's not a function definition
+            indented_lines.append("    " + stripped_line)
+
+    # Join lines back together
+    return "\n".join(indented_lines)
+
+
 class IndentationHelper:
     LANG_PATTERNS = {
         "python": {
@@ -222,7 +245,8 @@ class IndentationHelper:
             if creates_scope:
                 block_stack.append((block_type, indent_change))
 
-        return "\n".join(result)
+        result = "\n".join(result)
+        return indent_non_def_lines(result)
 
     @staticmethod
     def clean_content(content: str) -> str:
@@ -430,7 +454,7 @@ class github(Extensions):
         self.conversation_name = (
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
-        self.activity_id = None
+        self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
 
     def _is_python_file(self, file_path: str) -> bool:
         """
