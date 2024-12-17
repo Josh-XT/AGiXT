@@ -2338,7 +2338,7 @@ def verify_mfa(self, token: str):
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=(
-                    f"[SUBACTIVITY][{self.activity_id}] Updated the branch `{issue_branch}` for [#{issue_number}]({repo_url}/issues/{issue_number}). "
+                    f"[SUBACTIVITY][{self.activity_id}] Updated the branch [{issue_branch}]({repo_url}/tree/{issue_branch}) for [#{issue_number}]({repo_url}/issues/{issue_number}). "
                     f"Changes are reflected in [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
                 ),
                 conversation_name=self.conversation_name,
@@ -2359,22 +2359,11 @@ def verify_mfa(self, token: str):
             issue.create_comment(
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
-            if activity_id:
-                self.ApiClient.update_conversation_message(
-                    agent_name=self.agent_name,
-                    message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                    new_message=(
-                        f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
-                        f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
-                    ),
-                    conversation_name=self.conversation_name,
-                )
-            else:
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                    conversation_name=self.conversation_name,
-                )
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
+                conversation_name=self.conversation_name,
+            )
             try:
                 self.ApiClient.update_conversation_message(
                     agent_name=self.agent_name,
