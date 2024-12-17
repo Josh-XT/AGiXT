@@ -1433,9 +1433,81 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
-        # Debug logging
+        # Special handling for insertions after top-level definitions
+        if operation == "insert" and re.match(
+            r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target.strip()
+        ):
+            function_matches = []
+            target_first_line = target.strip().split("\n")[0]
+
+            # Find all matching function definitions
+            for i in range(len(file_lines)):
+                current_line = file_lines[i].strip()
+                if current_line == target_first_line:
+                    function_matches.append(i)
+
+            if not function_matches:
+                similar_functions = []
+                target_func_name = re.search(
+                    r"(?:def|class)\s+(\w+)", target_first_line
+                )
+                if target_func_name:
+                    func_name = target_func_name.group(1)
+                    for line in file_lines:
+                        if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
+                            other_func = re.search(
+                                r"(?:def|class)\s+(\w+)", line.strip()
+                            )
+                            if other_func:
+                                other_name = other_func.group(1)
+                                if (
+                                    difflib.SequenceMatcher(
+                                        None, func_name, other_name
+                                    ).ratio()
+                                    > 0.6
+                                ):
+                                    similar_functions.append(line.strip())
+
+                error_msg = [
+                    f"Function/class definition not found: {target_first_line}",
+                    "",
+                    "Did you mean one of these?",
+                    *[f"- {func}" for func in similar_functions],
+                    "",
+                    "Please use an existing function/class definition as the target.",
+                ]
+                raise ValueError("\n".join(error_msg))
+
+            # Find the end of the function scope
+            i = function_matches[0]
+            target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+
+            # Skip past docstring if present
+            if i + 1 < len(file_lines):
+                next_line = file_lines[i + 1].strip()
+                if next_line.startswith('"""') or next_line.startswith("'''"):
+                    i += 1
+                    while i + 1 < len(file_lines):
+                        i += 1
+                        if '"""' in file_lines[i] or "'''" in file_lines[i]:
+                            break
+
+            # Find the end of the function body
+            while i + 1 < len(file_lines):
+                next_line = file_lines[i + 1]
+                if not next_line.strip():
+                    i += 1
+                    continue
+                next_indent = len(next_line) - len(next_line.lstrip())
+                if next_indent <= target_indent:
+                    break
+                i += 1
+
+            # Return the insertion point and preserve indentation
+            return i + 1, i + 1, target_indent // 4
+
+        # Normal matching logic for replace/delete operations
         logging.debug(f"Searching for target:\n{target}")
-        logging.debug(f"In file lines:\n{chr(10).join(file_lines)}")
 
         # Split target into lines and normalize
         target_lines = target.split("\n")
@@ -1453,12 +1525,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         # Find all potential matches
         matches = []
         for i in range(len(file_lines)):
-            # Try to match starting from each line
             current_match = []
             score = 0
             matched_lines = 0
 
-            # Look at a window of lines the same size as target
             for j, target_line in enumerate(target_lines):
                 if i + j >= len(file_lines):
                     break
@@ -1476,14 +1546,14 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     similarity = difflib.SequenceMatcher(
                         None, target_line, file_line
                     ).ratio()
-                    if similarity > 0.6:  # More permissive similarity threshold
+                    if similarity > 0.6:
                         matched_lines += 1
                         score += similarity
                     current_match.append(file_lines[i + j])
 
             if matched_lines:
                 avg_score = score / matched_lines if matched_lines > 0 else 0
-                if avg_score > 0.3:  # More permissive overall threshold
+                if avg_score > 0.3:
                     indent = len(file_lines[i]) - len(file_lines[i].lstrip())
                     matches.append(
                         {
@@ -1496,7 +1566,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     )
 
         if not matches:
-            # Provide detailed debug information
             error_msg = [
                 "No matching code blocks found for target:",
                 "Target code:",
@@ -1535,7 +1604,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         return (
             best_match["start_line"],
             best_match["end_line"],
-            best_match["indent"] // 4,  # Assuming 4-space indentation
+            best_match["indent"] // 4,
         )
 
     def _handle_insertion_point(
