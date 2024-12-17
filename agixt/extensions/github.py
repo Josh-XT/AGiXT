@@ -123,12 +123,28 @@ class IndentationHelper:
 
         lines = content.splitlines()
         result = []
-        # Stack tracks (indent_level, block_type)
-        indent_stack = [(relative_level * len(indent_str), None)]
+        # Stack now tracks (indent_level, block_type, is_nested)
+        indent_stack = [(relative_level * len(indent_str), None, False)]
 
         def get_line_indent(line: str) -> int:
             """Get the indentation level of a line."""
             return len(line) - len(line.lstrip())
+
+        def is_nested_control(line: str) -> bool:
+            """Check if line is a nested control statement."""
+            stripped = line.strip()
+            return stripped.startswith(
+                (
+                    "if ",
+                    "elif ",
+                    "else:",
+                    "for ",
+                    "while ",
+                    "try:",
+                    "except ",
+                    "finally:",
+                )
+            ) or stripped.startswith(("with ", "def ", "class "))
 
         for i, line in enumerate(lines):
             if not line.strip():
@@ -148,16 +164,31 @@ class IndentationHelper:
             # Handle special cases
             block_type = IndentationHelper._get_block_type(line)
 
+            # Check if we're in a nested context
+            in_nested_block = any(entry[2] for entry in indent_stack)
+
             if block_type:
                 if block_type in ("function", "class"):
                     # Function/class definitions align with parent
                     result.append(" " * current_indent + stripped)
                     # Their bodies get an extra indent
-                    indent_stack.append((current_indent + len(indent_str), block_type))
+                    indent_stack.append(
+                        (current_indent + len(indent_str), block_type, False)
+                    )
                 else:
                     # Control blocks (if/for/etc) get indented relative to their parent
-                    result.append(" " * current_indent + stripped)
-                    indent_stack.append((current_indent + len(indent_str), block_type))
+                    if in_nested_block or len(indent_stack) > 1:
+                        # We're already inside a block, indent relative to current
+                        result.append(" " * current_indent + stripped)
+                        indent_stack.append(
+                            (current_indent + len(indent_str), block_type, True)
+                        )
+                    else:
+                        # Top-level block
+                        result.append(" " * current_indent + stripped)
+                        indent_stack.append(
+                            (current_indent + len(indent_str), block_type, True)
+                        )
                 continue
 
             # Handle line continuations and special cases
