@@ -1882,8 +1882,14 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             insert_lines = content.splitlines()
                             if not insert_lines:
                                 insert_lines = [""]
-                            if insert_lines[0].startswith("\t"):
-                                insert_lines[0] = insert_lines[0].replace("\t", "", 1)
+
+                            # Add indentation to all non-empty lines in the content
+                            if indent_level > 0:
+                                spaces = " " * indent_level
+                                insert_lines = [
+                                    spaces + line if line.strip() else line
+                                    for line in insert_lines
+                                ]
 
                             # Handle spacing around insertion
                             if (
@@ -1901,7 +1907,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             for i, line in enumerate(insert_lines):
                                 modified_lines.insert(start_line + i, line)
                             has_changes = True
-
                         elif operation == "delete":
                             del modified_lines[start_line:end_line]
                             has_changes = True
