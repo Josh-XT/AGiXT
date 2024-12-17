@@ -489,6 +489,46 @@ class Interactions:
         tokens = get_tokens(formatted_prompt)
         return formatted_prompt, prompt, tokens
 
+    def process_thinking_tags(
+        self, response: str, thinking_id: str, c: Conversations
+    ) -> str:
+        """
+        Process thinking and reflection tags in the response and log them as subactivities.
+
+        Args:
+            response: The response text containing thinking/reflection tags
+            thinking_id: ID for the thinking activity
+            c: Conversation object for logging interactions
+
+        Returns:
+            Updated response with processed tags
+        """
+        # Pattern to match thinking and reflection tags and their content
+        tag_pattern = (
+            r"<(thinking|reflection)>(.*?)(?=<(?:thinking|reflection|answer)|$)"
+        )
+
+        # Find all matches
+        matches = re.finditer(tag_pattern, response, re.DOTALL)
+
+        processed_response = response
+        last_end = 0
+
+        for match in matches:
+            tag_name = match.group(1)  # thinking or reflection
+            tag_content = match.group(2).strip()
+
+            # Log the thinking/reflection content as a subactivity
+            log_message = (
+                f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
+            )
+            c.log_interaction(role=self.agent_name, message=log_message)
+
+            # Keep track of where we processed up to
+            last_end = match.end()
+
+        return processed_response
+
     async def run(
         self,
         user_input: str = "",
@@ -763,6 +803,16 @@ class Interactions:
         )
         # Handle commands if the prompt contains the {COMMANDS} placeholder
         # We handle command injection that DOESN'T allow command execution by using {command_list} in the prompt
+        if "<thinking>" in self.response:
+            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+            # Iterate over each thinking tag to the end of the </thinking> or next <thinking> or <answer> tag or <reflection> tag
+            # There may or may not be a closing tag.
+            # We want to do a log interaction per <thinking> and <reflection> tag until the next `<` in this format:
+            # [SUBACTIVITY][{thinking_id}] **{tag_name}** {tag_content}
+            self.response = self.process_thinking_tags(
+                response=self.response, thinking_id=thinking_id, c=c
+            )
+
         if "{COMMANDS}" in unformatted_prompt and "disable_commands" not in kwargs:
             processed_length = 0
 
