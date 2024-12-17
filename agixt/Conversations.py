@@ -360,36 +360,59 @@ class Conversations:
         if not conversation:
             session.close()
             return None
-        thinking_message = (
+
+        # Get the most recent non-thinking activity message
+        current_parent_activity = (
             session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .filter(Message.content == "[ACTIVITY] Thinking.")
-            .first()
-        )
-        # Check if there are any newer messages that start with [ACTIVITY] that aren't thinking
-        newer_activities = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .filter(Message.content.like("[ACTIVITY]%"))
-            .filter(Message.content != "[ACTIVITY] Thinking.")
-            .filter(Message.content.notlike("[SUBACTIVITY]%"))
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content.like("[ACTIVITY]%"),
+                Message.content != "[ACTIVITY] Thinking.",
+            )
             .order_by(Message.timestamp.desc())
             .first()
         )
-        if newer_activities:
-            # Create a new thinking tag.
-            thinking_id = self.log_interaction(
-                role=agent_name,
-                message="[ACTIVITY] Thinking.",
+
+        # Get the most recent thinking activity
+        current_thinking = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content == "[ACTIVITY] Thinking.",
             )
-            return str(thinking_id)
-        if not thinking_message:
-            thinking_id = self.log_interaction(
-                role=agent_name,
-                message="[ACTIVITY] Thinking.",
-            )
-        else:
-            thinking_id = thinking_message.id
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+
+        # If there's a parent activity and it's more recent than the last thinking activity
+        if current_parent_activity:
+            if (
+                not current_thinking
+                or current_parent_activity.timestamp > current_thinking.timestamp
+            ):
+                # Create new thinking activity as we have a new parent
+                thinking_id = self.log_interaction(
+                    role=agent_name,
+                    message="[ACTIVITY] Thinking.",
+                )
+                session.close()
+                return str(thinking_id)
+
+        # If we have a current thinking activity and it's the most recent,
+        # or if there's no parent activity at all, reuse the existing thinking ID
+        if current_thinking:
+            if (
+                not current_parent_activity
+                or current_thinking.timestamp > current_parent_activity.timestamp
+            ):
+                session.close()
+                return str(current_thinking.id)
+
+        # If we have no thinking activity at all, create one
+        thinking_id = self.log_interaction(
+            role=agent_name,
+            message="[ACTIVITY] Thinking.",
+        )
         session.close()
         return str(thinking_id)
 
