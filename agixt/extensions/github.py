@@ -147,7 +147,8 @@ class IndentationHelper:
             if line.strip().startswith(("def ", "class ")):
                 base_indent = get_indent_level(line)
                 break
-
+        if base_indent != 0:
+            base_indent = base_indent + 1
         for i, line in enumerate(lines):
             if not line.strip():
                 result.append("")
