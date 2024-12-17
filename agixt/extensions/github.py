@@ -397,11 +397,30 @@ class github(Extensions):
         Returns:
         str: The code contents of the repository in markdown format
         """
+        branch = None
         if "/tree/" in repo_url:
-            repo_name = repo_url.split("/")[-2]
+            # Extract branch name and clean up repo URL
+            base_url, branch_path = repo_url.split("/tree/", 1)
+            branch = branch_path.split("/")[0]
+            repo_url = base_url
+            repo_name = repo_url.split("/")[-1]
         else:
             repo_name = repo_url.split("/")[-1]
-        await self.clone_repo(repo_url)
+
+        # Clone the repository (with branch if specified)
+        clone_result = await self.clone_repo(repo_url)
+        if "Error:" in clone_result:
+            return f"Error cloning repository: {clone_result}"
+
+        # If a branch was specified, checkout that branch
+        if branch:
+            repo_dir = os.path.join(self.WORKING_DIRECTORY, repo_name)
+            try:
+                repo = git.Repo(repo_dir)
+                repo.git.checkout(branch)
+            except Exception as e:
+                return f"Error checking out branch {branch}: {str(e)}"
+
         output_file = os.path.join(self.WORKING_DIRECTORY, f"{repo_name}.md")
         python_files = []
         other_files = []
