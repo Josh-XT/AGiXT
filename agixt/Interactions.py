@@ -541,6 +541,7 @@ class Interactions:
                 tag_content = tag_content.replace("\n\\n", "\n")
                 tag_content = tag_content.replace("</reflection>", "")
                 tag_content = tag_content.replace("</thinking>", "")
+                tag_content = tag_content.replace("</output>", "")
                 tag_content = tag_content.replace("<step>", "")
                 tag_content = tag_content.replace("</step>", "")
                 tag_content = tag_content.replace(
