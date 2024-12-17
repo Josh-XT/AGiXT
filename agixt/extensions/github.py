@@ -249,102 +249,6 @@ class github(Extensions):
         )
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
 
-    async def _process_modifications(
-        self,
-        modifications_xml: str,
-        repo_url: str,
-        repo,
-        issue,
-        issue_number: str,
-        issue_branch: str,
-        base_branch: str,
-        issue_title: str,
-    ) -> str:
-        """Helper method to process modifications and create/update pull requests."""
-        # Parse modifications by file
-        modifications_blocks = re.findall(
-            r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
-        )
-
-        if not modifications_blocks:
-            issue.create_comment(
-                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis."
-            )
-            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})."
-
-        # Process each modification
-        for block in modifications_blocks:
-            file_path = self._extract_file_path(block)
-            result = await self.modify_file_content(
-                repo_url=repo_url,
-                file_path=file_path,
-                modification_commands=f"<modification>{block}</modification>",
-                branch=issue_branch,
-            )
-
-            if "Error:" in result:
-                raise ValueError(f"Failed to apply changes to {file_path}: {result}")
-
-        # Handle pull request creation/update
-        return await self._handle_pull_request(
-            repo,
-            repo_url,
-            issue,
-            issue_number,
-            issue_branch,
-            base_branch,
-            issue_title,
-            modifications_xml,
-        )
-
-    def _extract_file_path(self, modification_block: str) -> str:
-        """Extract and validate file path from modification block."""
-        file_match = re.search(r"<file>(.*?)</file>", modification_block, re.DOTALL)
-        if not file_match:
-            raise ValueError("No <file> tag found in modification block.")
-
-        file_path = file_match.group(1).strip()
-        if file_path.startswith(self.repo_name):
-            file_path = file_path[len(self.repo_name) + 1 :]
-        return file_path
-
-    async def _handle_pull_request(
-        self,
-        repo,
-        repo_url: str,
-        issue,
-        issue_number: str,
-        issue_branch: str,
-        base_branch: str,
-        issue_title: str,
-        modifications_xml: str,
-    ) -> str:
-        """Handle pull request creation or updates."""
-        open_pulls = repo.get_pulls(
-            state="open", head=f"{repo.owner.login}:{issue_branch}"
-        )
-
-        if open_pulls.totalCount > 0:
-            return await self._update_existing_pull_request(
-                open_pulls[0],
-                repo_url,
-                issue,
-                issue_number,
-                issue_branch,
-                modifications_xml,
-            )
-        else:
-            return await self._create_new_pull_request(
-                repo,
-                repo_url,
-                issue,
-                issue_number,
-                issue_branch,
-                base_branch,
-                issue_title,
-                modifications_xml,
-            )
-
     def _is_python_file(self, file_path: str) -> bool:
         """
         Check if a file is a Python file based on its extension.
@@ -2382,68 +2286,63 @@ def verify_mfa(self, token: str):
             if file_path not in file_mod_map:
                 file_mod_map[file_path] = []
             file_mod_map[file_path].append(single_mod_xml)
-
-        # Initialize error recovery handler
         error_recovery = GitHubErrorRecovery(
             api_client=self.ApiClient,
             agent_name=self.agent_name,
             conversation_name=self.conversation_name,
         )
-
-        # Apply modifications file by file with retry logic
+        # Apply modifications file by file
         for file_path, mods in file_mod_map.items():
             combined_mods = "".join(mods)
-            retry_count = 0
-            max_retries = 3
-            last_error = None
+            try:
+                result = await self.modify_file_content(
+                    repo_url=repo_url,
+                    file_path=file_path,
+                    modification_commands=combined_mods,
+                    branch=issue_branch,
+                )
+            except Exception as e:
+                # If something went wrong, comment on the issue and exit
+                result = f"Error: {str(e)}"
 
-            while retry_count < max_retries:
-                try:
-                    result = await self.modify_file_content(
-                        repo_url=repo_url,
-                        file_path=file_path,
-                        modification_commands=combined_mods,
-                        branch=issue_branch,
-                    )
-                    if "Error:" in result:
-                        raise ValueError(result.replace("Error: ", ""))
-                    # If successful, break the retry loop
-                    break
-                except Exception as e:
-                    last_error = str(e)
-                    retry_count += 1
-
-                    if retry_count >= max_retries:
-                        # Final attempt failed, comment on issue and exit
-                        error_msg = f"Failed to apply changes to `{file_path}` for issue #{issue_number} after {max_retries} attempts. Error: {last_error}"
-                        issue.create_comment(error_msg)
+            if "Error:" in result:
+                # Try again up to 3 times feeding result back to the model
+                for i in range(3):
+                    if result.startswith("Error:"):
                         try:
-                            self.ApiClient.update_conversation_message(
-                                agent_name=self.agent_name,
-                                message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                                new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                                conversation_name=self.conversation_name,
+                            combined_mods = await error_recovery.retry_with_context(
+                                error_msg=result,
+                                repo_url=repo_url,
+                                file_path=file_path,
+                                original_modifications=combined_mods,
+                                activity_id=self.activity_id,
+                                retry_count=i,
                             )
-                        except:
-                            pass
-                        return f"Error applying modifications: {error_msg}"
-
-                    try:
-                        # Attempt recovery and get new modifications
-                        new_mods = await error_recovery.retry_with_context(
-                            error_msg=last_error,
-                            repo_url=repo_url,
-                            file_path=file_path,
-                            original_modifications=combined_mods,
-                            activity_id=self.activity_id,
-                            retry_count=retry_count,
-                        )
-                        combined_mods = new_mods
-                    except Exception as recovery_error:
-                        # If recovery fails, raise the original error
-                        raise ValueError(
-                            f"Error recovery failed: {str(recovery_error)}"
-                        )
+                            result = await self.modify_file_content(
+                                repo_url=repo_url,
+                                file_path=file_path,
+                                modification_commands=combined_mods,
+                                branch=issue_branch,
+                            )
+                        except Exception as e:
+                            result = f"Error: {str(e)}"
+                        if "Error:" not in result:
+                            break
+            if "Error:" in result:
+                # If something went wrong, comment on the issue and exit
+                issue.create_comment(
+                    f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
+                )
+                try:
+                    self.ApiClient.update_conversation_message(
+                        agent_name=self.agent_name,
+                        message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
+                        new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
+                        conversation_name=self.conversation_name,
+                    )
+                except:
+                    pass
+                return f"Error applying modifications: {result}"
 
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
