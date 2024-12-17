@@ -2630,6 +2630,18 @@ Example modifications:
                     message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue #{issue_number} in [{repo_org}/{repo_name}]({repo_url}).",
                     conversation_name=self.conversation_name,
                 )
+            try:
+                self.ApiClient.update_conversation_message(
+                    agent_name=self.agent_name,
+                    conversation_name=self.conversation_name,
+                    message="[ACTIVITY] Executing command `Fix GitHub Issue`.",
+                    new_message=(
+                        f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
+                        f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
+                    ),
+                )
+            except:
+                pass
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
