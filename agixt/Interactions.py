@@ -545,13 +545,6 @@ class Interactions:
                 tag_content = tag_content.replace("</output>", "")
                 tag_content = tag_content.replace("<step>", "")
                 tag_content = tag_content.replace("</step>", "")
-                tag_content = tag_content.replace(
-                    "<modification>", "```xml\n<modification>"
-                )
-                tag_content = tag_content.replace(
-                    "</modification>", "</modification>\n```"
-                )
-
                 # Clean up any remaining execute/output related content
                 tag_content = re.sub(
                     r"<name>.*?</name>", "", tag_content, flags=re.DOTALL
