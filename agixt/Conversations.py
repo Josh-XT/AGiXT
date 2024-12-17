@@ -343,6 +343,39 @@ class Conversations:
         session.close()
         return conversation
 
+    def get_thinking_id(self, agent_name):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = "-"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return None
+        thinking_message = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.content == "[ACTIVITY] Thinking.")
+            .first()
+        )
+        if not thinking_message:
+            thinking_id = self.log_interaction(
+                role=agent_name,
+                message="[ACTIVITY] Thinking.",
+            )
+        else:
+            thinking_id = thinking_message.id
+        session.close()
+        return str(thinking_id)
+
     def log_interaction(self, role, message):
         if str(message).startswith("[SUBACTIVITY] "):
             try:
