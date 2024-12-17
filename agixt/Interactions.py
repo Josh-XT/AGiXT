@@ -1004,10 +1004,10 @@ class Interactions:
                             role=self.agent_name,
                             message=f"[ACTIVITY] Executing command `{command_name}`.",
                         )
-                        json_args = json.dumps(command_args)
+                        json_args = json.dumps(command_args, indent=2)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Details:\n```json\n{json_args}\n```",
+                            message=f"[SUBACTIVITY][{activity_id}] Command Execution Details:\n```json\n{json_args}```",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
@@ -1018,21 +1018,22 @@ class Interactions:
                             ApiClient=self.ApiClient,
                             user=self.user,
                         )
+                        command_args["activity_id"] = activity_id
                         command_output = await ext.execute_command(
                             command_name=command_name,
                             command_args=command_args,
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Output:\n{command_output}",
+                            message=f"[SUBACTIVITY][{activity_id}] Command Execution Output:\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
                     except Exception as e:
                         error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                         logging.error(error_message)
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
+                        c.update_message(
+                            message=f"[ACTIVITY] Executing command `{command_name}`.",
+                            new_message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
                         )
                         command_output = error_message
                 # Format the command execution and output

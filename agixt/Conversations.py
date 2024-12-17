@@ -706,3 +706,34 @@ class Conversations:
         conversation.name = new_name
         session.commit()
         session.close()
+
+    def get_last_activity_id(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = "-"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return None
+        last_activity = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.content.like("[ACTIVITY]%"))
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+        if not last_activity:
+            session.close()
+            return None
+        last_id = last_activity.id
+        session.close()
+        return last_id
