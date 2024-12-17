@@ -1007,7 +1007,7 @@ class Interactions:
                         json_args = json.dumps(command_args, indent=2)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Received command execution details for `{command_name}`.\n```json\n{json_args}```",
+                            message=f"[SUBACTIVITY][{activity_id}] Executing `{command_name}`.\n```json\n{json_args}```",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
