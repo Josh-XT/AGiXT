@@ -114,15 +114,18 @@ class IndentationHelper:
         return None
 
     @staticmethod
-    def adjust_indentation(content: str) -> str:
+    def adjust_indentation(
+        content: str, indent_str: str = "    ", relative_level: int = 0
+    ) -> str:
         """Adjust indentation while preserving code structure."""
         if not content:
             return content
 
         lines = content.splitlines()
         result = []
-        indent_stack = []  # Stack of (indent_level, block_type) tuples
-        current_indent = 0
+        indent_stack = [
+            (relative_level * len(indent_str), None)
+        ]  # Stack of (indent_level, block_type) tuples
 
         def get_line_indent(line: str) -> int:
             """Get the indentation level of a line."""
@@ -137,14 +140,11 @@ class IndentationHelper:
             original_indent = get_line_indent(line)
 
             # Check for dedents
-            while indent_stack and original_indent <= indent_stack[-1][0]:
+            while len(indent_stack) > 1 and original_indent <= indent_stack[-1][0]:
                 indent_stack.pop()
 
-            # Determine base indentation
-            if not indent_stack:
-                current_indent = 0
-            else:
-                current_indent = indent_stack[-1][0] + 4
+            # Determine base indentation from stack
+            current_indent = indent_stack[-1][0]
 
             # Handle special cases
             block_type = IndentationHelper._get_block_type(line)
@@ -152,24 +152,26 @@ class IndentationHelper:
             if block_type:
                 # For function/class definitions, don't indent the definition line
                 if block_type in ("function", "class"):
-                    result.append(
-                        " " * (0 if not indent_stack else indent_stack[-1][0])
-                        + stripped
-                    )
-                    indent_stack.append((current_indent, block_type))
+                    result.append(" " * current_indent + stripped)
+                    indent_stack.append((current_indent + len(indent_str), block_type))
                 else:
                     # For other blocks (if/else/try/etc), maintain current indent
                     result.append(" " * current_indent + stripped)
-                    indent_stack.append((current_indent, block_type))
+                    indent_stack.append((current_indent + len(indent_str), block_type))
                 continue
 
-            # Handle line continuations
+            # Handle line continuations and special alignments
             if i > 0 and (
                 stripped.startswith(("and ", "or ", "+", "-", "*", "/", "=", "."))
                 or lines[i - 1].strip().endswith(("(", ","))
+                or stripped.startswith(("elif ", "else:", "except", "finally:"))
             ):
-                # Align with opening parenthesis or previous operator
-                result.append(" " * (current_indent + 4) + stripped)
+                result.append(" " * (current_indent + len(indent_str)) + stripped)
+                continue
+
+            # Handle comments - align with current block
+            if stripped.startswith("#"):
+                result.append(" " * current_indent + stripped)
                 continue
 
             # Handle normal lines within blocks
