@@ -366,6 +366,22 @@ class Conversations:
             .filter(Message.content == "[ACTIVITY] Thinking.")
             .first()
         )
+        # Check if there are any newer messages that start with [ACTIVITY] that aren't thinking
+        newer_activities = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.content.like("[ACTIVITY]%"))
+            .filter(Message.content != "[ACTIVITY] Thinking.")
+            .order_by(Message.timestamp.desc())
+            .first()
+        )
+        if newer_activities:
+            # Create a new thinking tag.
+            thinking_id = self.log_interaction(
+                role=agent_name,
+                message="[ACTIVITY] Thinking.",
+            )
+            return str(thinking_id)
         if not thinking_message:
             thinking_id = self.log_interaction(
                 role=agent_name,

@@ -494,6 +494,7 @@ class Interactions:
     ) -> str:
         """
         Process thinking and reflection tags in the response and log them as subactivities.
+        Only processes new, unprocessed tags.
 
         Args:
             response: The response text containing thinking/reflection tags
@@ -511,6 +512,10 @@ class Interactions:
         # Find all matches
         matches = re.finditer(tag_pattern, response, re.DOTALL)
 
+        # Keep track of processed tags using content as key to avoid duplicates
+        if not hasattr(self, "_processed_tags"):
+            self._processed_tags = set()
+
         processed_response = response
         last_end = 0
 
@@ -518,11 +523,17 @@ class Interactions:
             tag_name = match.group(1)  # thinking or reflection
             tag_content = match.group(2).strip()
 
-            # Log the thinking/reflection content as a subactivity
-            log_message = (
-                f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
-            )
-            c.log_interaction(role=self.agent_name, message=log_message)
+            # Create a unique identifier for this tag
+            tag_identifier = f"{tag_name}:{tag_content}"
+
+            # Only process if we haven't seen this tag before
+            if tag_identifier not in self._processed_tags:
+                # Log the thinking/reflection content as a subactivity
+                log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
+                c.log_interaction(role=self.agent_name, message=log_message)
+
+                # Mark this tag as processed
+                self._processed_tags.add(tag_identifier)
 
             # Keep track of where we processed up to
             last_end = match.end()
@@ -820,7 +831,12 @@ class Interactions:
             if "<execute>" in self.response:
                 await self.execution_agent(conversation_name=conversation_name)
                 processed_length = len(self.response)
-
+            # Check if there are any different thinking tags in the response than there were before, add any that are new
+            if "<thinking>" in self.response:
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                self.response = self.process_thinking_tags(
+                    response=self.response, thinking_id=thinking_id, c=c
+                )
             # Then enter the main processing loop
             while True:
                 # Check if we have new commands to process
@@ -836,9 +852,14 @@ class Interactions:
                         )
                         self.response = f"{self.response}{command_response}"
                         processed_length = new_processed_length
+                        # Check for new thinking tags after getting new content
+                        if "<thinking>" in self.response:
+                            thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                            self.response = self.process_thinking_tags(
+                                response=self.response, thinking_id=thinking_id, c=c
+                            )
                     else:
                         break  # No new content, stop processing
-
                 # If no answer block yet, try to get it
                 elif "</answer>" not in self.response:
                     new_prompt = f"{formatted_prompt}\n\n{self.agent_name}: {self.response}\n\nWas the assistant {self.agent_name} done typing? If not, continue from where you left off without acknowledging this message or repeating anything that was already typed and the response will be appended. If the assistant needs to rewrite the response, start a new <answer> tag with the new response and close it with </answer> when complete. If the assistant was done, simply respond with '</answer>.' to send the message to the user."
@@ -846,7 +867,12 @@ class Interactions:
                         prompt=new_prompt, tokens=tokens
                     )
                     self.response = f"{self.response}{response}"
-
+                    # Check for new thinking tags after getting more response
+                    if "<thinking>" in self.response:
+                        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                        self.response = self.process_thinking_tags(
+                            response=self.response, thinking_id=thinking_id, c=c
+                        )
                     # After getting more response, let the loop continue to check for any new commands
                     continue
 
