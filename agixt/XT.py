@@ -1800,12 +1800,14 @@ class AGiXT:
                 )
                 if len(thoughts_and_reflections) > 10:
                     # Parse each XML tag in thoughts_and_reflections, iterate over them and add subactivities with the content of the tag
+                    # c.get_thinking_id
+                    thinking_id = self.conversation.get_thinking_id()
                     for tag in re.findall(r"<[^>]+>", thoughts_and_reflections):
                         tag_content = re.sub(r"<[^>]+>", "", tag)
                         if tag_content:
                             self.conversation.log_interaction(
                                 role=self.agent_name,
-                                message=f"[SUBACTIVITY] {tag_content}",
+                                message=f"[SUBACTIVITY][{thinking_id}] **{str(tag).upper()}**: {tag_content}",
                             )
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     await self.file_reader.write_text_to_memory(
