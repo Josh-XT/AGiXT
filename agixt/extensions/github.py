@@ -1572,15 +1572,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         fuzzy_match: bool = True,
         operation: str = None,
     ) -> tuple[int, int, int]:
-        """
-        Find the start and end line indices of the target code block in the file lines.
-        Now with enhanced validation and error reporting.
-        """
+        """Find start and end line indices of the target code block in file lines."""
         # First, check if the target exists at all in the file
         file_content = "\n".join(file_lines)
         target_normalized = target.strip()
         fuzzy_match = True
-
         # For exact matches
         if not fuzzy_match and target_normalized not in file_content:
             available_functions = []
@@ -1612,7 +1608,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     function_matches.append(i)
 
             if not function_matches:
-                # Find similar function names to suggest
                 similar_functions = []
                 target_func_name = re.search(r"(def|class)\s+(\w+)", target_first_line)
                 if target_func_name:
@@ -1640,33 +1635,48 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 ]
                 raise ValueError("\n".join(error_msg))
 
-            # Found the function, now find its scope
+            # Find function scope including docstring and body
             i = function_matches[0]
-            current_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
-            indent_level = current_indent // 4  # Assuming 4-space indentation
+            original_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+            current_line = i
+
+            # Skip past docstring if present
+            if current_line + 1 < len(file_lines):
+                next_line = file_lines[current_line + 1].strip()
+                if next_line.startswith('"""') or next_line.startswith("'''"):
+                    in_docstring = True
+                    current_line += 1
+                    while current_line + 1 < len(file_lines):
+                        current_line += 1
+                        if (
+                            '"""' in file_lines[current_line]
+                            or "'''" in file_lines[current_line]
+                        ):
+                            break
 
             # Find the end of the function/class scope
-            func_end = i
-            while func_end + 1 < len(file_lines):
-                next_line = file_lines[func_end + 1]
+            while current_line + 1 < len(file_lines):
+                next_line = file_lines[current_line + 1]
                 if not next_line.strip():
-                    func_end += 1
+                    current_line += 1
                     continue
                 next_indent = len(next_line) - len(next_line.lstrip())
-                if next_indent <= current_indent:
+                if next_indent <= original_indent:
                     break
-                func_end += 1
+                current_line += 1
 
-            # Find first non-empty line after function
-            insert_point = func_end + 1
+            # Find the insert point after any trailing blank lines
+            insert_point = current_line + 1
             while (
                 insert_point < len(file_lines) and not file_lines[insert_point].strip()
             ):
                 insert_point += 1
 
-            return insert_point, insert_point, indent_level
+            # Calculate indent level for the insertion
+            base_indent = original_indent // 4
+            return insert_point, insert_point, base_indent
 
-        # For replace/delete operations or non-function targets
+        # For replace/delete operations
         best_matches = []
         for i in range(len(file_lines)):
             if i + len(target_lines) <= len(file_lines):
@@ -1679,16 +1689,43 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 ).ratio()
 
                 if match_score > 0:
+                    indent = (
+                        len(segment[0]) - len(segment[0].lstrip()) if segment else 0
+                    )
+                    # For function definitions, include docstring and function body
+                    if target_first_line.strip().startswith(("def ", "class ")):
+                        current_line = i
+                        # Skip past docstring if present
+                        if current_line + 1 < len(file_lines):
+                            next_line = file_lines[current_line + 1].strip()
+                            if next_line.startswith('"""') or next_line.startswith(
+                                "'''"
+                            ):
+                                while current_line + 1 < len(file_lines):
+                                    current_line += 1
+                                    if (
+                                        '"""' in file_lines[current_line]
+                                        or "'''" in file_lines[current_line]
+                                    ):
+                                        break
+                        # Find function body
+                        while current_line + 1 < len(file_lines):
+                            next_line = file_lines[current_line + 1]
+                            if not next_line.strip():
+                                current_line += 1
+                                continue
+                            next_indent = len(next_line) - len(next_line.lstrip())
+                            if next_indent <= indent:
+                                break
+                            current_line += 1
+                        segment = file_lines[i : current_line + 1]
+
                     best_matches.append(
                         {
                             "start_line": i,
                             "score": match_score,
                             "segment": segment,
-                            "indent": (
-                                len(segment[0]) - len(segment[0].lstrip())
-                                if segment
-                                else 0
-                            ),
+                            "indent": indent,
                         }
                     )
 
@@ -1735,7 +1772,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
         return (
             best_match["start_line"],
-            best_match["start_line"] + len(target_lines),
+            best_match["start_line"] + len(best_match["segment"]),
             best_match["indent"] // 4,  # Assuming 4-space indentation
         )
 
