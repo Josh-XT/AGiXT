@@ -104,9 +104,6 @@ class IndentationHelper:
             return ("    ", 4)
 
         # Find the first indented line
-        base_indent = None
-        indent_size = 4  # Default for Python
-
         for i in range(1, len(lines)):
             current_line = lines[i]
             if not current_line.strip():
@@ -116,11 +113,9 @@ class IndentationHelper:
             if current_indent > 0:
                 if current_line.lstrip().startswith("\t"):
                     return ("\t", 1)
-                base_indent = current_indent
-                indent_size = base_indent
-                break
+                return (" " * current_indent, current_indent)
 
-        return ("    ", 4)  # Default to Python standard if no clear pattern found
+        return ("    ", 4)
 
     @staticmethod
     def adjust_indentation(
@@ -132,56 +127,72 @@ class IndentationHelper:
 
         lines = content.splitlines()
         result = []
-        indent_levels = []
-        current_level = relative_level
+
+        # Stack to keep track of indentation contexts
+        # Each entry is a tuple of (indent_level, block_type)
+        # block_type can be 'if', 'else', 'try', 'except', etc.
+        indent_stack = [(relative_level, "root")]
 
         def get_line_indent(line: str) -> int:
             return len(line) - len(line.lstrip())
 
-        def should_increase_indent(line: str) -> bool:
+        def get_block_type(line: str) -> str:
             stripped = line.strip()
-            return (
-                stripped.endswith(":")
-                or (stripped.startswith("if ") and ":" in stripped)
-                or (stripped.startswith("elif ") and ":" in stripped)
-                or (
-                    stripped.startswith(
-                        ("else:", "try:", "except", "finally:", "with ")
-                    )
-                )
-            )
+            if stripped.startswith("if "):
+                return "if"
+            elif stripped.startswith("elif "):
+                return "elif"
+            elif stripped == "else:":
+                return "else"
+            elif stripped.startswith("except"):
+                return "except"
+            elif stripped == "finally:":
+                return "finally"
+            elif stripped == "try:":
+                return "try"
+            elif stripped.endswith(":"):
+                return "block"
+            return "statement"
 
         for i, line in enumerate(lines):
-            if not line.strip():
+            stripped_line = line.strip()
+            if not stripped_line:
                 result.append("")
                 continue
 
-            # Calculate the current line's indentation level
-            stripped_line = line.strip()
             current_indent = get_line_indent(line)
+            block_type = get_block_type(stripped_line)
 
-            # Check for dedent based on the current line's actual indentation
-            while (
-                indent_levels
-                and i > 0
-                and current_indent < get_line_indent(lines[i - 1])
-                and current_level > relative_level
+            # Handle dedents
+            while len(indent_stack) > 1 and (
+                current_indent < len(indent_stack[-1][0] * indent_str)
+                or block_type in ("elif", "else", "except", "finally")
             ):
-                indent_levels.pop()
-                current_level -= 1
+                if block_type in ("elif", "else", "except", "finally"):
+                    # Look for matching parent block
+                    parent_level = None
+                    for j in range(len(indent_stack) - 1, -1, -1):
+                        if indent_stack[j][1] in ("if", "try", "block"):
+                            parent_level = indent_stack[j][0]
+                            indent_stack = indent_stack[:j]
+                            break
+                    if parent_level is not None:
+                        indent_stack.append((parent_level, block_type))
+                    break
+                indent_stack.pop()
 
-            # Special handling for else/elif/except/finally
-            if stripped_line.startswith(("else:", "elif ", "except", "finally:")):
-                if indent_levels:
-                    current_level = indent_levels[-1]
+            # Calculate current indentation level
+            if not indent_stack:
+                indent_stack.append((relative_level, "root"))
+
+            current_level = indent_stack[-1][0]
 
             # Add the line with proper indentation
             result.append(indent_str * current_level + stripped_line)
 
-            # Check if we need to increase indent for the next line
-            if should_increase_indent(stripped_line):
-                indent_levels.append(current_level)
-                current_level += 1
+            # Push new block onto stack if needed
+            if stripped_line.endswith(":"):
+                indent_stack.append((current_level + 1, block_type))
 
         return "\n".join(result)
 
