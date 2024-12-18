@@ -158,6 +158,8 @@ class agixt_actions(Extensions):
 
     def __init__(self, **kwargs):
         self.commands = {
+            "Run Data Analysis": self.run_data_analysis,
+            "Search the Web": self.websearch,
             "Create Task Chain": self.create_task_chain,
             "Generate Extension from OpenAPI": self.generate_openapi_chain,
             "Generate Agent Helper Chain": self.generate_helper_chain,
@@ -209,6 +211,78 @@ class agixt_actions(Extensions):
         )
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
         self.failures = 0
+
+    async def run_data_analysis(self, data: str, query: str):
+        """
+        Run data analysis on a dataset of any format, including analyzing and solving math problems, and more.
+        This should be used if the user's input contains a math problem that the assistant must solve, this includes counting, arithmetic, algebra, geometry, calculus, statistics, and other math-related problems.
+        If the assistant mentions a file name that was uploaded in the conversation under `data`, it will reference that file automatically to be injected into the data analysis process.
+
+        With this command, the assistant has the capability to directly manipulate files, convert images, and perform a variety of other tasks. Here are some examples:
+
+        - Image Description and Manipulation: the assistant can directly manipulate images, including zooming, cropping, color grading, and resolution enhancement. It can also convert images from one format to another.
+        - QR Code Generation: the assistant can create QR codes for various purposes.
+        - Project Management: the assistant can assist in creating Gantt charts and mapping out project steps.
+        - Study Scheduling: the assistant can design optimized study schedules for exam preparation.
+        - File Conversion: the assistant can directly convert files from one format to another, such as PDF to text or video to audio.
+        - Mathematical Computation: the assistant can solve complex math equations and produce graphs.
+        - Document Analysis: the assistant can analyze, summarize, or extract information from large documents.
+        - Data Visualization: the assistant can analyze datasets, identify trends, and create various types of graphs.
+        - Geolocation Visualization: the assistant can provide geolocation maps to showcase specific trends or occurrences.
+        - Code Analysis and Creation: the assistant can analyze and critique code, and even create code from scratch.
+        - Many other things that can be accomplished running python code in a jupyter environment.
+        - Multiple visualizations are allowed as long as the return is a markdown string with the url of the image.
+
+        Args:
+        data (str): The dataset
+        query (str): The query
+
+        Returns:
+        str: The result of the data analysis
+        """
+        return self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "context": f"## Reference Data\n{data}",
+                "user_input": query,
+                "log_user_input": False,
+                "disable_commands": True,
+                "log_output": False,
+                "browse_links": False,
+                "websearch": False,
+                "analyze_user_input": True,
+                "tts": False,
+                "conversation_name": self.conversation_name,
+            },
+        )
+
+    async def websearch(self, query: str, depth: str = "3"):
+        """
+        Search the web for information
+
+        Args:
+        query (str): The search query. Be as descriptive about what you're searching for as possible, it will be automatically broken up and searched for.
+        depth (int): The depth to search, default is 3
+
+        Returns:
+        str: The search results
+        """
+        return self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": query,
+                "websearch": True,
+                "websearch_depth": 3,
+                "conversation_name": self.conversation_name,
+                "disable_commands": True,
+                "analyze_user_input": False,
+                "log_user_input": False,
+                "log_output": False,
+                "tts": False,
+            },
+        )
 
     async def schedule_follow_up(
         self,

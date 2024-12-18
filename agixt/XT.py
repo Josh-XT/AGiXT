@@ -658,6 +658,7 @@ class AGiXT:
         file_name = os.path.basename(file_path)
         file_type = str(file_name).split(".")[-1]
         string_file_content = ""
+        thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         try:
             if file_type.lower() == "csv":
                 df = pd.read_csv(file_path)
@@ -1606,7 +1607,7 @@ class AGiXT:
                                     else:
                                         c.log_interaction(
                                             role=self.agent_name,
-                                            message="[ACTIVITY][ERROR] I was unable to read from the URL specified.",
+                                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] I was unable to read from the URL specified.",
                                         )
                                 else:
                                     # If there is an audio_url, it is the user's voice input that needs transcribed before running inference
@@ -2157,9 +2158,10 @@ class AGiXT:
 
     async def analyze_user_input(self, user_input: str):
         code_execution = ""
+        thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         self.conversation.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Analyzing.",
+            message=f"[SUBACTIVITY][{thinking_id}] Analyzing.",
         )
         analyze_input = await self.inference(
             user_input=user_input,
@@ -2373,11 +2375,12 @@ class AGiXT:
     ):
         file_names = []
         file_path = self.conversation_workspace
+        thinking_id = self.conversation.get_thinking_id(agent_name=self.agent_name)
         if "```csv" in user_input and file_name == "":
             file_name = f"{uuid.uuid4().hex}.csv"
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Saving CSV data to file `{file_name}`.",
+                message=f"[SUBACTIVITY][{thinking_id}] Saving CSV data to file `{file_name}`.",
             )
             file_content = user_input.split("```csv")[1].split("```")[0]
             file_path = os.path.join(self.conversation_workspace, file_name)
@@ -2445,7 +2448,7 @@ class AGiXT:
             file_preview = "\n".join(previews)
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Analyzing data from multiple files: {import_files}.",
+                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from multiple files: {import_files}.",
             )
         else:
             lines = file_content.split("\n")
@@ -2456,7 +2459,7 @@ class AGiXT:
             file_preview = "\n".join(lines)
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY] Analyzing data from file `{file_name}`.",
+                message=f"[SUBACTIVITY][{thinking_id}] Analyzing data from file `{file_name}`.",
             )
         code_interpreter = await self.inference(
             user_input=user_input,
@@ -2529,7 +2532,7 @@ class AGiXT:
         if code_execution.startswith("Error"):
             self.conversation.log_interaction(
                 role=self.agent_name,
-                message=f"[ACTIVITY][ERROR] Unable to complete data analysis.",
+                message=f"[SUBACTIVITY][{thinking_id}][ERROR] Unable to complete data analysis.",
             )
             return f"Data analysis failed after {max_failures} attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
         return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"
