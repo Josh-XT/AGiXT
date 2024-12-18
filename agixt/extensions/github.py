@@ -2648,12 +2648,12 @@ Review Feedback:
 {review_feedback}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
-            # Check if <modifications> tag is present in response
-            if "<modifications>" in response:
+            # Check if <modification> tag is present in response
+            if "<modification>" in response:
                 # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if response.find("```xml\n<modifications>") == -1:
+                if response.find("```xml\n<modification>") == -1:
                     response = response.replace(
-                        "<modifications>", "```xml\n<modifications>"
-                    ).replace("</modifications>", "</modifications>\n```")
+                        "<modification>", "```xml\n<modification>"
+                    ).replace("</modification>", "</modification>\n```")
 
             return response
