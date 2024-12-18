@@ -224,7 +224,8 @@ class Interactions:
             for line in context:
                 if "Content from" in line:
                     source = line.split("Content from ")[1].split("\n")[0]
-                    sources.append(f"Content from {source}")
+                    if f"Content from {source}" not in sources:
+                        sources.append(f"Content from {source}")
             if sources != []:
                 joined_sources = "\n".join(sources)
                 thinking_id = c.get_thinking_id(agent_name=self.agent_name)
