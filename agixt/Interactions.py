@@ -727,6 +727,7 @@ class Interactions:
                 else:
                     user_input = ""
             if user_input != "":
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                 searching_activity_id = c.log_interaction(
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
