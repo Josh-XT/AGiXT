@@ -2559,7 +2559,7 @@ def verify_mfa(self, token: str):
             except Exception as e:
                 review_feedback = f"Ran into an error reviewing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})\n{str(e)}"
             self.ApiClient.update_conversation_message(
-                role=self.agent_name,
+                agent_name=self.agent_name,
                 message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
                 new_message=f"[SUBACTIVITY][{self.activity_id}] Reviewed updated PR #{existing_pr.number}\n{review_feedback}",
                 conversation_name=self.conversation_name,
@@ -2620,7 +2620,7 @@ def verify_mfa(self, token: str):
             except Exception as e:
                 review_feedback = f"Ran into an error reviewing [PR #{new_pr.number}]({repo_url}/pull/{new_pr.number})\n{str(e)}"
             self.ApiClient.update_conversation_message(
-                role=self.agent_name,
+                agent_name=self.agent_name,
                 message=f"[SUBACTIVITY][{self.activity_id}] Reviewing new PR #{new_pr.number}",
                 new_message=f"[SUBACTIVITY][{self.activity_id}] Reviewed new PR #{new_pr.number}\n{review_feedback}",
                 conversation_name=self.conversation_name,
