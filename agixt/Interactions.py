@@ -575,9 +575,8 @@ class Interactions:
                         content = content.replace(
                             "<modifications>", "```xml\n<modifications>"
                         ).replace("</modifications>", "</modifications>\n```")
-                log_message = (
-                    f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
-                )
+                # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
+                log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
                 self._processed_tags.add(tag_identifier)
 
