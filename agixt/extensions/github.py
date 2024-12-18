@@ -1395,47 +1395,74 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def _normalize_code(self, code: str) -> str:
+    def _normalize_code(self, code: str, preserve_indent: bool = False) -> str:
         """Normalize code for comparison while preserving language-specific formatting.
 
         Args:
             code (str): The code to normalize
+            preserve_indent (bool): Whether to preserve indentation (True for Python)
 
         Returns:
             str: Normalized code string
         """
-        # Split into lines and strip each line
-        lines = [line.strip() for line in code.splitlines()]
+        # Split into lines, optionally preserving indentation
+        if preserve_indent:
+            lines = [line.rstrip() for line in code.splitlines()]
+        else:
+            lines = [line.strip() for line in code.splitlines()]
 
         # Remove empty lines at start and end while preserving internal empty lines
-        while lines and not lines[0]:
+        while lines and not lines[0].strip():
             lines.pop(0)
-        while lines and not lines[-1]:
+        while lines and not lines[-1].strip():
             lines.pop()
 
         # Detect if this is Python code
-        is_python = any(line.startswith(("def ", "class ")) for line in lines)
+        is_python = any(re.match(r"^\s*(def|class)\s+", line) for line in lines)
+
+        # Track base indentation if preserving
+        if preserve_indent and lines:
+            base_indent = len(lines[0]) - len(lines[0].lstrip())
+        else:
+            base_indent = 0
 
         # Normalize with language-specific rules
         normalized = []
         for line in lines:
-            if line:
+            if line.strip():
+                normalized_line = line
+
                 if is_python:
                     # For Python, preserve spaces after commas and preserve string quotes
-                    line = re.sub(r",(?=\S)", ", ", line)  # Ensure space after comma
-                    line = re.sub(r"\s+,", ",", line)  # Remove space before comma
-                    # Normalize other whitespace but preserve function def formatting
-                    if not line.startswith(("def ", "class ")):
-                        line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
+                    if preserve_indent:
+                        # Calculate relative indentation
+                        current_indent = len(line) - len(line.lstrip())
+                        indent_level = current_indent - base_indent
+                        # Normalize the non-whitespace part
+                        content = line.lstrip()
+                        content = re.sub(r",(?=\S)", ", ", content)
+                        content = re.sub(r"\s+,", ",", content)
+                        # Preserve the correct indentation
+                        normalized_line = " " * max(0, indent_level) + content
+                    else:
+                        normalized_line = re.sub(r",(?=\S)", ", ", line.strip())
+                        normalized_line = re.sub(r"\s+,", ",", normalized_line)
                 else:
                     # For other languages (JS/TS), apply more aggressive normalization
-                    line = re.sub(r"`\${(.*?)}`", r"'" + r"\1" + r"'", line)
-                    line = re.sub(r"`([^`]*?)`", r"'\1'", line)
-                    line = re.sub(r'"([^"]*?)"', r"'\1'", line)
-                    line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
-                    line = re.sub(r",\s+", ",", line)
+                    content = line.strip()
+                    content = re.sub(r"`\${(.*?)}`", r"'" + r"\1" + r"'", content)
+                    content = re.sub(r"`([^`]*?)`", r"'\1'", content)
+                    content = re.sub(r'"([^"]*?)"', r"'\1'", content)
+                    content = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", content)
+                    content = re.sub(r",\s+", ",", content)
+                    if preserve_indent:
+                        current_indent = len(line) - len(line.lstrip())
+                        indent_level = current_indent - base_indent
+                        normalized_line = " " * max(0, indent_level) + content
+                    else:
+                        normalized_line = content
 
-                normalized.append(line)
+                normalized.append(normalized_line)
             else:
                 normalized.append("")
 
@@ -1449,16 +1476,28 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
-        # Normalize target by first joining lines then normalizing
-        target_normalized = self._normalize_code(target)
+        # Detect if this is Python code
+        is_python = any(
+            re.match(r"^\s*(def|class)\s+", line) for line in target.splitlines()
+        )
+
+        # Normalize target preserving indentation for Python
+        target_normalized = self._normalize_code(target, preserve_indent=is_python)
         target_lines = target_normalized.splitlines()
-        target_first_line = next((line for line in target_lines if line), "")
+        target_first_line = next((line for line in target_lines if line.strip()), "")
+
+        # Get base indentation of target
+        target_base_indent = (
+            len(target_first_line) - len(target_first_line.lstrip())
+            if target_first_line
+            else 0
+        )
 
         # Special handling for insertions after top-level definitions
         if operation == "insert" and re.match(
-            r"^(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_first_line
+            r"^(\s*)(@.*\n)?(async\s+)?(?:def|class)\s+\w+", target_first_line
         ):
-            return self._handle_insertion_point(file_lines, target_first_line)
+            return self._handle_insertion_point(file_lines, target_first_line.lstrip())
 
         # For replace/delete operations
         best_matches = []
@@ -1468,7 +1507,23 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         for i in range(len(file_lines) - window_size + 1):
             # Get a window of lines and normalize them the same way
             window = "\n".join(file_lines[i : i + window_size])
-            window_normalized = self._normalize_code(window)
+            window_normalized = self._normalize_code(window, preserve_indent=is_python)
+
+            # For Python code, check indentation consistency
+            if is_python:
+                window_first_line = next(
+                    (line for line in window_normalized.splitlines() if line.strip()),
+                    "",
+                )
+                window_indent = (
+                    len(window_first_line) - len(window_first_line.lstrip())
+                    if window_first_line
+                    else 0
+                )
+                if (
+                    abs(window_indent - target_base_indent) > 4
+                ):  # Allow for one level of indentation difference
+                    continue
 
             # Calculate similarity using SequenceMatcher
             similarity = difflib.SequenceMatcher(
@@ -1498,7 +1553,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             raise ValueError(error_msg)
 
         # Sort by match score and line count similarity
-        best_matches.sort(key=lambda x: x["score"], reverse=True)
+        best_matches.sort(
+            key=lambda x: (x["score"], -abs(len(x["segment"]) - len(target_lines))),
+            reverse=True,
+        )
         best_match = best_matches[0]
 
         # For fuzzy matches, require minimum threshold
