@@ -1086,7 +1086,7 @@ class Interactions:
             if available_command["enabled"] == True
         ]
         logging.info(f"Agent command list: {command_list}")
-
+        thinking_id = c.get_thinking_id(agent_name=self.agent_name)
         # Extract commands from the response
         commands_to_execute = self.extract_commands_from_response(self.response)
         logging.debug(f"Commands to execute: {commands_to_execute}")
@@ -1103,14 +1103,10 @@ class Interactions:
                     logging.warning(command_output)
                 else:
                     try:
-                        activity_id = c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[ACTIVITY] Executing command `{command_name}`.",
-                        )
                         json_args = json.dumps(command_args, indent=2)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Executing `{command_name}`.\n```json\n{json_args}```",
+                            message=f"[SUBACTIVITY][{thinking_id}] Executing `{command_name}`.\n```json\n{json_args}```",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
@@ -1121,22 +1117,22 @@ class Interactions:
                             ApiClient=self.ApiClient,
                             user=self.user,
                         )
-                        command_args["activity_id"] = activity_id
+                        command_args["activity_id"] = thinking_id
                         command_output = await ext.execute_command(
                             command_name=command_name,
                             command_args=command_args,
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{activity_id}] Received command execution output.\n{command_output}",
+                            message=f"[SUBACTIVITY][{thinking_id}] Received command execution output.\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
                     except Exception as e:
                         error_message = f"Error: {self.agent_name} failed to execute command `{command_name}`. {e}"
                         logging.error(error_message)
-                        c.update_message(
-                            message=f"[ACTIVITY] Executing command `{command_name}`.",
-                            new_message=f"[ACTIVITY][ERROR] Failed to execute command `{command_name}`.",
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] Failed to execute command `{command_name}`.\n```json\n{json_args}```",
                         )
                         command_output = error_message
                 # Format the command execution and output

@@ -1141,7 +1141,7 @@ class github(Extensions):
         repo_content = await self.get_repo_code_contents(repo_url=repo_url)
         self.activity_id = self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[ACTIVITY] Improving [{repo_org}/{repo_name}]({repo_url}).",
+            message=f"[SUBACTIVITY][{self.activity_id}] Improving [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
 
@@ -2379,15 +2379,14 @@ def verify_mfa(self, token: str):
                 issue.create_comment(
                     f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
                 )
-                try:
-                    self.ApiClient.update_conversation_message(
-                        agent_name=self.agent_name,
-                        message=f"[ACTIVITY] Fixing issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}).",
-                        new_message=f"[ACTIVITY] Failed applying changes for [#{issue_number}]({repo_url}/issues/{issue_number}).",
-                        conversation_name=self.conversation_name,
-                    )
-                except:
-                    pass
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
+                    message=(
+                        f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}). "
+                        f"Error: {result}"
+                    ),
+                    conversation_name=self.conversation_name,
+                )
                 return f"Error applying modifications: {result}"
 
         # Check if a PR already exists for this branch
@@ -2439,12 +2438,11 @@ def verify_mfa(self, token: str):
                 conversation_name=self.conversation_name,
             )
             try:
-                self.ApiClient.update_conversation_message(
-                    agent_name=self.agent_name,
+                self.ApiClient.new_conversation_message(
+                    role=self.agent_name,
                     conversation_name=self.conversation_name,
-                    message="[ACTIVITY] Executing command `Fix GitHub Issue`.",
-                    new_message=(
-                        f"[ACTIVITY] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
+                    message=(
+                        f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
                         f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
                     ),
                 )
