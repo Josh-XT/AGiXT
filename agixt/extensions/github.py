@@ -2437,17 +2437,6 @@ def verify_mfa(self, token: str):
                 message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
                 conversation_name=self.conversation_name,
             )
-            try:
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    conversation_name=self.conversation_name,
-                    message=(
-                        f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) "
-                        f"with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number})."
-                    ),
-                )
-            except:
-                pass
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
