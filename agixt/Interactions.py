@@ -228,9 +228,10 @@ class Interactions:
             if sources != []:
                 joined_sources = "\n".join(sources)
                 thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+                source_count = len(sources)
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[SUBACTIVITY][{thinking_id}] Referencing sources from content\n{joined_sources}.",
+                    message=f"[SUBACTIVITY][{thinking_id}] Referencing {source_count} sources from content.\n{joined_sources}.",
                 )
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
