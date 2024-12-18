@@ -1557,7 +1557,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         best_match = best_matches[0]
 
         # For fuzzy matches, require minimum threshold
-        threshold = 0.5 if fuzzy_match else 0.9
+        threshold = 0.4 if fuzzy_match else 0.9
         if best_match["score"] < threshold:
             error_msg = [
                 f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
