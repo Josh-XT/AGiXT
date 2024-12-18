@@ -2181,6 +2181,114 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
 
+    async def review_pull_request(
+        self,
+        repo_url: str,
+        pull_request_number: int,
+        code_content: str = None,
+        review_context: str = "",
+    ) -> str:
+        """
+        Review a pull request and provide feedback based on code changes and project standards.
+
+        Args:
+            repo_url (str): The URL of the GitHub repository
+            pull_request_number (int): The PR number to review
+            code_content (str): Optional pre-fetched code content to avoid redundant fetches
+            review_context (str): Additional context for the review (e.g., issue details)
+
+        Returns:
+            str: The review feedback and any suggested changes
+        """
+        try:
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+            pull_request = repo.get_pull(pull_request_number)
+
+            # Get the PR's changes if code_content wasn't provided
+            if not code_content:
+                code_content = await self.get_repo_code_contents(
+                    f"{repo_url}/tree/{pull_request.head.ref}"
+                )
+
+            # Get the PR's files for focused review
+            changed_files = pull_request.get_files()
+            files_context = []
+            for file in changed_files:
+                files_context.append(f"Modified file: {file.filename}")
+                files_context.append(f"Changes: +{file.additions} -{file.deletions}")
+                if file.patch:
+                    files_context.append(f"Patch:\n{file.patch}")
+
+            # Construct review prompt
+            review_prompt = f"""Review the following pull request changes and provide feedback:
+
+PR #{pull_request_number}: {pull_request.title}
+{pull_request.body}
+
+Changed Files:
+{chr(10).join(files_context)}
+
+Additional Context:
+{review_context}
+
+Repository Code:
+{code_content}
+
+Please analyze the changes and provide:
+1. General feedback on code quality and standards
+2. Specific issues that need to be addressed
+3. Suggestions for additional improvements
+4. XML modification blocks for any necessary changes in the format:
+
+<modification>
+<file>path/to/file</file>
+<operation>replace|insert|delete</operation>
+<target>code_block_or_line</target>
+<content>new_code</content>
+</modification>
+
+Focus on:
+- Code correctness and functionality
+- Adherence to project patterns and standards
+- Security considerations
+- Performance implications
+- Test coverage
+- Documentation needs"""
+
+            # Get review feedback
+            review_feedback = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": review_prompt,
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
+            )
+
+            # Extract any modification blocks for automated fixes
+            modifications = re.findall(
+                r"<modification>.*?</modification>", review_feedback, re.DOTALL
+            )
+
+            # Add review comment to PR
+            comment_body = review_feedback
+            if modifications:
+                comment_body += "\n\nI'll automatically apply these suggested changes."
+
+            pull_request.create_issue_comment(comment_body)
+
+            return review_feedback
+
+        except Exception as e:
+            return f"Error reviewing pull request: {str(e)}"
+
     async def fix_github_issue(
         self,
         repo_org: str,
@@ -2405,6 +2513,25 @@ def verify_mfa(self, token: str):
                 f"Additional changes have been applied to resolve issue [#{issue_number}]({repo_url}/issues/{issue_number}). See [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})."
             )
 
+            # Review the updated PR
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
+                conversation_name=self.conversation_name,
+            )
+            try:
+                repo_content = await self.get_repo_code_contents(
+                    repo_url=f"{repo_url}/tree/{issue_branch}"
+                )
+                review_feedback = await self.review_pull_request(
+                    repo_url=repo_url,
+                    pull_request_number=existing_pr.number,
+                    code_content=repo_content,
+                    review_context=f"Issue #{issue_number}: {issue_title}\n{issue_body}\n\nAdditional Context:\n{additional_context}",
+                )
+            except Exception as e:
+                review_feedback = f"Ran into an error reviewing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})\n{str(e)}"
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=(
@@ -2414,7 +2541,16 @@ def verify_mfa(self, token: str):
                 conversation_name=self.conversation_name,
             )
 
-            return f"Updated existing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
+            # If review suggests changes, apply them recursively
+            if "<modification>" in review_feedback:
+                return await self.fix_github_issue(
+                    repo_org=repo_org,
+                    repo_name=repo_name,
+                    issue_number=issue_number,
+                    additional_context=f"Review Feedback:\n{review_feedback}",
+                )
+
+            return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
         else:
             # No PR exists, create a new one
             pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
@@ -2432,11 +2568,48 @@ def verify_mfa(self, token: str):
             issue.create_comment(
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
+
+            # Review the new PR
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing new PR #{new_pr.number}",
+                conversation_name=self.conversation_name,
+            )
+            try:
+                repo_content = await self.get_repo_code_contents(
+                    repo_url=f"{repo_url}/tree/{issue_branch}"
+                )
+                review_feedback = await self.review_pull_request(
+                    repo_url=repo_url,
+                    pull_request_number=new_pr.number,
+                    code_content=repo_content,
+                    review_context=f"Issue #{issue_number}: {issue_title}\n{issue_body}\n\nAdditional Context:\n{additional_context}",
+                )
+            except Exception as e:
+                review_feedback = f"Ran into an error reviewing [PR #{new_pr.number}]({repo_url}/pull/{new_pr.number})\n{str(e)}"
+
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
                 conversation_name=self.conversation_name,
             )
+
+            # If review suggests changes, apply them recursively
+            if "<modification>" in review_feedback:
+                return await self.fix_github_issue(
+                    repo_org=repo_org,
+                    repo_name=repo_name,
+                    issue_number=issue_number,
+                    additional_context=f"Review Feedback:\n{review_feedback}",
+                )
+            # Check if <modifications> tag is present in response
+            if "<modifications>" in response:
+                # Check if the characters before it are "```xml\n", if it isn't, add it.
+                if response.find("```xml\n<modifications>") == -1:
+                    response = response.replace(
+                        "<modifications>", "```xml\n<modifications>"
+                    ).replace("</modifications>", "</modifications>\n```")
+
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
@@ -2447,5 +2620,8 @@ Title: {new_pr.title}
 Body: 
 {pr_body}
 
-I have created pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
+Review Feedback:
+{review_feedback}
+
+I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
             return response
