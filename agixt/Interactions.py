@@ -568,6 +568,7 @@ class Interactions:
 
             # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
+                content = re.sub(r"\. ", ".\n", content, count=1)
                 log_message = (
                     f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 )

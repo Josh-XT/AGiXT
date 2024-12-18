@@ -2235,10 +2235,9 @@ Repository Code:
 {code_content}
 
 Please analyze the changes and provide:
-1. General feedback on code quality and standards
-2. Specific issues that need to be addressed
-3. Suggestions for additional improvements
-4. XML modification blocks for any necessary changes in the format:
+1. Critical issues or bugs with the code changes
+2. That the changes resolve the issue requiring no further modifications. If any changes are needed, provide specific details.
+3. XML modification blocks for any necessary changes in the format:
 
 <modification>
 <file>path/to/file</file>
@@ -2251,9 +2250,7 @@ Focus on:
 - Code correctness and functionality
 - Adherence to project patterns and standards
 - Security considerations
-- Performance implications
-- Test coverage
-- Documentation needs"""
+- Performance implications"""
 
             # Get review feedback
             review_feedback = self.ApiClient.prompt_agent(
@@ -2531,7 +2528,12 @@ def verify_mfa(self, token: str):
                 )
             except Exception as e:
                 review_feedback = f"Ran into an error reviewing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})\n{str(e)}"
-
+            self.ApiClient.update_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
+                new_message=f"[SUBACTIVITY][{self.activity_id}] Reviewed updated PR #{existing_pr.number}\n{review_feedback}",
+                conversation_name=self.conversation_name,
+            )
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=(
@@ -2602,14 +2604,6 @@ def verify_mfa(self, token: str):
                     issue_number=issue_number,
                     additional_context=f"Review Feedback:\n{review_feedback}",
                 )
-            # Check if <modifications> tag is present in response
-            if "<modifications>" in response:
-                # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if response.find("```xml\n<modifications>") == -1:
-                    response = response.replace(
-                        "<modifications>", "```xml\n<modifications>"
-                    ).replace("</modifications>", "</modifications>\n```")
-
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
@@ -2624,4 +2618,12 @@ Review Feedback:
 {review_feedback}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
+            # Check if <modifications> tag is present in response
+            if "<modifications>" in response:
+                # Check if the characters before it are "```xml\n", if it isn't, add it.
+                if response.find("```xml\n<modifications>") == -1:
+                    response = response.replace(
+                        "<modifications>", "```xml\n<modifications>"
+                    ).replace("</modifications>", "</modifications>\n```")
+
             return response
