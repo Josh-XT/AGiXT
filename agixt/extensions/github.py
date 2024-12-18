@@ -116,6 +116,8 @@ Please provide new modification commands that:
 2. Maintain the same intended functionality
 3. Use the correct syntax and indentation
 4. Only reference existing dependencies and functions
+5. Ensure the file path is correct
+6. Try something else, like a shorter target that will fit and match better
 
 Please provide the modifications in the same XML format:
 <modification>
@@ -1588,6 +1590,9 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
         if not function_matches:
             similar_functions = []
+            original_target = target_first_line
+            new_target = original_target
+            highest_score = 0
             target_func_name = re.search(r"(?:def|class)\s+(\w+)", target_first_line)
             if target_func_name:
                 func_name = target_func_name.group(1)
@@ -1602,17 +1607,25 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 ).ratio()
                                 > 0.6
                             ):
+                                score = difflib.SequenceMatcher(
+                                    None, func_name, other_name
+                                ).ratio()
+                                if score > highest_score:
+                                    highest_score = score
+                                    new_target = line.strip()
                                 similar_functions.append(line.strip())
-
-            error_msg = [
-                f"Function/class definition not found: {target_first_line}",
-                "",
-                "Did you mean one of these?",
-                *[f"- {func}" for func in similar_functions],
-                "",
-                "Please use an existing function/class definition as the target.",
-            ]
-            raise ValueError("\n".join(error_msg))
+            if original_target != new_target:
+                target_first_line = new_target
+            else:
+                error_msg = [
+                    f"Function/class definition not found: {target_first_line}",
+                    "",
+                    "Did you mean one of these?",
+                    *[f"- {func}" for func in similar_functions],
+                    "",
+                    "Please use an existing function/class definition as the target.",
+                ]
+                raise ValueError("\n".join(error_msg))
 
         # Find the end of the function scope
         i = function_matches[0]
