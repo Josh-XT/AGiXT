@@ -2111,6 +2111,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         If a PR is already open for this issue's branch, it will not create a new one.
         Instead, it will apply changes to the existing branch and comment on the PR and issue.
         If no PR is open, it creates a new PR and comments on the issue.
+        If there was an error previously or revisions need made on the same PR or issue, the assistant can use this same function to retry fixing the issue while providing additional context in additional_context.
 
         Args:
         repo_org (str): The organization or username for the GitHub repository
