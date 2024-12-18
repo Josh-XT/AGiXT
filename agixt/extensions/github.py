@@ -1396,7 +1396,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             return f"Error: {str(e)}"
 
     def _normalize_code(self, code: str) -> str:
-        """Normalize code for comparison by removing extra whitespace and normalizing quotes.
+        """Normalize code for comparison while preserving language-specific formatting.
 
         Args:
             code (str): The code to normalize
@@ -1413,22 +1413,27 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         while lines and not lines[-1]:
             lines.pop()
 
-        # Normalize common JS/TS syntax elements
+        # Detect if this is Python code
+        is_python = any(line.startswith(("def ", "class ")) for line in lines)
+
+        # Normalize with language-specific rules
         normalized = []
         for line in lines:
             if line:
-                # Normalize template literals to regular strings
-                line = re.sub(r"`\${(.*?)}`", r"'" + r"\1" + r"'", line)
-                line = re.sub(r"`([^`]*?)`", r"'\1'", line)
-
-                # Normalize quote styles
-                line = re.sub(r'"([^"]*?)"', r"'\1'", line)
-
-                # Normalize whitespace around operators
-                line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
-
-                # Normalize whitespace after commas
-                line = re.sub(r",\s+", ",", line)
+                if is_python:
+                    # For Python, preserve spaces after commas and preserve string quotes
+                    line = re.sub(r",(?=\S)", ", ", line)  # Ensure space after comma
+                    line = re.sub(r"\s+,", ",", line)  # Remove space before comma
+                    # Normalize other whitespace but preserve function def formatting
+                    if not line.startswith(("def ", "class ")):
+                        line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
+                else:
+                    # For other languages (JS/TS), apply more aggressive normalization
+                    line = re.sub(r"`\${(.*?)}`", r"'" + r"\1" + r"'", line)
+                    line = re.sub(r"`([^`]*?)`", r"'\1'", line)
+                    line = re.sub(r'"([^"]*?)"', r"'\1'", line)
+                    line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
+                    line = re.sub(r",\s+", ",", line)
 
                 normalized.append(line)
             else:
