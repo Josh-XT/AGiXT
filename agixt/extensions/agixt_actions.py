@@ -724,7 +724,7 @@ class agixt_actions(Extensions):
 """
             response = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
-                prompt_name="Chat",
+                prompt_name="Think About It",
                 prompt_args={
                     "user_input": f"{rules}\nUsing context from the web search, please provide the base URI of the API for: {extension_name}.",
                     "websearch": True,
@@ -970,11 +970,13 @@ class agixt_actions(Extensions):
         """
         response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name="Chat",
+            prompt_name="Think About It",
             prompt_args={
                 "user_input": user_input,
-                "websearch": True,
-                "websearch_depth": 3,
+                "log_user_input": False,
+                "log_output": False,
+                "browse_links": False,
+                "tts": False,
                 "conversation_name": self.conversation_name,
             },
         )

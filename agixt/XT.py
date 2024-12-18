@@ -1322,7 +1322,7 @@ class AGiXT:
         if "prompt_name" in self.agent_settings:
             prompt_name = self.agent_settings["prompt_name"]
         else:
-            prompt_name = "Chat"
+            prompt_name = "Think About It"
         if "prompt_category" in self.agent_settings:
             prompt_category = self.agent_settings["prompt_category"]
         else:

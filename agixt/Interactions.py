@@ -599,7 +599,7 @@ class Interactions:
             shots = 1
         shots = int(shots)
         context_results = 5 if not context_results else int(context_results)
-        prompt = "Chat"
+        prompt = "Think About It"
         prompt_category = "Default"
         if "prompt_category" in kwargs:
             prompt_category = kwargs["prompt_category"]

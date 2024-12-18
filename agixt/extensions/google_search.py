@@ -27,7 +27,7 @@ class google_search(Extensions):
     async def google_search(self, user_query: str, websearch_depth: int = 2):
         return self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name="Chat",
+            prompt_name="Think About It",
             prompt_args={
                 "user_input": user_query,
                 "websearch": True,
