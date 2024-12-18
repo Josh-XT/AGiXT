@@ -1395,6 +1395,47 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         except Exception as e:
             return f"Error: {str(e)}"
 
+    def _normalize_code(self, code: str) -> str:
+        """Normalize code for comparison by removing extra whitespace and normalizing quotes.
+
+        Args:
+            code (str): The code to normalize
+
+        Returns:
+            str: Normalized code string
+        """
+        # Split into lines and strip each line
+        lines = [line.strip() for line in code.splitlines()]
+
+        # Remove empty lines at start and end while preserving internal empty lines
+        while lines and not lines[0]:
+            lines.pop(0)
+        while lines and not lines[-1]:
+            lines.pop()
+
+        # Normalize common JS/TS syntax elements
+        normalized = []
+        for line in lines:
+            if line:
+                # Normalize template literals to regular strings
+                line = re.sub(r"`\${(.*?)}`", r"'" + r"\1" + r"'", line)
+                line = re.sub(r"`([^`]*?)`", r"'\1'", line)
+
+                # Normalize quote styles
+                line = re.sub(r'"([^"]*?)"', r"'\1'", line)
+
+                # Normalize whitespace around operators
+                line = re.sub(r"\s*([=!<>+\-*/])\s*", r"\1", line)
+
+                # Normalize whitespace after commas
+                line = re.sub(r",\s+", ",", line)
+
+                normalized.append(line)
+            else:
+                normalized.append("")
+
+        return "\n".join(normalized)
+
     def _find_pattern_boundaries(
         self,
         file_lines: List[str],
@@ -1403,11 +1444,10 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         operation: str = None,
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
-        # Normalize target by stripping whitespace from each line but preserving empty lines
-        # fuzzy_match = True
-        target_lines = target.split("\n")
-        target_normalized = [line.strip() for line in target_lines]
-        target_first_line = next((line for line in target_normalized if line), "")
+        # Normalize target by first joining lines then normalizing
+        target_normalized = self._normalize_code(target)
+        target_lines = target_normalized.splitlines()
+        target_first_line = next((line for line in target_lines if line), "")
 
         # Special handling for insertions after top-level definitions
         if operation == "insert" and re.match(
@@ -1417,56 +1457,35 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
         # For replace/delete operations
         best_matches = []
-        current_match = []
-        current_score = 0
+        window_size = len(target_lines)
 
-        for i in range(len(file_lines)):
-            # Reset match tracking for each potential starting point
-            current_match = []
-            matched_lines = 0
-            total_lines = len(target_normalized)
+        # Slide through the file looking for matches
+        for i in range(len(file_lines) - window_size + 1):
+            # Get a window of lines and normalize them the same way
+            window = "\n".join(file_lines[i : i + window_size])
+            window_normalized = self._normalize_code(window)
 
-            for j in range(len(target_normalized)):
-                if i + j >= len(file_lines):
-                    break
+            # Calculate similarity using SequenceMatcher
+            similarity = difflib.SequenceMatcher(
+                None, window_normalized, target_normalized
+            ).ratio()
 
-                file_line = file_lines[i + j].strip()
-                target_line = target_normalized[j]
+            if similarity > 0:
+                # Get indentation of first line
+                indent = (
+                    len(file_lines[i]) - len(file_lines[i].lstrip())
+                    if file_lines[i]
+                    else 0
+                )
 
-                # Calculate line similarity using difflib
-                similarity = difflib.SequenceMatcher(
-                    None, file_line, target_line
-                ).ratio()
-
-                # Adjust thresholds based on line content
-                threshold = 0.8 if fuzzy_match else 1.0
-                if target_line.strip():  # Non-empty lines
-                    if similarity >= threshold:
-                        matched_lines += 1
-                        current_match.append(file_lines[i + j])
-                else:  # Empty lines
-                    matched_lines += 1
-                    current_match.append(file_lines[i + j])
-
-            # Calculate overall match score
-            if total_lines > 0:
-                match_score = matched_lines / total_lines
-                if match_score > 0:
-                    # Get indentation of first line
-                    indent = (
-                        len(file_lines[i]) - len(file_lines[i].lstrip())
-                        if file_lines[i]
-                        else 0
-                    )
-
-                    best_matches.append(
-                        {
-                            "start_line": i,
-                            "score": match_score,
-                            "segment": current_match,
-                            "indent": indent,
-                        }
-                    )
+                best_matches.append(
+                    {
+                        "start_line": i,
+                        "score": similarity,
+                        "segment": file_lines[i : i + window_size],
+                        "indent": indent,
+                    }
+                )
 
         if not best_matches:
             # Provide detailed error message with available functions
@@ -1474,18 +1493,11 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             raise ValueError(error_msg)
 
         # Sort by match score and line count similarity
-        best_matches.sort(
-            key=lambda x: (
-                x["score"],
-                -abs(len(x["segment"]) - len(target_normalized)),
-            ),
-            reverse=True,
-        )
-
+        best_matches.sort(key=lambda x: x["score"], reverse=True)
         best_match = best_matches[0]
 
         # For fuzzy matches, require minimum threshold
-        threshold = 0.5 if fuzzy_match else 1.0
+        threshold = 0.5 if fuzzy_match else 0.9
         if best_match["score"] < threshold:
             error_msg = [
                 f"Best match score ({best_match['score']:.2f}) below threshold ({threshold}).",
@@ -1502,7 +1514,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
         return (
             best_match["start_line"],
-            best_match["start_line"] + len(best_match["segment"]),
+            best_match["start_line"] + len(target_lines),
             best_match["indent"] // 4,  # Assuming 4-space indentation
         )
 
