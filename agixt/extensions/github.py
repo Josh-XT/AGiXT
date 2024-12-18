@@ -1839,7 +1839,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if self.activity_id:
                         self.ApiClient.new_conversation_message(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying [{file_path}]({repo_url}/blob/{branch}/{file_path}) on branch [{branch}]({repo_url}/tree/{branch}).",
+                            message=f"[SUBACTIVITY][{self.activity_id}] Modifying [{file_path}]({repo_url}/blob/{branch}/{file_path}) on branch [{branch}]({repo_url}/tree/{branch}).\n```xml\n{modification_commands}\n```",
                             conversation_name=self.conversation_name,
                         )
 

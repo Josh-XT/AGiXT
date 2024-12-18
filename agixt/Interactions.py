@@ -514,61 +514,67 @@ class Interactions:
         )
 
         # Find all matches
-        matches = re.finditer(tag_pattern, response, re.DOTALL)
+        matches = list(re.finditer(tag_pattern, response, re.DOTALL))
 
         # Keep track of processed tags using content as key to avoid duplicates
         if not hasattr(self, "_processed_tags"):
             self._processed_tags = set()
 
-        processed_response = response
-        last_end = 0
+        # Create a dict to store unique thoughts by their cleaned content
+        unique_thoughts = {}
 
         for match in matches:
             tag_name = match.group(1)  # thinking or reflection
             tag_content = match.group(2).strip()
 
+            # Clean the content
+            cleaned_content = tag_content
+            cleaned_content = re.sub(
+                r"<execute>.*?</execute>", "", cleaned_content, flags=re.DOTALL
+            )
+            cleaned_content = re.sub(
+                r"<output>.*?</output>", "", cleaned_content, flags=re.DOTALL
+            )
+            cleaned_content = re.sub(r"<rate>.*?</rate>", "", cleaned_content)
+            cleaned_content = re.sub(r"<reward>.*?</reward>", "", cleaned_content)
+            cleaned_content = re.sub(r"<count>.*?</count>", "", cleaned_content)
+            cleaned_content = cleaned_content.replace("\n\\n", "\n")
+            cleaned_content = cleaned_content.replace("</reflection>", "")
+            cleaned_content = cleaned_content.replace("</thinking>", "")
+            cleaned_content = cleaned_content.replace("<output>", "")
+            cleaned_content = cleaned_content.replace("</output>", "")
+            cleaned_content = cleaned_content.replace("<step>", "")
+            cleaned_content = cleaned_content.replace("</step>", "")
+            cleaned_content = re.sub(
+                r"<name>.*?</name>", "", cleaned_content, flags=re.DOTALL
+            )
+            cleaned_content = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_content)
+            cleaned_content = cleaned_content.strip()
+
+            # Use cleaned content as key to prevent duplicates
+            if cleaned_content and cleaned_content not in unique_thoughts:
+                unique_thoughts[cleaned_content] = {
+                    "tag_name": tag_name,
+                    "content": cleaned_content,
+                }
+
+        # Log only unique thoughts
+        for thought in unique_thoughts.values():
+            tag_name = thought["tag_name"]
+            content = thought["content"]
+
             # Create a unique identifier for this tag
-            tag_identifier = f"{tag_name}:{tag_content}"
+            tag_identifier = f"{tag_name}:{content}"
 
-            # Only process if we haven't seen this tag before
+            # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
-                # Clean the content of various tags but preserve newlines
-                tag_content = re.sub(
-                    r"<execute>.*?</execute>", "", tag_content, flags=re.DOTALL
+                log_message = (
+                    f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 )
-                tag_content = re.sub(
-                    r"<output>.*?</output>", "", tag_content, flags=re.DOTALL
-                )
-                tag_content = re.sub(r"<rate>.*?</rate>", "", tag_content)
-                tag_content = re.sub(r"<reward>.*?</reward>", "", tag_content)
-                tag_content = re.sub(r"<count>.*?</count>", "", tag_content)
-                tag_content = tag_content.replace("\n\\n", "\n")
-                tag_content = tag_content.replace("</reflection>", "")
-                tag_content = tag_content.replace("</thinking>", "")
-                tag_content = tag_content.replace("<output>", "")
-                tag_content = tag_content.replace("</output>", "")
-                tag_content = tag_content.replace("<step>", "")
-                tag_content = tag_content.replace("</step>", "")
-                # Clean up any remaining execute/output related content
-                tag_content = re.sub(
-                    r"<name>.*?</name>", "", tag_content, flags=re.DOTALL
-                )
-
-                # Only remove consecutive blank lines, preserve single newlines
-                tag_content = re.sub(r"\n\s*\n\s*\n", "\n\n\n", tag_content)
-                tag_content = tag_content.strip()
-
-                if tag_content:
-                    log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {tag_content}"
-                    c.log_interaction(role=self.agent_name, message=log_message)
-
-                # Mark this tag as processed
+                c.log_interaction(role=self.agent_name, message=log_message)
                 self._processed_tags.add(tag_identifier)
 
-            # Keep track of where we processed up to
-            last_end = match.end()
-
-        return processed_response
+        return response
 
     async def run(
         self,
