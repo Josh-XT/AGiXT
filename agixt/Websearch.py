@@ -376,9 +376,10 @@ class Websearch:
         if len(links) < 1:
             return ""
         c = Conversations(conversation_name=conversation_name, user=self.user)
-        activity_id = c.log_interaction(
+        activity_id = c.get_thinking_id(agent_name=self.agent_name)
+        c.log_interaction(
             role=self.agent_name,
-            message=f"[ACTIVITY] Browsing links provided by the user.",
+            message=f"[SUBACTIVITY][{activity_id}] Browsing links provided by the user.",
         )
         tasks = []
         scraped_links = []
