@@ -570,6 +570,8 @@ class Interactions:
             if tag_identifier not in self._processed_tags:
                 test_content = re.sub(r"\. ", ".\n", content, count=1)
                 if test_content.startswith("1."):
+                    # Remove the first 3 character of the string
+                    content = test_content[3:]
                     test_content = re.sub(r"\. ", ".\n", content, count=1)
                 else:
                     content = test_content
