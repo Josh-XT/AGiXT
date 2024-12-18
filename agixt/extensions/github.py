@@ -543,7 +543,7 @@ class github(Extensions):
         self, repo_url: str, title: str, body: str, assignee: str = None
     ) -> str:
         """
-        Create a new issue in a GitHub repository and create a new branch for it
+        Create a new issue in a GitHub repository with an optional assignee
 
         Args:
         repo_url (str): The URL of the GitHub repository
@@ -556,17 +556,12 @@ class github(Extensions):
         """
         try:
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
-            issue = repo.create_issue(title=title, body=body, assignee=assignee)
-
-            # Create a new branch for the issue
-            base_branch = repo.default_branch
-            new_branch_name = f"issue-{issue.number}"
-            repo.create_git_ref(
-                f"refs/heads/{new_branch_name}", repo.get_branch(base_branch).commit.sha
-            )
-
+            try:
+                issue = repo.create_issue(title=title, body=body, assignee=assignee)
+            except Exception as e:
+                issue = repo.create_issue(title=title, body=body)
             self.failures = 0
-            return f"Created new issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}\n\nCreated new branch: {new_branch_name}"
+            return f"Created new issue in GitHub Repository at {repo_url}\n\n{issue.number}: {issue.title}\n\n{issue.body}"
         except RateLimitExceededException:
             if self.failures < 3:
                 self.failures += 1
