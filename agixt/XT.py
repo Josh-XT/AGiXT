@@ -1779,6 +1779,7 @@ class AGiXT:
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
                 response = response[len(f"{self.agent_name} :") :]
+            thoughts_and_reflections = ""
             if "<answer>" in response:
                 if "</answer>" not in response:
                     response += "</answer>"
@@ -1810,6 +1811,33 @@ class AGiXT:
                 answer = answer.split("</answer>")[0]
                 response = answer
             if log_output:
+                if thoughts_and_reflections:
+                    # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
+                    activities = self.agent_interactions.process_thinking_tags(
+                        response=thoughts_and_reflections,
+                        thinking_id=thinking_id,
+                        c=c,
+                    )
+                    if activities:
+                        activity_prompt = f"{new_prompt}\n\n### Detailed Activities\n{activities}\n\nReview the detailed activities list and create a mermaid diagram that describes the paths taken during the detailed activities that were performed based on the user input. This mermaid diagram should start with ```mermaid\nContent of the diagram\n```\ninside of the <answer> block as the final response. The activities describe the thoughts in steps that ultimately led to the response from the assistant to the user based on the user input. Be as detailed as possible with the diagram."
+                        mermaid_diagram = await self.inference(
+                            user_input=activity_prompt,
+                            prompt_category="Default",
+                            prompt_name="Think About It",
+                            log_output=False,
+                            log_user_input=False,
+                            voice_response=False,
+                            analyze_user_input=False,
+                            browse_links=False,
+                            websearch=False,
+                            disable_commands=True,
+                            conversation_name=self.conversation_name,
+                        )
+                        if mermaid_diagram:
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message=f"[SUBACTIVITY][{thinking_id}] Generated diagram describing thoughts.\n{mermaid_diagram}",
+                            )
                 self.conversation.log_interaction(
                     role=self.agent_name,
                     message=response,
