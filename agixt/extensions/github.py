@@ -1404,6 +1404,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
         # Normalize target by stripping whitespace from each line but preserving empty lines
+        fuzzy_match = True
         target_lines = target.split("\n")
         target_normalized = [line.strip() for line in target_lines]
         target_first_line = next((line for line in target_normalized if line), "")
