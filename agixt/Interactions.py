@@ -227,9 +227,10 @@ class Interactions:
                     sources.append(f"Content from {source}")
             if sources != []:
                 joined_sources = "\n".join(sources)
+                thinking_id = c.get_thinking_id(agent_name=self.agent_name)
                 c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Referencing the following sources:\n{joined_sources}.",
+                    message=f"[SUBACTIVITY][{thinking_id}] Referencing sources from content\n{joined_sources}.",
                 )
         working_directory = f"{self.agent.working_directory}/{conversation_id}"
         helper_agent_name = self.agent_name
@@ -720,7 +721,7 @@ class Interactions:
             if user_input != "":
                 searching_activity_id = c.log_interaction(
                     role=self.agent_name,
-                    message=f"[ACTIVITY] Searching for information.",
+                    message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
                 )
                 to_search_or_not_to_search = await self.run(
                     prompt_name="WebSearch Decision",
