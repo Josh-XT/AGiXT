@@ -38,5 +38,6 @@ class google_search(Extensions):
                 "log_output": False,
                 "tts": False,
                 "analyze_user_input": False,
+                "disable_commands": True,
             },
         )

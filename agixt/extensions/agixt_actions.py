@@ -727,6 +727,7 @@ class agixt_actions(Extensions):
                 prompt_name="Think About It",
                 prompt_args={
                     "user_input": f"{rules}\nUsing context from the web search, please provide the base URI of the API for: {extension_name}.",
+                    "disable_commands": True,
                     "websearch": True,
                     "websearch_depth": 2,
                     "analyze_user_input": False,
