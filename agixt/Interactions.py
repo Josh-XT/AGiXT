@@ -569,6 +569,12 @@ class Interactions:
             # Only log if we haven't seen this exact thought before
             if tag_identifier not in self._processed_tags:
                 content = re.sub(r"\. ", ".\n", content, count=1)
+                if "<modifications>" in content:
+                    # Check if the characters before it are "```xml\n", if it isn't, add it.
+                    if content.find("```xml\n<modifications>") == -1:
+                        content = content.replace(
+                            "<modifications>", "```xml\n<modifications>"
+                        ).replace("</modifications>", "</modifications>\n```")
                 log_message = (
                     f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 )
