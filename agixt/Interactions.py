@@ -1124,7 +1124,7 @@ class Interactions:
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}] Received command execution output.\n{command_output}",
+                            message=f"[SUBACTIVITY][{thinking_id}] `{command_name}` was executed successfully.\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
                     except Exception as e:
