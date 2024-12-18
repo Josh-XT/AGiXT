@@ -1572,91 +1572,74 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # Debug logging
             logging.debug(f"Parsing modification block:\n{modification_block}")
 
-            # Pre-process XML to escape special characters in code blocks
             def escape_code_content(xml_str: str) -> str:
-                # Find content between tags
-                def escape_section(match):
-                    content = match.group(1)
-                    # Only escape if it contains template literals or XML special chars
-                    if (
-                        "`" in content
-                        or "${" in content
-                        or "<" in content
-                        or ">" in content
-                    ):
-                        return f"<![CDATA[{content}]]>"
-                    return match.group(0)
+                """Escape code content by wrapping in CDATA sections."""
 
-                # Escape content in target and content tags
-                xml_str = re.sub(
-                    r"<target>(.*?)</target>", escape_section, xml_str, flags=re.DOTALL
-                )
-                xml_str = re.sub(
-                    r"<content>(.*?)</content>",
-                    escape_section,
-                    xml_str,
-                    flags=re.DOTALL,
-                )
-                return xml_str
+                def wrap_in_cdata(match):
+                    tag_name = match.group(1)
+                    content = match.group(2)
+                    # Always wrap code content in CDATA
+                    return f"<{tag_name}><![CDATA[{content}]]></{tag_name}>"
 
-            # Clean and escape XML
-            clean_xml = modification_block.strip()
+                # Use a more precise regex that captures the entire tag content
+                pattern = r"<(target|content)>(.*?)</\1>"
+                return re.sub(pattern, wrap_in_cdata, xml_str, flags=re.DOTALL)
+
+            # First, normalize the XML structure
+            clean_xml = re.sub(r"\s+<", "<", modification_block.strip())
+            clean_xml = re.sub(r">\s+", ">", clean_xml)
+            clean_xml = re.sub(r"\s+</modification>", "</modification>", clean_xml)
+
+            # Then escape the code content
             clean_xml = escape_code_content(clean_xml)
 
-            # Try to parse XML
             try:
                 root = ET.fromstring(clean_xml)
             except ET.ParseError as xml_error:
-                # Get more context around the error position
+                # Enhanced error reporting
                 lines = clean_xml.split("\n")
                 position = (
                     xml_error.position[0]
                     if isinstance(xml_error.position, tuple)
                     else xml_error.position
                 )
-                line_num = 1
-                char_count = 0
-                error_line = ""
-                for line in lines:
-                    if char_count + len(line) + 1 >= position:
-                        error_line = line
-                        break
-                    char_count += len(line) + 1
-                    line_num += 1
+                line_num = sum(1 for _ in clean_xml[:position].splitlines())
 
-                # Create detailed error message
-                error_context = f"Error near line {line_num}:\n{error_line}\n"
-                if error_line:
-                    error_context += " " * (position - char_count) + "^"
-                raise ValueError(
-                    f"XML Parse Error: {str(xml_error)}\n{error_context}\nFull XML:\n{clean_xml}"
+                # Find the problematic line and show context
+                context_lines = []
+                for i in range(max(0, line_num - 2), min(len(lines), line_num + 3)):
+                    prefix = ">>> " if i == line_num - 1 else "    "
+                    context_lines.append(f"{prefix}{lines[i]}")
+
+                error_context = "\n".join(
+                    [
+                        f"XML Parse Error near line {line_num}:",
+                        *context_lines,
+                        f"Error details: {str(xml_error)}",
+                    ]
                 )
 
-            # Extract and validate components
-            try:
-                operation_elem = root.find("operation")
-                if operation_elem is None:
-                    raise ValueError("Missing required 'operation' tag")
-                operation = operation_elem.text.strip()
-                if operation not in ["replace", "insert", "delete"]:
-                    raise ValueError(
-                        f"Invalid operation '{operation}'. Must be one of: replace, insert, delete"
-                    )
+                raise ValueError(error_context)
 
-                target_elem = root.find("target")
-                if target_elem is None:
-                    raise ValueError("Missing required 'target' tag")
-                target = target_elem.text
-                if target is None:
+            # Extract components
+            try:
+                operation = root.find("operation").text.strip()
+                if operation not in ["replace", "insert", "delete"]:
+                    raise ValueError(f"Invalid operation '{operation}'")
+
+                target = root.find("target").text
+                if not target:
                     raise ValueError("Empty target tag")
 
-                content_elem = root.find("content")
-                content = content_elem.text if content_elem is not None else None
+                content = root.find("content")
+                content = content.text if content is not None else None
                 if operation in ["replace", "insert"] and not content:
-                    raise ValueError(f"Content is required for {operation} operation")
+                    raise ValueError(f"Content required for {operation} operation")
 
-                fuzzy_match_elem = root.find("fuzzy_match")
-                fuzzy_match = True  # Default to True if not specified
+                fuzzy_match = True
+                fuzzy_elem = root.find("fuzzy_match")
+                if fuzzy_elem is not None:
+                    fuzzy_match = fuzzy_elem.text.lower() != "false"
 
                 return {
                     "operation": operation,
@@ -1669,14 +1652,9 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 raise ValueError(f"Invalid XML structure: {str(e)}")
 
         except Exception as e:
-            if "position" in str(e):
-                # Already formatted error
+            if isinstance(e, ValueError):
                 raise
-            else:
-                # Wrap other errors with more context
-                raise ValueError(
-                    f"Error parsing modification block: {str(e)}\nXML:\n{modification_block}"
-                )
+            raise ValueError(f"Error parsing modification block: {str(e)}")
 
     def clean_content(self, content: str) -> str:
         """Clean content by normalizing line endings and removing any leading/trailing whitespace.
