@@ -1581,62 +1581,83 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
     def _handle_insertion_point(
         self, file_lines: List[str], target_first_line: str
     ) -> tuple[int, int, int]:
-        """Handle finding insertion points for new code blocks."""
+        """Handle finding insertion points for new code blocks.
+
+        Args:
+            file_lines: List of lines from the file
+            target_first_line: The first line of the target block
+
+        Returns:
+            tuple: (insertion_line, insertion_line, indent_level)
+        """
         function_matches = []
-        for i in range(len(file_lines)):
-            current_line = file_lines[i].strip()
-            if current_line == target_first_line:
+
+        # First try exact match
+        for i, line in enumerate(file_lines):
+            if line.strip() == target_first_line:
                 function_matches.append(i)
 
+        # If no exact match found, try fuzzy matching
         if not function_matches:
             similar_functions = []
-            original_target = target_first_line
-            new_target = original_target
             highest_score = 0
+            best_match_index = -1
+
+            # Try to match function/class definitions
             target_func_name = re.search(r"(?:def|class)\s+(\w+)", target_first_line)
             if target_func_name:
                 func_name = target_func_name.group(1)
-                for line in file_lines:
+                for i, line in enumerate(file_lines):
                     if re.match(r"^(\s*)(async\s+)?(def|class)\s+\w+", line):
                         other_func = re.search(r"(?:def|class)\s+(\w+)", line.strip())
                         if other_func:
                             other_name = other_func.group(1)
-                            if (
-                                difflib.SequenceMatcher(
-                                    None, func_name, other_name
-                                ).ratio()
-                                > 0.6
-                            ):
-                                score = difflib.SequenceMatcher(
-                                    None, func_name, other_name
-                                ).ratio()
-                                if score > highest_score:
-                                    highest_score = score
-                                    new_target = line.strip()
+                            score = difflib.SequenceMatcher(
+                                None, func_name, other_name
+                            ).ratio()
+                            if score > 0.6 and score > highest_score:
+                                highest_score = score
+                                best_match_index = i
                                 similar_functions.append(line.strip())
-            if original_target != new_target:
-                target_first_line = new_target
+
+            # If we found a good match, use it
+            if best_match_index != -1:
+                function_matches.append(best_match_index)
             else:
+                # If still no matches found, provide helpful error
                 error_msg = [
                     f"Function/class definition not found: {target_first_line}",
-                    "",
-                    "Did you mean one of these?",
-                    *[f"- {func}" for func in similar_functions],
-                    "",
-                    "Please use an existing function/class definition as the target.",
                 ]
+                if similar_functions:
+                    error_msg.extend(
+                        [
+                            "",
+                            "Did you mean one of these?",
+                            *[f"- {func}" for func in similar_functions],
+                        ]
+                    )
+                error_msg.extend(
+                    [
+                        "",
+                        "Please use an existing function/class definition as the target.",
+                    ]
+                )
                 raise ValueError("\n".join(error_msg))
 
         # Find the end of the function scope
-        i = function_matches[0]
+        i = function_matches[
+            0
+        ]  # Now safe since we either have matches or raised an error
         target_indent = len(file_lines[i]) - len(file_lines[i].lstrip())
+
+        # Look for the end of the current scope
         while i + 1 < len(file_lines):
             next_line = file_lines[i + 1]
-            if not next_line.strip():
+            if not next_line.strip():  # Skip empty lines
                 i += 1
                 continue
             next_indent = len(next_line) - len(next_line.lstrip())
-            if next_indent <= target_indent:
+            if next_indent <= target_indent:  # Found end of scope
                 break
             i += 1
 
