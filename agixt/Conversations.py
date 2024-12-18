@@ -314,6 +314,56 @@ class Conversations:
         session.close()
         return {"activities": return_activities}
 
+    def get_subactivities(self, activity_id):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = "-"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return ""
+        messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .order_by(Message.timestamp.asc())
+            .all()
+        )
+        if not messages:
+            session.close()
+            return ""
+        return_subactivities = []
+        for message in messages:
+            if message.content.startswith(f"[SUBACTIVITY][{activity_id}]"):
+                msg = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": message.content,
+                    "timestamp": message.timestamp,
+                }
+                return_subactivities.append(msg)
+        # Order messages by timestamp oldest to newest
+        return_subactivities = sorted(
+            return_subactivities, key=lambda x: x["timestamp"]
+        )
+        session.close()
+        # Return it as a string with timestamps per subactivity in markdown format
+        subactivities = "\n".join(
+            [
+                f"#### Activity at {subactivity['timestamp']}\n{subactivity['message']}"
+                for subactivity in return_subactivities
+            ]
+        )
+        return f"### Detailed Activities:\n{subactivities}"
+
     def new_conversation(self, conversation_content=[]):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
