@@ -1769,7 +1769,7 @@ class AGiXT:
                 browse_links=browse_links,
                 voice_response=tts,
                 log_user_input=False,
-                log_output=log_output,
+                log_output=False,
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
