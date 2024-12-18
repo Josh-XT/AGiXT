@@ -1811,7 +1811,6 @@ class AGiXT:
                 answer = answer.split("</answer>")[0]
                 response = answer
             if log_output:
-                """
                 if thoughts_and_reflections:
                     # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
                     activities = c.get_subactivities(thinking_id)
@@ -1840,9 +1839,8 @@ class AGiXT:
                             )
                         c.update_message_by_id(
                             message_id=thinking_id,
-                            new_messaeg=f"[ACTIVITY] Completed activities.",
+                            new_message=f"[ACTIVITY] Completed activities.",
                         )
-                """
                 self.conversation.log_interaction(
                     role=self.agent_name,
                     message=response,
