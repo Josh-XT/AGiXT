@@ -1404,7 +1404,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
     ) -> tuple[int, int, int]:
         """Find start and end line indices of the target code block in file lines."""
         # Normalize target by stripping whitespace from each line but preserving empty lines
-        fuzzy_match = True
+        # fuzzy_match = True
         target_lines = target.split("\n")
         target_normalized = [line.strip() for line in target_lines]
         target_first_line = next((line for line in target_normalized if line), "")
@@ -1572,8 +1572,36 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             # Debug logging
             logging.debug(f"Parsing modification block:\n{modification_block}")
 
-            # Pre-process XML to handle common issues
+            # Pre-process XML to escape special characters in code blocks
+            def escape_code_content(xml_str: str) -> str:
+                # Find content between tags
+                def escape_section(match):
+                    content = match.group(1)
+                    # Only escape if it contains template literals or XML special chars
+                    if (
+                        "`" in content
+                        or "${" in content
+                        or "<" in content
+                        or ">" in content
+                    ):
+                        return f"<![CDATA[{content}]]>"
+                    return match.group(0)
+
+                # Escape content in target and content tags
+                xml_str = re.sub(
+                    r"<target>(.*?)</target>", escape_section, xml_str, flags=re.DOTALL
+                )
+                xml_str = re.sub(
+                    r"<content>(.*?)</content>",
+                    escape_section,
+                    xml_str,
+                    flags=re.DOTALL,
+                )
+                return xml_str
+
+            # Clean and escape XML
             clean_xml = modification_block.strip()
+            clean_xml = escape_code_content(clean_xml)
 
             # Try to parse XML
             try:
@@ -1628,7 +1656,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     raise ValueError(f"Content is required for {operation} operation")
 
                 fuzzy_match_elem = root.find("fuzzy_match")
-                fuzzy_match = True
+                fuzzy_match = True  # Default to True if not specified
 
                 return {
                     "operation": operation,
