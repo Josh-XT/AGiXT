@@ -2237,7 +2237,8 @@ Repository Code:
 Please analyze the changes and provide:
 1. Critical issues or bugs with the code changes
 2. That the changes resolve the issue requiring no further modifications. If any changes are needed, provide specific details.
-3. XML modification blocks for any necessary changes in the format:
+3. If no changes are needed, give feedback without suggesting modifications.
+4. XML modification blocks for any necessary changes in the format:
 
 <modification>
 <file>path/to/file</file>
