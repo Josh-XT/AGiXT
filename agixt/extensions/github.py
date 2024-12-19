@@ -2125,15 +2125,36 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            base_indent = _get_indentation_level(
-                                modified_lines, start_line
-                            )
+                            # For Python files, we need to look at the context
+                            if self._is_python_file(file_path):
+                                # Get base indentation from the surrounding context
+                                if start_line > 0:
+                                    # Look at previous line for context
+                                    prev_line = modified_lines[start_line - 1]
+                                    base_indent = prev_line[
+                                        : len(prev_line) - len(prev_line.lstrip())
+                                    ]
 
-                            if start_line > 0 and modified_lines[
-                                start_line - 1
-                            ].rstrip().endswith(":"):
-                                base_indent += "    "
+                                    # If previous line ends with colon, we need to indent one more level
+                                    if prev_line.rstrip().endswith(":"):
+                                        base_indent += "    "
+                                    # If we're in a block (previous line is indented), maintain that indentation
+                                    elif prev_line.strip():
+                                        # Keep same indentation as previous line if it's not empty
+                                        pass
+                                else:
+                                    base_indent = ""
+                            else:
+                                # For non-Python files, use simpler indent detection
+                                base_indent = _get_indentation_level(
+                                    modified_lines, start_line
+                                )
+                                if start_line > 0 and modified_lines[
+                                    start_line - 1
+                                ].rstrip().endswith(":"):
+                                    base_indent += "    "
 
+                            # Process content lines with proper indentation
                             insert_lines = [
                                 (
                                     f"{base_indent}{line.lstrip()}\n"
@@ -2143,6 +2164,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 for line in content.splitlines()
                             ]
 
+                            # Handle spacing around insertion
                             if (
                                 start_line > 0
                                 and modified_lines[start_line - 1].strip()
