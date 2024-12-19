@@ -1845,14 +1845,8 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
-        try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
-        except:
+                    try :
+                    prompt_tokens, completion_tokens, total_tokens = await self.agent.calculate_tokens(prompt=new_prompt, response=response)
             if not response:
                 response = "Unable to retrieve response."
                 logging.error(f"Error getting response: {response}")
