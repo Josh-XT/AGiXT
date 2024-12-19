@@ -256,41 +256,43 @@ def adjust_relative_indentation(content, target_indent):
     return "\n".join(result)
 
 
-def _get_block_indentation(
-    lines: List[str], start_line: int, num_context_lines: int = 3
-) -> str:
-    """Determine the proper indentation level, ignoring continuation lines."""
-    base_indents = []
-
-    # Look at lines before
-    for i in range(max(0, start_line - num_context_lines), start_line):
+def _get_block_indentation(lines: List[str], start_line: int) -> str:
+    """Get the indentation level by looking at the parent block."""
+    # Look backwards to find the parent block's indentation
+    for i in range(start_line - 1, -1, -1):
         line = lines[i].rstrip()
-        if line.strip():
-            # Skip lines that are likely continuations (e.g., after =)
-            if not any(
-                line.rstrip().endswith(x)
-                for x in ["=", "+", "-", "*", "/", "(", ",", "and", "or"]
-            ):
-                base_indents.append(len(line) - len(line.lstrip()))
-
-    # Look at lines after that start new statements
-    for i in range(start_line, min(len(lines), start_line + num_context_lines)):
-        line = lines[i].rstrip()
-        if line.strip() and not any(
-            line.rstrip().endswith(x)
-            for x in ["=", "+", "-", "*", "/", "(", ",", "and", "or"]
-        ):
-            base_indents.append(len(line) - len(line.lstrip()))
-
-    # If we found indentation levels, use the most common one
-    if base_indents:
-        return " " * max(set(base_indents), key=base_indents.count)
-
-    # Fallback to previous line's indentation
-    if start_line > 0:
-        return " " * (len(lines[start_line - 1]) - len(lines[start_line - 1].lstrip()))
-
+        if line.endswith(":"):  # Found the parent block start
+            return " " * (len(line) - len(line.lstrip()))
     return ""
+
+
+def _indent_block(content: str, base_indent: str) -> List[str]:
+    """Maintain the block's structure but with the new base indentation."""
+    if not content:
+        return []
+
+    # Get the content's current base indentation
+    lines = content.splitlines()
+    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    if not indents:
+        return []
+
+    min_indent = min(indents)
+    result = []
+
+    for line in lines:
+        if not line.strip():
+            result.append("\n")
+            continue
+
+        # Calculate relative indentation
+        current_indent = len(line) - len(line.lstrip())
+        relative_indent = current_indent - min_indent
+        # Apply base indent plus relative indent
+        final_indent = base_indent + " " * 4 + " " * relative_indent
+        result.append(f"{final_indent}{line.lstrip()}\n")
+
+    return result
 
 
 def _indent_code_block(
@@ -2174,21 +2176,15 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                             base_indent = _get_block_indentation(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_code_block(content, base_indent)
+                            new_content = _indent_block(content, base_indent)
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            # For inserts, we may need to indent one level deeper after a colon
                             base_indent = _get_block_indentation(
                                 modified_lines, start_line
                             )
-                            if start_line > 0 and modified_lines[
-                                start_line - 1
-                            ].rstrip().endswith(":"):
-                                base_indent += "    "
-
-                            new_content = _indent_code_block(content, base_indent)
+                            new_content = _indent_block(content, base_indent)
 
                             # Handle spacing around insertion
                             if (
