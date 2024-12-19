@@ -330,6 +330,26 @@ class AGiXT:
             with open(audio_path, "wb") as f:
                 f.write(audio_data)
             tts_url = f"{self.outputs}/{file_name}"
+
+                try:
+                prompt_tokens = get_tokens(new_prompt) + self.input_tokens
+                completion_tokens = get_tokens(response)
+                total_tokens = int(prompt_tokens) + int(completion_tokens)
+                logging.info(f"Input tokens: {prompt_tokens}")
+                logging.info(f"Completion tokens: {completion_tokens}")
+                logging.info(f"Total tokens: {total_tokens}")
+                except:
+                if not response:
+                response = "Unable to retrieve response."
+                logging.error(f"Error getting response: {response}")
+                try:
+                self.auth.increase_token_counts(
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens,
+                )
+                except Exception as e:
+                logging.warning(f"Error increasing token counts: {e}")
+
         if log_output:
             if tts_url.endswith(".mp3"):
                 self.conversation.log_interaction(
@@ -469,10 +489,10 @@ class AGiXT:
                     prompt_name = step["prompt"]["prompt_name"]
                 else:
                     prompt_name = ""
-                args = self.chain.get_step_content(
-                    chain_run_id=chain_run_id,
-                    chain_name=chain_name,
-                    prompt_content=step["prompt"],
+                response = await self.agent.inference(
+                prompt=prompt, tokens=tokens, images=images
+                )
+                answer = str(response).replace("_", "_")
                     user_input=user_input,
                     agent_name=agent_name,
                 )
@@ -1870,6 +1890,13 @@ class AGiXT:
             "object": "chat.completion",
             "created": int(time.time()),
             "model": self.agent_name,
+
+                "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                },
+
             "choices": [
                 {
                     "index": 0,
