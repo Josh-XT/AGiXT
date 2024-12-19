@@ -127,7 +127,6 @@ Please provide the modifications in the same XML format:
 <content>
 [your new code here]
 </content>
-<fuzzy_match>true|false</fuzzy_match>
 </modification>
 
 Original intended changes were:
@@ -150,7 +149,10 @@ Original intended changes were:
                     "conversation_name": self.conversation_name,
                 },
             )
-
+            # replace fuzzy_match with true
+            new_modifications = new_modifications.replace(
+                "<fuzzy_match>false</fuzzy_match>", "<fuzzy_match>true</fuzzy_match>"
+            )
             if activity_id:
                 self.api_client.new_conversation_message(
                     role=self.agent_name,
@@ -1131,7 +1133,6 @@ class github(Extensions):
         pass</target>
                     <content>def old_function():
         return "fixed"</content>
-                    <fuzzy_match>true</fuzzy_match>
                 </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
@@ -1239,7 +1240,6 @@ You must ONLY return the necessary modifications in the following XML format:
 <operation>replace|insert|delete</operation>
 <target>original_code_block_or_line_number</target>
 <content>new_code_block_if_needed</content>
-<fuzzy_match>true|false</fuzzy_match>
 </modification>
 
 If multiple modifications are needed, repeat the <modification> block. Do not return anything other than <modification> blocks.
@@ -1249,7 +1249,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 - For replace, insert, and delete operations:
   - "target" can be a code snippet or a line number.
   - "content" is required for replace and insert, optional for delete.
-  - "fuzzy_match" defaults to true if not provided.
 """,
                     "context": f"""### Content of {repo_url}\n\n{repo_content}\n{additional_context}\n### Scope of Work\n\n{scope}""",
                     "log_user_input": False,
@@ -1882,7 +1881,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                                  <operation>replace|insert|delete</operation>
                                                  <target>code_block_or_line_number</target>
                                                  <content>new_content (required for replace and insert)</content>
-                                                 <fuzzy_match>true|false</fuzzy_match>
                                              </modification>
 
                                              Multiple <modification> blocks can be provided in a single string.
@@ -1912,7 +1910,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         pass</target>
                     <content>def old_function():
         return "fixed"</content>
-                    <fuzzy_match>true</fuzzy_match>
                 </modification>
 
             The method handles indentation and attempts to maintain code style. It returns a diff
@@ -2171,7 +2168,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 pass</target>
             <content>def new_function(param: str):
                 return param.upper()</content>
-            <fuzzy_match>true</fuzzy_match>
             </execute>
 
         Returns:
@@ -2182,7 +2178,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         <operation>replace</operation>
         <target>{target}</target>
         <content>{content}</content>
-        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        <fuzzy_match>true</fuzzy_match>
         </modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
@@ -2222,7 +2218,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             <target>class MyClass:</target>
             <content>    def new_method(self):
                 return "Hello World"</content>
-            <fuzzy_match>true</fuzzy_match>
             </execute>
 
         Returns:
@@ -2233,7 +2228,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         <operation>insert</operation>
         <target>{target}</target>
         <content>{content}</content>
-        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        <fuzzy_match>true</fuzzy_match>
         </modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
@@ -2272,7 +2267,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             <target>def deprecated_function():
                 # This function is no longer used
                 pass</target>
-            <fuzzy_match>true</fuzzy_match>
             </execute>
 
         Returns:
@@ -2282,7 +2276,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         <modification>
         <operation>delete</operation>
         <target>{target}</target>
-        <fuzzy_match>{fuzzy_match}</fuzzy_match>
+        <fuzzy_match>true</fuzzy_match>
         </modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
