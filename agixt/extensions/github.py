@@ -2014,12 +2014,24 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             content = self.clean_content(content)
 
                         new_lines = modified_lines[:]
+                        new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            # Ensure content ends with newline if the replaced content did
-                            content_lines = content.splitlines(keepends=True)
-                            if modified_lines[end_line - 1].endswith("\n"):
-                                if not content_lines[-1].endswith("\n"):
-                                    content_lines[-1] += "\n"
+                            # Get indent from first line of target section
+                            first_line = modified_lines[start_line]
+                            indent = len(first_line) - len(first_line.lstrip())
+                            indent_str = first_line[:indent]
+
+                            # Prepare content lines with proper indentation
+                            content_lines = []
+                            for line in content.splitlines():
+                                # Add the exact indentation from the first line to all non-empty lines
+                                if line.strip():
+                                    content_lines.append(
+                                        f"{indent_str}{line.lstrip()}\n"
+                                    )
+                                else:
+                                    content_lines.append(line.rstrip() + "\n")
+
                             new_lines[start_line:end_line] = content_lines
                             has_changes = True
 
