@@ -554,6 +554,19 @@ class AGiXT:
             )
             return result
         else:
+
+        try:
+            prompt_tokens = get_tokens(prompt)
+            response_tokens = get_tokens(answer)
+            total_tokens = int(prompt_tokens) + int(response_tokens)
+            self.auth.increase_token_counts(
+                input_tokens=prompt_tokens,
+                output_tokens=response_tokens,
+            )
+        except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
+        return answer
+
             return None
 
     async def execute_chain(
@@ -1232,10 +1245,10 @@ class AGiXT:
             message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nWould you like me to execute `{chain_name}` now?"
         else:
             message = f"I have created a new command called `{chain_name}`. The tasks will be executed in the following order:\n{list_of_tasks}\n\nIf you are able to enable the command, I can execute it for you. Alternatively, you can execute the command manually."
-        if log_output:
-            self.conversation.log_interaction(
-                role=self.agent_name,
-                message=message,
+            if command_output:
+                    self.conversation.log_interaction(
+                        role=self.agent_name, message=command_output
+                    )
             )
         return {
             "chain_name": chain_name,
@@ -1845,24 +1858,12 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
-        try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
-        except:
-            if not response:
-                response = "Unable to retrieve response."
-                logging.error(f"Error getting response: {response}")
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.warning(f"Error increasing token counts: {e}")
+                try:
+                if not response:
+                    response = "Unable to retrieve response."
+                    logging.error(f"Error getting response: {response}")
+            except:
+                pass
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
         res_model = {
