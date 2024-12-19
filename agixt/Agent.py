@@ -374,9 +374,9 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = str(answer).replace("\_", "_")
+        answer = str(answer).replace("_", "_")
         if answer.endswith("\n\n"):
-            answer = answer[:-2]
+        answer = answer[:-2]
         return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
@@ -391,6 +391,18 @@ class Agent:
         if answer.endswith("\n\n"):
             answer = answer[:-2]
         return answer
+
+        async def calculate_tokens(self, prompt: str, response: str):
+        try:
+        prompt_tokens = get_tokens(prompt)
+        completion_tokens = get_tokens(response)
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        logging.info(f"Input tokens: {prompt_tokens}")
+        logging.info(f"Completion tokens: {completion_tokens}")
+        logging.info(f"Total tokens: {total_tokens}")
+        return prompt_tokens, completion_tokens, total_tokens
+        except:
+        return 0, 0, 0
 
     def embeddings(self, input) -> np.ndarray:
         return self.embedder(input=input)
