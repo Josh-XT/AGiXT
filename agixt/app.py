@@ -13,6 +13,7 @@ from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
 from endpoints.Provider import app as provider_endpoints
 from endpoints.Auth import app as auth_endpoints
+from Tunnel import get_ngrok_url
 from Globals import getenv
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -53,4 +54,4 @@ app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7437)
+uvicorn.run(app, host="0.0.0.0", port=7437, proxy_headers=True)
