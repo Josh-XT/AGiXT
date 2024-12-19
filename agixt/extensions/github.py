@@ -257,19 +257,30 @@ def adjust_relative_indentation(content, target_indent):
 
 
 def _get_block_indentation(lines: List[str], start_line: int) -> str:
-    """Get the parent block's indentation level."""
-    # Look backwards to find the parent block's indentation
-    for i in range(start_line - 1, -1, -1):
+    """Get the appropriate indentation level based on context."""
+    # Look at a few lines before and after for context
+    context_range = 3
+    indentation_levels = []
+
+    # Check surrounding lines
+    start = max(0, start_line - context_range)
+    end = min(len(lines), start_line + context_range)
+
+    for i in range(start, end):
         line = lines[i].rstrip()
-        if line.endswith(":"):  # Found the parent block start
-            indent = len(line) - len(line.lstrip())
-            # Return the indentation for the block (one level deeper)
-            return " " * (indent + 4)
-    return "    "  # Default to one level if we can't find parent
+        if line and not line.lstrip().startswith(
+            ("#", '"', "'")
+        ):  # Skip comments and strings
+            indentation_levels.append(len(line) - len(line.lstrip()))
+
+    if indentation_levels:
+        # Use the most common indentation level
+        return " " * (max(set(indentation_levels), key=indentation_levels.count))
+    return ""  # Default to no indentation if we can't determine
 
 
 def _indent_block(content: str, base_indent: str) -> List[str]:
-    """Indent the block using the base indentation."""
+    """Preserve the block's internal structure with base indentation."""
     if not content:
         return []
 
