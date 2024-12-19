@@ -1846,16 +1846,19 @@ class AGiXT:
                     message=response,
                 )
         try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
+        # Use the agent's method to get tokens
+        prompt_tokens = get_tokens(new_prompt) + self.input_tokens
+        # Call the agent's inference method here which should now count the tokens
+        # This will be replaced in the next modification
+        completion_tokens = get_tokens(response)
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        logging.info(f"Input tokens: {prompt_tokens}")
+        logging.info(f"Completion tokens: {completion_tokens}")
+        logging.info(f"Total tokens: {total_tokens}")
         except:
-            if not response:
-                response = "Unable to retrieve response."
-                logging.error(f"Error getting response: {response}")
+        if not response:
+        response = "Unable to retrieve response."
+        logging.error(f"Error getting response: {response}")
         try:
             self.auth.increase_token_counts(
                 input_tokens=prompt_tokens,
@@ -1887,6 +1890,9 @@ class AGiXT:
                 "total_tokens": total_tokens,
             },
         }
+        res_model["usage"]["prompt_tokens"] = prompt_tokens
+        res_model["usage"]["completion_tokens"] = completion_tokens
+        res_model["usage"]["total_tokens"] = total_tokens
         return res_model
 
     async def batch_inference(
