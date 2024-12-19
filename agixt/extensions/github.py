@@ -2316,6 +2316,14 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         Returns:
             str: A unified diff showing the changes made or error message
         """
+        if str(content).startswith("\n"):
+            content = content[1:]
+        if str(content).endswith("\n"):
+            content = content[:-1]
+        if str(target).startswith("\n"):
+            target = target[1:]
+        if str(target).endswith("\n"):
+            target = target[:-1]
         modification = f"""
         <modification>
         <operation>replace</operation>
