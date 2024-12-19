@@ -21,6 +21,9 @@ from DB import (
 from Providers import Providers
 from Extensions import Extensions
 from Globals import getenv, DEFAULT_SETTINGS, DEFAULT_USER
+
+from Globals import get_tokens
+
 from MagicalAuth import get_user_id, is_agixt_admin
 from agixtsdk import AGiXTSDK
 from fastapi import HTTPException
@@ -374,10 +377,21 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = str(answer).replace("\_", "_")
-        if answer.endswith("\n\n"):
-            answer = answer[:-2]
-        return answer
+        answer = str(answer).replace("_", "_")
+                if answer.endswith("\n\n"):
+                    answer = answer[:-2]
+                if hasattr(self, "max_input_tokens"):
+                    prompt_tokens = get_tokens(prompt)
+                    if tokens >0:
+                        response_tokens = tokens
+                    else:
+                        response_tokens = get_tokens(answer)
+                    if self.ApiClient:
+                        try:
+                            self.ApiClient.increase_token_counts(input_tokens=prompt_tokens, output_tokens=response_tokens)
+                        except Exception as e:
+                          logging.warning(f"Error increasing token counts: {e}")
+                return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
