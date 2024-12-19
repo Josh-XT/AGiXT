@@ -379,6 +379,30 @@ class Agent:
             answer = answer[:-2]
         return answer
 
+    try:
+    prompt_tokens = get_tokens(prompt)
+    except Exception as e:
+    logging.error(f"Error getting prompt tokens: {e}")
+    prompt_tokens = 0
+    answer = await self.PROVIDER.inference(
+    prompt=prompt, tokens=tokens, images=images
+    )
+    try:
+    completion_tokens = get_tokens(answer)
+    except Exception as e:
+    logging.error(f"Error getting completion tokens: {e}")
+    completion_tokens = 0
+    self.auth.increase_token_counts(
+    input_tokens=prompt_tokens,
+    output_tokens=completion_tokens,
+    )
+    logging.info(f"Input tokens: {prompt_tokens}")
+    logging.info(f"Completion tokens: {completion_tokens}")
+    answer = str(answer).replace("_", "_")
+    if answer.endswith("\n\n"):
+    answer = answer[:-2]
+    return answer
+
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
             return ""
