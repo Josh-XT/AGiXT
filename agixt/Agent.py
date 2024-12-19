@@ -282,6 +282,52 @@ class Agent:
             user=self.user,
         )
         self.available_commands = self.extensions.get_available_commands()
+
+        def update_token_counts(self, input_tokens: int, output_tokens: int):
+        session = get_session()
+        user_preferences = (
+        session.query(UserPreferences)
+        .filter(UserPreferences.user_id == self.user_id)
+        .all()
+        )
+        if not user_preferences:
+        user_input_tokens = None
+        user_output_tokens = None
+        else:
+        user_input_tokens = next(
+        (x for x in user_preferences if x.pref_key == "input_tokens"),
+        None,
+        )
+        user_output_tokens = next(
+        (x for x in user_preferences if x.pref_key == "output_tokens"),
+        None,
+        )
+        # Update input tokens
+        if user_input_tokens is None:
+        user_input_tokens = UserPreferences(
+        user_id=self.user_id,
+        pref_key="input_tokens",
+        pref_value=str(input_tokens),
+        )
+        session.add(user_input_tokens)
+        session.commit()
+        else:
+        user_input_tokens.pref_value = str(int(user_input_tokens.pref_value) + input_tokens)
+        session.commit()
+        # Update output tokens
+        if user_output_tokens is None:
+        user_output_tokens = UserPreferences(
+        user_id=self.user_id,
+        pref_key="output_tokens",
+        pref_value=str(output_tokens),
+        )
+        session.add(user_output_tokens)
+        session.commit()
+        else:
+        user_output_tokens.pref_value = str(int(user_output_tokens.pref_value) + output_tokens)
+        session.commit()
+        session.close()
+
         self.agent_id = str(self.get_agent_id())
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
@@ -377,6 +423,19 @@ class Agent:
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
+
+        try:
+        prompt_tokens = get_tokens(prompt)
+        completion_tokens = get_tokens(answer)
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        logging.info(f"Input tokens: {prompt_tokens}")
+        logging.info(f"Completion tokens: {completion_tokens}")
+        logging.info(f"Total tokens: {total_tokens}")
+        self.update_token_counts(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        except Exception as e:
+        logging.error(f"Error getting token counts: {e}")
+        return answer
+
         return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
