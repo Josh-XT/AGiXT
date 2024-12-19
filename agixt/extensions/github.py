@@ -256,47 +256,43 @@ def adjust_relative_indentation(content, target_indent):
     return "\n".join(result)
 
 
-def _get_function_indentation(lines: List[str], start_line: int) -> str:
-    """Get the indentation for content inside a function"""
-    # Look backwards to find the function definition
+def _get_block_indentation(lines: List[str], start_line: int) -> str:
+    """Get the indentation level by looking at the parent block."""
+    # Look backwards to find the parent block's indentation
     for i in range(start_line - 1, -1, -1):
         line = lines[i].rstrip()
-        # Look for function definition (def or async def)
-        if "def " in line:
-            base_indent = len(line) - len(line.lstrip())
-            return " " * (base_indent + 4)  # Function body is indented one level
-    return "    "  # Default to one level if we can't find the function
+        if line.endswith(":"):  # Found the parent block start
+            return " " * (len(line) - len(line.lstrip()))
+    return ""
 
 
-def _indent_block(content: str, indent: str) -> List[str]:
-    """Apply indentation to a block of code"""
-    return [
-        f"{indent}{line.lstrip()}\n" if line.strip() else "\n"
-        for line in content.splitlines()
-    ]
+def _indent_block(content: str, base_indent: str) -> List[str]:
+    """Maintain the block's structure but with the new base indentation."""
+    if not content:
+        return []
 
+    # Get the content's current base indentation
+    lines = content.splitlines()
+    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    if not indents:
+        return []
 
-def _get_block_indentation(lines: List[str], start_line: int) -> str:
-    """Get the appropriate indentation level based on context."""
-    # Look at a few lines before and after for context
-    context_range = 3
-    indentation_levels = []
+    min_indent = min(indents)
+    result = []
 
-    # Check surrounding lines
-    start = max(0, start_line - context_range)
-    end = min(len(lines), start_line + context_range)
+    for line in lines:
+        if not line.strip():
+            result.append("\n")
+            continue
 
-    for i in range(start, end):
-        line = lines[i].rstrip()
-        if line and not line.lstrip().startswith(
-            ("#", '"', "'")
-        ):  # Skip comments and strings
-            indentation_levels.append(len(line) - len(line.lstrip()))
+        # Calculate relative indentation
+        current_indent = len(line) - len(line.lstrip())
+        relative_indent = current_indent - min_indent
+        # Apply base indent plus relative indent
+        final_indent = base_indent + " " * 4 + " " * relative_indent
+        result.append(f"{final_indent}{line.lstrip()}\n")
 
-    if indentation_levels:
-        # Use the most common indentation level
-        return " " * (max(set(indentation_levels), key=indentation_levels.count))
-    return ""  # Default to no indentation if we can't determine
+    return result
 
 
 class github(Extensions):
@@ -2153,33 +2149,32 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            indent = _get_function_indentation(
+                            base_indent = _get_block_indentation(
                                 modified_lines, start_line
                             )
-                            new_lines[start_line:end_line] = _indent_block(
-                                content, indent
-                            )
+                            new_content = _indent_block(content, base_indent)
+                            new_lines[start_line:end_line] = new_content
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            indent = _get_function_indentation(
+                            base_indent = _get_block_indentation(
                                 modified_lines, start_line
                             )
-                            insert_lines = _indent_block(content, indent)
+                            new_content = _indent_block(content, base_indent)
 
-                            # Handle spacing
+                            # Handle spacing around insertion
                             if (
                                 start_line > 0
                                 and modified_lines[start_line - 1].strip()
                             ):
-                                insert_lines.insert(0, "\n")
+                                new_content.insert(0, "\n")
                             if (
                                 start_line < len(modified_lines)
                                 and modified_lines[start_line].strip()
                             ):
-                                insert_lines.append("\n")
+                                new_content.append("\n")
 
-                            new_lines[start_line:start_line] = insert_lines
+                            new_lines[start_line:start_line] = new_content
                             has_changes = True
                         elif operation == "delete":
                             del new_lines[start_line:end_line]
