@@ -1840,55 +1840,36 @@ class AGiXT:
                         c.update_message_by_id(
                             message_id=thinking_id,
                             new_message=f"[ACTIVITY] Completed activities.",
+                        if log_output:
+                        c.log_interaction(
+                        role=self.agent_name,
+                        message=response,
                         )
-                self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=response,
-                )
-        try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
-        except:
-            if not response:
-                response = "Unable to retrieve response."
-                logging.error(f"Error getting response: {response}")
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.warning(f"Error increasing token counts: {e}")
-        response = self.remove_tagged_content(response, "execute")
-        response = self.remove_tagged_content(response, "output")
-        res_model = {
-            "id": self.conversation_id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": self.agent_name,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
+                        response = self.remove_tagged_content(response, "execute")
+                        response = self.remove_tagged_content(response, "output")
+                        res_model = {
+                        "id": self.conversation_id,
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": self.agent_name,
+                        "choices": [
+                        {
+                        "index": 0,
+                        "message": {
                         "role": "assistant",
                         "content": str(response),
-                    },
-                    "finish_reason": "stop",
-                    "logprobs": None,
-                }
-            ],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            },
-        }
-        return res_model
-
+                        },
+                        "finish_reason": "stop",
+                        "logprobs": None,
+                        }
+                        ],
+                        "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        },
+                        }
+                        return res_model
     async def batch_inference(
         self,
         user_inputs: List[str] = [],
