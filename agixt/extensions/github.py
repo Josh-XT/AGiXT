@@ -2325,12 +2325,12 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         if str(target).endswith("\n"):
             target = target[:-1]
         modification = f"""
-        <modification>
-        <operation>replace</operation>
-        <target>{target}</target>
-        <content>{content}</content>
-        <fuzzy_match>true</fuzzy_match>
-        </modification>
+<modification>
+<operation>replace</operation>
+<target>{target}</target>
+<content>{content}</content>
+<fuzzy_match>true</fuzzy_match>
+</modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
 
@@ -2375,12 +2375,12 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
             str: A unified diff showing the changes made or error message
         """
         modification = f"""
-        <modification>
-        <operation>insert</operation>
-        <target>{target}</target>
-        <content>{content}</content>
-        <fuzzy_match>true</fuzzy_match>
-        </modification>
+<modification>
+<operation>insert</operation>
+<target>{target}</target>
+<content>{content}</content>
+<fuzzy_match>true</fuzzy_match>
+</modification>
         """
         return await self.modify_file_content(repo_url, file_path, modification, branch)
 
