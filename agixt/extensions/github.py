@@ -2526,7 +2526,8 @@ Please analyze the changes and provide:
 1. Critical issues or bugs with the code changes
 2. That the changes resolve the issue requiring no further modifications. If any changes are needed, provide specific details.
 3. If no changes are needed, give feedback without suggesting modifications.
-4. XML modification blocks for any necessary changes in the format:
+4. Ensure indentation is correct when working with Python code! Modify it to have the correct number of spaces or tabs if needed.
+5. XML modification blocks for any necessary changes in the format:
 
 <modification>
 <file>path/to/file</file>
