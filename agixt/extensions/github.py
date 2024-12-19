@@ -346,8 +346,9 @@ def _indent_code_block(content: str, base_indent: str) -> List[str]:
         relative_indent = max(0, current_indent - min_indent)
 
         # Apply base indentation plus any relative indentation
-        final_indent = base_indent + " " * relative_indent
-        result.append(f"{final_indent}{line.lstrip()}\n")
+        # if it is the first line, indent
+        # final_indent = base_indent + " " * relative_indent
+        result.append(f"{line}\n")
 
     return result
 
@@ -2210,7 +2211,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 modified_lines, start_line
                             )
                             new_content = _indent_code_block(content, indent_level)
-                            new_content = content
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
 
@@ -2219,7 +2219,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 modified_lines, start_line
                             )
                             new_content = _indent_code_block(content, indent_level)
-                            new_content = content
                             # Handle spacing around insertion
                             if (
                                 start_line > 0
