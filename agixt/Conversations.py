@@ -170,9 +170,17 @@ class Conversations:
             .all()
         )
         if not messages:
-            session.close()
-            return {"interactions": []}
+        session.close()
+        return {"interactions": []}
         return_messages = []
+        if not user_preferences:
+        user_preferences = UserPreferences(
+        user_id=user_id, pref_key="timezone", pref_value=getenv("TZ")
+        )
+        session.add(user_preferences)
+        session.commit()
+        gmt = pytz.timezone("GMT")
+        local_tz = pytz.timezone(user_preferences.pref_value)
         # Check if there is a user preference for timezone
         user_preferences = (
             session.query(UserPreferences)
@@ -191,16 +199,16 @@ class Conversations:
         gmt = pytz.timezone("GMT")
         local_tz = pytz.timezone(user_preferences.pref_value)
         for message in messages:
-            msg = {
-                "id": message.id,
-                "role": message.role,
-                "message": message.content,
-                "timestamp": gmt.localize(message.timestamp).astimezone(local_tz),
-                "updated_at": gmt.localize(message.updated_at).astimezone(local_tz),
-                "updated_by": message.updated_by,
-                "feedback_received": message.feedback_received,
-            }
-            return_messages.append(msg)
+        msg = {
+        "id": message.id,
+        "role": message.role,
+        "message": message.content,
+        "timestamp": gmt.localize(message.timestamp).astimezone(local_tz),
+        "updated_at": gmt.localize(message.updated_at).astimezone(local_tz),
+        "updated_by": message.updated_by,
+        "feedback_received": message.feedback_received,
+        }
+        return_messages.append(msg)
         session.close()
         return {"interactions": return_messages}
 
