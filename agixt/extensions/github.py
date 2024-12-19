@@ -308,10 +308,11 @@ def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
         line = lines[i].rstrip()
         if not line:  # Skip empty lines
             continue
-
         # Get the indentation of this line
         curr_indent = line[: len(line) - len(line.lstrip())]
-
+        # If the line starts with 8+ spaces, it was probably properly nested
+        if len(line) - len(line.lstrip()) >= 8:
+            return line[: len(line) - len(line.lstrip())]
         # If we find a class or function definition, use its base indentation
         if line.lstrip().startswith(("def ", "class ", "async def ")):
             return curr_indent + "  "  # One level deeper than definition
