@@ -396,17 +396,24 @@ class Agent:
                     .all()
                 )
                 if not user_preferences:
-                    user_input_tokens = None
-                    user_output_tokens = None
-                else:
-                    user_input_tokens = next(
-                        (x for x in user_preferences if x.pref_key == "input_tokens"),
-                        None,
-                    )
-                    user_output_tokens = next(
-                        (x for x in user_preferences if x.pref_key == "output_tokens"),
-                        None,
-                    )
+                                user_input_tokens = None
+                                user_output_tokens = None
+                            else:
+                                try:
+                                    user_input_tokens = next(
+                                        (x for x in user_preferences if x.pref_key == "input_tokens"),
+                                        None,
+                                    )
+                                except StopIteration:
+                                    user_input_tokens = None
+                                try:
+                                    user_output_tokens = next(
+                                        (x for x in user_preferences if x.pref_key == "output_tokens"),
+                                        None,
+                                    )
+                                except StopIteration:
+                                    user_output_tokens = None
+                                # Added try/except blocks to handle cases where the user is not found or the preferences are not set.
                 updated_input_tokens = int(
                     user_input_tokens.pref_value if user_input_tokens else 0
                 ) + int(prompt_tokens)
