@@ -1749,32 +1749,45 @@ class AGiXT:
                 user_input=new_prompt,
                 agent_override=self.agent_name,
                 chain_args=chain_args,
-                log_user_input=False,
-                voice_response=tts,
+if "data_analysis" in kwargs:
+            del kwargs["data_analysis"]
+
+        await self.learn_from_websites(
+            urls=urls,
+            summarize_content=False,
+        )
+        if len(language) >2:
+            language = language[:2]
+        prompt_tokens = get_tokens(new_prompt) + self.input_tokens
+        response = await self.inference(
+            user_input=new_prompt,
+            prompt_name=prompt_name,
+            prompt_category=prompt_category,
+            injected_memories=context_results,
+            conversation_results=conversation_results,
+            shots=shots,
+            websearch=websearch,
+            browse_links=browse_links,
+            voice_response=tts,
+            log_user_input=False,
+            log_output=False,
+            data_analysis=data_analysis,
+            language=language,
+            include_sources=include_sources,
+            **prompt_args,
+        )
+        completion_tokens = get_tokens(response)
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        logging.info(f"Input tokens: {prompt_tokens}")
+        logging.info(f"Completion tokens: {completion_tokens}")
+        logging.info(f"Total tokens: {total_tokens}")
+        try:
+            self.auth.increase_token_counts(
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens,
             )
-        elif mode == "prompt":
-            if current_input_tokens < self.agent.max_input_tokens:
-                if file_content:
-                    prompt_args["uploaded_file_data"] = file_content
-            if len(language) > 2:
-                language = language[:2]
-            response = await self.inference(
-                user_input=new_prompt,
-                prompt_name=prompt_name,
-                prompt_category=prompt_category,
-                injected_memories=context_results,
-                conversation_results=conversation_results,
-                shots=prompt.n,
-                websearch=websearch,
-                browse_links=browse_links,
-                voice_response=tts,
-                log_user_input=False,
-                log_output=False,
-                data_analysis=data_analysis,
-                language=language,
-                include_sources=include_sources,
-                **prompt_args,
-            )
+        except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
             if response.startswith(f"{self.agent_name}:"):
                 response = response[len(f"{self.agent_name}:") :]
             if response.startswith(f"{self.agent_name} :"):
@@ -1842,27 +1855,8 @@ class AGiXT:
                             new_message=f"[ACTIVITY] Completed activities.",
                         )
                 self.conversation.log_interaction(
-                    role=self.agent_name,
-                    message=response,
-                )
-        try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
-        except:
-            if not response:
-                response = "Unable to retrieve response."
-                logging.error(f"Error getting response: {response}")
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.warning(f"Error increasing token counts: {e}")
+if log_output:
+            c.log_interaction(role=self.agent_name, message=response)
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
         res_model = {
@@ -1881,12 +1875,8 @@ class AGiXT:
                     "logprobs": None,
                 }
             ],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            },
         }
+        return res_model
         return res_model
 
     async def batch_inference(
