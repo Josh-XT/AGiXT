@@ -2804,12 +2804,14 @@ def verify_mfa(self, token: str):
 
             # If review suggests changes, apply them recursively
             if "<modification>" in review_feedback:
-                return await self.fix_github_issue(
+                review_response = await self.fix_github_issue(
                     repo_org=repo_org,
                     repo_name=repo_name,
                     issue_number=issue_number,
-                    additional_context=f"Review Feedback:\n{review_feedback}",
+                    additional_context=f"**Upon further review, these changes may need made. If they need made, confirm they are correct and send them again, see feedback below:**.\n{review_feedback}",
                 )
+                if review_response != "No changes needed":
+                    return review_response
 
             return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
         else:
