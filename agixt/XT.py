@@ -948,9 +948,27 @@ class AGiXT:
                 try:
                     vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
                     self.input_tokens += get_tokens(vision_prompt)
-                    vision_response = await self.agent.vision_inference(
-                        prompt=vision_prompt, images=[file_url]
+                    response = await self.agent.inference(
+                    prompt=formatted_prompt, tokens=tokens
                     )
+                    try:
+                    prompt_tokens = get_tokens(formatted_prompt) + self.input_tokens
+                    completion_tokens = get_tokens(response)
+                    total_tokens = int(prompt_tokens) + int(completion_tokens)
+                    logging.info(f"Input tokens: {prompt_tokens}")
+                    logging.info(f"Completion tokens: {completion_tokens}")
+                    logging.info(f"Total tokens: {total_tokens}")
+                    except:
+                    if not response:
+                    response = "Unable to retrieve response."
+                    logging.error(f"Error getting response: {response}")
+                    try:
+                    self.auth.increase_token_counts(
+                    input_tokens=prompt_tokens,
+                    output_tokens=completion_tokens,
+                    )
+                    except Exception as e:
+                    logging.warning(f"Error increasing token counts: {e}")
                     file_content += f"Visual description from viewing uploaded image called `{file_name}`:\n"
                     file_content += vision_response
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
