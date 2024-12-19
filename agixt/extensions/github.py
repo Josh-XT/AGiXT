@@ -257,27 +257,23 @@ def adjust_relative_indentation(content, target_indent):
 
 
 def _get_block_indentation(lines: List[str], start_line: int) -> str:
-    """Get the indentation level by looking at the parent block."""
+    """Get the parent block's indentation level."""
     # Look backwards to find the parent block's indentation
     for i in range(start_line - 1, -1, -1):
         line = lines[i].rstrip()
         if line.endswith(":"):  # Found the parent block start
-            return " " * (len(line) - len(line.lstrip()))
-    return ""
+            indent = len(line) - len(line.lstrip())
+            # Return the indentation for the block (one level deeper)
+            return " " * (indent + 4)
+    return "    "  # Default to one level if we can't find parent
 
 
 def _indent_block(content: str, base_indent: str) -> List[str]:
-    """Maintain the block's structure but with the new base indentation."""
+    """Indent the block using the base indentation."""
     if not content:
         return []
 
-    # Get the content's current base indentation
     lines = content.splitlines()
-    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-    if not indents:
-        return []
-
-    min_indent = min(indents)
     result = []
 
     for line in lines:
@@ -285,36 +281,7 @@ def _indent_block(content: str, base_indent: str) -> List[str]:
             result.append("\n")
             continue
 
-        # Calculate relative indentation
-        current_indent = len(line) - len(line.lstrip())
-        relative_indent = current_indent - min_indent
-        # Apply base indent plus relative indent
-        final_indent = base_indent + " " * 4 + " " * relative_indent
-        result.append(f"{final_indent}{line.lstrip()}\n")
-
-    return result
-
-
-def _indent_code_block(
-    content: str, base_indent: str, first_line_continuation: bool = False
-) -> List[str]:
-    """Indent a block of code, handling first line as continuation if needed."""
-    lines = content.splitlines()
-    if not lines:
-        return []
-
-    result = []
-    for i, line in enumerate(lines):
-        if not line.strip():
-            result.append("\n")
-            continue
-
-        if i == 0 and first_line_continuation:
-            # First line continues from previous line, use full indent
-            result.append(f"{base_indent}    {line.lstrip()}\n")
-        else:
-            # Other lines use base indent
-            result.append(f"{base_indent}{line.lstrip()}\n")
+        result.append(f"{base_indent}{line.lstrip()}\n")
 
     return result
 
