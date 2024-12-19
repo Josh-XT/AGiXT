@@ -165,6 +165,34 @@ Original intended changes were:
             # If prompt fails, raise a clear error
             raise ValueError(f"Failed to generate new modifications: {str(e)}")
 
+    def _get_indentation_level(lines, line_index):
+        """Get the exact indentation string from a specific line."""
+        line = lines[line_index]
+        return line[: len(line) - len(line.lstrip())]
+
+    def _preserve_indentation(content, base_indent):
+        """Preserve relative indentation while applying base indentation."""
+        lines = content.splitlines()
+        if not lines:
+            return []
+
+        # Find the minimum indentation in the content to detect relative indenting
+        indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+        if not indents:
+            return ["\n"]
+        min_indent = min(indents)
+
+        result = []
+        for line in lines:
+            if line.strip():
+                # Remove the minimum indentation from the line
+                stripped = line[min_indent:]
+                # Add the base indentation plus any relative indentation
+                result.append(f"{base_indent}{stripped}\n")
+            else:
+                result.append("\n")
+        return result
+
     def _parse_error_message(self, error_msg: str) -> str:
         """
         Parse the error message to extract the most useful information for the model.
@@ -186,6 +214,120 @@ Original intended changes were:
         """
         required_tags = ["<modification>", "<file>", "<operation>", "<target>"]
         return all(tag in modifications for tag in required_tags)
+
+
+def _get_indentation_level(lines, line_index):
+    """Get the exact indentation string from a specific line."""
+    line = lines[line_index]
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _preserve_indentation(content, base_indent):
+    """Preserve relative indentation while applying base indentation."""
+    lines = content.splitlines()
+    if not lines:
+        return []
+
+    # Find the minimum indentation in the content to detect relative indenting
+    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    if not indents:
+        return ["\n"]
+    min_indent = min(indents)
+
+    result = []
+    for line in lines:
+        if line.strip():
+            # Remove the minimum indentation from the line
+            stripped = line[min_indent:]
+            # Add the base indentation plus any relative indentation
+            result.append(f"{base_indent}{stripped}\n")
+        else:
+            result.append("\n")
+    return result
+
+
+def _get_block_indentation_level(lines, start_idx):
+    """Determine if we're inside a code block and what indentation level we need."""
+    if start_idx <= 0:
+        return 0
+
+    # Look at previous lines to find the controlling block
+    for i in range(start_idx - 1, -1, -1):
+        line = lines[i].rstrip()
+        if not line:  # Skip empty lines
+            continue
+
+        # If we find a line ending with ':' it's a block start
+        if line.endswith(":"):
+            current_indent = len(lines[i]) - len(lines[i].lstrip())
+            return current_indent + 4  # Return next level of indentation
+
+        # If we find a line with less indentation, we're not in a block
+        current_indent = len(lines[i]) - len(lines[i].lstrip())
+        if current_indent < len(lines[start_idx]) - len(lines[start_idx].lstrip()):
+            return current_indent
+
+    return 0
+
+
+def insert_needs_indent(lines, insert_point):
+    """Determine if an insertion needs additional indentation."""
+    if insert_point <= 0:
+        return False
+
+    # Look at the previous line
+    prev_line = lines[insert_point - 1].rstrip()
+    if not prev_line:
+        return insert_needs_indent(lines, insert_point - 1)
+
+    # If previous line ends with ':', we need to indent
+    if prev_line.endswith(":"):
+        return True
+
+    # If we're in the middle of an indented block, maintain that indentation
+    if insert_point < len(lines):
+        prev_indent = len(lines[insert_point - 1]) - len(
+            lines[insert_point - 1].lstrip()
+        )
+        current_indent = len(lines[insert_point]) - len(lines[insert_point].lstrip())
+        if current_indent > prev_indent:
+            return True
+
+    return False
+
+
+def adjust_relative_indentation(content, target_indent):
+    """Adjust relative indentation for a block of code."""
+    lines = content.splitlines()
+    if not lines:
+        return ""
+
+    # Find the base indentation level in the content
+    base_indent = None
+    for line in lines:
+        if line.strip():
+            indent = len(line) - len(line.lstrip())
+            if base_indent is None or indent < base_indent:
+                base_indent = indent
+
+    if base_indent is None:
+        base_indent = 0
+
+    # Adjust each line's indentation
+    result = []
+    for line in lines:
+        if line.strip():
+            # Remove existing indentation
+            stripped = line.lstrip()
+            # Calculate relative indentation
+            relative_indent = len(line) - len(line.lstrip()) - base_indent
+            # Apply target indentation plus relative indentation
+            new_indent = " " * (target_indent + max(0, relative_indent))
+            result.append(f"{new_indent}{stripped}")
+        else:
+            result.append("")
+
+    return "\n".join(result)
 
 
 class github(Extensions):
@@ -2015,68 +2157,58 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            # Get the exact indentation of the target section by looking at all lines
-                            target_section = modified_lines[start_line:end_line]
-                            target_indent = None
-                            for line in target_section:
-                                if line.strip():  # Find first non-empty line
-                                    target_indent = line[
-                                        : len(line) - len(line.lstrip())
-                                    ]
-                                    break
-
-                            if (
-                                target_indent is None
-                            ):  # Fallback if target is all empty lines
-                                target_indent = " " * (indent_level * 4)
-
-                            # Prepare content lines preserving indentation
-                            content_lines = []
-                            for line in content.splitlines():
-                                if line.strip():
-                                    # Remove any existing indentation and apply target indentation
-                                    content_lines.append(
-                                        f"{target_indent}{line.lstrip()}\n"
+                            # Get indentation from the first non-empty line of target
+                            base_indent = None
+                            for i in range(start_line, end_line):
+                                if modified_lines[i].strip():
+                                    base_indent = _get_indentation_level(
+                                        modified_lines, i
                                     )
-                                else:
-                                    content_lines.append(
-                                        "\n"
-                                    )  # Empty lines get no indentation
+                                    break
+                            if base_indent is None:
+                                # Use block indentation if no base indent found
+                                base_indent = " " * _get_block_indentation_level(
+                                    modified_lines, start_line
+                                )
 
-                            # If the original content ended with a newline, ensure our replacement does too
-                            if (
-                                modified_lines[end_line - 1].endswith("\n")
-                                and content_lines
-                            ):
-                                if not content_lines[-1].endswith("\n"):
-                                    content_lines[-1] += "\n"
-
+                            # Preserve relative indentation while applying base indent
+                            content_lines = _preserve_indentation(content, base_indent)
                             new_lines[start_line:end_line] = content_lines
                             has_changes = True
+
                         elif operation == "insert" and content:
-                            insert_lines = []
+                            # Get base indentation and check if we need block-level indent
+                            block_indent = _get_block_indentation_level(
+                                modified_lines, start_line
+                            )
+                            if start_line > 0:
+                                base_indent = _get_indentation_level(
+                                    modified_lines, start_line - 1
+                                )
+                                # Use whichever indentation is greater
+                                if len(base_indent) < block_indent:
+                                    base_indent = " " * block_indent
+                            else:
+                                base_indent = " " * block_indent
 
-                            # Get exact indentation from the target line
-                            target_line = modified_lines[start_line]
-                            base_indent = target_line[
-                                : len(target_line) - len(target_line.lstrip())
-                            ]
+                            # Preserve relative indentation while applying base indent
+                            insert_lines = _preserve_indentation(content, base_indent)
 
-                            # Process each line of content
-                            for line in content.splitlines():
-                                stripped_line = line.lstrip()
-                                if stripped_line:
-                                    # Count leading spaces in the content line to preserve relative indentation
-                                    content_spaces = len(line) - len(stripped_line)
-                                    # Add relative indentation on top of base indentation
-                                    total_indent = base_indent + (" " * content_spaces)
-                                    insert_lines.append(
-                                        f"{total_indent}{stripped_line}\n"
-                                    )
-                                else:
-                                    insert_lines.append("\n")
+                            # Handle spacing around insertion
+                            if (
+                                start_line > 0
+                                and modified_lines[start_line - 1].strip()
+                                and not modified_lines[start_line - 1]
+                                .rstrip()
+                                .endswith(":")
+                            ):
+                                insert_lines.insert(0, "\n")
+                            if (
+                                start_line < len(modified_lines)
+                                and modified_lines[start_line].strip()
+                            ):
+                                insert_lines.append("\n")
 
-                            # Insert the new lines
                             new_lines[start_line:start_line] = insert_lines
                             has_changes = True
                         elif operation == "delete":
