@@ -53,4 +53,4 @@ app.include_router(provider_endpoints)
 app.include_router(auth_endpoints)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7437)
+uvicorn.run(app, host="0.0.0.0", port=7437)
