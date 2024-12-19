@@ -2014,23 +2014,42 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             content = self.clean_content(content)
 
                         new_lines = modified_lines[:]
-                        new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            # Get indent from first line of target section
-                            first_line = modified_lines[start_line]
-                            indent = len(first_line) - len(first_line.lstrip())
-                            indent_str = first_line[:indent]
+                            # Get the exact indentation of the target section by looking at all lines
+                            target_section = modified_lines[start_line:end_line]
+                            target_indent = None
+                            for line in target_section:
+                                if line.strip():  # Find first non-empty line
+                                    target_indent = line[
+                                        : len(line) - len(line.lstrip())
+                                    ]
+                                    break
 
-                            # Prepare content lines with proper indentation
+                            if (
+                                target_indent is None
+                            ):  # Fallback if target is all empty lines
+                                target_indent = " " * (indent_level * 4)
+
+                            # Prepare content lines preserving indentation
                             content_lines = []
                             for line in content.splitlines():
-                                # Add the exact indentation from the first line to all non-empty lines
                                 if line.strip():
+                                    # Remove any existing indentation and apply target indentation
                                     content_lines.append(
-                                        f"{indent_str}{line.lstrip()}\n"
+                                        f"{target_indent}{line.lstrip()}\n"
                                     )
                                 else:
-                                    content_lines.append(line.rstrip() + "\n")
+                                    content_lines.append(
+                                        "\n"
+                                    )  # Empty lines get no indentation
+
+                            # If the original content ended with a newline, ensure our replacement does too
+                            if (
+                                modified_lines[end_line - 1].endswith("\n")
+                                and content_lines
+                            ):
+                                if not content_lines[-1].endswith("\n"):
+                                    content_lines[-1] += "\n"
 
                             new_lines[start_line:end_line] = content_lines
                             has_changes = True
