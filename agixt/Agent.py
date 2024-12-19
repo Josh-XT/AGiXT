@@ -369,6 +369,32 @@ class Agent:
         return config
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
+
+    try:
+            prompt_tokens = self.PROVIDER.get_tokens(prompt)
+            answer_tokens = self.PROVIDER.get_tokens(answer)
+            total_tokens = int(prompt_tokens) + int(answer_tokens)
+            logging.info(f"Input tokens: {prompt_tokens}")
+            logging.info(f"Completion tokens: {answer_tokens}")
+            logging.info(f"Total tokens: {total_tokens}")
+        except:
+            total_tokens = 0
+        try:
+            if hasattr(self.PROVIDER, "increase_token_counts"):
+                await self.PROVIDER.increase_token_counts(
+                    input_tokens=prompt_tokens,
+                    output_tokens=answer_tokens,
+                )
+            elif hasattr(self.PROVIDER, "ApiClient") and hasattr(
+                self.PROVIDER.ApiClient, "increase_token_counts"
+            ):
+                await self.PROVIDER.ApiClient.increase_token_counts(
+                    input_tokens=prompt_tokens,
+                    output_tokens=answer_tokens,
+                )
+        except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
+
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
