@@ -295,6 +295,59 @@ def _indent_block(content: str, base_indent: str) -> List[str]:
     return result
 
 
+def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
+    """Determine correct indentation level by looking at surrounding structure."""
+    # Look backward for containing blocks (if, try, def, etc.)
+    indent = ""
+    for i in range(line_index - 1, -1, -1):
+        line = lines[i].rstrip()
+        if not line:  # Skip empty lines
+            continue
+
+        # If we hit a line ending in colon, this is our container
+        # Get its indentation and add one level
+        if line.endswith(":"):
+            base_indent = line[: len(line) - len(line.lstrip())]
+            return base_indent + "    "
+
+        # If we hit a line with less indentation than current, use that + 1 level
+        curr_indent = len(line) - len(line.lstrip())
+        if curr_indent < len(indent):
+            return " " * (curr_indent + 4)
+
+        # Keep track of current indentation
+        indent = line[:curr_indent]
+
+    return "    "  # Default to one level if we can't determine
+
+
+def _indent_code_block(content: str, base_indent: str) -> List[str]:
+    """Apply base indentation to a block of code while preserving relative indents."""
+    lines = content.splitlines()
+    if not lines:
+        return []
+
+    # Find any existing indentation in the content
+    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+    min_indent = min(indents) if indents else 0
+
+    result = []
+    for line in lines:
+        if not line.strip():
+            result.append("\n")
+            continue
+
+        # Calculate relative indentation from the original content
+        current_indent = len(line) - len(line.lstrip())
+        relative_indent = max(0, current_indent - min_indent)
+
+        # Apply base indentation plus any relative indentation
+        final_indent = base_indent + " " * relative_indent
+        result.append(f"{final_indent}{line.lstrip()}\n")
+
+    return result
+
+
 class github(Extensions):
     def __init__(
         self,
@@ -2149,18 +2202,18 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            base_indent = _get_block_indentation(
+                            indent_level = _get_correct_indent_level(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_block(content, base_indent)
+                            new_content = _indent_code_block(content, indent_level)
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            base_indent = _get_block_indentation(
+                            indent_level = _get_correct_indent_level(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_block(content, base_indent)
+                            new_content = _indent_code_block(content, indent_level)
 
                             # Handle spacing around insertion
                             if (
