@@ -188,14 +188,6 @@ Original intended changes were:
         return all(tag in modifications for tag in required_tags)
 
 
-def _get_indentation_level(lines, line_index):
-    """Get the exact indentation string from a specific line."""
-    if 0 <= line_index < len(lines):
-        line = lines[line_index]
-        return line[: len(line) - len(line.lstrip())]
-    return ""
-
-
 def insert_needs_indent(lines, insert_point):
     """Determine if an insertion needs additional indentation."""
     if insert_point <= 0:
@@ -256,45 +248,6 @@ def adjust_relative_indentation(content, target_indent):
     return "\n".join(result)
 
 
-def _get_block_indentation(lines: List[str], start_line: int) -> str:
-    """Get the indentation level by looking at the parent block."""
-    # Look backwards to find the parent block's indentation
-    for i in range(start_line - 1, -1, -1):
-        line = lines[i].rstrip()
-        if line.endswith(":"):  # Found the parent block start
-            return " " * (len(line) - len(line.lstrip()))
-    return ""
-
-
-def _indent_block(content: str, base_indent: str) -> List[str]:
-    """Maintain the block's structure but with the new base indentation."""
-    if not content:
-        return []
-
-    # Get the content's current base indentation
-    lines = content.splitlines()
-    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-    if not indents:
-        return []
-
-    min_indent = min(indents)
-    result = []
-
-    for line in lines:
-        if not line.strip():
-            result.append("\n")
-            continue
-
-        # Calculate relative indentation
-        current_indent = len(line) - len(line.lstrip())
-        relative_indent = current_indent - min_indent
-        # Apply base indent plus relative indent
-        final_indent = base_indent + " " * 4 + " " * relative_indent
-        result.append(f"{final_indent}{line.lstrip()}\n")
-
-    return result
-
-
 def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
     """Determine correct indentation level by looking at surrounding structure."""
     # Look at previous line's indentation first
@@ -346,9 +299,11 @@ def _indent_code_block(content: str, base_indent: str) -> List[str]:
         relative_indent = max(0, current_indent - min_indent)
 
         # Apply base indentation plus any relative indentation
-        # if it is the first line, indent
-        # final_indent = base_indent + " " * relative_indent
-        result.append(f"{line}\n")
+        # if it is the first line, indent to base_indent
+        if line == lines[0]:
+            result.append(f"{base_indent}{line.lstrip()}\n")
+        else:
+            result.append(f"{line}\n")
 
     return result
 
