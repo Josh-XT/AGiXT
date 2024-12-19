@@ -374,9 +374,22 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = str(answer).replace("\_", "_")
+        answer = str(answer).replace("_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
+        try:
+            prompt_tokens = get_tokens(prompt)
+            completion_tokens = get_tokens(str(answer))
+            if hasattr(self, "ApiClient"):
+                self.ApiClient.increase_token_counts(
+                    user_id=self.user_id,
+                    input_tokens=prompt_tokens,
+                    output_tokens=completion_tokens,
+                )
+            else:
+                logging.info(f"Token counts not updated, no ApiClient available.")
+        except Exception as e:
+            logging.error(f"Error getting tokens: {e}")
         return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
