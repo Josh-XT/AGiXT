@@ -2210,6 +2210,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 modified_lines, start_line
                             )
                             new_content = _indent_code_block(content, indent_level)
+                            new_content = content
                             new_lines[start_line:end_line] = new_content
                             has_changes = True
 
@@ -2218,7 +2219,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 modified_lines, start_line
                             )
                             new_content = _indent_code_block(content, indent_level)
-
+                            new_content = content
                             # Handle spacing around insertion
                             if (
                                 start_line > 0
