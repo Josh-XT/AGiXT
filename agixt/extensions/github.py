@@ -1929,6 +1929,78 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
         # Join lines back together with normalized line endings
         return "\n".join(cleaned_lines)
 
+    def _find_best_matching_file(
+        self, repo, file_path: str, branch: str = None
+    ) -> tuple[str, float]:
+        """
+        Find the most similar file in the repository to the given file path.
+
+        Args:
+            repo: GitHub repository object
+            file_path (str): The target file path to match
+            branch (str): The branch to search in, defaults to repository's default branch
+
+        Returns:
+            tuple[str, float]: The best matching file path and its similarity score (0-1)
+        """
+        try:
+            if not branch:
+                branch = repo.default_branch
+
+            # First try exact match
+            try:
+                repo.get_contents(file_path, ref=branch)
+                return file_path, 1.0
+            except Exception:
+                pass
+
+            # Get all files in the repository
+            contents = repo.get_contents("", ref=branch)
+            all_files = []
+
+            while contents:
+                file_content = contents.pop(0)
+                if file_content.type == "dir":
+                    contents.extend(repo.get_contents(file_content.path, ref=branch))
+                else:
+                    all_files.append(file_content.path)
+
+            # Remove leading slashes and normalize paths
+            target_path = file_path.lstrip("/")
+            target_parts = target_path.split("/")
+            target_name = target_parts[-1]
+
+            best_match = None
+            best_score = 0
+
+            for repo_file in all_files:
+                repo_file = repo_file.lstrip("/")
+                repo_parts = repo_file.split("/")
+                repo_name = repo_parts[-1]
+
+                # Calculate name similarity
+                name_similarity = difflib.SequenceMatcher(
+                    None, target_name, repo_name
+                ).ratio()
+
+                # Calculate path similarity
+                path_similarity = difflib.SequenceMatcher(
+                    None, target_path, repo_file
+                ).ratio()
+
+                # Weight name similarity more heavily than path similarity
+                combined_score = (name_similarity * 0.7) + (path_similarity * 0.3)
+
+                if combined_score > best_score:
+                    best_score = combined_score
+                    best_match = repo_file
+
+            return best_match, best_score
+
+        except Exception as e:
+            logging.warning(f"Error in _find_best_matching_file: {str(e)}")
+            return None, 0.0
+
     async def modify_file_content(
         self,
         repo_url: str,
@@ -2040,13 +2112,30 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 f"Error in modification block {i}: {str(e)}"
                             )
 
-                    # Get repository and file content
+                    # Get repository
                     repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
                     if not branch:
                         branch = repo.default_branch
 
-                    file_content_obj = repo.get_contents(file_path, ref=branch)
-                    file_content = file_content_obj.decoded_content.decode("utf-8")
+                    # Find best matching file or create new one
+                    best_match, match_score = self._find_best_matching_file(
+                        repo, file_path, branch
+                    )
+
+                    if best_match and match_score >= 0.8:
+                        file_path = best_match
+                        file_content_obj = repo.get_contents(file_path, ref=branch)
+                        file_content = file_content_obj.decoded_content.decode("utf-8")
+                    elif parsed_mods and parsed_mods[0]["operation"] == "insert":
+                        # For insert operations on non-existent files, create the file
+                        file_content = ""
+                        file_content_obj = None
+                    else:
+                        if best_match:
+                            suggestion = f"\n\nDid you mean '{best_match}' (similarity: {match_score:.2f})?"
+                        else:
+                            suggestion = ""
+                        raise ValueError(f"File '{file_path}' not found.{suggestion}")
 
                     # Process modifications
                     original_content = file_content
@@ -2083,7 +2172,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            # Get indentation from the first line we're replacing
                             base_indent = _get_indentation_level(
                                 modified_lines, start_line
                             )
@@ -2099,18 +2187,15 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            # Get indentation from target line
                             base_indent = _get_indentation_level(
                                 modified_lines, start_line
                             )
 
-                            # Add one level of indentation after a colon
                             if start_line > 0 and modified_lines[
                                 start_line - 1
                             ].rstrip().endswith(":"):
                                 base_indent += "    "
 
-                            # Process content lines with proper indentation
                             insert_lines = [
                                 (
                                     f"{base_indent}{line.lstrip()}\n"
@@ -2120,7 +2205,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                                 for line in content.splitlines()
                             ]
 
-                            # Handle spacing around insertion
                             if (
                                 start_line > 0
                                 and modified_lines[start_line - 1].strip()
@@ -2143,7 +2227,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                     if not has_changes:
                         return "No changes needed"
 
-                    # Generate diff from the original content to modified content
+                    # Generate diff
                     diff = list(
                         difflib.unified_diff(
                             original_content.splitlines(),
@@ -2164,13 +2248,24 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         modified_content += "\n"
 
                     commit_message = f"Modified {file_path}"
-                    repo.update_file(
-                        file_path,
-                        commit_message,
-                        modified_content,
-                        file_content_obj.sha,
-                        branch=branch,
-                    )
+
+                    if file_content_obj:
+                        # Update existing file
+                        repo.update_file(
+                            file_path,
+                            commit_message,
+                            modified_content,
+                            file_content_obj.sha,
+                            branch=branch,
+                        )
+                    else:
+                        # Create new file
+                        repo.create_file(
+                            file_path,
+                            commit_message,
+                            modified_content,
+                            branch=branch,
+                        )
 
                     return "\n".join(diff)
 
