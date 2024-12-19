@@ -2053,23 +2053,30 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
 
                             new_lines[start_line:end_line] = content_lines
                             has_changes = True
-
                         elif operation == "insert" and content:
-                            insert_lines = content.splitlines(keepends=True)
-                            if not insert_lines:
-                                insert_lines = ["\n"]
+                            insert_lines = []
 
-                            # Add indentation to all non-empty lines
-                            if indent_level > 0:
-                                indent = " " * (4 * indent_level)
-                                insert_lines = [
-                                    f"{indent}{line}" if line.strip() else line
-                                    for line in insert_lines
+                            # Get indentation from the line before insert point
+                            if start_line > 0:
+                                prev_line = modified_lines[start_line - 1]
+                                base_indent = prev_line[
+                                    : len(prev_line) - len(prev_line.lstrip())
                                 ]
+                            else:
+                                base_indent = " " * (4 * indent_level)
 
-                            # Ensure proper line endings
-                            if not insert_lines[-1].endswith("\n"):
-                                insert_lines[-1] += "\n"
+                            # Add additional indentation level for content that should be nested
+                            content_indent = base_indent + (" " * 4)
+
+                            # Process each line of the content
+                            for line in content.splitlines():
+                                if line.strip():
+                                    # Add base indentation plus one level for content
+                                    insert_lines.append(
+                                        f"{content_indent}{line.lstrip()}\n"
+                                    )
+                                else:
+                                    insert_lines.append("\n")
 
                             # Handle spacing around insertion
                             if (
@@ -2086,7 +2093,6 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                             # Insert the new lines
                             new_lines[start_line:start_line] = insert_lines
                             has_changes = True
-
                         elif operation == "delete":
                             del new_lines[start_line:end_line]
                             has_changes = True
