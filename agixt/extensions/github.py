@@ -2056,39 +2056,25 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                         elif operation == "insert" and content:
                             insert_lines = []
 
-                            # Get indentation from the line before insert point
-                            if start_line > 0:
-                                prev_line = modified_lines[start_line - 1]
-                                base_indent = prev_line[
-                                    : len(prev_line) - len(prev_line.lstrip())
-                                ]
-                            else:
-                                base_indent = " " * (4 * indent_level)
+                            # Get exact indentation from the target line
+                            target_line = modified_lines[start_line]
+                            base_indent = target_line[
+                                : len(target_line) - len(target_line.lstrip())
+                            ]
 
-                            # Add additional indentation level for content that should be nested
-                            content_indent = base_indent + (" " * 4)
-
-                            # Process each line of the content
+                            # Process each line of content
                             for line in content.splitlines():
-                                if line.strip():
-                                    # Add base indentation plus one level for content
+                                stripped_line = line.lstrip()
+                                if stripped_line:
+                                    # Count leading spaces in the content line to preserve relative indentation
+                                    content_spaces = len(line) - len(stripped_line)
+                                    # Add relative indentation on top of base indentation
+                                    total_indent = base_indent + (" " * content_spaces)
                                     insert_lines.append(
-                                        f"{content_indent}{line.lstrip()}\n"
+                                        f"{total_indent}{stripped_line}\n"
                                     )
                                 else:
                                     insert_lines.append("\n")
-
-                            # Handle spacing around insertion
-                            if (
-                                start_line > 0
-                                and modified_lines[start_line - 1].strip()
-                            ):
-                                insert_lines.insert(0, "\n")
-                            if (
-                                start_line < len(modified_lines)
-                                and modified_lines[start_line].strip()
-                            ):
-                                insert_lines.append("\n")
 
                             # Insert the new lines
                             new_lines[start_line:start_line] = insert_lines
