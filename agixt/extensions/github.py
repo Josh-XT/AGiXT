@@ -259,49 +259,60 @@ def adjust_relative_indentation(content, target_indent):
 def _get_block_indentation(
     lines: List[str], start_line: int, num_context_lines: int = 3
 ) -> str:
-    """Determine the proper indentation by looking at surrounding code context."""
-    indentation_levels = []
+    """Determine the proper indentation level, ignoring continuation lines."""
+    base_indents = []
 
     # Look at lines before
     for i in range(max(0, start_line - num_context_lines), start_line):
-        line = lines[i]
-        if line.strip():  # Only consider non-empty lines
-            indentation_levels.append(len(line) - len(line.lstrip()))
-
-    # Look at lines after
-    for i in range(start_line, min(len(lines), start_line + num_context_lines)):
-        line = lines[i]
+        line = lines[i].rstrip()
         if line.strip():
-            indentation_levels.append(len(line) - len(line.lstrip()))
+            # Skip lines that are likely continuations (e.g., after =)
+            if not any(
+                line.rstrip().endswith(x)
+                for x in ["=", "+", "-", "*", "/", "(", ",", "and", "or"]
+            ):
+                base_indents.append(len(line) - len(line.lstrip()))
+
+    # Look at lines after that start new statements
+    for i in range(start_line, min(len(lines), start_line + num_context_lines)):
+        line = lines[i].rstrip()
+        if line.strip() and not any(
+            line.rstrip().endswith(x)
+            for x in ["=", "+", "-", "*", "/", "(", ",", "and", "or"]
+        ):
+            base_indents.append(len(line) - len(line.lstrip()))
 
     # If we found indentation levels, use the most common one
-    if indentation_levels:
-        return " " * max(set(indentation_levels), key=indentation_levels.count)
+    if base_indents:
+        return " " * max(set(base_indents), key=base_indents.count)
+
+    # Fallback to previous line's indentation
+    if start_line > 0:
+        return " " * (len(lines[start_line - 1]) - len(lines[start_line - 1].lstrip()))
 
     return ""
 
 
-def _indent_code_block(content: str, base_indent: str) -> List[str]:
-    """Indent a block of code while preserving relative indentation."""
+def _indent_code_block(
+    content: str, base_indent: str, first_line_continuation: bool = False
+) -> List[str]:
+    """Indent a block of code, handling first line as continuation if needed."""
     lines = content.splitlines()
     if not lines:
         return []
 
-    # Find the minimum indentation in the content to detect relative indenting
-    indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-    min_indent = min(indents) if indents else 0
-
     result = []
-    for line in lines:
+    for i, line in enumerate(lines):
         if not line.strip():
             result.append("\n")
             continue
 
-        # Remove the minimum indentation from the line
-        relative_indent = len(line) - len(line.lstrip()) - min_indent
-        stripped = line.lstrip()
-        final_indent = base_indent + (" " * relative_indent)
-        result.append(f"{final_indent}{stripped}\n")
+        if i == 0 and first_line_continuation:
+            # First line continues from previous line, use full indent
+            result.append(f"{base_indent}    {line.lstrip()}\n")
+        else:
+            # Other lines use base indent
+            result.append(f"{base_indent}{line.lstrip()}\n")
 
     return result
 
@@ -2192,9 +2203,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 new_content.append("\n")
 
                             new_lines[start_line:start_line] = new_content
-                            has_changes = True
-                        elif operation == "delete":
-                            del new_lines[start_line:end_line]
                             has_changes = True
                         elif operation == "delete":
                             del new_lines[start_line:end_line]
