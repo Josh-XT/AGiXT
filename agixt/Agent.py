@@ -271,6 +271,14 @@ class Agent:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
             self.max_input_tokens = 32000
+
+        if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
+                    self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
+                else:
+                    self.chunk_size = 256
+                self.input_tokens = 0
+                self.output_tokens = 0
+
         if hasattr(self.EMBEDDINGS_PROVIDER, "chunk_size"):
             self.chunk_size = self.EMBEDDINGS_PROVIDER.chunk_size
         else:
@@ -370,14 +378,20 @@ class Agent:
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
-            return ""
+        return ""
+        try:
+        self.input_tokens = get_tokens(prompt)
         answer = await self.PROVIDER.inference(
-            prompt=prompt, tokens=tokens, images=images
+        prompt=prompt, tokens=tokens, images=images
         )
-        answer = str(answer).replace("\_", "_")
+        self.output_tokens = get_tokens(str(answer))
+        answer = str(answer).replace("_", "_")
         if answer.endswith("\n\n"):
-            answer = answer[:-2]
+        answer = answer[:-2]
         return answer
+        except Exception as e:
+        logging.error(f"Error in inference: {str(e)}")
+        return ""
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
@@ -390,6 +404,18 @@ class Agent:
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
+
+        try:
+                    self.input_tokens = get_tokens(prompt)
+                    answer = await self.PROVIDER.inference(
+                        prompt=prompt, tokens=tokens, images=images
+                    )
+                    self.output_tokens = get_tokens(str(answer))
+                    return answer
+                except Exception as e:
+                    logging.error(f"Error in inference: {str(e)}")
+                    return ""
+
         return answer
 
     def embeddings(self, input) -> np.ndarray:
@@ -736,3 +762,9 @@ class Agent:
                 return None
         session.close()
         return agent.id
+
+    def get_token_counts(self):
+            return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+
+        def get_agent_id(self):
+            session = get_session()
