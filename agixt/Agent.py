@@ -369,11 +369,32 @@ class Agent:
         return config
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
+
+        try:
+        self.input_tokens = get_tokens(prompt)
+        except Exception as e:
+        self.input_tokens = 0
+        logging.error(f"Error getting tokens: {e}")
+
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
+
+            try:
+            output_tokens = get_tokens(answer)
+            except Exception as e:
+            output_tokens = 0
+            logging.error(f"Error getting tokens: {e}")
+            try:
+            self.auth.increase_token_counts(
+            input_tokens=self.input_tokens,
+            output_tokens=output_tokens,
+            )
+            except Exception as e:
+            logging.warning(f"Error increasing token counts: {e}")
+
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
