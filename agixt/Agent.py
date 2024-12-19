@@ -287,15 +287,19 @@ class Agent:
         os.makedirs(self.working_directory, exist_ok=True)
 
     def load_config_keys(self):
-        config_keys = [
-            "AI_MODEL",
-            "AI_TEMPERATURE",
-            "MAX_TOKENS",
-            "embedder",
-        ]
-        for key in config_keys:
-            if key in self.AGENT_CONFIG:
-                setattr(self, key, self.AGENT_CONFIG[key])
+    config_keys = [
+    "AI_MODEL",
+    "AI_TEMPERATURE",
+    "MAX_TOKENS",
+    "embedder",
+    ]
+    for key in config_keys:
+    if key in self.AGENT_CONFIG:
+    setattr(self, key, self.AGENT_CONFIG[key])
+    try:
+    self.max_input_tokens = int(self.AGENT_CONFIG["MAX_TOKENS"])
+    except Exception as e:
+    self.max_input_tokens = 32000
 
     def get_registration_requirement_settings(self):
         with open("registration_requirements.json", "r") as read_file:
@@ -370,6 +374,16 @@ class Agent:
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
         if not prompt:
+                    return ""
+                if hasattr(self.PROVIDER, "increase_token_counts"):
+                    try:
+                        prompt_tokens = get_tokens(prompt) + tokens
+                        self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
+                        if prompt_tokens >self.max_input_tokens:
+                            logging.warning(f"Prompt tokens ({prompt_tokens}) exceeds max input tokens ({self.max_input_tokens})")
+                    except Exception as e:
+                        logging.warning(f"Error getting prompt token count: {e}")
+        if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
@@ -377,6 +391,19 @@ class Agent:
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
+        try:
+                    prompt_tokens = get_tokens(prompt) + tokens
+                    completion_tokens = get_tokens(answer)
+                    total_tokens = int(prompt_tokens) + int(completion_tokens)
+                    logging.info(f"Input tokens: {prompt_tokens}")
+                    logging.info(f"Completion tokens: {completion_tokens}")
+                    logging.info(f"Total tokens: {total_tokens}")
+                    self.PROVIDER.increase_token_counts(
+                      input_tokens = prompt_tokens,
+                      output_tokens = completion_tokens
+                    )
+                except Exception as e:
+                    logging.warning(f"Error increasing token counts: {e}")
         return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
