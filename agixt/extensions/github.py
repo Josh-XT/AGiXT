@@ -2458,7 +2458,6 @@ You must ONLY return the necessary modifications in the following XML format:
 <operation>replace|insert|delete</operation>
 <target>original_code_block_or_line_number</target>
 <content>new_code_block_if_needed</content>
-<fuzzy_match>true|false</fuzzy_match>
 </modification>
 
 If multiple modifications are needed, repeat the <modification> block.
@@ -2514,6 +2513,10 @@ def verify_mfa(self, token: str):
                 "tts": False,
                 "conversation_name": self.conversation_name,
             },
+        )
+        # Force fuzzy matching for all modifications
+        modifications_xml = modifications_xml.replace(
+            "<fuzzy_match>false</fuzzy_match>", "<fuzzy_match>true</fuzzy_match>"
         )
 
         # Parse modifications by file
