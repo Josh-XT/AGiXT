@@ -1845,24 +1845,6 @@ class AGiXT:
                     role=self.agent_name,
                     message=response,
                 )
-        try:
-            prompt_tokens = get_tokens(new_prompt) + self.input_tokens
-            completion_tokens = get_tokens(response)
-            total_tokens = int(prompt_tokens) + int(completion_tokens)
-            logging.info(f"Input tokens: {prompt_tokens}")
-            logging.info(f"Completion tokens: {completion_tokens}")
-            logging.info(f"Total tokens: {total_tokens}")
-        except:
-            if not response:
-                response = "Unable to retrieve response."
-                logging.error(f"Error getting response: {response}")
-        try:
-            self.auth.increase_token_counts(
-                input_tokens=prompt_tokens,
-                output_tokens=completion_tokens,
-            )
-        except Exception as e:
-            logging.warning(f"Error increasing token counts: {e}")
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
         res_model = {
