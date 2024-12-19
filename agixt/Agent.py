@@ -283,6 +283,12 @@ class Agent:
         )
         self.available_commands = self.extensions.get_available_commands()
         self.agent_id = str(self.get_agent_id())
+
+        try:
+                    self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
+                except Exception as e:
+                    self.max_input_tokens = 32000
+
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
 
@@ -369,6 +375,54 @@ class Agent:
         return config
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
+
+    if not prompt:
+                return ""
+            prompt_tokens = self.PROVIDER.get_tokens(prompt)
+            answer = await self.PROVIDER.inference(
+                prompt=prompt, tokens=tokens, images=images
+            )
+            answer = str(answer).replace("_", "_")
+            completion_tokens = self.PROVIDER.get_tokens(answer)
+            total_tokens = prompt_tokens + completion_tokens
+            logging.info(f"Input tokens: {prompt_tokens}")
+            logging.info(f"Completion tokens: {completion_tokens}")
+            logging.info(f"Total tokens: {total_tokens}")
+            try:
+                session = get_session()
+                user_preferences = (
+                    session.query(UserPreferences)
+                    .filter(UserPreferences.user_id == self.user_id)
+                    .all()
+                )
+                if not user_preferences:
+                    user_input_tokens = None
+                    user_output_tokens = None
+                else:
+                    user_input_tokens = next(
+                        (x for x in user_preferences if x.pref_key == "input_tokens"),
+                        None,
+                    )
+                    user_output_tokens = next(
+                        (x for x in user_preferences if x.pref_key == "output_tokens"),
+                        None,
+                    )
+                updated_input_tokens = int(
+                    user_input_tokens.pref_value if user_input_tokens else 0
+                ) + int(prompt_tokens)
+                updated_output_tokens = int(
+                    user_output_tokens.pref_value if user_output_tokens else 0
+                ) + int(completion_tokens)
+                if user_input_tokens:
+                    user_input_tokens.pref_value = str(updated_input_tokens)
+                    session.commit()
+                if user_output_tokens:
+                    user_output_tokens.pref_value = str(updated_output_tokens)
+                    session.commit()
+                session.close()
+            except Exception as e:
+                logging.warning(f"Error increasing token counts: {e}")
+
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
@@ -412,6 +466,10 @@ class Agent:
                     "See the chat for the full code block.",
                     text,
                 )
+
+                def get_tokens(self, text:str) ->int:
+                        return self.PROVIDER.get_tokens(text)
+
             return await self.TTS_PROVIDER.text_to_speech(text=text)
 
     def get_agent_extensions(self):
