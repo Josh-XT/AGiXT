@@ -374,6 +374,32 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
+
+        try:
+        if isinstance(prompt, str):
+        prompt_tokens = get_tokens(prompt)
+        elif isinstance(prompt, list):
+        prompt_tokens = sum(get_tokens(item["text"]) for item in prompt if "text" in item)
+        else:
+        prompt_tokens = 0
+        completion_tokens = get_tokens(answer)
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        logging.info(f"Input tokens: {prompt_tokens}")
+        logging.info(f"Completion tokens: {completion_tokens}")
+        logging.info(f"Total tokens: {total_tokens}")
+        if hasattr(self.PROVIDER, "increase_token_counts"):
+        await self.PROVIDER.increase_token_counts(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        elif hasattr(self.PROVIDER, "auth"):
+        self.PROVIDER.auth.increase_token_counts(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+
+
+        except Exception as e:
+        logging.warning(f"Error increasing token counts: {e}")
+        answer = str(answer).replace("_", "_")
+        if answer.endswith("\n\n"):
+        answer = answer[:-2]
+        return answer
+
         answer = str(answer).replace("\_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
