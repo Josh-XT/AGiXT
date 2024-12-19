@@ -1873,11 +1873,12 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
             try:
                 operation = root.find("operation").text.strip()
                 if operation not in ["replace", "insert", "delete"]:
-                    raise ValueError(f"Invalid operation '{operation}'")
+                    operation = "replace"  # Default to replace if invalid
 
                 target = root.find("target").text
                 if not target:
-                    raise ValueError("Empty target tag")
+                    # Start at the beginning of the file if no target specified
+                    target = "0"
 
                 content = root.find("content")
                 content = content.text if content is not None else None
