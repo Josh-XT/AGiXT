@@ -2810,9 +2810,10 @@ def verify_mfa(self, token: str):
                     issue_number=issue_number,
                     additional_context=f"**Upon further review, these changes may need made. If they need made, confirm they are correct and send them again, see feedback below:**.\n{review_feedback}",
                 )
-                if review_response != "No changes needed":
+                if review_response.startswith("No changes needed"):
+                    return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
+                else:
                     return review_response
-
             return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
         else:
             # No PR exists, create a new one
