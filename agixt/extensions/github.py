@@ -1629,7 +1629,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         )
 
         best_match = best_matches[0]
-        threshold = 0.6 if fuzzy_match else 0.9
+        threshold = 0.7 if fuzzy_match else 0.9
 
         if best_match["score"] < threshold:
             # Try one more time with aggressive normalization
@@ -1715,7 +1715,7 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
         best_match = best_matches[0]
 
         threshold = (
-            0.6 if fuzzy_match else 0.8
+            0.7 if fuzzy_match else 0.8
         )  # Lower threshold for aggressive matching
         if best_match["score"] < threshold:
             raise ValueError(
