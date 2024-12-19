@@ -297,28 +297,31 @@ def _indent_block(content: str, base_indent: str) -> List[str]:
 
 def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
     """Determine correct indentation level by looking at surrounding structure."""
-    # Look backward for containing blocks (if, try, def, etc.)
-    indent = ""
+    # Look at previous line's indentation first
+    if line_index > 0:
+        prev_line = lines[line_index - 1].rstrip()
+        if prev_line and not prev_line.endswith(","):  # Ignore continuation lines
+            return prev_line[: len(prev_line) - len(prev_line.lstrip())]
+
+    # Look backward for containing blocks
     for i in range(line_index - 1, -1, -1):
         line = lines[i].rstrip()
         if not line:  # Skip empty lines
             continue
 
-        # If we hit a line ending in colon, this is our container
-        # Get its indentation and add one level
+        # Get the indentation of this line
+        curr_indent = line[: len(line) - len(line.lstrip())]
+
+        # If we find a class or function definition, use its base indentation
+        if line.lstrip().startswith(("def ", "class ", "async def ")):
+            return curr_indent + "    "  # One level deeper than definition
+
+        # If line ends with colon, use its indentation level
         if line.endswith(":"):
-            base_indent = line[: len(line) - len(line.lstrip())]
-            return base_indent + "    "
+            return curr_indent + "    "  # One level deeper than block starter
 
-        # If we hit a line with less indentation than current, use that + 1 level
-        curr_indent = len(line) - len(line.lstrip())
-        if curr_indent < len(indent):
-            return " " * (curr_indent + 4)
-
-        # Keep track of current indentation
-        indent = line[:curr_indent]
-
-    return "    "  # Default to one level if we can't determine
+    # Default to base level if we couldn't determine
+    return ""
 
 
 def _indent_code_block(content: str, base_indent: str) -> List[str]:
