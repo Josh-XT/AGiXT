@@ -1882,7 +1882,7 @@ If multiple modifications are needed, repeat the <modification> block. Do not re
                 content = root.find("content")
                 content = content.text if content is not None else None
                 if operation in ["replace", "insert"] and not content:
-                    raise ValueError(f"Content required for {operation} operation")
+                    content = ""
 
                 fuzzy_match = True
                 fuzzy_elem = root.find("fuzzy_match")
