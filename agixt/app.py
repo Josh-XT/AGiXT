@@ -22,8 +22,10 @@ with open(os.path.join(this_directory, "version"), encoding="utf-8") as f:
     version = f.read().strip()
 
 logging.basicConfig(
-    level=getenv("LOG_LEVEL"),
-    format=getenv("LOG_FORMAT"),
+if "file_urls" in message:
+                del message["file_urls"]
+        if "prompt_args" in message and "user_input" in message["prompt_args"]:
+            del message["prompt_args"]["user_input"]
 )
 
 app = FastAPI(
