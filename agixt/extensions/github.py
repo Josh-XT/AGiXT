@@ -2783,24 +2783,6 @@ def verify_mfa(self, token: str):
                 message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
                 conversation_name=self.conversation_name,
             )
-            try:
-                repo_content = await self.get_repo_code_contents(
-                    repo_url=f"{repo_url}/tree/{issue_branch}"
-                )
-                review_feedback = await self.review_pull_request(
-                    repo_url=repo_url,
-                    pull_request_number=existing_pr.number,
-                    code_content=repo_content,
-                    review_context=f"Issue #{issue_number}: {issue_title}\n{issue_body}\n\nAdditional Context:\n{additional_context}",
-                )
-            except Exception as e:
-                review_feedback = f"Ran into an error reviewing [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number})\n{str(e)}"
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing updated PR #{existing_pr.number}",
-                new_message=f"[SUBACTIVITY][{self.activity_id}] Reviewed updated PR #{existing_pr.number}\n{review_feedback}",
-                conversation_name=self.conversation_name,
-            )
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=(
@@ -2809,19 +2791,6 @@ def verify_mfa(self, token: str):
                 ),
                 conversation_name=self.conversation_name,
             )
-
-            # If review suggests changes, apply them recursively
-            if "<modification>" in review_feedback:
-                review_response = await self.fix_github_issue(
-                    repo_org=repo_org,
-                    repo_name=repo_name,
-                    issue_number=issue_number,
-                    additional_context=f"**Upon further review, these changes may need made. If they need made, confirm they are correct and send them again, see feedback below:**.\n{review_feedback}",
-                )
-                if review_response.startswith("No changes needed"):
-                    return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
-                else:
-                    return review_response
             return f"Updated and reviewed [PR #{existing_pr.number}]({repo_url}/pull/{existing_pr.number}) for issue [#{issue_number}]({repo_url}/issues/{issue_number}) with new changes."
         else:
             # No PR exists, create a new one
