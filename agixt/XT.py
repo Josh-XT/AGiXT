@@ -570,9 +570,9 @@ class AGiXT:
         chain_data = self.chain.get_chain(chain_name=chain_name)
         if not chain_run_id:
             chain_run_id = await self.chain.get_chain_run_id(chain_name=chain_name)
-        if chain_data == {}:
-            return f"Chain `{chain_name}` not found."
-        if log_user_input:
+        if return_messages != []:
+        return {"interactions": return_messages}
+        return {"interactions": []}
             self.conversation.log_interaction(
                 role="USER",
                 message=user_input,
@@ -1351,9 +1351,9 @@ class AGiXT:
         else:
             command_name = ""
         if "command_args" in self.agent_settings:
-            try:
-                command_args = (
-                    json.loads(self.agent_settings["command_args"])
+            except Exception as e:
+            logging.error(f"Error sending email: {e}")
+            raise HTTPException(status_code=400, detail="Email could not be sent.")
                     if isinstance(self.agent_settings["command_args"], str)
                     else self.agent_settings["command_args"]
                 )
@@ -1467,9 +1467,29 @@ class AGiXT:
                         role = message["role"] if "role" in message else "User"
                         if role.lower() == "user":
                             new_prompt += f"{msg['text']}\n\n"
-                    # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
-                    if isinstance(msg, dict):
-                        for key, value in msg.items():
+                    return answer
+
+                    def embeddings(self, input) ->np.ndarray:
+                    return self.embedder(input=input)
+
+                    async def transcribe_audio(self, audio_path: str):
+                    return await self.TRANSCRIPTION_PROVIDER.transcribe_audio(audio_path=audio_path)
+
+                    async def translate_audio(self, audio_path: str):
+                    return await self.TRANSLATION_PROVIDER.translate_audio(audio_path=audio_path)
+
+                    async def generate_image(self, prompt: str):
+                    return await self.IMAGE_PROVIDER.generate_image(prompt=prompt)
+
+                    async def text_to_speech(self, text: str):
+                    if self.TTS_PROVIDER is not None:
+                    if "```" in text:
+                    text = re.sub(
+                    r"```[^```]+```",
+                    "See the chat for the full code block.",
+                    text,
+                    )
+                    return await self.TTS_PROVIDER.text_to_speech(text=text)
                             if "_url" in key:
                                 url = str(value["url"] if "url" in value else value)
                                 if url.startswith("https://github.com/"):
@@ -1988,13 +2008,13 @@ class AGiXT:
             "rejected": bad_answers,
         }
         # Save messages to a json file to be used as a dataset
-        dataset_dir = os.path.join(self.agent_workspace, "datasets")
-
-        os.makedirs(dataset_dir, exist_ok=True)
-        dataset_name = "".join(
-            [c for c in dataset_name if c.isalpha() or c.isdigit() or c == " "]
+        response = await self.PROVIDER.inference(
+        prompt=prompt, tokens=tokens, images=images
         )
-        dataset_filename = f"{dataset_name}.json"
+        answer = str(response).replace("_", "_")
+        if answer.endswith("\n\n"):
+        answer = answer[:-2]
+        return answer
         full_path = os.path.normpath(
             os.path.join(self.agent_workspace, dataset_filename)
         )
