@@ -283,6 +283,9 @@ class Agent:
         )
         self.available_commands = self.extensions.get_available_commands()
         self.agent_id = str(self.get_agent_id())
+
+            self.auth = MagicalAuth(token=None)
+
         self.working_directory = os.path.join(os.getcwd(), "WORKSPACE", self.agent_id)
         os.makedirs(self.working_directory, exist_ok=True)
 
@@ -369,6 +372,27 @@ class Agent:
         return config
 
     async def inference(self, prompt: str, tokens: int = 0, images: list = []):
+
+        try:
+                        prompt_tokens = get_tokens(prompt) + tokens
+                        completion_tokens = get_tokens(answer)
+                        total_tokens = int(prompt_tokens) + int(completion_tokens)
+                        logging.info(f"Input tokens: {prompt_tokens}")
+                        logging.info(f"Completion tokens: {completion_tokens}")
+                        logging.info(f"Total tokens: {total_tokens}")
+                    except:
+                        if not answer:
+                            answer = "Unable to retrieve response."
+                            logging.error(f"Error getting response: {answer}")
+                    try:
+                        self.auth.increase_token_counts(
+                            input_tokens=prompt_tokens,
+                            output_tokens=completion_tokens,
+                        )
+                    except Exception as e:
+                        logging.warning(f"Error increasing token counts: {e}")
+                    return answer
+
         if not prompt:
             return ""
         answer = await self.PROVIDER.inference(
