@@ -2019,13 +2019,13 @@ class AGiXT:
             "rejected": bad_answers,
         }
         # Save messages to a json file to be used as a dataset
-        dataset_dir = os.path.join(self.agent_workspace, "datasets")
-
-        os.makedirs(dataset_dir, exist_ok=True)
-        dataset_name = "".join(
-            [c for c in dataset_name if c.isalpha() or c.isdigit() or c == " "]
+        answer = await self.PROVIDER.inference(
+            prompt=prompt, tokens=tokens, images=images
         )
-        dataset_filename = f"{dataset_name}.json"
+        answer = str(answer).replace("_", "_")
+        if answer.endswith("\n\n"):
+            answer = answer[:-2]
+        return answer
         full_path = os.path.normpath(
             os.path.join(self.agent_workspace, dataset_filename)
         )
