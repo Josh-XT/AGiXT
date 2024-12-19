@@ -256,6 +256,26 @@ def adjust_relative_indentation(content, target_indent):
     return "\n".join(result)
 
 
+def _get_function_indentation(lines: List[str], start_line: int) -> str:
+    """Get the indentation for content inside a function"""
+    # Look backwards to find the function definition
+    for i in range(start_line - 1, -1, -1):
+        line = lines[i].rstrip()
+        # Look for function definition (def or async def)
+        if "def " in line:
+            base_indent = len(line) - len(line.lstrip())
+            return " " * (base_indent + 4)  # Function body is indented one level
+    return "    "  # Default to one level if we can't find the function
+
+
+def _indent_block(content: str, indent: str) -> List[str]:
+    """Apply indentation to a block of code"""
+    return [
+        f"{indent}{line.lstrip()}\n" if line.strip() else "\n"
+        for line in content.splitlines()
+    ]
+
+
 def _get_block_indentation(lines: List[str], start_line: int) -> str:
     """Get the appropriate indentation level based on context."""
     # Look at a few lines before and after for context
@@ -277,24 +297,6 @@ def _get_block_indentation(lines: List[str], start_line: int) -> str:
         # Use the most common indentation level
         return " " * (max(set(indentation_levels), key=indentation_levels.count))
     return ""  # Default to no indentation if we can't determine
-
-
-def _indent_block(content: str, base_indent: str) -> List[str]:
-    """Preserve the block's internal structure with base indentation."""
-    if not content:
-        return []
-
-    lines = content.splitlines()
-    result = []
-
-    for line in lines:
-        if not line.strip():
-            result.append("\n")
-            continue
-
-        result.append(f"{base_indent}{line.lstrip()}\n")
-
-    return result
 
 
 class github(Extensions):
@@ -2151,32 +2153,33 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
-                            base_indent = _get_block_indentation(
+                            indent = _get_function_indentation(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_block(content, base_indent)
-                            new_lines[start_line:end_line] = new_content
+                            new_lines[start_line:end_line] = _indent_block(
+                                content, indent
+                            )
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            base_indent = _get_block_indentation(
+                            indent = _get_function_indentation(
                                 modified_lines, start_line
                             )
-                            new_content = _indent_block(content, base_indent)
+                            insert_lines = _indent_block(content, indent)
 
-                            # Handle spacing around insertion
+                            # Handle spacing
                             if (
                                 start_line > 0
                                 and modified_lines[start_line - 1].strip()
                             ):
-                                new_content.insert(0, "\n")
+                                insert_lines.insert(0, "\n")
                             if (
                                 start_line < len(modified_lines)
                                 and modified_lines[start_line].strip()
                             ):
-                                new_content.append("\n")
+                                insert_lines.append("\n")
 
-                            new_lines[start_line:start_line] = new_content
+                            new_lines[start_line:start_line] = insert_lines
                             has_changes = True
                         elif operation == "delete":
                             del new_lines[start_line:end_line]
