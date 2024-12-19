@@ -736,3 +736,11 @@ class Agent:
                 return None
         session.close()
         return agent.id
+
+                async def count_tokens(self, prompt: str, response: str):
+                        prompt_tokens = get_tokens(prompt)
+                        completion_tokens = get_tokens(response)
+                        return {
+                            "input_tokens": prompt_tokens,
+                            "output_tokens": completion_tokens,
+                        }
