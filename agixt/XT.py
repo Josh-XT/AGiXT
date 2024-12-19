@@ -554,7 +554,16 @@ class AGiXT:
             )
             return result
         else:
-            return None
+        prompt_tokens = get_tokens(str(prompt))
+                completion_tokens = get_tokens(str(answer))
+                if hasattr(self, "input_tokens"):
+                    self.input_tokens += prompt_tokens
+                return_data = {
+                    "response": answer,
+                    "input_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                }
+                return return_data
 
     async def execute_chain(
         self,
