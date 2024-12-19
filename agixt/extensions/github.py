@@ -314,11 +314,11 @@ def _get_correct_indent_level(lines: List[str], line_index: int) -> str:
 
         # If we find a class or function definition, use its base indentation
         if line.lstrip().startswith(("def ", "class ", "async def ")):
-            return curr_indent + "    "  # One level deeper than definition
+            return curr_indent + "  "  # One level deeper than definition
 
         # If line ends with colon, use its indentation level
         if line.endswith(":"):
-            return curr_indent + "    "  # One level deeper than block starter
+            return curr_indent + "  "  # One level deeper than block starter
 
     # Default to base level if we couldn't determine
     return ""
