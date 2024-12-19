@@ -374,9 +374,17 @@ class Agent:
         answer = await self.PROVIDER.inference(
             prompt=prompt, tokens=tokens, images=images
         )
-        answer = str(answer).replace("\_", "_")
+answer = str(answer).replace("_", "_")
         if answer.endswith("\n\n"):
             answer = answer[:-2]
+        prompt_tokens = get_tokens(prompt)
+        completion_tokens = get_tokens(answer)
+        try:
+            self.ApiClient.increase_token_counts(
+                input_tokens=prompt_tokens, output_tokens=completion_tokens
+            )
+        except Exception as e:
+            logging.error(f"Error increasing token counts: {e}")
         return answer
 
     async def vision_inference(self, prompt: str, tokens: int = 0, images: list = []):
