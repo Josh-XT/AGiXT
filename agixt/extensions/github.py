@@ -1169,67 +1169,63 @@ class github(Extensions):
         repo_org: str,
         repo_name: str,
         additional_context: str = "",
-        auto_merge: bool = False,
     ) -> str:
         """
-            Improve the codebase of a GitHub repository by:
+        Improve the codebase of a GitHub repository by:
 
-            1. Taking an initial idea and producing a set of issues that detail the tasks needed.
-            2. For each generated issue, prompting the model to produce minimal code modifications using the <modification> XML format.
-            3. Applying those modifications to a branch associated with the issue.
-            4. Creating a pull request for each issue, optionally merging it automatically.
+        1. Taking an initial idea and produces a GitHub issue that details the tasks needed, or uses an existing issue if provided.
+        2. For the issue, prompting the model to produce minimal code modifications using the <modification> XML format.
+        3. Applying those modifications to a branch associated with the issue.
+        4. Creates a pull request for the issue once completed if one does not already exist.
 
-            Args:
-                idea (str): The idea to improve the codebase.
-                repo_org (str): The organization or username for the GitHub repository.
-                repo_name (str): The repository name.
-                additional_context (str): Additional context to provide to the model.
-                auto_merge (bool): If True, automatically merges the created pull requests after applying changes.
+        - The idea should be well articulated and provide a clear direction of the user's perceived expectations.
+        - This command can be used to take a natural language idea and turn it into actioned changes on a new or existing branch.
+        - If an issue already exists, it will use that issue to make the changes as long as the issue number is provided in additional_context.
 
-            Returns:
-                str: A summary message indicating the number of issues and pull requests created.
+        Args:
+            idea (str): The idea to improve the codebase.
+            repo_org (str): The organization or username for the GitHub repository.
+            repo_name (str): The repository name.
+            additional_context (str): Additional context to provide to the model. If an existing issue is mentioned or known for this, mention it here.
 
-            Model Behavior:
-                - Initially, the model is asked to produce a scope of work and then create issues.
-                - For each issue, we prompt the model again to provide minimal code modifications as <modification> blocks.
-                - We apply those modifications with `modify_file_content`.
+        Returns:
+            str: A summary message indicating the number of issues and pull requests created.
 
-            Example of Expected Model Output for the second prompt per issue:
-                <modification>
-                    <operation>replace</operation>
-                    <target>def old_function():
-        pass</target>
-                    <content>def old_function():
-        return "fixed"</content>
-                </modification>
+        Model Behavior:
+            - Initially, the model is asked to produce a scope of work and then create issues.
+            - For each issue, we prompt the model again to provide minimal code modifications as <modification> blocks.
+            - We apply those modifications with `modify_file_content`.
+
+        Example of Expected Model Output for the second prompt per issue:
+        <modification>
+            <operation>replace</operation>
+            <target>def old_function():
+            pass</target>
+            <content>def old_function():
+            return "fixed"</content>
+        </modification>
         """
         repo_url = f"https://github.com/{repo_org}/{repo_name}"
-        repo_content = await self.get_repo_code_contents(repo_url=repo_url)
-        self.activity_id = self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Improving [{repo_org}/{repo_name}]({repo_url}).",
-            conversation_name=self.conversation_name,
-        )
-
-        # Prompt the model for a scope of work
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
+            message=f"[SUBACTIVITY][{self.activity_id}] Reviewing issues on [{repo_org}/{repo_name}]({repo_url}).",
             conversation_name=self.conversation_name,
         )
-
-        scope = self.ApiClient.prompt_agent(
+        issues = await self.get_repo_issues(repo_url=repo_url)
+        # Ask if any of these issues are related to the idea so that we can select that issue instead of create a new one
+        issue_number = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
             prompt_name="Think About It",
             prompt_args={
-                "user_input": f"""### Presented Idea
+                "user_input": f"""### Idea
 {idea}
+{additional_context}
 
-## User
-Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
-Follow all patterns in the current framework to maintain maintainability and consistency.
-The developer may have little to no guidance outside of this scope.""",
-                "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+### Open Issues
+{issues}
+
+Is there an existing issue that is related to the idea you provided? If so, please provide the issue number only in the answer block. If not, respond with 0.""",
+                "context": f"",
                 "log_user_input": False,
                 "disable_commands": True,
                 "log_output": False,
@@ -1240,146 +1236,76 @@ The developer may have little to no guidance outside of this scope.""",
                 "conversation_name": self.conversation_name,
             },
         )
-
-        # Convert the scope into issues
-        issues = self.ApiClient.convert_to_model(
-            context=f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
-            input_string=(
-                f"### Scope of Work\n\n{scope}\n"
-                "Please create a GitHub issue for each task in the scope of work. "
-                "Each issue should have detailed instructions for the junior developer to complete the task. "
-                "The developer may have little to no guidance outside of these issues. "
-                "The instructions should be clear and concise, and should include any necessary code snippets."
-            ),
-            model=Issues,
-            agent_name=self.agent_name,
-            disable_commands=True,
-            tts=False,
-            browse_links=False,
-            websearch=False,
-            analyze_user_input=False,
-            log_user_input=False,
-            log_output=False,
-            conversation_name=self.conversation_name,
-        )
-        issues = issues.model_dump()
-        issue_count = len(issues["issues"])
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Creating {issue_count} issues in the repository.",
-            conversation_name=self.conversation_name,
-        )
-
-        # Process each issue: create it, then fix it
-        x = 0
-        for issue in issues["issues"]:
-            x += 1
-            title = issue["issue_title"]
-            body = issue["issue_body"]
-            new_issue = await self.create_repo_issue(
-                repo_url=repo_url, title=title, body=body
-            )
-            # Parse issue number
-            issue_number_line = new_issue.split("\n")[
-                3
-            ]  # The line that contains issue number
-            # Example line: "{issue_number}: {issue.title}"
-            # We'll extract the issue number:
-            issue_number = issue_number_line.split(":")[0].strip()
-
+        try:
+            issue_number = int(issue_number)
+        except:
+            issue_number = 0
+        if issue_number == 0:
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Resolving #{issue_number} `{title}`.",
+                message=f"[SUBACTIVITY][{self.activity_id}] Scoping necessary work to implement changes to [{repo_org}/{repo_name}]({repo_url}).",
                 conversation_name=self.conversation_name,
             )
-
-            # Prompt the model for minimal modifications in <modification> format to fix this issue
-            modifications_xml = self.ApiClient.prompt_agent(
+            repo_content = await self.get_repo_code_contents(repo_url=repo_url)
+            scope = self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name="Think About It",
                 prompt_args={
-                    "user_input": f"""GitHub Issue: {title}
-{body}
+                    "user_input": f"""### Presented Idea
+    {idea}
 
-Below is the repository code and additional context. Identify the minimal code changes needed to solve this issue. 
-You must ONLY return the necessary modifications in the following XML format:
-
-<modification>
-<operation>replace|insert|delete</operation>
-<target>original_code_block_or_line_number</target>
-<content>new_code_block_if_needed</content>
-</modification>
-
-If multiple modifications are needed, repeat the <modification> block. Do not return anything other than <modification> blocks.
-
-### Important:
-- Do not return entire files, only the minimal code modifications required.
-- For replace, insert, and delete operations:
-  - "target" can be a code snippet or a line number.
-  - "content" is required for replace and insert, optional for delete.
-""",
-                    "context": f"""### Content of {repo_url}\n\n{repo_content}\n{additional_context}\n### Scope of Work\n\n{scope}""",
+    ## User
+    Please take the presented idea and write a detailed scope for a junior developer to build out the remaining code using the provided code from the repository.
+    Follow all patterns in the current framework to maintain maintainability and consistency.
+    The developer may have little to no guidance outside of this scope.""",
+                    "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                     "log_user_input": False,
+                    "disable_commands": True,
                     "log_output": False,
                     "browse_links": False,
                     "websearch": False,
                     "analyze_user_input": False,
                     "tts": False,
-                    "disable_commands": True,
                     "conversation_name": self.conversation_name,
                 },
             )
-
-            # The issue branch created by create_repo_issue should be "issue-{issue_number}"
-            # Since we have issue_number extracted from the string, we should ensure the branch name matches.
-            # The create_repo_issue method uses "issue-{issue_number}" as the branch name.
-            # We'll confirm that and use that branch.
-            issue_branch = f"issue-{issue_number}"
-
-            # Since no file_path is directly known, we rely on modify_file_content to parse the target code blocks.
-            # If the modification blocks reference code that can be found, it will work.
-            # If the model includes file paths in the target, you can adjust modify_file_content or prompt strategy accordingly.
-            modification_result = await self.modify_file_content(
-                repo_url=repo_url,
-                file_path="",  # If needed, the prompt can be updated to include file paths in <modification> blocks.
-                modification_commands=modifications_xml,
-                branch=issue_branch,
-            )
-
-            # Create and optionally merge the pull request
+            # Create issue
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) Creating pull request to resolve #{issue_number}.",
+                message=f"[SUBACTIVITY][{self.activity_id}] Creating GitHub issue based on the scope of work.\n{scope}",
                 conversation_name=self.conversation_name,
             )
-            pr_body = f"Resolves #{issue_number}\n\nThe following modifications were applied:\n\n{modifications_xml}"
-            if auto_merge:
-                pull_request = await self.create_and_merge_pull_request(
-                    repo_url=repo_url,
-                    title=f"Resolve #{issue_number}",
-                    body=pr_body,
-                    head=issue_branch,
-                    base="main",
-                    merge_method="squash",
-                )
-            else:
-                pull_request = await self.create_repo_pull_request(
-                    repo_url=repo_url,
-                    title=f"Resolve #{issue_number}",
-                    body=pr_body,
-                    head=issue_branch,
-                    base="main",
-                )
+            issue_title = self.ApiClient.prompt_agent(
+                agent_name=self.agent_name,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": f"""### Scope of Work
+{scope}
 
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] ({x}/{issue_count}) {pull_request}",
-                conversation_name=self.conversation_name,
+Come up with a concise title for the GitHub issue based on the scope of work, respond with only the title in the answer block.""",
+                    "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                    "log_user_input": False,
+                    "disable_commands": True,
+                    "log_output": False,
+                    "browse_links": False,
+                    "websearch": False,
+                    "analyze_user_input": False,
+                    "tts": False,
+                    "conversation_name": self.conversation_name,
+                },
             )
-        response = f"I have created {issue_count} issues based on the provided information, then resolved each issue by creating a pull request."
-        if auto_merge:
-            response += " Each pull request was automatically merged."
-        return response
+            repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
+            issue = repo.create_issue(title=issue_title, body=scope)
+            issue_number = issue.number
+        # Use Fix Github Issue command
+        repo_org = repo_url.split("/")[-2]
+        repo_name = repo_url.split("/")[-1]
+        return await self.fix_github_issue(
+            repo_org=repo_org,
+            repo_name=repo_name,
+            issue_number=issue_number,
+            additional_context=f"{additional_context}\n{idea}",
+        )
 
     async def copy_repo_contents(
         self,
