@@ -204,6 +204,11 @@ def get_sso_credentials(user_id):
             .first()
         )
         credentials.update(
+
+            STRIPE_API_KEY: ${{ inputs.stripe-api-key }}
+                      TESTMAIL_NAMESPACE: ${{ inputs.testmail-namespace }}
+                      DEFAULT_EMAIL: ${{ inputs.default-email }}
+
             {f"{str(provider.name).upper()}_ACCESS_TOKEN": oauth.access_token}
         )
     session.close()
