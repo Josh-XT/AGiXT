@@ -2110,59 +2110,102 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
 
                         new_lines = modified_lines[:]
                         if operation == "replace" and content:
+                            # Get the indentation of the line we're replacing
                             base_indent = _get_indentation_level(
                                 modified_lines, start_line
                             )
-                            content_lines = [
-                                (
-                                    f"{base_indent}{line.lstrip()}\n"
-                                    if line.strip()
-                                    else "\n"
-                                )
-                                for line in content.splitlines()
-                            ]
-                            new_lines[start_line:end_line] = content_lines
+
+                            # Process content lines
+                            content_lines = content.splitlines()
+                            content_first_line = next(
+                                (line for line in content_lines if line.strip()), ""
+                            )
+                            content_indent = (
+                                len(content_first_line)
+                                - len(content_first_line.lstrip())
+                                if content_first_line
+                                else 0
+                            )
+
+                            # If content has its own indentation, preserve relative structure
+                            if content_indent > 0:
+                                result_lines = []
+                                for line in content_lines:
+                                    if not line.strip():
+                                        result_lines.append("\n")
+                                    else:
+                                        # Remove existing indent and apply target indent
+                                        stripped = line[content_indent:]
+                                        result_lines.append(
+                                            f"{base_indent}{stripped}\n"
+                                        )
+                                new_lines[start_line:end_line] = result_lines
+                            else:
+                                # No content indentation, apply target indentation to all lines
+                                result_lines = [
+                                    (
+                                        f"{base_indent}{line.lstrip()}\n"
+                                        if line.strip()
+                                        else "\n"
+                                    )
+                                    for line in content_lines
+                                ]
+                                new_lines[start_line:end_line] = result_lines
                             has_changes = True
 
                         elif operation == "insert" and content:
-                            # For Python files, we need to look at the context
-                            if self._is_python_file(file_path):
-                                # Get base indentation from the surrounding context
-                                if start_line > 0:
-                                    # Look at previous line for context
-                                    prev_line = modified_lines[start_line - 1]
-                                    base_indent = prev_line[
-                                        : len(prev_line) - len(prev_line.lstrip())
-                                    ]
-
-                                    # If previous line ends with colon, we need to indent one more level
-                                    if prev_line.rstrip().endswith(":"):
-                                        base_indent += "    "
-                                    # If we're in a block (previous line is indented), maintain that indentation
-                                    elif prev_line.strip():
-                                        # Keep same indentation as previous line if it's not empty
-                                        pass
-                                else:
-                                    base_indent = ""
+                            # Get indentation from the line before or after insertion point
+                            if start_line > 0:
+                                base_indent = _get_indentation_level(
+                                    modified_lines, start_line - 1
+                                )
+                                # If previous line ends with colon, add one level
+                                if (
+                                    modified_lines[start_line - 1]
+                                    .rstrip()
+                                    .endswith(":")
+                                ):
+                                    base_indent += "    "
                             else:
-                                # For non-Python files, use simpler indent detection
                                 base_indent = _get_indentation_level(
                                     modified_lines, start_line
                                 )
-                                if start_line > 0 and modified_lines[
-                                    start_line - 1
-                                ].rstrip().endswith(":"):
-                                    base_indent += "    "
 
-                            # Process content lines with proper indentation
-                            insert_lines = [
-                                (
-                                    f"{base_indent}{line.lstrip()}\n"
-                                    if line.strip()
-                                    else "\n"
-                                )
-                                for line in content.splitlines()
-                            ]
+                            # Process content lines
+                            content_lines = content.splitlines()
+                            content_first_line = next(
+                                (line for line in content_lines if line.strip()), ""
+                            )
+                            content_indent = (
+                                len(content_first_line)
+                                - len(content_first_line.lstrip())
+                                if content_first_line
+                                else 0
+                            )
+
+                            # If content has its own indentation, preserve relative structure
+                            if content_indent > 0:
+                                result_lines = []
+                                for line in content_lines:
+                                    if not line.strip():
+                                        result_lines.append("\n")
+                                    else:
+                                        # Remove content's base indent and apply target indent
+                                        stripped = line[content_indent:]
+                                        result_lines.append(
+                                            f"{base_indent}{stripped}\n"
+                                        )
+                                insert_lines = result_lines
+                            else:
+                                # No content indentation, apply target indentation to all lines
+                                insert_lines = [
+                                    (
+                                        f"{base_indent}{line.lstrip()}\n"
+                                        if line.strip()
+                                        else "\n"
+                                    )
+                                    for line in content_lines
+                                ]
 
                             # Handle spacing around insertion
                             if (
@@ -2177,6 +2220,10 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                                 insert_lines.append("\n")
 
                             new_lines[start_line:start_line] = insert_lines
+                            has_changes = True
+
+                        elif operation == "delete":
+                            del new_lines[start_line:end_line]
                             has_changes = True
                         elif operation == "delete":
                             del new_lines[start_line:end_line]
