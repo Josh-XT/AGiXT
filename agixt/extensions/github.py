@@ -1297,6 +1297,17 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
             repo = self.gh.get_repo(repo_url.split("github.com/")[-1])
             issue = repo.create_issue(title=issue_title, body=scope)
             issue_number = issue.number
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Created GitHub [issue #{issue_number}: {issue_title}]({issue.html_url}).",
+                conversation_name=self.conversation_name,
+            )
+        else:
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}] Using existing GitHub [issue #{issue_number}]({repo_url}/issues/{issue_number}).",
+                conversation_name=self.conversation_name,
+            )
         # Use Fix Github Issue command
         repo_org = repo_url.split("/")[-2]
         repo_name = repo_url.split("/")[-1]
@@ -2529,6 +2540,13 @@ Focus on:
         issue = repo.get_issue(int(issue_number))
         issue_title = issue.title
         issue_body = issue.body
+        # Get issue comments into a list with timestamps and users names
+        comments = issue.get_comments()
+        recent_comments = ""
+        for comment in comments:
+            recent_comments += (
+                f"**{comment.user.login}** at {comment.updated_at}: {comment.body}\n\n"
+            )
         # Prompt the model for modifications with file paths
         self.ApiClient.new_conversation_message(
             role=self.agent_name,
@@ -2542,6 +2560,10 @@ Focus on:
             prompt_args={
                 "user_input": f"""### Issue #{issue_number}: {issue_title}
 {issue_body}
+
+## Recent comments on the issue
+
+{recent_comments}
 
 ## User
 Below is the repository code and additional context. Identify the minimal code changes needed to fix this issue. 
