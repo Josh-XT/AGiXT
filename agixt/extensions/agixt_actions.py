@@ -158,6 +158,7 @@ class agixt_actions(Extensions):
 
     def __init__(self, **kwargs):
         self.commands = {
+            "Think Deeply": self.think_deeply,
             "Run Data Analysis": self.run_data_analysis,
             "Search the Web": self.websearch,
             "Create Task Chain": self.create_task_chain,
@@ -211,6 +212,57 @@ class agixt_actions(Extensions):
         )
         self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
         self.failures = 0
+
+    async def think_deeply(self, query: str):
+        """
+        Execute a deep analysis and reasoning process on any given topic or question. This command engages the assistant's advanced analytical capabilities to provide comprehensive, well-reasoned responses, leveraging both direct knowledge and contextual understanding.
+
+        This command is particularly useful for:
+        - Complex problem analysis requiring multi-step reasoning
+        - Exploring abstract concepts or theoretical questions
+        - Synthesizing information across multiple domains
+        - Breaking down complex topics into understandable components
+        - Generating creative solutions to challenging problems
+        - Providing detailed explanations with supporting rationale
+        - Situations where context or knowledge gaps need to be identified and addressed
+        - Tasks requiring comparison of multiple approaches or methodologies
+        - Scenarios needing thorough risk-benefit analysis
+
+        The assistant will examine the query from multiple angles, consider relevant context, and apply systematic reasoning to develop a thorough response. This process may include identifying assumptions, exploring implications, considering alternatives, and evaluating potential solutions.
+
+        The thinking process involves:
+        1. Breaking down the query into core components
+        2. Identifying relevant knowledge domains and context
+        3. Analyzing relationships and dependencies
+        4. Considering multiple perspectives and approaches
+        5. Synthesizing findings into a coherent response
+        6. Validating conclusions against available information
+
+        Args:
+            query (str): The topic, question, or problem to analyze deeply. Can be any form of inquiry requiring thorough analysis.
+
+        Returns:
+            str: A comprehensive response that includes detailed analysis, supporting reasoning, and relevant insights.
+
+        Note:
+            The assistant should use this command when:
+            - The system detects that a query exceeds the standard step budget
+            - A topic requires deeper context or more comprehensive analysis
+            - Complex problem-solving or creative thinking is needed
+            - Multiple interconnected factors need to be considered
+            - Long-term implications need to be evaluated
+        """
+        return self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": query,
+                "conversation_name": self.conversation_name,
+                "log_user_input": False,
+                "log_output": False,
+                "tts": False,
+            },
+        )
 
     async def run_data_analysis(self, data: str, query: str):
         """
