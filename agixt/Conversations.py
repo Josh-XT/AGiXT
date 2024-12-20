@@ -364,6 +364,72 @@ class Conversations:
         )
         return f"### Detailed Activities:\n{subactivities}"
 
+    def get_activities_with_subactivities(self):
+        session = get_session()
+        user_data = session.query(User).filter(User.email == self.user).first()
+        user_id = user_data.id
+        if not self.conversation_name:
+            self.conversation_name = "-"
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return {"activities": []}
+        messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .order_by(Message.timestamp.asc())
+            .all()
+        )
+        if not messages:
+            session.close()
+            return {"activities": []}
+        return_activities = []
+        current_activity = None
+        for message in messages:
+            if message.content.startswith("[ACTIVITY]"):
+                if current_activity:
+                    return_activities.append(current_activity)
+                current_activity = {
+                    "id": message.id,
+                    "role": message.role,
+                    "message": message.content,
+                    "timestamp": message.timestamp,
+                    "subactivities": [],
+                }
+            elif message.content.startswith("[SUBACTIVITY]"):
+                current_activity["subactivities"].append(
+                    {
+                        "id": message.id,
+                        "role": message.role,
+                        "message": message.content,
+                        "timestamp": message.timestamp,
+                    }
+                )
+        if current_activity:
+            return_activities.append(current_activity)
+        session.close()
+        # Return in markdown
+        activities = "\n".join(
+            [
+                f"### Activity at {activity['timestamp']}\n{activity['message']}\n"
+                + "\n".join(
+                    [
+                        f"#### Subactivity at {subactivity['timestamp']}\n{subactivity['message']}"
+                        for subactivity in activity["subactivities"]
+                    ]
+                )
+                for activity in return_activities
+            ]
+        )
+        return f"### Detailed Activities:\n{activities}"
+
     def new_conversation(self, conversation_content=[]):
         session = get_session()
         user_data = session.query(User).filter(User.email == self.user).first()
