@@ -66,128 +66,6 @@ class FileModification:
     fuzzy_match: bool = True
 
 
-class GitHubErrorRecovery:
-    def __init__(self, api_client, agent_name: str, conversation_name: str = ""):
-        self.api_client = api_client
-        self.agent_name = agent_name
-        self.conversation_name = conversation_name
-
-    async def retry_with_context(
-        self,
-        error_msg: str,
-        repo_url: str,
-        file_path: str,
-        original_modifications: str,
-        activity_id: str = None,
-        retry_count: int = 0,
-    ) -> str:
-        """
-        Retry a failed modification by providing the error context back to the model.
-        """
-        # Log the retry attempt
-        logging.info(f"Retry attempt #{retry_count + 1} for {file_path}")
-        if activity_id:
-            self.api_client.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{activity_id}] Retry attempt #{retry_count + 1} for {file_path}: {error_msg}",
-                conversation_name=self.conversation_name,
-            )
-
-        # Extract the useful parts of the error message
-        error_context = self._parse_error_message(error_msg)
-
-        # If we received an empty error context or hit retry limit, raise an error
-        if not error_context:
-            raise ValueError(
-                f"[Attempt #{retry_count + 1}] Unable to process modifications: {error_msg}"
-            )
-
-        # Check if the modifications are already in the correct format
-        if self._is_valid_modification_format(original_modifications):
-            raise ValueError(f"Invalid modification result: {error_msg}")
-
-        # Construct the retry prompt with improved context
-        retry_prompt = f"""Retry attempt #{retry_count + 1}. The previous modification attempt failed. Here's what I found:
-
-{error_context}
-
-Please provide new modification commands that:
-1. Only use existing functions/classes as targets
-2. Maintain the same intended functionality
-3. Use the correct syntax and indentation
-4. Only reference existing dependencies and functions
-5. Ensure the file path is correct
-6. Try something else, like a shorter target that will fit and match better
-
-Please provide the modifications in the same XML format:
-<modification>
-<file>{file_path}</file>
-<operation>insert|replace|delete</operation>
-<target>[one of the existing functions shown above]</target>
-<content>
-[your new code here]
-</content>
-</modification>
-
-Original intended changes were:
-{original_modifications}"""
-
-        try:
-            # Get new modifications from the model with a timeout
-            new_modifications = self.api_client.prompt_agent(
-                agent_name=self.agent_name,
-                prompt_name="Think About It",
-                prompt_args={
-                    "user_input": retry_prompt,
-                    "log_user_input": False,
-                    "disable_commands": True,
-                    "log_output": False,
-                    "browse_links": False,
-                    "websearch": False,
-                    "analyze_user_input": False,
-                    "tts": False,
-                    "conversation_name": self.conversation_name,
-                },
-            )
-            # replace fuzzy_match with true
-            new_modifications = new_modifications.replace(
-                "<fuzzy_match>false</fuzzy_match>", "<fuzzy_match>true</fuzzy_match>"
-            )
-            if activity_id:
-                self.api_client.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{activity_id}] Retrying modification with corrected targets",
-                    conversation_name=self.conversation_name,
-                )
-            return new_modifications
-
-        except Exception as e:
-            # If prompt fails, raise a clear error
-            raise ValueError(f"Failed to generate new modifications: {str(e)}")
-
-    def _parse_error_message(self, error_msg: str) -> str:
-        """
-        Parse the error message to extract the most useful information for the model.
-        """
-        # If it's our detailed error format with available functions
-        if "Available function definitions:" in error_msg:
-            return error_msg
-
-        # If it's a match score error
-        if "Best match score" in error_msg:
-            return error_msg
-
-        # For other errors, provide a more structured message
-        return f"Error encountered: {error_msg}\n\nPlease ensure the target exists in the file and the modification is valid."
-
-    def _is_valid_modification_format(self, modifications: str) -> bool:
-        """
-        Check if the modifications string is already in the correct XML format.
-        """
-        required_tags = ["<modification>", "<file>", "<operation>", "<target>"]
-        return all(tag in modifications for tag in required_tags)
-
-
 def insert_needs_indent(lines, insert_point):
     """Determine if an insertion needs additional indentation."""
     if insert_point <= 0:
@@ -2053,12 +1931,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                 str: A unified diff showing the changes made or error message
         """
         try:
-            error_recovery = GitHubErrorRecovery(
-                api_client=self.ApiClient,
-                agent_name=self.agent_name,
-                conversation_name=self.conversation_name,
-            )
-
             retry_count = 0
             max_retries = 3
             errors = []
@@ -2253,21 +2125,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     logging.warning(
                         f"Modification attempt #{retry_count} failed: {error_msg}"
                     )
-
-                    try:
-                        modification_commands = await error_recovery.retry_with_context(
-                            error_msg=error_msg,
-                            repo_url=repo_url,
-                            file_path=file_path,
-                            original_modifications=modification_commands,
-                            activity_id=self.activity_id,
-                            retry_count=retry_count - 1,
-                        )
-                    except ValueError as ve:
-                        error_history = "\n\nError history:\n" + "\n".join(errors)
-                        raise ValueError(
-                            f"Error recovery failed: {str(ve)}{error_history}"
-                        )
 
         except Exception as e:
             logging.error(f"Modification failed: {str(e)}", exc_info=True)
@@ -2704,11 +2561,6 @@ def verify_mfa(self, token: str):
             if file_path not in file_mod_map:
                 file_mod_map[file_path] = []
             file_mod_map[file_path].append(single_mod_xml)
-        error_recovery = GitHubErrorRecovery(
-            api_client=self.ApiClient,
-            agent_name=self.agent_name,
-            conversation_name=self.conversation_name,
-        )
         # Apply modifications file by file
         for file_path, mods in file_mod_map.items():
             combined_mods = "".join(mods)
@@ -2728,18 +2580,99 @@ def verify_mfa(self, token: str):
                 for i in range(3):
                     if result.startswith("Error:"):
                         try:
-                            combined_mods = await error_recovery.retry_with_context(
-                                error_msg=result,
-                                repo_url=repo_url,
-                                file_path=file_path,
-                                original_modifications=combined_mods,
-                                activity_id=self.activity_id,
-                                retry_count=i,
+                            retry_prompt = f"""
+Please provide new modification commands that:
+1. Only use existing functions/classes as targets
+2. Maintain the same intended functionality
+3. Use the correct syntax and indentation
+4. Only reference existing dependencies and functions
+5. Ensure the file path is correct
+6. Try something else, like a shorter target that will fit and match better
+7. Do not start target or content with a new line, they're exact replacements
+
+If multiple modifications are needed, repeat the <modification> block.
+
+### Important:
+- Each <modification> block must include a <file> tag specifying which file to modify.
+- For <target>, you must use one of these formats:
+  1. For inserting after a function/method:
+     - Use the complete function definition line, e.g., "def verify_email_address(self, code: str = None):"
+     - The new content will be inserted after the entire function
+  2. For replacing code:
+     - Include the exact code block to replace, including correct indentation
+     - The first and last lines are especially important for matching
+  3. For specific line numbers:
+     - Use the line number as a string, e.g., "42"
+- Do not use the repository name or WORKSPACE path in file paths
+- The file path should be relative to the repository root
+- Content must match the indentation style of the target location
+- For replace and insert operations, <content> is required
+- For delete operations, <content> is not required
+- Put your <modification> blocks inside of the <answer> block!
+- Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
+- If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
+
+Example modifications:
+1. Insert after a function:
+<modification>
+<file>auth.py</file>
+<operation>insert</operation>
+<target>def verify_email_address(self, code: str = None):</target>
+<content>
+def verify_mfa(self, token: str):
+    # Verify MFA token
+    pass</content>
+</modification>
+
+2. Replace a code block:
+<modification>
+<file>auth.py</file>
+<operation>replace</operation>
+<target>    def verify_token(self):
+    return True</target>
+<content>    def verify_token(self):
+    return self.validate_jwt()</content>
+</modification>
+
+
+Please provide the modifications in the same XML format:
+<modification>
+<file>{file_path}</file>
+<operation>insert|replace|delete</operation>
+<target>[one of the existing functions shown above]</target>
+<content>[your new code here]</content>
+</modification>
+
+Retry attempt #{i + 1}. The previous modification attempt failed. Here's what I found:
+
+{result}
+
+Original intended changes were:
+{combined_mods}
+
+Rewrite the modifications to fix the issue.
+"""
+
+                            # Get new modifications from the model with a timeout
+                            new_modifications = self.ApiClient.prompt_agent(
+                                agent_name=self.agent_name,
+                                prompt_name="Think About It",
+                                prompt_args={
+                                    "user_input": retry_prompt,
+                                    "log_user_input": False,
+                                    "disable_commands": True,
+                                    "log_output": False,
+                                    "browse_links": False,
+                                    "websearch": False,
+                                    "analyze_user_input": False,
+                                    "tts": False,
+                                    "conversation_name": self.conversation_name,
+                                },
                             )
                             result = await self.modify_file_content(
                                 repo_url=repo_url,
                                 file_path=file_path,
-                                modification_commands=combined_mods,
+                                modification_commands=new_modifications,
                                 branch=issue_branch,
                             )
                         except Exception as e:
@@ -2810,13 +2743,13 @@ def verify_mfa(self, token: str):
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
 
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
-                conversation_name=self.conversation_name,
-            )
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
+            conversation_name=self.conversation_name,
+        )
 
-            response = f"""### Issue #{issue_number}
+        response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
 {issue_body}
@@ -2827,12 +2760,12 @@ Body:
 {pr_body}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
-            # Check if <modification> tag is present in response
-            if "<modification>" in response:
-                # Check if the characters before it are "```xml\n", if it isn't, add it.
-                if response.find("```xml\n<modification>") == -1:
-                    response = response.replace(
-                        "<modification>", "```xml\n<modification>"
-                    ).replace("</modification>", "</modification>\n```")
+        # Check if <modification> tag is present in response
+        if "<modification>" in response:
+            # Check if the characters before it are "```xml\n", if it isn't, add it.
+            if response.find("```xml\n<modification>") == -1:
+                response = response.replace(
+                    "<modification>", "```xml\n<modification>"
+                ).replace("</modification>", "</modification>\n```")
 
-            return response
+        return response
