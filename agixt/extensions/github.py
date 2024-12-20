@@ -2810,44 +2810,12 @@ def verify_mfa(self, token: str):
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
 
-            # Review the new PR
-            self.ApiClient.new_conversation_message(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing new PR #{new_pr.number}",
-                conversation_name=self.conversation_name,
-            )
-            try:
-                repo_content = await self.get_repo_code_contents(
-                    repo_url=f"{repo_url}/tree/{issue_branch}"
-                )
-                review_feedback = await self.review_pull_request(
-                    repo_url=repo_url,
-                    pull_request_number=new_pr.number,
-                    code_content=repo_content,
-                    review_context=f"Issue #{issue_number}: {issue_title}\n{issue_body}\n\nAdditional Context:\n{additional_context}",
-                )
-            except Exception as e:
-                review_feedback = f"Ran into an error reviewing [PR #{new_pr.number}]({repo_url}/pull/{new_pr.number})\n{str(e)}"
-            self.ApiClient.update_conversation_message(
-                agent_name=self.agent_name,
-                message=f"[SUBACTIVITY][{self.activity_id}] Reviewing new PR #{new_pr.number}",
-                new_message=f"[SUBACTIVITY][{self.activity_id}] Reviewed new PR #{new_pr.number}\n{review_feedback}",
-                conversation_name=self.conversation_name,
-            )
             self.ApiClient.new_conversation_message(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
                 conversation_name=self.conversation_name,
             )
 
-            # If review suggests changes, apply them recursively
-            if "<modification>" in review_feedback:
-                return await self.fix_github_issue(
-                    repo_org=repo_org,
-                    repo_name=repo_name,
-                    issue_number=issue_number,
-                    additional_context=f"Review Feedback:\n{review_feedback}",
-                )
             response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
@@ -2857,9 +2825,6 @@ Body:
 Title: {new_pr.title}
 Body: 
 {pr_body}
-
-Review Feedback:
-{review_feedback}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
             # Check if <modification> tag is present in response
