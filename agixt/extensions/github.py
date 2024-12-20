@@ -2541,9 +2541,9 @@ def verify_mfa(self, token: str):
         if not modifications_blocks:
             # No modifications needed
             issue.create_comment(
-                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis."
+                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis.\n\n{modifications_xml}"
             )
-            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})."
+            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})\nIf this seems like an error, the assistant try again or report the issue to the user.\nHere is the modifications XML, maybe it wasn't formatted properly and we need to add additional context about this.\n\n{modifications_xml}"
 
         file_mod_map = {}
         for block in modifications_blocks:
