@@ -287,12 +287,8 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
-                conversation_history += "\nThe assistant's recent activities:\n"
-                for activity in activity_history:
-                    timestamp = activity["timestamp"]
-                    role = activity["role"]
-                    message = str(activity["message"]).replace("[ACTIVITY]", "")
-                    conversation_history += f"{timestamp} {role}: {message} \n "
+                conversation_history += "\n## The assistant's recent activities:\n"
+                conversation_history += c.get_activities_with_subactivities()
         if conversation_history != "":
             context.append(
                 f"### Recent Activities and Conversation History\n{conversation_history}\n"
@@ -583,9 +579,9 @@ class Interactions:
                         ).replace("</modification>", "</modification>\n```")
                 # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 if tag_name.startswith("think"):
-                    log_message = f"[SUBACTIVITY][THOUGHT][{thinking_id}] {content}"
+                    log_message = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"
                 elif tag_name.startswith("reflect"):
-                    log_message = f"[SUBACTIVITY][REFLECTION][{thinking_id}] {content}"
+                    log_message = f"[SUBACTIVITY][{thinking_id}][REFLECTION] {content}"
                 log_message = f"[SUBACTIVITY][{thinking_id}] {content}"
                 c.log_interaction(role=self.agent_name, message=log_message)
                 self._processed_tags.add(tag_identifier)
@@ -1132,7 +1128,7 @@ class Interactions:
                         json_args = json.dumps(command_args, indent=2)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][EXECUTION][{thinking_id}] Executing `{command_name}`.\n```json\n{json_args}```",
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Executing `{command_name}`.\n```json\n{json_args}```",
                         )
                         ext = Extensions(
                             agent_name=self.agent_name,
@@ -1150,7 +1146,7 @@ class Interactions:
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][EXECUTION][{thinking_id}] `{command_name}` was executed successfully.\n{command_output}",
+                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] `{command_name}` was executed successfully.\n{command_output}",
                         )
                         logging.info(f"Command output: {command_output}")
                     except Exception as e:
@@ -1158,7 +1154,7 @@ class Interactions:
                         logging.error(error_message)
                         c.log_interaction(
                             role=self.agent_name,
-                            message=f"[SUBACTIVITY][ERROR][{thinking_id}] Failed to execute command `{command_name}`.\n```json\n{json_args}```",
+                            message=f"[SUBACTIVITY][{thinking_id}][ERROR] Failed to execute command `{command_name}`.\n```json\n{json_args}```",
                         )
                         command_output = error_message
                 # Format the command execution and output
