@@ -571,12 +571,6 @@ class Interactions:
                     test_content = re.sub(r"\. ", ".\n", content, count=1)
                 else:
                     content = test_content
-                if "<modification>" in content:
-                    # Check if the characters before it are "```xml\n", if it isn't, add it.
-                    if content.find("```xml\n<modification>") == -1:
-                        content = content.replace(
-                            "<modification>", "```xml\n<modification>"
-                        ).replace("</modification>", "</modification>\n```")
                 # log_message = f"[SUBACTIVITY][{thinking_id}] **{tag_name.title()}:** {content}"
                 if tag_name.startswith("think"):
                     log_message = f"[SUBACTIVITY][{thinking_id}][THOUGHT] {content}"

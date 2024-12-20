@@ -2125,7 +2125,6 @@ Come up with a concise title for the GitHub issue based on the scope of work, re
                     logging.warning(
                         f"Modification attempt #{retry_count} failed: {error_msg}"
                     )
-
         except Exception as e:
             logging.error(f"Modification failed: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"
@@ -2451,12 +2450,7 @@ Focus on:
             message=f"[SUBACTIVITY][{self.activity_id}] Analyzing code to fix [#{issue_number}]({repo_url}/issues/{issue_number})",
             conversation_name=self.conversation_name,
         )
-
-        modifications_xml = self.ApiClient.prompt_agent(
-            agent_name=self.agent_name,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"""### Issue #{issue_number}: {issue_title}
+        prompt = f"""### Issue #{issue_number}: {issue_title}
 {issue_body}
 
 ## Recent comments on the issue
@@ -2464,8 +2458,8 @@ Focus on:
 {recent_comments}
 
 ## User
-In context is the repository code and additional context. Identify the minimal code changes needed to fix this issue. 
-You must ONLY return the necessary modifications in the following XML format:
+The repository code and additional context should be referenced for this task. Identify the minimal code changes needed to fix this issue.
+You must ONLY return the necessary modifications in the following XML format inside of the <answer> block:
 
 <modification>
 <file>path/to/file.py</file>
@@ -2516,10 +2510,12 @@ def verify_mfa(self, token: str):
     return True</target>
 <content>    def verify_token(self):
     return self.validate_jwt()</content>
-</modification>
-
-Do not attempt to execute commands, they are not available currently! Only file modification is available at this stage and should be inserted in the assistant's <answer> block.
-""",
+</modification>"""
+        modifications_xml = self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Think About It",
+            prompt_args={
+                "user_input": prompt,
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
@@ -2540,14 +2536,6 @@ Do not attempt to execute commands, they are not available currently! Only file 
         modifications_blocks = re.findall(
             r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
         )
-
-        if not modifications_blocks:
-            # No modifications needed
-            issue.create_comment(
-                f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number}) based on the model's analysis.\n\n{modifications_xml}"
-            )
-            return f"No changes needed for issue [#{issue_number}]({repo_url}/issues/{issue_number})\nIf this seems like an error, the assistant try again or report the issue to the user.\nHere is the modifications XML, maybe it wasn't formatted properly and we need to add additional context about this.\n\n{modifications_xml}"
-
         file_mod_map = {}
         for block in modifications_blocks:
             file_match = re.search(r"<file>(.*?)</file>", block, re.DOTALL)
@@ -2578,12 +2566,9 @@ Do not attempt to execute commands, they are not available currently! Only file 
                 # If something went wrong, comment on the issue and exit
                 result = f"Error: {str(e)}"
 
-            if "Error:" in result:
-                # Try again up to 3 times feeding result back to the model
-                for i in range(3):
-                    if result.startswith("Error:"):
-                        try:
-                            retry_prompt = f"""
+            if result.startswith("Error:"):
+                # Run fix github issue with additional context of the retry prompt
+                retry_prompt = f"""{prompt}
 Please provide new modification commands that:
 1. Only use existing functions/classes as targets
 2. Maintain the same intended functionality
@@ -2595,93 +2580,56 @@ Please provide new modification commands that:
 
 If multiple modifications are needed, repeat the <modification> block.
 
-### Important:
-- Each <modification> block must include a <file> tag specifying which file to modify.
-- For <target>, you must use one of these formats:
-  1. For inserting after a function/method:
-     - Use the complete function definition line, e.g., "def verify_email_address(self, code: str = None):"
-     - The new content will be inserted after the entire function
-  2. For replacing code:
-     - Include the exact code block to replace, including correct indentation
-     - The first and last lines are especially important for matching
-  3. For specific line numbers:
-     - Use the line number as a string, e.g., "42"
-- Do not use the repository name or WORKSPACE path in file paths
-- The file path should be relative to the repository root
-- Content must match the indentation style of the target location
-- For replace and insert operations, <content> is required
-- For delete operations, <content> is not required
-- Put your <modification> blocks inside of the <answer> block!
-- Ensure indentation is correct in the <content> tag, it is critical for Python code and other languages with strict indentation rules.
-- If working with NextJS, remember to include "use client" as the first line of all files declaring components that use client side hooks such as useEffect and useState.
-
-Example modifications:
-1. Insert after a function:
-<modification>
-<file>auth.py</file>
-<operation>insert</operation>
-<target>def verify_email_address(self, code: str = None):</target>
-<content>
-def verify_mfa(self, token: str):
-    # Verify MFA token
-    pass</content>
-</modification>
-
-2. Replace a code block:
-<modification>
-<file>auth.py</file>
-<operation>replace</operation>
-<target>    def verify_token(self):
-    return True</target>
-<content>    def verify_token(self):
-    return self.validate_jwt()</content>
-</modification>
-
-
-Please provide the modifications in the same XML format:
-<modification>
-<file>{file_path}</file>
-<operation>insert|replace|delete</operation>
-<target>[one of the existing functions shown above]</target>
-<content>[your new code here]</content>
-</modification>
-
-Retry attempt #{i + 1}. The previous modification attempt failed. Here's what I found:
+The previous modification attempt failed. Here's what I found:
 
 {result}
 
 Original intended changes were:
 {combined_mods}
 
-Rewrite the modifications to fix the issue.
-"""
-
-                            # Get new modifications from the model with a timeout
-                            new_modifications = self.ApiClient.prompt_agent(
-                                agent_name=self.agent_name,
-                                prompt_name="Think About It",
-                                prompt_args={
-                                    "user_input": retry_prompt,
-                                    "log_user_input": False,
-                                    "disable_commands": True,
-                                    "log_output": False,
-                                    "browse_links": False,
-                                    "websearch": False,
-                                    "analyze_user_input": False,
-                                    "tts": False,
-                                    "conversation_name": self.conversation_name,
-                                },
-                            )
-                            result = await self.modify_file_content(
-                                repo_url=repo_url,
-                                file_path=file_path,
-                                modification_commands=new_modifications,
-                                branch=issue_branch,
-                            )
-                        except Exception as e:
-                            result = f"Error: {str(e)}"
-                        if "Error:" not in result:
-                            break
+Rewrite the modifications to fix the issue."""
+                # Get new modifications from the model with a timeout
+                new_modifications = self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": retry_prompt,
+                        "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
+                        "log_user_input": False,
+                        "disable_commands": True,
+                        "log_output": False,
+                        "browse_links": False,
+                        "websearch": False,
+                        "analyze_user_input": False,
+                        "tts": False,
+                        "conversation_name": self.conversation_name,
+                    },
+                )
+                modifications_blocks = re.findall(
+                    r"<modification>(.*?)</modification>",
+                    new_modifications,
+                    re.DOTALL,
+                )
+                if modifications_blocks:
+                    file_mod_map[file_path] = []
+                    for block in modifications_blocks:
+                        # Wrap this single block with <modification> for use in modify_file_content
+                        single_mod_xml = f"<modification>{block}</modification>"
+                        file_mod_map[file_path].append(single_mod_xml)
+                    combined_mods = "".join(file_mod_map[file_path])
+                    try:
+                        result = await self.modify_file_content(
+                            repo_url=repo_url,
+                            file_path=file_path,
+                            modification_commands=combined_mods,
+                            branch=issue_branch,
+                        )
+                    except Exception as e:
+                        result = f"Error: {str(e)}"
+                    if "Error:" not in result:
+                        break
+            if "Error:" not in result:
+                break
             if "Error:" in result:
                 # If something went wrong, comment on the issue and exit
                 issue.create_comment(
@@ -2690,8 +2638,7 @@ Rewrite the modifications to fix the issue.
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
                     message=(
-                        f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}). "
-                        f"Error: {result}"
+                        f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nError: {result}"
                     ),
                     conversation_name=self.conversation_name,
                 )
@@ -2746,13 +2693,12 @@ Rewrite the modifications to fix the issue.
                 f"Created PR #{new_pr.number} to resolve issue #{issue_number}:\n{repo_url}/pull/{new_pr.number}"
             )
 
-        self.ApiClient.new_conversation_message(
-            role=self.agent_name,
-            message=f"[SUBACTIVITY][{self.activity_id}] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
-            conversation_name=self.conversation_name,
-        )
-
-        response = f"""### Issue #{issue_number}
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{self.activity_id}][EXECUTION] Fixed issue [#{issue_number}]({repo_url}/issues/{issue_number}) in [{repo_org}/{repo_name}]({repo_url}) with pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}).",
+                conversation_name=self.conversation_name,
+            )
+            response = f"""### Issue #{issue_number}
 Title: {issue_title}
 Body: 
 {issue_body}
@@ -2763,12 +2709,11 @@ Body:
 {pr_body}
 
 I have created and reviewed pull request [#{new_pr.number}]({repo_url}/pull/{new_pr.number}) to fix issue [#{issue_number}]({repo_url}/issues/{issue_number})."""
-        # Check if <modification> tag is present in response
-        if "<modification>" in response:
-            # Check if the characters before it are "```xml\n", if it isn't, add it.
-            if response.find("```xml\n<modification>") == -1:
-                response = response.replace(
-                    "<modification>", "```xml\n<modification>"
-                ).replace("</modification>", "</modification>\n```")
-
-        return response
+            # Check if <modification> tag is present in response
+            if "<modification>" in response:
+                # Check if the characters before it are "```xml\n", if it isn't, add it.
+                if response.find("```xml\n<modification>") == -1:
+                    response = response.replace(
+                        "<modification>", "```xml\n<modification>"
+                    ).replace("</modification>", "</modification>\n```")
+            return response
