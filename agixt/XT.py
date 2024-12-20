@@ -1810,6 +1810,15 @@ class AGiXT:
                 answer = response.split("<answer>")[-1]
                 answer = answer.split("</answer>")[0]
                 response = answer
+                if "<answer>" in response:
+                    response = response.split("<answer>")[-1]
+                    response = response.split("</answer>")[0]
+                response = self.remove_tagged_content(response, "execute")
+                response = self.remove_tagged_content(response, "output")
+                response = self.remove_tagged_content(response, "thinking")
+                response = self.remove_tagged_content(response, "reflection")
+                response = self.remove_tagged_content(response, "reward")
+                response = self.remove_tagged_content(response, "step")
             if log_output:
                 if thoughts_and_reflections:
                     # Before logging the response, lets get all activities matching the `thinking_id` mermaid diagram
