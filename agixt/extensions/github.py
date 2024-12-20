@@ -2464,7 +2464,7 @@ Focus on:
 {recent_comments}
 
 ## User
-Below is the repository code and additional context. Identify the minimal code changes needed to fix this issue. 
+In context is the repository code and additional context. Identify the minimal code changes needed to fix this issue. 
 You must ONLY return the necessary modifications in the following XML format:
 
 <modification>
@@ -2516,7 +2516,10 @@ def verify_mfa(self, token: str):
     return True</target>
 <content>    def verify_token(self):
     return self.validate_jwt()</content>
-</modification>""",
+</modification>
+
+Do not attempt to execute commands, they are not available currently! Only file modification is available at this stage and should be inserted in the assistant's <answer> block.
+""",
                 "context": f"### Content of {repo_url}\n\n{repo_content}\n{additional_context}",
                 "log_user_input": False,
                 "disable_commands": True,
