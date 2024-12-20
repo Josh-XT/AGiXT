@@ -260,12 +260,6 @@ class Interactions:
                     for interaction in conversation["interactions"]
                     if str(interaction["message"]).startswith("[ACTIVITY]")
                 ]
-                subactivities = [
-                    interaction
-                    for interaction in conversation["interactions"]
-                    if str(interaction["message"]).startswith("[SUBACTIVITY]")
-                ]
-                activity_history += subactivities
                 activities = []
                 for activity in activity_history:
                     if "audio response" not in activity["message"]:
@@ -293,14 +287,11 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
-                conversation_history += (
-                    "\nThe assistant's recent thoughts and activities:\n"
-                )
+                conversation_history += "\nThe assistant's recent activities:\n"
                 for activity in activity_history:
                     timestamp = activity["timestamp"]
                     role = activity["role"]
                     message = str(activity["message"]).replace("[ACTIVITY]", "")
-                    message = re.sub(r"\[.*?\]", "", message)
                     conversation_history += f"{timestamp} {role}: {message} \n "
         if conversation_history != "":
             context.append(

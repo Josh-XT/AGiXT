@@ -1800,6 +1800,13 @@ class AGiXT:
                 thoughts_and_reflections = self.remove_tagged_content(
                     thoughts_and_reflections, "output"
                 )
+                if len(thoughts_and_reflections) > 10:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    await self.file_reader.write_text_to_memory(
+                        user_input=new_prompt,
+                        text=f"{self.agent_name}'s previous thoughts and reflections from {timestamp}:\n{thoughts_and_reflections}",
+                        external_source=f"{self.agent_name}",
+                    )
                 answer = response.split("<answer>")[-1]
                 answer = answer.split("</answer>")[0]
                 response = answer
