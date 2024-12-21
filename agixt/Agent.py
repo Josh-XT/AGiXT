@@ -184,7 +184,7 @@ class Agent:
         user = user if user is not None else DEFAULT_USER
         self.user = user.lower()
         self.user_id = get_user_id(user=self.user)
-        token = impersonate_user(user_id=self.user_id)
+        token = impersonate_user(user_id=str(self.user_id))
         self.auth = MagicalAuth(token=token)
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
