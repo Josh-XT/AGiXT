@@ -2527,11 +2527,11 @@ def verify_mfa(self, token: str):
                 "conversation_name": self.conversation_name,
             },
         )
-        # Force fuzzy matching for all modifications
-        modifications_xml = modifications_xml.replace(
-            "<fuzzy_match>false</fuzzy_match>", "<fuzzy_match>true</fuzzy_match>"
+        self.ApiClient.new_conversation_message(
+            role=self.agent_name,
+            message=f"[SUBACTIVITY][{self.activity_id}] Applying modifications to fix [#{issue_number}]({repo_url}/issues/{issue_number}).\n{modifications_xml}",
+            conversation_name=self.conversation_name,
         )
-
         # Parse modifications by file
         modifications_blocks = re.findall(
             r"<modification>(.*?)</modification>", modifications_xml, re.DOTALL
@@ -2632,9 +2632,6 @@ Rewrite the modifications to fix the issue."""
                 break
             if "Error:" in result:
                 # If something went wrong, comment on the issue and exit
-                issue.create_comment(
-                    f"Failed to apply changes to `{file_path}` for issue #{issue_number}. Error: {result}"
-                )
                 self.ApiClient.new_conversation_message(
                     role=self.agent_name,
                     message=(
@@ -2643,7 +2640,16 @@ Rewrite the modifications to fix the issue."""
                     conversation_name=self.conversation_name,
                 )
                 return f"Error applying modifications: {result}"
-
+        if "Error:" in result:
+            # If something went wrong, comment on the issue and exit
+            self.ApiClient.new_conversation_message(
+                role=self.agent_name,
+                message=(
+                    f"[SUBACTIVITY][{self.activity_id}][ERROR] Failed to fix issue [#{issue_number}]({repo_url}/issues/{issue_number}).\nError: {result}\n### Combined Mods:\n{combined_mods}\n### File Mod Map:\n{file_mod_map}\n### Modifications Blocks:\n{modifications_blocks}"
+                ),
+                conversation_name=self.conversation_name,
+            )
+            return f"Error applying modifications: {result}"
         # Check if a PR already exists for this branch
         open_pulls = repo.get_pulls(state="open", head=f"{repo_org}:{issue_branch}")
         if open_pulls.totalCount > 0:
