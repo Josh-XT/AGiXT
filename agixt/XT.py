@@ -1863,10 +1863,13 @@ class AGiXT:
             )
         except Exception as e:
             logging.warning(f"Error increasing token counts: {e}")
-        response = self.remove_tagged_content(response, "execute")
-        response = self.remove_tagged_content(response, "output")
-        res_model = {
-            "id": self.conversation_id,
+            prompt_tokens = get_tokens(prompt)
+        response_tokens = get_tokens(answer)
+        if isinstance(answer, str):
+            answer = str(answer).replace("_", "_")
+            if answer.endswith("\n\n"):
+                answer = answer[:-2]
+        return answer
             "object": "chat.completion",
             "created": int(time.time()),
             "model": self.agent_name,
@@ -1886,6 +1889,36 @@ class AGiXT:
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
             },
+        }
+        prompt_tokens = get_tokens(new_prompt)
+        if file_content:
+            file_tokens = get_tokens(file_content)
+        else:
+            file_tokens = 0
+
+        response = await self.agent_interactions.run(
+            user_input=new_prompt,
+            prompt_category=prompt_category,
+            prompt_name=prompt_name,
+            context_results=injected_memories,
+            conversation_results=conversation_results,
+            shots=shots,
+            conversation_name=self.conversation_name,
+            browse_links=browse_links,
+            images=images,
+            tts=voice_response,
+            log_user_input=log_user_input,
+            log_output=log_output,
+            **kwargs,
+        )
+        if isinstance(response, dict) and "response" in response:
+            response = response["response"]
+        completion_tokens = get_tokens(response)
+        total_tokens = int(prompt_tokens) + int(file_tokens) + int(completion_tokens)
+        res_model["usage"] = {
+            "prompt_tokens": prompt_tokens + file_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
         }
         return res_model
 
